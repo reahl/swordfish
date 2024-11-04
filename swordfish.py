@@ -1,18 +1,34 @@
 import tkinter as tk
 from tkinter import ttk
 
+class EventBoard:
+    def __init__(self):
+        self.subscribers = {}
+
+    def subscribe(self, event, callback):
+        if event not in self.subscribers:
+            self.subscribers[event] = []
+        self.subscribers[event].append(callback)
+
+    def publish(self, event, *args, **kwargs):
+        if event in self.subscribers:
+            for callback in self.subscribers[event]:
+                callback(*args, **kwargs)
+
 class MyApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Swordfish")
         self.geometry("800x600")
+        self.events = EventBoard()
 
-        # Create Menu
-        self.create_menu()
-
-        # Initialize state
         self.notebook = None
         self.logged_in = False
+
+        self.events.subscribe('logged_in_successfully', self.show_main_app)
+        self.events.subscribe('logged_out', self.show_login_screen)
+        
+        self.create_menu()
         self.show_login_screen()
 
     def create_menu(self):
@@ -26,7 +42,10 @@ class MyApp(tk.Tk):
 
         self.session_menu = tk.Menu(self.menu_bar, tearoff=0)
         self.menu_bar.add_cascade(label="Session", menu=self.session_menu)
-        self.session_menu.add_command(label="Login", command=self.show_login_screen)
+        self.update_session_menu()
+        
+        self.events.subscribe('logged_in_successfully', self.update_session_menu)
+        self.events.subscribe('logged_out', self.update_session_menu)
 
     def update_session_menu(self):
         self.session_menu.delete(0, tk.END)
@@ -35,32 +54,28 @@ class MyApp(tk.Tk):
         else:
             self.session_menu.add_command(label="Login", command=self.show_login_screen)
 
+    def log_in(self):
+        self.logged_in = True
+        self.events.publish('logged_in_successfully')
+        
+    def logout(self):
+        self.logged_in = False
+        self.events.publish('logged_out')
+            
     def clear_widgets(self):
         for widget in self.winfo_children():
             if widget != self.menu_bar:
                 widget.destroy()
 
     def show_login_screen(self):
-        # Update menu to show login option
-        self.logged_in = False
-        self.update_session_menu()
-
-        # Clear existing widgets (if any)
         self.clear_widgets()
 
-        # Show login form
         self.login_frame = LoginFrame(self)
         self.login_frame.pack(expand=True, fill="both")
 
     def show_main_app(self):
-        # Update menu to show logout option
-        self.logged_in = True
-        self.update_session_menu()
-
-        # Clear existing widgets (if any)
         self.clear_widgets()
 
-        # Create Tabbed Notebook
         self.create_notebook()
         self.add_browser_tab()
 
@@ -72,10 +87,6 @@ class MyApp(tk.Tk):
         browser_tab = BrowserWindow(self.notebook)
         self.notebook.add(browser_tab, text="Browser Window")
 
-    def logout(self):
-        # Log out and show the login screen
-        self.logged_in = False
-        self.show_login_screen()
 
 class BrowserWindow(ttk.Frame):
     def __init__(self, parent):
@@ -289,14 +300,13 @@ class LoginFrame(ttk.Frame):
         ttk.Button(self, text="Login", command=self.attempt_login).pack(pady=20)
 
     def attempt_login(self):
-        # Clear previous error message if exists
         if self.error_label:
             self.error_label.destroy()
 
         username = self.username_entry.get()
         password = self.password_entry.get()
         if username == "user" and password == "pw":
-            self.parent.show_main_app()
+            self.parent.log_in()
         else:
             self.error_label = ttk.Label(self, text="Invalid credentials, please try again.", foreground="red")
             self.error_label.pack(pady=10)
