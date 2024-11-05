@@ -96,7 +96,7 @@ class FramedWidget:
         
 class PackageSelection(FramedWidget):        
     def __init__(self, parent, row, column, colspan=1):
-        super().__init__(parent, row, column, colspan=1)
+        super().__init__(parent, row, column, colspan=colspan)
 
         self.browser_window = parent
         self.packages_listbox = tk.Listbox(self.frame)
@@ -106,7 +106,7 @@ class PackageSelection(FramedWidget):
 
 class ClassSelection(FramedWidget):        
     def __init__(self, parent, row, column, colspan=1):
-        super().__init__(parent, row, column, colspan=1)
+        super().__init__(parent, row, column, colspan=colspan)
         
         self.browser_window = parent
         self.classes_notebook = ttk.Notebook(self.frame)
@@ -148,7 +148,7 @@ class ClassSelection(FramedWidget):
         
 class CategorySelection(FramedWidget):        
     def __init__(self, parent, row, column, colspan=1):
-        super().__init__(parent, row, column, colspan=1)
+        super().__init__(parent, row, column, colspan=colspan)
 
         self.browser_window = parent
         self.categories_listbox = tk.Listbox(self.frame)
@@ -164,7 +164,7 @@ class CategorySelection(FramedWidget):
         
 class MethodSelection(FramedWidget):        
     def __init__(self, parent, row, column, colspan=1):
-        super().__init__(parent, row, column, colspan=1)
+        super().__init__(parent, row, column, colspan=colspan)
 
         self.browser_window = parent
 
@@ -199,22 +199,14 @@ class MethodSelection(FramedWidget):
         for i in range(1, 4):
             self.instance_listbox.insert(tk.END, f"{selected_category} Instance Option {i}")
 
+class MethodEditor(FramedWidget):
+    def __init__(self, parent, row, column, colspan=1):
+        super().__init__(parent, row, column, colspan=colspan)
+
+        self.browser_window = parent
         
-class BrowserWindow(ttk.Frame):
-    def __init__(self, parent):
-        super().__init__(parent)
-
-        self.packages_widget = PackageSelection(self, 0, 0)
-        self.classes_widget = ClassSelection(self, 0, 1)
-        self.categories_widget = CategorySelection(self, 0, 2)
-        self.methods_widget = MethodSelection(self, 0, 3)
-        
-
-        # Row 2 - 1 Column
-        self.editor_area_widget = FramedWidget(self, 1, 0, colspan=4)
-
         # Add a notebook to editor_area_widget
-        self.editor_notebook = ttk.Notebook(self.editor_area_widget.frame)
+        self.editor_notebook = ttk.Notebook(self.frame)
         self.editor_notebook.pack(expand=True, fill='both')
 
         # Bind right-click event to the notebook for context menu
@@ -223,20 +215,13 @@ class BrowserWindow(ttk.Frame):
         # Dictionary to keep track of open tabs
         self.open_tabs = {}
 
-        self.columnconfigure(0, weight=1)
-        self.columnconfigure(1, weight=1)
-        self.columnconfigure(2, weight=1)
-        self.columnconfigure(3, weight=1)
-        self.rowconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
-
     def open_tab_menu(self, event):
         # Identify which tab was clicked
         tab_id = self.editor_notebook.index("@%d,%d" % (event.x, event.y))
         tab_text = self.editor_notebook.tab(tab_id, "text")
 
         # Create a context menu for the tab
-        menu = tk.Menu(self, tearoff=0)
+        menu = tk.Menu(self.browser_window, tearoff=0)
         menu.add_command(label="Close", command=lambda: self.close_tab(tab_id, tab_text))
         menu.add_command(label="Save", command=lambda: self.save_tab(tab_id))
         menu.post(event.x_root, event.y_root)
@@ -249,6 +234,43 @@ class BrowserWindow(ttk.Frame):
         self.editor_notebook.forget(tab_id)
         if key in self.open_tabs:
             del self.open_tabs[key]
+            
+    def open_method(self, method_symbol):
+        # Check if tab already exists using open_tabs dictionary
+        if method_symbol in self.open_tabs:
+            self.editor_notebook.select(self.open_tabs[method_symbol])
+            return
+
+        # Create a new tab with a text editor containing the selected text
+        new_tab = ttk.Frame(self.editor_notebook)
+        text_editor = tk.Text(new_tab, wrap='word')
+        text_editor.pack(expand=True, fill='both')
+        text_editor.insert(tk.END, method_symbol)
+
+        self.editor_notebook.add(new_tab, text=method_symbol)
+        self.editor_notebook.select(new_tab)
+
+        # Add the tab to open_tabs dictionary
+        self.open_tabs[method_symbol] = new_tab
+
+
+            
+class BrowserWindow(ttk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent)
+
+        self.packages_widget = PackageSelection(self, 0, 0)
+        self.classes_widget = ClassSelection(self, 0, 1)
+        self.categories_widget = CategorySelection(self, 0, 2)
+        self.methods_widget = MethodSelection(self, 0, 3)
+        self.editor_area_widget = MethodEditor(self, 1, 0, colspan=4)
+
+        self.columnconfigure(0, weight=1)
+        self.columnconfigure(1, weight=1)
+        self.columnconfigure(2, weight=1)
+        self.columnconfigure(3, weight=1)
+        self.rowconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
 
     def repopulate_hierarchy_and_list(self, event):
         try:
@@ -259,7 +281,6 @@ class BrowserWindow(ttk.Frame):
             self.classes_widget.repopulate(selected_package)
         except IndexError:
             pass
-
 
     def repopulate_categories(self, event):
         widget = event.widget
@@ -293,23 +314,7 @@ class BrowserWindow(ttk.Frame):
             selected_index = selected_listbox.curselection()[0]
             selected_text = selected_listbox.get(selected_index)
 
-            # Check if tab already exists using open_tabs dictionary
-            if selected_text in self.open_tabs:
-                self.editor_notebook.select(self.open_tabs[selected_text])
-                return
-
-            # Create a new tab with a text editor containing the selected text
-            new_tab = ttk.Frame(self.editor_notebook)
-            text_editor = tk.Text(new_tab, wrap='word')
-            text_editor.pack(expand=True, fill='both')
-            text_editor.insert(tk.END, selected_text)
-
-            self.editor_notebook.add(new_tab, text=selected_text)
-            self.editor_notebook.select(new_tab)
-
-            # Add the tab to open_tabs dictionary
-            self.open_tabs[selected_text] = new_tab
-            
+            self.editor_area_widget.open_method(selected_text)
         except IndexError:
             pass
     
