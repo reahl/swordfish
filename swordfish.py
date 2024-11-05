@@ -1,5 +1,122 @@
+
+from ptongue.gemproxyrpc import RPCSession
+from ptongue.gemproxy import GemstoneError
+
 import tkinter as tk
 from tkinter import ttk
+
+
+class GemstoneInterface:
+    @property
+    def nrs_string(self):
+        return f'!@{self.rpc_host_name}#netldi:{self.netldi_name}!gemnetobject'
+
+    def log_in(self, gemstone_user_name, gemstone_password, rpc_hostname, stone_name, netldi_name):
+        nrs_string = f'!@{rpc_host_name}#netldi:{netldi_name}!gemnetobject'
+        logging.getLogger(__name__).debug(f'Logging in with: {gemstone_user_name} stone_name={stone_name} netldi_task={nrs_string}')
+        try:
+            gemstone_session = RPCSession(gemstone_user_name, gemstone_password, stone_name=stone_name, netldi_task=nrs_string)
+        except GemstoneError as e:
+            raise DomainException(message=_('Gemstone error: %s') % e)
+        return GemstoneSessionRecord(gemstone_session)
+
+#    @exposed
+    # def fields(self, fields):
+    #     fields.stone_name = Field(label=_('Stone name'), default='gs64stone')
+    #     fields.netldi_name = Field(label=_('netldi name or port'), default='gs64ldi')
+    #     fields.rpc_host_name = Field(label=_('RPC host name'), default='gemstone')
+    #     fields.gemstone_user_name = Field(label=_('Gemstone user name'), default='DataCurator')
+    #     fields.gemstone_password = PasswordField(label=_('Gemstone password'), default='swordfish')
+
+    
+        
+class GemstoneSessionRecord:
+    def __init__(self, gemstone_session):
+        self.gemstone_session = gemstone_session
+        self.selected_class_category = []
+        self.selected_class = []
+        self.selected_method_category = []
+        self.selected_method = []
+
+    @property
+    def stone_name(self):
+        return self.gemstone_session.System.stoneName().to_py
+
+    @property
+    def host_name(self):
+        return self.gemstone_session.System.hostname().to_py
+    
+    @property
+    def user_name(self):
+        return self.gemstone_session.System.myUserProfile().userId().to_py
+
+    @property
+    def session_id(self):
+        # self.gemstone_session.System.session() returns our self.gemstone_session itself, not the id we want
+        return self.gemstone_session.execute('System session').to_py        
+
+    def __str__(self):
+        return f'{self.session_id}: {self.user_name} on {self.stone_name} at server {self.host_name}'
+
+#    @exposed
+    # def fields(self, fields):
+    #     class_category_choices = [Choice(category, Field(label=category)) for category in self.class_categories]
+    #     fields.selected_class_category = MultiChoiceField(class_category_choices, label='Class category')
+        
+    #     def class_choices():
+    #         return [Choice(gemstone_class, Field(label=gemstone_class)) for gemstone_class in self.current_classes]
+        
+    #     fields.selected_class = MultiChoiceField(class_choices, label='Class')
+        
+    #     def method_category_choices():
+    #         return [Choice(category, Field(label=category)) for category in self.current_categories]
+        
+    #     fields.selected_method_category = MultiChoiceField(method_category_choices, label='Category')
+        
+    #     def method_choices():
+    #         return [Choice(method, Field(label=method)) for method in self.current_methods]
+        
+    #     fields.selected_method = MultiChoiceField(method_choices, label='Method')
+
+    # @exposed('log_out')
+    # def events(self, events):
+    #     events.log_out = Event(label='Log out', action=Action(self.log_out))
+
+    def log_out(self):
+        self.gemstone_session.log_out()
+
+    @property
+    def class_organizer(self):
+        return self.gemstone_session.ClassOrganizer.new()
+
+    @property
+    def class_categories(self):
+        yield from [i.to_py for i in self.class_organizer.categories().keys().asSortedCollection()]
+        
+    def get_classes_in_category(self, category):
+        if not category:
+            return
+        yield from [i.name().to_py for i in self.class_organizer.categories().at(category)]
+        
+    def get_categories_in_class(self, class_name):
+        if not class_name:
+            return
+        yield from [i.to_py for i in self.gemstone_session.resolve_symbol(class_name).categoryNames().asSortedCollection()]
+
+    def get_selectors_in_class(self, class_name, method_category):
+        if not class_name or not method_category:
+            return
+        
+        gemstone_class = self.gemstone_session.resolve_symbol(class_name)
+        try:
+            selectors = gemstone_class.selectorsIn(method_category).asSortedCollection()
+        except GemstoneError:
+            return
+        
+        yield from [i.to_py for i in selectors]
+
+
+
 
 class EventBoard:
     def __init__(self):
@@ -24,6 +141,8 @@ class MyApp(tk.Tk):
 
         self.notebook = None
         self.logged_in = False
+        self.gemstone_interface = GemstoneInterface()
+        self.gemstone_session = None
 
         self.events.subscribe('logged_in_successfully', self.show_main_app)
         self.events.subscribe('logged_out', self.show_login_screen)
@@ -55,6 +174,7 @@ class MyApp(tk.Tk):
             self.session_menu.add_command(label="Login", command=self.show_login_screen)
 
     def log_in(self):
+        self.gemstone_interface.log_in()
         self.logged_in = True
         self.events.publish('logged_in_successfully')
         
@@ -70,7 +190,7 @@ class MyApp(tk.Tk):
     def show_login_screen(self):
         self.clear_widgets()
 
-        self.login_frame = LoginFrame(self)
+        self.login_frame = LoginFrame(self, self.gemstone_interface)
         self.login_frame.pack(expand=True, fill="both")
 
     def show_main_app(self):
@@ -321,21 +441,32 @@ class BrowserWindow(ttk.Frame):
 
 
 class LoginFrame(ttk.Frame):
-    def __init__(self, parent):
+    def __init__(self, parent, gemstone_interface):
         super().__init__(parent)
+        self.gemstone_interface = gemstone_interface
         self.parent = parent
         self.error_label = None
 
         # Username label and entry
         ttk.Label(self, text="Username:").pack(pady=10)
-        self.username_entry = ttk.Entry(self)
+        self.username_entry = ttk.Entry(self, show='DataCurator')
         self.username_entry.pack(pady=5)
 
         # Password label and entry
         ttk.Label(self, text="Password:").pack(pady=10)
-        self.password_entry = ttk.Entry(self, show="*")
+        self.password_entry = ttk.Entry(self, show="swordfish")
         self.password_entry.pack(pady=5)
 
+        ttk.Label(self, text="Stone name:").pack(pady=10)
+        self.stone_name_entry = ttk.Entry(self, show="gs64stone")
+        self.stone_name_entry.pack(pady=5)
+        ttk.Label(self, text="Netldi name:").pack(pady=10)
+        self.netldi_name_entry = ttk.Entry(self, show="gs64ldi")
+        self.netldi_name_entry.pack(pady=5)
+        ttk.Label(self, text="RPC host name:").pack(pady=10)
+        self.rpc_hostname_entry = ttk.Entry(self, show="gemstone")
+        self.rpc_hostname_entry.pack(pady=5)
+        
         # Login button
         ttk.Button(self, text="Login", command=self.attempt_login).pack(pady=20)
 
@@ -345,11 +476,20 @@ class LoginFrame(ttk.Frame):
 
         username = self.username_entry.get()
         password = self.password_entry.get()
-        if username == "user" and password == "pw":
-            self.parent.log_in()
-        else:
+        stone_name = self.stone_name_entry.get()
+        netldi_name = self.netldi_name_entry.get()
+        rpc_hostname = self.rpc_hostname_entry.get()
+
+        try:
+            gemstone_session_record = self.gemstone_interface.log_in(username, password, rpc_hostname, stone_name, netldi_name)
+        except:
+            gemstone_session_record = None
             self.error_label = ttk.Label(self, text="Invalid credentials, please try again.", foreground="red")
             self.error_label.pack(pady=10)
+
+        if gemstone_session_record:
+            self.parent.log_in()
+
 
 if __name__ == "__main__":
     app = MyApp()
