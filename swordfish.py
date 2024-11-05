@@ -1,3 +1,4 @@
+import logging
 
 from ptongue.gemproxyrpc import RPCSession
 from ptongue.gemproxy import GemstoneError
@@ -5,31 +6,9 @@ from ptongue.gemproxy import GemstoneError
 import tkinter as tk
 from tkinter import ttk
 
+class DomainException(Exception):
+    pass
 
-class GemstoneInterface:
-    @property
-    def nrs_string(self):
-        return f'!@{self.rpc_host_name}#netldi:{self.netldi_name}!gemnetobject'
-
-    def log_in(self, gemstone_user_name, gemstone_password, rpc_hostname, stone_name, netldi_name):
-        nrs_string = f'!@{rpc_host_name}#netldi:{netldi_name}!gemnetobject'
-        logging.getLogger(__name__).debug(f'Logging in with: {gemstone_user_name} stone_name={stone_name} netldi_task={nrs_string}')
-        try:
-            gemstone_session = RPCSession(gemstone_user_name, gemstone_password, stone_name=stone_name, netldi_task=nrs_string)
-        except GemstoneError as e:
-            raise DomainException(message=_('Gemstone error: %s') % e)
-        return GemstoneSessionRecord(gemstone_session)
-
-#    @exposed
-    # def fields(self, fields):
-    #     fields.stone_name = Field(label=_('Stone name'), default='gs64stone')
-    #     fields.netldi_name = Field(label=_('netldi name or port'), default='gs64ldi')
-    #     fields.rpc_host_name = Field(label=_('RPC host name'), default='gemstone')
-    #     fields.gemstone_user_name = Field(label=_('Gemstone user name'), default='DataCurator')
-    #     fields.gemstone_password = PasswordField(label=_('Gemstone password'), default='swordfish')
-
-    
-        
 class GemstoneSessionRecord:
     def __init__(self, gemstone_session):
         self.gemstone_session = gemstone_session
@@ -38,6 +17,16 @@ class GemstoneSessionRecord:
         self.selected_method_category = []
         self.selected_method = []
 
+    @classmethod
+    def log_in(cls, gemstone_user_name, gemstone_password, rpc_hostname, stone_name, netldi_name):
+        nrs_string = f'!@{rpc_hostname}#netldi:{netldi_name}!gemnetobject'
+        logging.getLogger(__name__).debug(f'Logging in with: {gemstone_user_name} stone_name={stone_name} netldi_task={nrs_string}')
+        try:
+            gemstone_session = RPCSession(gemstone_user_name, gemstone_password, stone_name=stone_name, netldi_task=nrs_string)
+        except GemstoneError as e:
+            raise DomainException('Gemstone error: %s' % e)
+        return cls(gemstone_session)
+    
     @property
     def stone_name(self):
         return self.gemstone_session.System.stoneName().to_py
@@ -132,7 +121,7 @@ class EventBoard:
             for callback in self.subscribers[event]:
                 callback(*args, **kwargs)
 
-class MyApp(tk.Tk):
+class Swordfish(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Swordfish")
@@ -141,8 +130,7 @@ class MyApp(tk.Tk):
 
         self.notebook = None
         self.logged_in = False
-        self.gemstone_interface = GemstoneInterface()
-        self.gemstone_session = None
+        self.gemstone_session_record = None
 
         self.events.subscribe('logged_in_successfully', self.show_main_app)
         self.events.subscribe('logged_out', self.show_login_screen)
@@ -173,8 +161,8 @@ class MyApp(tk.Tk):
         else:
             self.session_menu.add_command(label="Login", command=self.show_login_screen)
 
-    def log_in(self):
-        self.gemstone_interface.log_in()
+    def log_in(self, gemstone_session_record):
+        self.gemstone_session_record = gemstone_session_record
         self.logged_in = True
         self.events.publish('logged_in_successfully')
         
@@ -190,7 +178,7 @@ class MyApp(tk.Tk):
     def show_login_screen(self):
         self.clear_widgets()
 
-        self.login_frame = LoginFrame(self, self.gemstone_interface)
+        self.login_frame = LoginFrame(self)
         self.login_frame.pack(expand=True, fill="both")
 
     def show_main_app(self):
@@ -204,7 +192,7 @@ class MyApp(tk.Tk):
         self.notebook.pack(expand=True, fill="both")
 
     def add_browser_tab(self):
-        browser_tab = BrowserWindow(self.notebook)
+        browser_tab = BrowserWindow(self.notebook, self.gemstone_session_record)
         self.notebook.add(browser_tab, text="Browser Window")
 
 
@@ -221,7 +209,8 @@ class PackageSelection(FramedWidget):
         self.browser_window = parent
         self.packages_listbox = tk.Listbox(self.frame)
         self.packages_listbox.pack(expand=True, fill='both')
-        self.packages_listbox.insert(0, "Package 1", "Package 2", "Package 3")
+        for package in self.browser_window.gemstone_session_record.class_categories:
+            self.packages_listbox.insert(tk.END, package)
         self.packages_listbox.bind('<<ListboxSelect>>', self.browser_window.repopulate_hierarchy_and_list)
 
 class ClassSelection(FramedWidget):        
@@ -376,9 +365,11 @@ class MethodEditor(FramedWidget):
 
             
 class BrowserWindow(ttk.Frame):
-    def __init__(self, parent):
+    def __init__(self, parent, gemstone_session_record):
         super().__init__(parent)
 
+        self.gemstone_session_record = gemstone_session_record
+        
         self.packages_widget = PackageSelection(self, 0, 0)
         self.classes_widget = ClassSelection(self, 0, 1)
         self.categories_widget = CategorySelection(self, 0, 2)
@@ -441,34 +432,48 @@ class BrowserWindow(ttk.Frame):
 
 
 class LoginFrame(ttk.Frame):
-    def __init__(self, parent, gemstone_interface):
+    def __init__(self, parent):
         super().__init__(parent)
-        self.gemstone_interface = gemstone_interface
         self.parent = parent
         self.error_label = None
 
+        self.columnconfigure(0, weight=1)
+        self.columnconfigure(1, weight=1)
+        self.rowconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+        self.rowconfigure(2, weight=1)
+        self.rowconfigure(3, weight=1)
+        self.rowconfigure(5, weight=1)
+        
         # Username label and entry
-        ttk.Label(self, text="Username:").pack(pady=10)
-        self.username_entry = ttk.Entry(self, show='DataCurator')
-        self.username_entry.pack(pady=5)
+        ttk.Label(self, text="Username:").grid(column=0,row=0)
+        self.username_entry = ttk.Entry(self)
+        self.username_entry.insert(0, 'DataCurator')
+        self.username_entry.grid(column=1,row=0)
 
         # Password label and entry
-        ttk.Label(self, text="Password:").pack(pady=10)
-        self.password_entry = ttk.Entry(self, show="swordfish")
-        self.password_entry.pack(pady=5)
+        ttk.Label(self, text="Password:").grid(column=0,row=1)
+        self.password_entry = ttk.Entry(self, show='*')
+        self.password_entry.insert(0, 'swordfish')
+        self.password_entry.grid(column=1,row=1)
 
-        ttk.Label(self, text="Stone name:").pack(pady=10)
-        self.stone_name_entry = ttk.Entry(self, show="gs64stone")
-        self.stone_name_entry.pack(pady=5)
-        ttk.Label(self, text="Netldi name:").pack(pady=10)
-        self.netldi_name_entry = ttk.Entry(self, show="gs64ldi")
-        self.netldi_name_entry.pack(pady=5)
-        ttk.Label(self, text="RPC host name:").pack(pady=10)
-        self.rpc_hostname_entry = ttk.Entry(self, show="gemstone")
-        self.rpc_hostname_entry.pack(pady=5)
+        ttk.Label(self, text="Stone name:").grid(column=0,row=2)
+        self.stone_name_entry = ttk.Entry(self)
+        self.stone_name_entry.insert(0, 'gs64stone')
+        self.stone_name_entry.grid(column=1,row=2)
         
+        ttk.Label(self, text="Netldi name:").grid(column=0,row=3)
+        self.netldi_name_entry = ttk.Entry(self)
+        self.netldi_name_entry.insert(0, 'gs64-ldi')
+        self.netldi_name_entry.grid(column=1,row=3)
+        
+        ttk.Label(self, text="RPC host name:").grid(column=0,row=4)
+        self.rpc_hostname_entry = ttk.Entry(self)
+        self.rpc_hostname_entry.insert(0, 'localhost')
+        self.rpc_hostname_entry.grid(column=1,row=4)
+
         # Login button
-        ttk.Button(self, text="Login", command=self.attempt_login).pack(pady=20)
+        ttk.Button(self, text="Login", command=self.attempt_login).grid(column=0,row=5,columnspan=2)
 
     def attempt_login(self):
         if self.error_label:
@@ -481,16 +486,16 @@ class LoginFrame(ttk.Frame):
         rpc_hostname = self.rpc_hostname_entry.get()
 
         try:
-            gemstone_session_record = self.gemstone_interface.log_in(username, password, rpc_hostname, stone_name, netldi_name)
-        except:
+            gemstone_session_record = GemstoneSessionRecord.log_in(username, password, rpc_hostname, stone_name, netldi_name)
+        except DomainException as ex:
             gemstone_session_record = None
-            self.error_label = ttk.Label(self, text="Invalid credentials, please try again.", foreground="red")
-            self.error_label.pack(pady=10)
+            self.error_label = ttk.Label(self, text=str(ex), foreground="red")
+            self.error_label.grid(column=0,row=6,columnspan=2)
 
         if gemstone_session_record:
-            self.parent.log_in()
+            self.parent.log_in(gemstone_session_record)
 
 
 if __name__ == "__main__":
-    app = MyApp()
+    app = Swordfish()
     app.mainloop()
