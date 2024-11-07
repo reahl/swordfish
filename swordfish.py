@@ -121,6 +121,7 @@ class EventBoard:
             for callback in self.subscribers[event]:
                 callback(*args, **kwargs)
 
+                
 class Swordfish(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -132,6 +133,7 @@ class Swordfish(tk.Tk):
         self.logged_in = False
         self.gemstone_session_record = None
 
+        self.events.subscribe('logged_in_successfully', self.log_in)
         self.events.subscribe('logged_in_successfully', self.show_main_app)
         self.events.subscribe('logged_out', self.show_login_screen)
         
@@ -154,7 +156,7 @@ class Swordfish(tk.Tk):
         self.events.subscribe('logged_in_successfully', self.update_session_menu)
         self.events.subscribe('logged_out', self.update_session_menu)
 
-    def update_session_menu(self):
+    def update_session_menu(self, gemstone_session_record=None):
         self.session_menu.delete(0, tk.END)
         if self.logged_in:
             self.session_menu.add_command(label="Logout", command=self.logout)
@@ -164,7 +166,6 @@ class Swordfish(tk.Tk):
     def log_in(self, gemstone_session_record):
         self.gemstone_session_record = gemstone_session_record
         self.logged_in = True
-        self.events.publish('logged_in_successfully')
         
     def logout(self):
         self.logged_in = False
@@ -181,7 +182,8 @@ class Swordfish(tk.Tk):
         self.login_frame = LoginFrame(self)
         self.login_frame.pack(expand=True, fill="both")
 
-    def show_main_app(self):
+    def show_main_app(self, gemstone_session_record):
+        self.gemstone_session_record = gemstone_session_record
         self.clear_widgets()
 
         self.create_notebook()
@@ -442,7 +444,9 @@ class LoginFrame(ttk.Frame):
         self.rowconfigure(1, weight=1)
         self.rowconfigure(2, weight=1)
         self.rowconfigure(3, weight=1)
+        self.rowconfigure(4, weight=1)
         self.rowconfigure(5, weight=1)
+        self.rowconfigure(6, weight=1)
         
         # Username label and entry
         ttk.Label(self, text="Username:").grid(column=0,row=0)
@@ -492,7 +496,7 @@ class LoginFrame(ttk.Frame):
             self.error_label.grid(column=0,row=6,columnspan=2)
 
         if gemstone_session_record:
-            self.parent.log_in(gemstone_session_record)
+            self.parent.events.publish('logged_in_successfully', gemstone_session_record)
 
 
 if __name__ == "__main__":
