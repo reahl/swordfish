@@ -226,7 +226,6 @@ class ClassSelection(FramedWidget):
         self.classes_notebook.add(self.list_frame, text='List')
         self.list_listbox = tk.Listbox(self.list_frame)
         self.list_listbox.pack(expand=True, fill='both')
-        self.list_listbox.insert(0, 'List Option 1', 'List Option 2', 'List Option 3')
         self.list_listbox.bind('<<ListboxSelect>>', self.browser_window.repopulate_categories)
 
         # Create 'Hierarchy' tab with a Treeview
@@ -249,8 +248,8 @@ class ClassSelection(FramedWidget):
 
         # Repopulate list_listbox with new options based on the selected package
         self.list_listbox.delete(0, tk.END)
-        for i in range(1, 4):
-            self.list_listbox.insert(tk.END, f'{selected_package} List Option {i}')
+        for class_name in self.browser_window.gemstone_session_record.get_classes_in_category(selected_package):
+            self.list_listbox.insert(tk.END, class_name)
 
         # Always select the 'List' tab in the classes_notebook after repopulating
         self.classes_notebook.select(self.list_frame)
@@ -263,12 +262,13 @@ class CategorySelection(FramedWidget):
         self.categories_listbox = tk.Listbox(self.frame)
         self.categories_listbox.pack(expand=True, fill='both')
         self.categories_listbox.insert(0, "Category 1", "Category 2", "Category 3")
-        self.categories_listbox.bind('<<ListboxSelect>>', self.browser_window.repopulate_class_and_instance)
+        self.categories_listbox.bind('<<ListboxSelect>>', lambda event: self.browser_window.repopulate_class_and_instance(self.selected_class, event))
         
     def repopulate(self, selected_class):
+        self.selected_class = selected_class
         self.categories_listbox.delete(0, tk.END)
-        for i in range(1, 4):
-            self.categories_listbox.insert(tk.END, f"{selected_class} New Category {i}")
+        for category in self.browser_window.gemstone_session_record.get_categories_in_class(selected_class):
+            self.categories_listbox.insert(tk.END, category)
 
         
 class MethodSelection(FramedWidget):        
@@ -294,10 +294,9 @@ class MethodSelection(FramedWidget):
         self.methods_notebook.add(self.instance_frame, text='Instance')
         self.instance_listbox = tk.Listbox(self.instance_frame)
         self.instance_listbox.pack(expand=True, fill='both')
-        self.instance_listbox.insert(0, 'Instance Option 1', 'Instance Option 2', 'Instance Option 3')
         self.instance_listbox.bind('<<ListboxSelect>>', self.browser_window.populate_text_editor)
 
-    def repopulate(self, selected_category):
+    def repopulate(self, selected_class, selected_category):
         # Repopulate class_listbox with new options based on the selected category
         self.class_listbox.delete(0, tk.END)
         for i in range(1, 4):
@@ -409,13 +408,13 @@ class BrowserWindow(ttk.Frame):
         except IndexError:
             pass
         
-    def repopulate_class_and_instance(self, event):
+    def repopulate_class_and_instance(self, selected_class, event):
         selected_listbox = event.widget
         try:
             selected_index = selected_listbox.curselection()[0]
             selected_category = selected_listbox.get(selected_index)
 
-            self.methods_widget.repopulate(selected_category)
+            self.methods_widget.repopulate(selected_class, selected_category)
         except IndexError:
             pass
 
