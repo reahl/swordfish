@@ -47,30 +47,6 @@ class GemstoneSessionRecord:
     def __str__(self):
         return f'{self.session_id}: {self.user_name} on {self.stone_name} at server {self.host_name}'
 
-#    @exposed
-    # def fields(self, fields):
-    #     class_category_choices = [Choice(category, Field(label=category)) for category in self.class_categories]
-    #     fields.selected_class_category = MultiChoiceField(class_category_choices, label='Class category')
-        
-    #     def class_choices():
-    #         return [Choice(gemstone_class, Field(label=gemstone_class)) for gemstone_class in self.current_classes]
-        
-    #     fields.selected_class = MultiChoiceField(class_choices, label='Class')
-        
-    #     def method_category_choices():
-    #         return [Choice(category, Field(label=category)) for category in self.current_categories]
-        
-    #     fields.selected_method_category = MultiChoiceField(method_category_choices, label='Category')
-        
-    #     def method_choices():
-    #         return [Choice(method, Field(label=method)) for method in self.current_methods]
-        
-    #     fields.selected_method = MultiChoiceField(method_choices, label='Method')
-
-    # @exposed('log_out')
-    # def events(self, events):
-    #     events.log_out = Event(label='Log out', action=Action(self.log_out))
-
     def log_out(self):
         self.gemstone_session.log_out()
 
@@ -104,38 +80,47 @@ class GemstoneSessionRecord:
         
         yield from [i.to_py for i in selectors]
 
-
-
-
-class EventBoard:
-    def __init__(self):
-        self.subscribers = {}
-
-    def subscribe(self, event, callback):
-        if event not in self.subscribers:
-            self.subscribers[event] = []
-        self.subscribers[event].append(callback)
-
-    def publish(self, event, *args, **kwargs):
-        if event in self.subscribers:
-            for callback in self.subscribers[event]:
-                callback(*args, **kwargs)
-
                 
+class EventQueue:
+    def __init__(self, root):
+        self.root = root
+        self.events = {}
+        self.queue = []
+
+    def subscribe(self, event_name, callback, *args):
+        self.events.setdefault(event_name, [])
+        self.events[event_name].append((callback, args))
+
+    def publish(self, event_name, *args):
+        if event_name in self.events:
+            self.queue.append((event_name, args))
+        self.root.event_generate('<<CustomEventsPublished>>')
+
+    def process_events(self, event):
+        while self.queue:
+            event_name, args = self.queue.pop(0)
+            if event_name in self.events:
+                for callback, callback_args in self.events[event_name]:
+                    callback(*callback_args, *args)
+
+
 class Swordfish(tk.Tk):
+    @property
+    def is_logged_in(self):
+        return self.gemstone_session_record is not None
     def __init__(self):
         super().__init__()
+        self.event_queue = EventQueue(self)
+        self.bind('<<CustomEventsPublished>>', self.event_queue.process_events)
         self.title("Swordfish")
         self.geometry("800x600")
-        self.events = EventBoard()
 
         self.notebook = None
-        self.logged_in = False
+        
         self.gemstone_session_record = None
 
-        self.events.subscribe('logged_in_successfully', self.log_in)
-        self.events.subscribe('logged_in_successfully', self.show_main_app)
-        self.events.subscribe('logged_out', self.show_login_screen)
+        self.event_queue.subscribe('LoggedInSuccessfully', self.show_main_app)
+        self.event_queue.subscribe('LoggedOut', self.show_login_screen)
         
         self.create_menu()
         self.show_login_screen()
@@ -153,23 +138,20 @@ class Swordfish(tk.Tk):
         self.menu_bar.add_cascade(label="Session", menu=self.session_menu)
         self.update_session_menu()
         
-        self.events.subscribe('logged_in_successfully', self.update_session_menu)
-        self.events.subscribe('logged_out', self.update_session_menu)
+        self.event_queue.subscribe('LoggedInSuccessfully', self.update_session_menu)
+        self.event_queue.subscribe('LoggedOut', self.update_session_menu)
 
     def update_session_menu(self, gemstone_session_record=None):
         self.session_menu.delete(0, tk.END)
-        if self.logged_in:
+        if self.is_logged_in:
             self.session_menu.add_command(label="Logout", command=self.logout)
         else:
             self.session_menu.add_command(label="Login", command=self.show_login_screen)
-
-    def log_in(self, gemstone_session_record):
-        self.gemstone_session_record = gemstone_session_record
-        self.logged_in = True
         
     def logout(self):
-        self.logged_in = False
-        self.events.publish('logged_out')
+        self.gemstone_session_record.log_out()
+        self.gemstone_session_record = None
+        self.event_queue.publish('LoggedOut')
             
     def clear_widgets(self):
         for widget in self.winfo_children():
@@ -490,13 +472,10 @@ class LoginFrame(ttk.Frame):
 
         try:
             gemstone_session_record = GemstoneSessionRecord.log_in(username, password, rpc_hostname, stone_name, netldi_name)
+            self.parent.event_queue.publish('LoggedInSuccessfully', gemstone_session_record)
         except DomainException as ex:
-            gemstone_session_record = None
             self.error_label = ttk.Label(self, text=str(ex), foreground="red")
-            self.error_label.grid(column=0,row=6,columnspan=2)
-
-        if gemstone_session_record:
-            self.parent.events.publish('logged_in_successfully', gemstone_session_record)
+            self.error_label.grid(column=0,row=6,columnspan=2)           
 
 
 if __name__ == "__main__":
