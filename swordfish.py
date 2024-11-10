@@ -198,7 +198,9 @@ class PackageSelection(FramedWidget):
 
         self.browser_window = parent
         self.packages_listbox = tk.Listbox(self.frame)
-        self.packages_listbox.pack(expand=True, fill='both')
+        self.packages_listbox.grid(row=0, column=0, sticky='nsew')
+        self.frame.rowconfigure(0, weight=1)
+        self.frame.columnconfigure(0, weight=1)
         for package in self.browser_window.gemstone_session_record.class_categories:
             self.packages_listbox.insert(tk.END, package)
         self.packages_listbox.bind('<<ListboxSelect>>', self.repopulate_hierarchy_and_list)
@@ -213,7 +215,7 @@ class PackageSelection(FramedWidget):
         except IndexError:
             pass
 
-
+        
 class ClassSelection(FramedWidget):        
     def __init__(self, parent, event_queue, row, column, colspan=1):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
@@ -221,20 +223,31 @@ class ClassSelection(FramedWidget):
         self.browser_window = parent
         self.selected_class = None
         self.classes_notebook = ttk.Notebook(self.frame)
-        self.classes_notebook.pack(expand=True, fill='both')
+        self.classes_notebook.grid(row=0, column=0, columnspan=2, sticky="nsew")
+
+        # Configure the grid layout to expand properly
+        self.frame.rowconfigure(0, weight=1)
+        self.frame.columnconfigure(0, weight=1)
+        self.frame.columnconfigure(1, weight=1)
 
         # Create 'List' tab with a listbox
         self.list_frame = ttk.Frame(self.classes_notebook)
+        self.list_frame.grid(row=0, column=0, sticky="nsew")
+        self.list_frame.rowconfigure(0, weight=1)
+        self.list_frame.columnconfigure(0, weight=1)
         self.classes_notebook.add(self.list_frame, text='List')
         self.list_listbox = tk.Listbox(self.list_frame)
-        self.list_listbox.pack(expand=True, fill='both')
+        self.list_listbox.grid(row=0, column=0, sticky="nsew")
         self.list_listbox.bind('<<ListboxSelect>>', self.repopulate_categories)
 
         # Create 'Hierarchy' tab with a Treeview
         self.hierarchy_frame = ttk.Frame(self.classes_notebook)
+        self.hierarchy_frame.grid(row=0, column=0, sticky="nsew")
         self.classes_notebook.add(self.hierarchy_frame, text='Hierarchy')
         self.hierarchy_tree = ttk.Treeview(self.hierarchy_frame)
-        self.hierarchy_tree.pack(expand=True, fill='both')
+        self.hierarchy_tree.grid(row=0, column=0, sticky='nsew')
+        self.hierarchy_frame.rowconfigure(0, weight=1)
+        self.hierarchy_frame.columnconfigure(0, weight=1)
         self.hierarchy_tree.insert('', 'end', text='Root Node')
         parent_node = self.hierarchy_tree.insert('', 'end', text='Parent Node 1')
         self.hierarchy_tree.insert(parent_node, 'end', text='Child Node 1.1')
@@ -246,11 +259,14 @@ class ClassSelection(FramedWidget):
         self.selection_var.trace_add('write', lambda name, index, operation: self.switch_side())
         self.class_radiobutton = tk.Radiobutton(self.frame, text='Class', variable=self.selection_var, value='class')
         self.instance_radiobutton = tk.Radiobutton(self.frame, text='Instance', variable=self.selection_var, value='instance')
-        self.class_radiobutton.grid(row=0, column=0, sticky='w')
-        self.instance_radiobutton.grid(row=1, column=0, sticky='w')       
-        
-        self.event_queue.subscribe('RepopulateClasses', self.repopulate)
+        self.class_radiobutton.grid(column=0, row=1, sticky="w")
+        self.instance_radiobutton.grid(column=1, row=1, sticky="w")
 
+        # Configure row and column for frame layout to expand properly
+        self.frame.rowconfigure(1, weight=0)  # Give no weight to the row with radiobuttons to keep them fixed
+
+        self.event_queue.subscribe('RepopulateClasses', self.repopulate)
+        
     def switch_side(self):
         self.event_queue.publish('SelectedClassChanged', self.selected_class, self.show_instance_side)
 
@@ -298,7 +314,9 @@ class CategorySelection(FramedWidget):
         self.selected_category = None
         self.show_instance_side = None
         self.categories_listbox = tk.Listbox(self.frame)
-        self.categories_listbox.pack(expand=True, fill='both')
+        self.categories_listbox.grid(row=0, column=0, sticky='nsew')
+        self.frame.rowconfigure(0, weight=1)
+        self.frame.columnconfigure(0, weight=1)
         self.categories_listbox.bind('<<ListboxSelect>>', self.repopulate_class_and_instance)
         
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
@@ -329,7 +347,9 @@ class MethodSelection(FramedWidget):
 
         # Create 'Class' tab with a listbox
         self.methods_listbox = tk.Listbox(self.frame)
-        self.methods_listbox.pack(expand=True, fill='both')
+        self.methods_listbox.grid(row=0, column=0, sticky='nsew')
+        self.frame.rowconfigure(0, weight=1)
+        self.frame.columnconfigure(0, weight=1)
         self.methods_listbox.insert(0, 'Class Option 1', 'Class Option 2', 'Class Option 3')
         self.methods_listbox.bind('<<ListboxSelect>>', self.populate_text_editor)
 
@@ -362,7 +382,9 @@ class MethodEditor(FramedWidget):
         
         # Add a notebook to editor_area_widget
         self.editor_notebook = ttk.Notebook(self.frame)
-        self.editor_notebook.pack(expand=True, fill='both')
+        self.editor_notebook.grid(row=0, column=0, sticky='nsew')
+        self.frame.rowconfigure(0, weight=1)
+        self.frame.columnconfigure(0, weight=1)
 
         # Bind right-click event to the notebook for context menu
         self.editor_notebook.bind('<Button-3>', self.open_tab_menu)
@@ -395,7 +417,6 @@ class MethodEditor(FramedWidget):
         print(f"Saving content of tab: {key}")
 
     def close_tab(self, key):
-        print(f"Closing content of tab: {key}")
         tab_id = self.open_tabs[key]
         self.editor_notebook.forget(tab_id)
         if key in self.open_tabs:
