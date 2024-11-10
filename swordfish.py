@@ -167,6 +167,8 @@ class Swordfish(tk.Tk):
 
         self.login_frame = LoginFrame(self)
         self.login_frame.grid(row=0, column=0, sticky="nsew")
+        self.login_frame.rowconfigure(0, weight=1)
+        self.login_frame.columnconfigure(0, weight=1)
 
     def show_main_app(self, gemstone_session_record):
         self.gemstone_session_record = gemstone_session_record
@@ -178,7 +180,9 @@ class Swordfish(tk.Tk):
 
     def create_notebook(self):
         self.notebook = ttk.Notebook(self)
-        self.notebook.pack(expand=True, fill="both")
+        self.notebook.grid(row=0, column=0, sticky="nsew")
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
 
     def add_browser_tab(self):
         browser_tab = BrowserWindow(self.notebook, self.gemstone_session_record, self.event_queue)
@@ -430,8 +434,10 @@ class MethodEditor(FramedWidget):
 
         # Create a new tab with a text editor containing the selected text
         new_tab = ttk.Frame(self.editor_notebook)
+        new_tab.rowconfigure(0, weight=1)
+        new_tab.columnconfigure(0, weight=1)
         text_editor = tk.Text(new_tab, wrap='word')
-        text_editor.pack(expand=True, fill='both')
+        text_editor.grid(row=0, column=0, sticky="nsew")
         text_editor.insert(tk.END, method_symbol)
 
         self.editor_notebook.add(new_tab, text=method_symbol)
