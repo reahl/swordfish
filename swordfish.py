@@ -166,7 +166,7 @@ class Swordfish(tk.Tk):
         self.clear_widgets()
 
         self.login_frame = LoginFrame(self)
-        self.login_frame.pack(expand=True, fill="both")
+        self.login_frame.grid(row=0, column=0, sticky="nsew")
 
     def show_main_app(self, gemstone_session_record):
         self.gemstone_session_record = gemstone_session_record
