@@ -246,8 +246,8 @@ class ClassSelection(FramedWidget):
         self.selection_var.trace_add('write', lambda name, index, operation: self.switch_side())
         self.class_radiobutton = tk.Radiobutton(self.frame, text='Class', variable=self.selection_var, value='class')
         self.instance_radiobutton = tk.Radiobutton(self.frame, text='Instance', variable=self.selection_var, value='instance')
-        self.class_radiobutton.pack(anchor='w')
-        self.instance_radiobutton.pack(anchor='w')
+        self.class_radiobutton.grid(row=0, column=0, sticky='w')
+        self.instance_radiobutton.grid(row=1, column=0, sticky='w')       
         
         self.event_queue.subscribe('RepopulateClasses', self.repopulate)
 
