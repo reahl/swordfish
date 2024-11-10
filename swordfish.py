@@ -83,7 +83,15 @@ class GemstoneSessionRecord:
         
         yield from [i.to_py for i in selectors]
 
-                
+    def get_method(self, class_name, method_symbol, show_instance_side):
+        gemstone_class = self.gemstone_session.resolve_symbol(class_name)
+        class_to_query = gemstone_class if show_instance_side else gemstone_class.gemstone_class()
+        try:
+            return class_to_query.compiledMethodAt(method_symbol)
+        except GemstoneError:
+            return
+        
+        
 class EventQueue:
     def __init__(self, root):
         self.root = root
@@ -259,7 +267,7 @@ class ClassSelection(FramedWidget):
         self.hierarchy_tree.bind('<<TreeviewSelect>>', self.repopulate_categories)
 
         # Add Radiobuttons for Class or Instance selection
-        self.selection_var = tk.StringVar(value='class')
+        self.selection_var = tk.StringVar(value='instance')
         self.selection_var.trace_add('write', lambda name, index, operation: self.switch_side())
         self.class_radiobutton = tk.Radiobutton(self.frame, text='Class', variable=self.selection_var, value='class')
         self.instance_radiobutton = tk.Radiobutton(self.frame, text='Instance', variable=self.selection_var, value='instance')
@@ -348,6 +356,9 @@ class MethodSelection(FramedWidget):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
 
         self.browser_window = parent
+        self.selected_class = None
+        self.selected_category = None
+        self.show_instance_side = None
 
         # Create 'Class' tab with a listbox
         self.methods_listbox = tk.Listbox(self.frame)
@@ -357,6 +368,7 @@ class MethodSelection(FramedWidget):
         self.methods_listbox.insert(0, 'Class Option 1', 'Class Option 2', 'Class Option 3')
         self.methods_listbox.bind('<<ListboxSelect>>', self.populate_text_editor)
 
+        self.event_queue.subscribe('SelectedClassChanged', self.change_class)
         self.event_queue.subscribe('SelectedCategoryChanged', self.repopulate)
         
     def populate_text_editor(self, event):
@@ -369,13 +381,16 @@ class MethodSelection(FramedWidget):
         except IndexError:
             pass
         
-    def repopulate(self, selected_class, selected_category, show_instance_side):
+    def change_class(self, selected_class, show_instance_side):
         self.selected_class = selected_class
-        self.selected_category = selected_category
         self.show_instance_side = show_instance_side
         self.methods_listbox.delete(0, tk.END)
         for selector in self.browser_window.gemstone_session_record.get_selectors_in_class(self.selected_class, self.selected_category, self.show_instance_side):
             self.methods_listbox.insert(tk.END, selector)
+    
+    def repopulate(self, selected_class, selected_category, show_instance_side):
+        self.selected_category = selected_category
+        self.change_class(selected_class, show_instance_side)
 
             
 class MethodEditor(FramedWidget):
@@ -438,7 +453,7 @@ class MethodEditor(FramedWidget):
         new_tab.columnconfigure(0, weight=1)
         text_editor = tk.Text(new_tab, wrap='word')
         text_editor.grid(row=0, column=0, sticky="nsew")
-        text_editor.insert(tk.END, method_symbol)
+        text_editor.insert(tk.END, self.browser_window.gemstone_session_record.get_method(selected_class, method_symbol, show_instance_side).sourceString().to_py)
 
         self.editor_notebook.add(new_tab, text=method_symbol)
         self.editor_notebook.select(new_tab)
