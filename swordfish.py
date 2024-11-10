@@ -368,34 +368,43 @@ class MethodEditor(FramedWidget):
         self.editor_notebook.bind('<Button-3>', self.open_tab_menu)
 
         # Dictionary to keep track of open tabs
-        self.open_tabs = {}
+        self.open_tabs = {}  # Format: {(class_name, show_instance_side, method_symbol): tab_reference}
 
         self.event_queue.subscribe('MethodSelected', self.open_method)
+
+    def get_tab(self, tab_index):
+        tab_id = self.editor_notebook.tabs()[tab_index]
+        return self.editor_notebook.nametowidget(tab_id)
         
     def open_tab_menu(self, event):
         # Identify which tab was clicked
-        tab_id = self.editor_notebook.index("@%d,%d" % (event.x, event.y))
-        tab_text = self.editor_notebook.tab(tab_id, "text")
+        tab_index = self.editor_notebook.index("@%d,%d" % (event.x, event.y))
 
-        # Create a context menu for the tab
-        menu = tk.Menu(self.browser_window, tearoff=0)
-        menu.add_command(label="Close", command=lambda: self.close_tab(tab_id, tab_text))
-        menu.add_command(label="Save", command=lambda: self.save_tab(tab_id))
-        menu.post(event.x_root, event.y_root)
+        matching_keys = [key for key, value in self.open_tabs.items() if value == self.get_tab(tab_index)]
+        key_to_use = matching_keys[0] if matching_keys else None
 
-    def save_tab(self, tab_id):
+        if key_to_use:
+            # Create a context menu for the tab
+            menu = tk.Menu(self.browser_window, tearoff=0)
+            menu.add_command(label="Close", command=lambda: self.close_tab(key_to_use))
+            menu.add_command(label="Save", command=lambda: self.save_tab(key_to_use))
+            menu.post(event.x_root, event.y_root)
+
+    def save_tab(self, key):
         # Placeholder for save functionality
-        print(f"Saving content of tab: {self.editor_notebook.tab(tab_id, 'text')}")
+        print(f"Saving content of tab: {key}")
 
-    def close_tab(self, tab_id, key):
+    def close_tab(self, key):
+        print(f"Closing content of tab: {key}")
+        tab_id = self.open_tabs[key]
         self.editor_notebook.forget(tab_id)
         if key in self.open_tabs:
             del self.open_tabs[key]
-            
+
     def open_method(self, selected_class, selected_category, show_instance_side, method_symbol):
         # Check if tab already exists using open_tabs dictionary
-        if method_symbol in self.open_tabs:
-            self.editor_notebook.select(self.open_tabs[method_symbol])
+        if (selected_class, show_instance_side, method_symbol) in self.open_tabs:
+            self.editor_notebook.select(self.open_tabs[(selected_class, show_instance_side, method_symbol)])
             return
 
         # Create a new tab with a text editor containing the selected text
@@ -408,7 +417,7 @@ class MethodEditor(FramedWidget):
         self.editor_notebook.select(new_tab)
 
         # Add the tab to open_tabs dictionary
-        self.open_tabs[method_symbol] = new_tab
+        self.open_tabs[(selected_class, show_instance_side, method_symbol)] = new_tab
 
 
             
