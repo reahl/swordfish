@@ -63,18 +63,21 @@ class GemstoneSessionRecord:
             return
         yield from [i.name().to_py for i in self.class_organizer.categories().at(category)]
         
-    def get_categories_in_class(self, class_name):
+    def get_categories_in_class(self, class_name, show_instance_side):
         if not class_name:
             return
-        yield from [i.to_py for i in self.gemstone_session.resolve_symbol(class_name).categoryNames().asSortedCollection()]
+        gemstone_class = self.gemstone_session.resolve_symbol(class_name)
+        class_to_query = gemstone_class if show_instance_side else gemstone_class.gemstone_class()
+        yield from [i.to_py for i in class_to_query.categoryNames().asSortedCollection()]
 
-    def get_selectors_in_class(self, class_name, method_category):
+    def get_selectors_in_class(self, class_name, method_category, show_instance_side):
         if not class_name or not method_category:
             return
         
         gemstone_class = self.gemstone_session.resolve_symbol(class_name)
+        class_to_query = gemstone_class if show_instance_side else gemstone_class.gemstone_class()
         try:
-            selectors = gemstone_class.selectorsIn(method_category).asSortedCollection()
+            selectors = class_to_query.selectorsIn(method_category).asSortedCollection()
         except GemstoneError:
             return
         
@@ -105,9 +108,6 @@ class EventQueue:
 
 
 class Swordfish(tk.Tk):
-    @property
-    def is_logged_in(self):
-        return self.gemstone_session_record is not None
     def __init__(self):
         super().__init__()
         self.event_queue = EventQueue(self)
@@ -125,6 +125,10 @@ class Swordfish(tk.Tk):
         self.create_menu()
         self.show_login_screen()
 
+    @property
+    def is_logged_in(self):
+        return self.gemstone_session_record is not None
+    
     def create_menu(self):
         self.menu_bar = tk.Menu(self)
         self.config(menu=self.menu_bar)
@@ -166,6 +170,7 @@ class Swordfish(tk.Tk):
 
     def show_main_app(self, gemstone_session_record):
         self.gemstone_session_record = gemstone_session_record
+        
         self.clear_widgets()
 
         self.create_notebook()
@@ -176,32 +181,45 @@ class Swordfish(tk.Tk):
         self.notebook.pack(expand=True, fill="both")
 
     def add_browser_tab(self):
-        browser_tab = BrowserWindow(self.notebook, self.gemstone_session_record)
+        browser_tab = BrowserWindow(self.notebook, self.gemstone_session_record, self.event_queue)
         self.notebook.add(browser_tab, text="Browser Window")
 
 
 class FramedWidget:
-    def __init__(self, parent, row, column, colspan=1):
+    def __init__(self, parent, event_queue, row, column, colspan=1):
+        self.event_queue = event_queue
         self.frame = ttk.Frame(parent, borderwidth=2, relief="sunken")
         self.frame.grid(row=row, column=column, columnspan=colspan, sticky="nsew", padx=1, pady=1)
 
         
 class PackageSelection(FramedWidget):        
-    def __init__(self, parent, row, column, colspan=1):
-        super().__init__(parent, row, column, colspan=colspan)
+    def __init__(self, parent, event_queue, row, column, colspan=1):
+        super().__init__(parent, event_queue, row, column, colspan=colspan)
 
         self.browser_window = parent
         self.packages_listbox = tk.Listbox(self.frame)
         self.packages_listbox.pack(expand=True, fill='both')
         for package in self.browser_window.gemstone_session_record.class_categories:
             self.packages_listbox.insert(tk.END, package)
-        self.packages_listbox.bind('<<ListboxSelect>>', self.browser_window.repopulate_hierarchy_and_list)
+        self.packages_listbox.bind('<<ListboxSelect>>', self.repopulate_hierarchy_and_list)
+        
+    def repopulate_hierarchy_and_list(self, event):
+        try:
+            selected_listbox = event.widget
+            selected_index = selected_listbox.curselection()[0]
+            selected_package = selected_listbox.get(selected_index)
+
+            self.event_queue.publish('RepopulateClasses', selected_package)
+        except IndexError:
+            pass
+
 
 class ClassSelection(FramedWidget):        
-    def __init__(self, parent, row, column, colspan=1):
-        super().__init__(parent, row, column, colspan=colspan)
+    def __init__(self, parent, event_queue, row, column, colspan=1):
+        super().__init__(parent, event_queue, row, column, colspan=colspan)
         
         self.browser_window = parent
+        self.selected_class = None
         self.classes_notebook = ttk.Notebook(self.frame)
         self.classes_notebook.pack(expand=True, fill='both')
 
@@ -210,7 +228,7 @@ class ClassSelection(FramedWidget):
         self.classes_notebook.add(self.list_frame, text='List')
         self.list_listbox = tk.Listbox(self.list_frame)
         self.list_listbox.pack(expand=True, fill='both')
-        self.list_listbox.bind('<<ListboxSelect>>', self.browser_window.repopulate_categories)
+        self.list_listbox.bind('<<ListboxSelect>>', self.repopulate_categories)
 
         # Create 'Hierarchy' tab with a Treeview
         self.hierarchy_frame = ttk.Frame(self.classes_notebook)
@@ -221,8 +239,41 @@ class ClassSelection(FramedWidget):
         parent_node = self.hierarchy_tree.insert('', 'end', text='Parent Node 1')
         self.hierarchy_tree.insert(parent_node, 'end', text='Child Node 1.1')
         self.hierarchy_tree.insert(parent_node, 'end', text='Child Node 1.2')
-        self.hierarchy_tree.bind('<<TreeviewSelect>>', self.browser_window.repopulate_categories)
+        self.hierarchy_tree.bind('<<TreeviewSelect>>', self.repopulate_categories)
 
+        # Add Radiobuttons for Class or Instance selection
+        self.selection_var = tk.StringVar(value='class')
+        self.selection_var.trace_add('write', lambda name, index, operation: self.switch_side())
+        self.class_radiobutton = tk.Radiobutton(self.frame, text='Class', variable=self.selection_var, value='class')
+        self.instance_radiobutton = tk.Radiobutton(self.frame, text='Instance', variable=self.selection_var, value='instance')
+        self.class_radiobutton.pack(anchor='w')
+        self.instance_radiobutton.pack(anchor='w')
+        
+        self.event_queue.subscribe('RepopulateClasses', self.repopulate)
+
+    def switch_side(self):
+        self.event_queue.publish('SelectedClassChanged', self.selected_class, self.show_instance_side)
+
+    @property
+    def show_instance_side(self):
+        return self.selection_var.get() == 'instance'  
+
+    def repopulate_categories(self, event):
+        widget = event.widget
+        try:
+            if isinstance(widget, tk.Listbox):
+                # Handle selection from a Listbox
+                selected_index = widget.curselection()[0]
+                self.selected_class = widget.get(selected_index)
+            elif isinstance(widget, ttk.Treeview):
+                # Handle selection from a Treeview
+                selected_item_id = widget.selection()[0]
+                self.selected_class = widget.item(selected_item_id, 'text')
+
+            self.event_queue.publish('SelectedClassChanged', self.selected_class, self.show_instance_side)
+        except IndexError:
+            pass
+        
     def repopulate(self, selected_package):
         # Repopulate hierarchy_tree with new options based on the selected package
         self.hierarchy_tree.delete(*self.hierarchy_tree.get_children())
@@ -239,61 +290,73 @@ class ClassSelection(FramedWidget):
         self.classes_notebook.select(self.list_frame)
         
 class CategorySelection(FramedWidget):        
-    def __init__(self, parent, row, column, colspan=1):
-        super().__init__(parent, row, column, colspan=colspan)
+    def __init__(self, parent, event_queue, row, column, colspan=1):
+        super().__init__(parent, event_queue, row, column, colspan=colspan)
 
         self.browser_window = parent
+        self.selected_class = None
+        self.selected_category = None
+        self.show_instance_side = None
         self.categories_listbox = tk.Listbox(self.frame)
         self.categories_listbox.pack(expand=True, fill='both')
-        self.categories_listbox.insert(0, "Category 1", "Category 2", "Category 3")
-        self.categories_listbox.bind('<<ListboxSelect>>', lambda event: self.browser_window.repopulate_class_and_instance(self.selected_class, event))
+        self.categories_listbox.bind('<<ListboxSelect>>', self.repopulate_class_and_instance)
         
-    def repopulate(self, selected_class):
+        self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
+
+    def repopulate_class_and_instance(self, event):
+        selected_listbox = event.widget
+        try:
+            selected_index = selected_listbox.curselection()[0]
+            self.selected_category = selected_listbox.get(selected_index)
+
+            self.event_queue.publish('SelectedCategoryChanged', self.selected_class, self.selected_category, self.show_instance_side)
+        except IndexError:
+            pass
+        
+    def repopulate(self, selected_class, show_instance_side):
+        self.show_instance_side = show_instance_side
         self.selected_class = selected_class
         self.categories_listbox.delete(0, tk.END)
-        for category in self.browser_window.gemstone_session_record.get_categories_in_class(selected_class):
+        for category in self.browser_window.gemstone_session_record.get_categories_in_class(self.selected_class, self.show_instance_side):
             self.categories_listbox.insert(tk.END, category)
 
         
 class MethodSelection(FramedWidget):        
-    def __init__(self, parent, row, column, colspan=1):
-        super().__init__(parent, row, column, colspan=colspan)
+    def __init__(self, parent, event_queue, row, column, colspan=1):
+        super().__init__(parent, event_queue, row, column, colspan=colspan)
 
         self.browser_window = parent
 
-        # Add a notebook with 2 tabs to methods_widget
-        self.methods_notebook = ttk.Notebook(self.frame)
-        self.methods_notebook.pack(expand=True, fill='both')
-
         # Create 'Class' tab with a listbox
-        self.class_frame = ttk.Frame(self.methods_notebook)
-        self.methods_notebook.add(self.class_frame, text='Class')
-        self.class_listbox = tk.Listbox(self.class_frame)
-        self.class_listbox.pack(expand=True, fill='both')
-        self.class_listbox.insert(0, 'Class Option 1', 'Class Option 2', 'Class Option 3')
-        self.class_listbox.bind('<<ListboxSelect>>', self.browser_window.populate_text_editor)
+        self.methods_listbox = tk.Listbox(self.frame)
+        self.methods_listbox.pack(expand=True, fill='both')
+        self.methods_listbox.insert(0, 'Class Option 1', 'Class Option 2', 'Class Option 3')
+        self.methods_listbox.bind('<<ListboxSelect>>', self.populate_text_editor)
 
-        # Create 'Instance' tab with a listbox
-        self.instance_frame = ttk.Frame(self.methods_notebook)
-        self.methods_notebook.add(self.instance_frame, text='Instance')
-        self.instance_listbox = tk.Listbox(self.instance_frame)
-        self.instance_listbox.pack(expand=True, fill='both')
-        self.instance_listbox.bind('<<ListboxSelect>>', self.browser_window.populate_text_editor)
+        self.event_queue.subscribe('SelectedCategoryChanged', self.repopulate)
+        
+    def populate_text_editor(self, event):
+        selected_listbox = event.widget
+        try:
+            selected_index = selected_listbox.curselection()[0]
+            self.selected_method = selected_listbox.get(selected_index)
 
-    def repopulate(self, selected_class, selected_category):
-        # Repopulate class_listbox with new options based on the selected category
-        self.class_listbox.delete(0, tk.END)
-        for i in range(1, 4):
-            self.class_listbox.insert(tk.END, f"{selected_category} Class Option {i}")
+            self.event_queue.publish('MethodSelected', self.selected_class, self.selected_category, self.show_instance_side, self.selected_method)
+        except IndexError:
+            pass
+        
+    def repopulate(self, selected_class, selected_category, show_instance_side):
+        self.selected_class = selected_class
+        self.selected_category = selected_category
+        self.show_instance_side = show_instance_side
+        self.methods_listbox.delete(0, tk.END)
+        for selector in self.browser_window.gemstone_session_record.get_selectors_in_class(self.selected_class, self.selected_category, self.show_instance_side):
+            self.methods_listbox.insert(tk.END, selector)
 
-        # Repopulate instance_listbox with new options based on the selected category
-        self.instance_listbox.delete(0, tk.END)
-        for i in range(1, 4):
-            self.instance_listbox.insert(tk.END, f"{selected_category} Instance Option {i}")
-
+            
 class MethodEditor(FramedWidget):
-    def __init__(self, parent, row, column, colspan=1):
-        super().__init__(parent, row, column, colspan=colspan)
+    def __init__(self, parent, event_queue, row, column, colspan=1):
+        super().__init__(parent, event_queue, row, column, colspan=colspan)
 
         self.browser_window = parent
         
@@ -307,6 +370,8 @@ class MethodEditor(FramedWidget):
         # Dictionary to keep track of open tabs
         self.open_tabs = {}
 
+        self.event_queue.subscribe('MethodSelected', self.open_method)
+        
     def open_tab_menu(self, event):
         # Identify which tab was clicked
         tab_id = self.editor_notebook.index("@%d,%d" % (event.x, event.y))
@@ -327,7 +392,7 @@ class MethodEditor(FramedWidget):
         if key in self.open_tabs:
             del self.open_tabs[key]
             
-    def open_method(self, method_symbol):
+    def open_method(self, selected_class, selected_category, show_instance_side, method_symbol):
         # Check if tab already exists using open_tabs dictionary
         if method_symbol in self.open_tabs:
             self.editor_notebook.select(self.open_tabs[method_symbol])
@@ -348,16 +413,17 @@ class MethodEditor(FramedWidget):
 
             
 class BrowserWindow(ttk.Frame):
-    def __init__(self, parent, gemstone_session_record):
+    def __init__(self, parent, gemstone_session_record, event_queue):
         super().__init__(parent)
 
+        self.event_queue = event_queue
         self.gemstone_session_record = gemstone_session_record
         
-        self.packages_widget = PackageSelection(self, 0, 0)
-        self.classes_widget = ClassSelection(self, 0, 1)
-        self.categories_widget = CategorySelection(self, 0, 2)
-        self.methods_widget = MethodSelection(self, 0, 3)
-        self.editor_area_widget = MethodEditor(self, 1, 0, colspan=4)
+        self.packages_widget = PackageSelection(self, self.event_queue, 0, 0)
+        self.classes_widget = ClassSelection(self, self.event_queue, 0, 1)
+        self.categories_widget = CategorySelection(self, self.event_queue, 0, 2)
+        self.methods_widget = MethodSelection(self, self.event_queue, 0, 3)
+        self.editor_area_widget = MethodEditor(self, self.event_queue, 1, 0, colspan=4)
 
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=1)
@@ -366,51 +432,6 @@ class BrowserWindow(ttk.Frame):
         self.rowconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
 
-    def repopulate_hierarchy_and_list(self, event):
-        try:
-            selected_listbox = event.widget
-            selected_index = selected_listbox.curselection()[0]
-            selected_package = selected_listbox.get(selected_index)
-
-            self.classes_widget.repopulate(selected_package)
-        except IndexError:
-            pass
-
-    def repopulate_categories(self, event):
-        widget = event.widget
-        try:
-            if isinstance(widget, tk.Listbox):
-                # Handle selection from a Listbox
-                selected_index = widget.curselection()[0]
-                selected_item = widget.get(selected_index)
-            elif isinstance(widget, ttk.Treeview):
-                # Handle selection from a Treeview
-                selected_item_id = widget.selection()[0]
-                selected_item = widget.item(selected_item_id, 'text')
-
-            self.categories_widget.repopulate(selected_item)
-        except IndexError:
-            pass
-        
-    def repopulate_class_and_instance(self, selected_class, event):
-        selected_listbox = event.widget
-        try:
-            selected_index = selected_listbox.curselection()[0]
-            selected_category = selected_listbox.get(selected_index)
-
-            self.methods_widget.repopulate(selected_class, selected_category)
-        except IndexError:
-            pass
-
-    def populate_text_editor(self, event):
-        selected_listbox = event.widget
-        try:
-            selected_index = selected_listbox.curselection()[0]
-            selected_text = selected_listbox.get(selected_index)
-
-            self.editor_area_widget.open_method(selected_text)
-        except IndexError:
-            pass
     
 
 
