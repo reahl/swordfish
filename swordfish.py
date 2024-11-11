@@ -1,6 +1,8 @@
 import logging
+import weakref
 
 from ptongue.gemproxyrpc import RPCSession
+from ptongue.gemproxylinked import LinkedSession
 from ptongue.gemproxy import GemstoneError
 
 import tkinter as tk
@@ -18,11 +20,20 @@ class GemstoneSessionRecord:
         self.selected_method = []
 
     @classmethod
-    def log_in(cls, gemstone_user_name, gemstone_password, rpc_hostname, stone_name, netldi_name):
+    def log_in_rpc(cls, gemstone_user_name, gemstone_password, rpc_hostname, stone_name, netldi_name):
         nrs_string = f'!@{rpc_hostname}#netldi:{netldi_name}!gemnetobject'
         logging.getLogger(__name__).debug(f'Logging in with: {gemstone_user_name} stone_name={stone_name} netldi_task={nrs_string}')
         try:
             gemstone_session = RPCSession(gemstone_user_name, gemstone_password, stone_name=stone_name, netldi_task=nrs_string)
+        except GemstoneError as e:
+            raise DomainException('Gemstone error: %s' % e)
+        return cls(gemstone_session)
+
+    @classmethod
+    def log_in_linked(cls, gemstone_user_name, gemstone_password, stone_name):
+        logging.getLogger(__name__).debug(f'Logging in with: {gemstone_user_name} stone_name={stone_name}')
+        try:
+            gemstone_session = LinkedSession(gemstone_user_name, gemstone_password, stone_name=stone_name)
         except GemstoneError as e:
             raise DomainException('Gemstone error: %s' % e)
         return cls(gemstone_session)
@@ -100,7 +111,7 @@ class EventQueue:
 
     def subscribe(self, event_name, callback, *args):
         self.events.setdefault(event_name, [])
-        self.events[event_name].append((callback, args))
+        self.events[event_name].append((weakref.WeakMethod(callback), args))
 
     def publish(self, event_name, *args):
         if event_name in self.events:
@@ -111,8 +122,18 @@ class EventQueue:
         while self.queue:
             event_name, args = self.queue.pop(0)
             if event_name in self.events:
-                for callback, callback_args in self.events[event_name]:
-                    callback(*callback_args, *args)
+                logging.getLogger(__name__).debug(f'Processing: {event_name}')
+                for weak_callback, callback_args in self.events[event_name]:
+                    callback = weak_callback()
+                    if callback is not None:
+                        logging.getLogger(__name__).debug(f'Calling: {callback}')
+                        callback(*callback_args, *args)
+                    
+    def clear_subscribers(self, owner):
+        for event_name, registered_callbacks in self.events.copy().items():
+            cleaned_callbacks = [(weak_callback, callback_args) for (weak_callback, callback_args) in registered_callbacks
+                                 if weak_callback().__self__ is not owner]
+            self.events[event_name] = cleaned_callbacks
 
 
 class Swordfish(tk.Tk):
@@ -124,6 +145,7 @@ class Swordfish(tk.Tk):
         self.geometry("800x600")
 
         self.notebook = None
+        self.browser_tab = None
         
         self.gemstone_session_record = None
 
@@ -169,6 +191,7 @@ class Swordfish(tk.Tk):
         for widget in self.winfo_children():
             if widget != self.menu_bar:
                 widget.destroy()
+        self.browser_tab = None
 
     def show_login_screen(self):
         self.clear_widgets()
@@ -193,8 +216,10 @@ class Swordfish(tk.Tk):
         self.columnconfigure(0, weight=1)
 
     def add_browser_tab(self):
-        browser_tab = BrowserWindow(self.notebook, self.gemstone_session_record, self.event_queue)
-        self.notebook.add(browser_tab, text="Browser Window")
+        if self.browser_tab:
+            self.browser_tab.destroy()
+        self.browser_tab = BrowserWindow(self.notebook, self.gemstone_session_record, self.event_queue)
+        self.notebook.add(self.browser_tab, text="Browser Window")
 
 
 class FramedWidget:
@@ -203,6 +228,10 @@ class FramedWidget:
         self.frame = ttk.Frame(parent, borderwidth=2, relief="sunken")
         self.frame.grid(row=row, column=column, columnspan=colspan, sticky="nsew", padx=1, pady=1)
 
+    def destroy(self):
+        self.frame.destroy()
+        self.event_queue.clear_subscribers(self)
+        
         
 class PackageSelection(FramedWidget):        
     def __init__(self, parent, event_queue, row, column, colspan=1):
@@ -226,7 +255,6 @@ class PackageSelection(FramedWidget):
             self.event_queue.publish('RepopulateClasses', selected_package)
         except IndexError:
             pass
-
         
 class ClassSelection(FramedWidget):        
     def __init__(self, parent, event_queue, row, column, colspan=1):
@@ -483,9 +511,15 @@ class BrowserWindow(ttk.Frame):
         self.rowconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
 
-    
+    def destroy(self):
+        super().destroy()
+        self.packages_widget.destroy()
+        self.classes_widget.destroy()
+        self.categories_widget.destroy()
+        self.methods_widget.destroy()
+        self.editor_area_widget.destroy()
 
-
+        
 class LoginFrame(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent)
@@ -516,18 +550,19 @@ class LoginFrame(ttk.Frame):
 
         ttk.Label(self, text="Stone name:").grid(column=0,row=2)
         self.stone_name_entry = ttk.Entry(self)
-        self.stone_name_entry.insert(0, 'gs64stone')
+#        self.stone_name_entry.insert(0, 'gs64stone')
+        self.stone_name_entry.insert(0, 'development')
         self.stone_name_entry.grid(column=1,row=2)
         
-        ttk.Label(self, text="Netldi name:").grid(column=0,row=3)
-        self.netldi_name_entry = ttk.Entry(self)
-        self.netldi_name_entry.insert(0, 'gs64-ldi')
-        self.netldi_name_entry.grid(column=1,row=3)
-        
-        ttk.Label(self, text="RPC host name:").grid(column=0,row=4)
-        self.rpc_hostname_entry = ttk.Entry(self)
-        self.rpc_hostname_entry.insert(0, 'localhost')
-        self.rpc_hostname_entry.grid(column=1,row=4)
+#        ttk.Label(self, text="Netldi name:").grid(column=0,row=3)
+#        self.netldi_name_entry = ttk.Entry(self)
+#        self.netldi_name_entry.insert(0, 'gs64-ldi')
+#        self.netldi_name_entry.grid(column=1,row=3)
+#        
+#        ttk.Label(self, text="RPC host name:").grid(column=0,row=4)
+#        self.rpc_hostname_entry = ttk.Entry(self)
+#        self.rpc_hostname_entry.insert(0, 'localhost')
+#        self.rpc_hostname_entry.grid(column=1,row=4)
 
         # Login button
         ttk.Button(self, text="Login", command=self.attempt_login).grid(column=0,row=5,columnspan=2)
@@ -539,11 +574,11 @@ class LoginFrame(ttk.Frame):
         username = self.username_entry.get()
         password = self.password_entry.get()
         stone_name = self.stone_name_entry.get()
-        netldi_name = self.netldi_name_entry.get()
-        rpc_hostname = self.rpc_hostname_entry.get()
+#        netldi_name = self.netldi_name_entry.get()
+#        rpc_hostname = self.rpc_hostname_entry.get()
 
         try:
-            gemstone_session_record = GemstoneSessionRecord.log_in(username, password, rpc_hostname, stone_name, netldi_name)
+            gemstone_session_record = GemstoneSessionRecord.log_in_linked(username, password, stone_name)
             self.parent.event_queue.publish('LoggedInSuccessfully', gemstone_session_record)
         except DomainException as ex:
             self.error_label = ttk.Label(self, text=str(ex), foreground="red")
