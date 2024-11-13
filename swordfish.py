@@ -30,6 +30,12 @@ class GemstoneSessionRecord:
 
     def select_method_category(self, selected_method_category):
         self.selected_method_category = selected_method_category
+
+    def commit(self):
+        self.gemstone_session.commit()
+        
+    def abort(self):
+        self.gemstone_session.abort()
         
     @classmethod
     def log_in_rpc(cls, gemstone_user_name, gemstone_password, rpc_hostname, stone_name, netldi_name):
@@ -190,9 +196,19 @@ class Swordfish(tk.Tk):
     def update_session_menu(self, gemstone_session_record=None):
         self.session_menu.delete(0, tk.END)
         if self.is_logged_in:
+            self.session_menu.add_command(label="Commit", command=self.commit)
+            self.session_menu.add_command(label="Abort", command=self.abort)
             self.session_menu.add_command(label="Logout", command=self.logout)
         else:
             self.session_menu.add_command(label="Login", command=self.show_login_screen)
+
+    def commit(self):
+        self.gemstone_session_record.commit()
+        self.event_queue.publish('Committed')
+        
+    def abort(self):
+        self.gemstone_session_record.abort()
+        self.event_queue.publish('Aborted')
         
     def logout(self):
         self.gemstone_session_record.log_out()
@@ -258,10 +274,10 @@ class PackageSelection(FramedWidget):
         self.packages_listbox.grid(row=0, column=0, sticky='nsew')
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
-        for package in self.browser_window.gemstone_session_record.class_categories:
-            self.packages_listbox.insert(tk.END, package)
+        self.repopulate()
         self.packages_listbox.bind('<<ListboxSelect>>', self.repopulate_hierarchy_and_list)
-        
+        self.event_queue.subscribe('Aborted', self.repopulate)
+
     def repopulate_hierarchy_and_list(self, event):
         try:
             selected_listbox = event.widget
@@ -272,7 +288,13 @@ class PackageSelection(FramedWidget):
             self.event_queue.publish('RepopulateClasses')
         except IndexError:
             pass
-        
+
+    def repopulate(self):
+        self.packages_listbox.delete(0, tk.END)
+        for package in self.browser_window.gemstone_session_record.class_categories:
+            self.packages_listbox.insert(tk.END, package)
+
+            
 class ClassSelection(FramedWidget):        
     def __init__(self, parent, event_queue, row, column, colspan=1):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
@@ -321,6 +343,7 @@ class ClassSelection(FramedWidget):
         self.rowconfigure(1, weight=0)  # Give no weight to the row with radiobuttons to keep them fixed
 
         self.event_queue.subscribe('RepopulateClasses', self.repopulate)
+        self.event_queue.subscribe('Aborted', self.repopulate)
         
     def switch_side(self):
         self.gemstone_session_record.select_instance_side(self.show_instance_side)
@@ -374,6 +397,7 @@ class CategorySelection(FramedWidget):
         self.categories_listbox.bind('<<ListboxSelect>>', self.repopulate_class_and_instance)
         
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
+        self.event_queue.subscribe('Aborted', self.repopulate)
 
     def repopulate_class_and_instance(self, event):
         selected_listbox = event.widget
@@ -406,6 +430,7 @@ class MethodSelection(FramedWidget):
 
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
         self.event_queue.subscribe('SelectedCategoryChanged', self.repopulate)
+        self.event_queue.subscribe('Aborted', self.repopulate)
         
     def populate_text_editor(self, event):
         selected_listbox = event.widget
@@ -440,6 +465,17 @@ class MethodEditor(FramedWidget):
         self.open_tabs = {}  # Format: {(class_name, show_instance_side, method_symbol): tab_reference}
 
         self.event_queue.subscribe('MethodSelected', self.open_method)
+        self.event_queue.subscribe('Aborted', self.repopulate)
+        
+    def repopulate(self):
+        # Iterate through each open tab and update the text editor with the current method source code
+        for key, tab in self.open_tabs.items():
+            selected_class, show_instance_side, method_symbol = key
+            method_source = self.gemstone_session_record.get_method(selected_class, method_symbol, show_instance_side).sourceString().to_py
+            text_editor = tab.winfo_children()[0]  # Assuming the text editor is the only child of the tab
+            text_editor.delete(1.0, tk.END)  # Clear current text
+            text_editor.insert(tk.END, method_source)  # Insert updated source code
+
 
     def get_tab(self, tab_index):
         tab_id = self.editor_notebook.tabs()[tab_index]
