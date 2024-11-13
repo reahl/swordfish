@@ -535,6 +535,8 @@ class LoginFrame(ttk.Frame):
         self.rowconfigure(4, weight=1)
         self.rowconfigure(5, weight=1)
         self.rowconfigure(6, weight=1)
+        self.rowconfigure(7, weight=1)
+        self.rowconfigure(8, weight=1)
         
         # Username label and entry
         ttk.Label(self, text="Username:").grid(column=0,row=0)
@@ -553,20 +555,42 @@ class LoginFrame(ttk.Frame):
 #        self.stone_name_entry.insert(0, 'gs64stone')
         self.stone_name_entry.insert(0, 'development')
         self.stone_name_entry.grid(column=1,row=2)
-        
-#        ttk.Label(self, text="Netldi name:").grid(column=0,row=3)
-#        self.netldi_name_entry = ttk.Entry(self)
-#        self.netldi_name_entry.insert(0, 'gs64-ldi')
-#        self.netldi_name_entry.grid(column=1,row=3)
-#        
-#        ttk.Label(self, text="RPC host name:").grid(column=0,row=4)
-#        self.rpc_hostname_entry = ttk.Entry(self)
-#        self.rpc_hostname_entry.insert(0, 'localhost')
-#        self.rpc_hostname_entry.grid(column=1,row=4)
+
+        # Remote checkbox
+        self.remote_var = tk.BooleanVar()
+        self.remote_checkbox = ttk.Checkbutton(self, text="Login RPC?", variable=self.remote_var, command=self.toggle_remote_widgets)
+        self.remote_checkbox.grid(column=0, row=3)
+
+        # Remote widgets (initially hidden)
+        self.netldi_name_label = ttk.Label(self, text="Netldi name:")
+        self.netldi_name_entry = ttk.Entry(self)
+        self.netldi_name_entry.insert(0, 'gs64-ldi')
+
+        self.rpc_hostname_label = ttk.Label(self, text="RPC host name:")
+        self.rpc_hostname_entry = ttk.Entry(self)
+        self.rpc_hostname_entry.insert(0, 'localhost')
 
         # Login button
-        ttk.Button(self, text="Login", command=self.attempt_login).grid(column=0,row=5,columnspan=2)
+        ttk.Button(self, text="Login", command=self.attempt_login).grid(column=0,row=8,columnspan=2)
+        
+    @property
+    def login_rpc(self):
+        return self.remote_var.get()
 
+    def toggle_remote_widgets(self):
+        if self.remote_var.get():
+            # Show the remote widgets
+            self.netldi_name_label.grid(column=0, row=4)
+            self.netldi_name_entry.grid(column=1, row=4)
+            self.rpc_hostname_label.grid(column=0, row=5)
+            self.rpc_hostname_entry.grid(column=1, row=5)
+        else:
+            # Hide the remote widgets
+            self.netldi_name_label.grid_remove()
+            self.netldi_name_entry.grid_remove()
+            self.rpc_hostname_label.grid_remove()
+            self.rpc_hostname_entry.grid_remove()
+            
     def attempt_login(self):
         if self.error_label:
             self.error_label.destroy()
@@ -574,11 +598,13 @@ class LoginFrame(ttk.Frame):
         username = self.username_entry.get()
         password = self.password_entry.get()
         stone_name = self.stone_name_entry.get()
-#        netldi_name = self.netldi_name_entry.get()
-#        rpc_hostname = self.rpc_hostname_entry.get()
-
+        netldi_name = self.netldi_name_entry.get()
+        rpc_hostname = self.rpc_hostname_entry.get()
         try:
-            gemstone_session_record = GemstoneSessionRecord.log_in_linked(username, password, stone_name)
+            if self.login_rpc:
+                gemstone_session_record = GemstoneSessionRecord.log_in_rpc(username, password, rpc_hostname, stone_name, netldi_name)
+            else:
+                gemstone_session_record = GemstoneSessionRecord.log_in_linked(username, password, stone_name)
             self.parent.event_queue.publish('LoggedInSuccessfully', gemstone_session_record)
         except DomainException as ex:
             self.error_label = ttk.Label(self, text=str(ex), foreground="red")
