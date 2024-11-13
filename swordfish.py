@@ -421,11 +421,10 @@ class MethodSelection(FramedWidget):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
 
         # Create 'Class' tab with a listbox
-        self.methods_listbox = tk.Listbox(self, selectmode=tk.SINGLE, exportselection=False)
+        self.methods_listbox = tk.Listbox(self, selectmode=tk.SINGLE)
         self.methods_listbox.grid(row=0, column=0, sticky='nsew')
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
-        self.methods_listbox.insert(0, 'Class Option 1', 'Class Option 2', 'Class Option 3')
         self.methods_listbox.bind('<<ListboxSelect>>', self.populate_text_editor)
 
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
@@ -480,7 +479,7 @@ class MethodEditor(FramedWidget):
     def get_tab(self, tab_index):
         tab_id = self.editor_notebook.tabs()[tab_index]
         return self.editor_notebook.nametowidget(tab_id)
-        
+
     def open_tab_menu(self, event):
         # Identify which tab was clicked
         tab_index = self.editor_notebook.index("@%d,%d" % (event.x, event.y))
@@ -489,11 +488,16 @@ class MethodEditor(FramedWidget):
         key_to_use = matching_keys[0] if matching_keys else None
 
         if key_to_use:
+            # If a menu is already open, unpost it first
+            if hasattr(self, 'current_menu') and self.current_menu:
+                self.current_menu.unpost()
+
             # Create a context menu for the tab
-            menu = tk.Menu(self.browser_window, tearoff=0)
-            menu.add_command(label="Close", command=lambda: self.close_tab(key_to_use))
-            menu.add_command(label="Save", command=lambda: self.save_tab(key_to_use))
-            menu.post(event.x_root, event.y_root)
+            self.current_menu = tk.Menu(self.browser_window, tearoff=0)
+            self.current_menu.add_command(label="Close", command=lambda: self.close_tab(key_to_use))
+            self.current_menu.add_command(label="Save", command=lambda: self.save_tab(key_to_use))
+
+            self.current_menu.post(event.x_root, event.y_root)
 
     def save_tab(self, key):
         # Placeholder for save functionality
