@@ -14,11 +14,23 @@ class DomainException(Exception):
 class GemstoneSessionRecord:
     def __init__(self, gemstone_session):
         self.gemstone_session = gemstone_session
-        self.selected_class_category = []
-        self.selected_class = []
-        self.selected_method_category = []
-        self.selected_method = []
+        self.selected_class_category = None
+        self.selected_class = None
+        self.selected_method_category = None
+        self.show_instance_side = True
 
+    def select_class_category(self, class_category):
+        self.selected_class_category = class_category
+        
+    def select_instance_side(self, show_instance_side):
+        self.show_instance_side = show_instance_side
+
+    def select_class(self, selected_class):
+        self.selected_class = selected_class
+
+    def select_method_category(self, selected_method_category):
+        self.selected_method_category = selected_method_category
+        
     @classmethod
     def log_in_rpc(cls, gemstone_user_name, gemstone_password, rpc_hostname, stone_name, netldi_name):
         nrs_string = f'!@{rpc_hostname}#netldi:{netldi_name}!gemnetobject'
@@ -225,9 +237,14 @@ class Swordfish(tk.Tk):
 class FramedWidget(ttk.Frame):
     def __init__(self, parent, event_queue, row, column, colspan=1):
         super().__init__(parent, borderwidth=2, relief="sunken")
+        self.browser_window = parent
         self.event_queue = event_queue
         self.grid(row=row, column=column, columnspan=colspan, sticky="nsew", padx=1, pady=1)
 
+    @property
+    def gemstone_session_record(self):
+        return self.browser_window.gemstone_session_record
+    
     def destroy(self):
         super().destroy()
         self.event_queue.clear_subscribers(self)
@@ -237,7 +254,6 @@ class PackageSelection(FramedWidget):
     def __init__(self, parent, event_queue, row, column, colspan=1):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
 
-        self.browser_window = parent
         self.packages_listbox = tk.Listbox(self)
         self.packages_listbox.grid(row=0, column=0, sticky='nsew')
         self.rowconfigure(0, weight=1)
@@ -252,7 +268,8 @@ class PackageSelection(FramedWidget):
             selected_index = selected_listbox.curselection()[0]
             selected_package = selected_listbox.get(selected_index)
 
-            self.event_queue.publish('RepopulateClasses', selected_package)
+            self.gemstone_session_record.select_class_category(selected_package)
+            self.event_queue.publish('RepopulateClasses')
         except IndexError:
             pass
         
@@ -260,8 +277,6 @@ class ClassSelection(FramedWidget):
     def __init__(self, parent, event_queue, row, column, colspan=1):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
         
-        self.browser_window = parent
-        self.selected_class = None
         self.classes_notebook = ttk.Notebook(self)
         self.classes_notebook.grid(row=0, column=0, columnspan=2, sticky="nsew")
 
@@ -295,7 +310,7 @@ class ClassSelection(FramedWidget):
         self.hierarchy_tree.bind('<<TreeviewSelect>>', self.repopulate_categories)
 
         # Add Radiobuttons for Class or Instance selection
-        self.selection_var = tk.StringVar(value='instance')
+        self.selection_var = tk.StringVar(value='instance' if self.gemstone_session_record.show_instance_side else 'class')
         self.selection_var.trace_add('write', lambda name, index, operation: self.switch_side())
         self.class_radiobutton = tk.Radiobutton(self, text='Class', variable=self.selection_var, value='class')
         self.instance_radiobutton = tk.Radiobutton(self, text='Instance', variable=self.selection_var, value='instance')
@@ -308,7 +323,8 @@ class ClassSelection(FramedWidget):
         self.event_queue.subscribe('RepopulateClasses', self.repopulate)
         
     def switch_side(self):
-        self.event_queue.publish('SelectedClassChanged', self.selected_class, self.show_instance_side)
+        self.gemstone_session_record.select_instance_side(self.show_instance_side)
+        self.event_queue.publish('SelectedClassChanged')
 
     @property
     def show_instance_side(self):
@@ -320,18 +336,20 @@ class ClassSelection(FramedWidget):
             if isinstance(widget, tk.Listbox):
                 # Handle selection from a Listbox
                 selected_index = widget.curselection()[0]
-                self.selected_class = widget.get(selected_index)
+                selected_class = widget.get(selected_index)
             elif isinstance(widget, ttk.Treeview):
                 # Handle selection from a Treeview
                 selected_item_id = widget.selection()[0]
-                self.selected_class = widget.item(selected_item_id, 'text')
+                selected_class = widget.item(selected_item_id, 'text')
 
-            self.event_queue.publish('SelectedClassChanged', self.selected_class, self.show_instance_side)
+            self.gemstone_session_record.select_class(selected_class)
+            self.event_queue.publish('SelectedClassChanged')
         except IndexError:
             pass
         
-    def repopulate(self, selected_package):
+    def repopulate(self):
         # Repopulate hierarchy_tree with new options based on the selected package
+        selected_package = self.gemstone_session_record.selected_class_category
         self.hierarchy_tree.delete(*self.hierarchy_tree.get_children())
         parent_node = self.hierarchy_tree.insert('', 'end', text=f'{selected_package} Parent Node 1')
         self.hierarchy_tree.insert(parent_node, 'end', text=f'{selected_package} Child Node 1.1')
@@ -349,10 +367,6 @@ class CategorySelection(FramedWidget):
     def __init__(self, parent, event_queue, row, column, colspan=1):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
 
-        self.browser_window = parent
-        self.selected_class = None
-        self.selected_category = None
-        self.show_instance_side = None
         self.categories_listbox = tk.Listbox(self)
         self.categories_listbox.grid(row=0, column=0, sticky='nsew')
         self.rowconfigure(0, weight=1)
@@ -367,26 +381,20 @@ class CategorySelection(FramedWidget):
             selected_index = selected_listbox.curselection()[0]
             self.selected_category = selected_listbox.get(selected_index)
 
-            self.event_queue.publish('SelectedCategoryChanged', self.selected_class, self.selected_category, self.show_instance_side)
+            self.gemstone_session_record.select_method_category(self.selected_category)
+            self.event_queue.publish('SelectedCategoryChanged')
         except IndexError:
             pass
         
-    def repopulate(self, selected_class, show_instance_side):
-        self.show_instance_side = show_instance_side
-        self.selected_class = selected_class
+    def repopulate(self):
         self.categories_listbox.delete(0, tk.END)
-        for category in self.browser_window.gemstone_session_record.get_categories_in_class(self.selected_class, self.show_instance_side):
+        for category in self.gemstone_session_record.get_categories_in_class(self.gemstone_session_record.selected_class, self.gemstone_session_record.show_instance_side):
             self.categories_listbox.insert(tk.END, category)
 
         
 class MethodSelection(FramedWidget):        
     def __init__(self, parent, event_queue, row, column, colspan=1):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
-
-        self.browser_window = parent
-        self.selected_class = None
-        self.selected_category = None
-        self.show_instance_side = None
 
         # Create 'Class' tab with a listbox
         self.methods_listbox = tk.Listbox(self)
@@ -396,37 +404,29 @@ class MethodSelection(FramedWidget):
         self.methods_listbox.insert(0, 'Class Option 1', 'Class Option 2', 'Class Option 3')
         self.methods_listbox.bind('<<ListboxSelect>>', self.populate_text_editor)
 
-        self.event_queue.subscribe('SelectedClassChanged', self.change_class)
+        self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
         self.event_queue.subscribe('SelectedCategoryChanged', self.repopulate)
         
     def populate_text_editor(self, event):
         selected_listbox = event.widget
         try:
             selected_index = selected_listbox.curselection()[0]
-            self.selected_method = selected_listbox.get(selected_index)
+            selected_method = selected_listbox.get(selected_index)
 
-            self.event_queue.publish('MethodSelected', self.selected_class, self.selected_category, self.show_instance_side, self.selected_method)
+            self.event_queue.publish('MethodSelected', self.gemstone_session_record.selected_class, self.gemstone_session_record.selected_method_category, self.gemstone_session_record.show_instance_side, selected_method)
         except IndexError:
             pass
         
-    def change_class(self, selected_class, show_instance_side):
-        self.selected_class = selected_class
-        self.show_instance_side = show_instance_side
+    def repopulate(self):
         self.methods_listbox.delete(0, tk.END)
-        for selector in self.browser_window.gemstone_session_record.get_selectors_in_class(self.selected_class, self.selected_category, self.show_instance_side):
+        for selector in self.gemstone_session_record.get_selectors_in_class(self.gemstone_session_record.selected_class, self.gemstone_session_record.selected_method_category, self.gemstone_session_record.show_instance_side):
             self.methods_listbox.insert(tk.END, selector)
-    
-    def repopulate(self, selected_class, selected_category, show_instance_side):
-        self.selected_category = selected_category
-        self.change_class(selected_class, show_instance_side)
 
             
 class MethodEditor(FramedWidget):
     def __init__(self, parent, event_queue, row, column, colspan=1):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
 
-        self.browser_window = parent
-        
         # Add a notebook to editor_area_widget
         self.editor_notebook = ttk.Notebook(self)
         self.editor_notebook.grid(row=0, column=0, sticky='nsew')
