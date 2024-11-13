@@ -254,7 +254,7 @@ class PackageSelection(FramedWidget):
     def __init__(self, parent, event_queue, row, column, colspan=1):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
 
-        self.packages_listbox = tk.Listbox(self)
+        self.packages_listbox = tk.Listbox(self, selectmode=tk.SINGLE, exportselection=False)
         self.packages_listbox.grid(row=0, column=0, sticky='nsew')
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
@@ -291,7 +291,7 @@ class ClassSelection(FramedWidget):
         self.list_frame.rowconfigure(0, weight=1)
         self.list_frame.columnconfigure(0, weight=1)
         self.classes_notebook.add(self.list_frame, text='List')
-        self.list_listbox = tk.Listbox(self.list_frame)
+        self.list_listbox = tk.Listbox(self.list_frame, selectmode=tk.SINGLE, exportselection=False)
         self.list_listbox.grid(row=0, column=0, sticky="nsew")
         self.list_listbox.bind('<<ListboxSelect>>', self.repopulate_categories)
 
@@ -367,7 +367,7 @@ class CategorySelection(FramedWidget):
     def __init__(self, parent, event_queue, row, column, colspan=1):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
 
-        self.categories_listbox = tk.Listbox(self)
+        self.categories_listbox = tk.Listbox(self, selectmode=tk.SINGLE, exportselection=False)
         self.categories_listbox.grid(row=0, column=0, sticky='nsew')
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
@@ -397,7 +397,7 @@ class MethodSelection(FramedWidget):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
 
         # Create 'Class' tab with a listbox
-        self.methods_listbox = tk.Listbox(self)
+        self.methods_listbox = tk.Listbox(self, selectmode=tk.SINGLE, exportselection=False)
         self.methods_listbox.grid(row=0, column=0, sticky='nsew')
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
