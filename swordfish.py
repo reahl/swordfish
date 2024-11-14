@@ -548,24 +548,103 @@ class MethodEditor(FramedWidget):
         # Add the tab to open_tabs dictionary
         self.open_tabs[(selected_class, show_instance_side, selected_method_symbol)] = new_tab
 
+class MethodEditor(FramedWidget):
+    def __init__(self, parent, event_queue, row, column, colspan=1):
+        super().__init__(parent, event_queue, row, column, colspan=colspan)
 
-class EditorTab(tk.Frame):
-    def __init__(self, parent, browser_window, **kwargs):
-        super().__init__(parent, **kwargs)
+        self.current_menu = None
+        
+        # Add a notebook to editor_area_widget
+        self.editor_notebook = ttk.Notebook(self)
+        self.editor_notebook.grid(row=0, column=0, sticky='nsew')
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
-        self.browser_window = browser_window
 
-        selected_class = self.browser_window.gemstone_session_record.selected_class
-        show_instance_side = self.browser_window.gemstone_session_record.show_instance_side
-        selected_method_symbol = self.browser_window.gemstone_session_record.selected_method_symbol
+        # Bind right-click event to the notebook for context menu
+        self.editor_notebook.bind('<Button-3>', self.open_tab_menu_handler)
+
+        # Dictionary to keep track of open tabs
+        self.open_tabs = {}  # Format: {(class_name, show_instance_side, method_symbol): tab_reference}
+
+        self.event_queue.subscribe('MethodSelected', self.open_method)
+        self.event_queue.subscribe('Aborted', self.repopulate)
         
-        # Create text editor
-        text_editor = tk.Text(self, wrap='word')
-        text_editor.grid(row=0, column=0, sticky="nsew")
-        method_source = self.browser_window.gemstone_session_record.get_method(selected_class, selected_method_symbol, show_instance_side).sourceString().to_py
-        text_editor.insert(tk.END, method_source)
+    def repopulate(self):
+        # Iterate through each open tab and update the text editor with the current method source code
+        for key, tab in self.open_tabs.items():
+            tab.repopulate()
 
+    def get_tab(self, tab_index):
+        tab_id = self.editor_notebook.tabs()[tab_index]
+        return self.editor_notebook.nametowidget(tab_id)
+
+    def open_tab_menu_handler(self, event):
+        # Identify which tab was clicked
+        tab_index = self.editor_notebook.index("@%d,%d" % (event.x, event.y))
+        tab = self.get_tab(tab_index)
+        tab.open_tab_menu(event)
+
+    def save_tab(self, key):
+        # Placeholder for save functionality
+        print(f"Saving content of tab: {key}")
+
+    def close_tab(self, key):
+        tab_id = self.open_tabs[key]
+        self.editor_notebook.forget(tab_id)
+        if key in self.open_tabs:
+            del self.open_tabs[key]
+
+    def open_method(self):
+        selected_class = self.gemstone_session_record.selected_class
+        show_instance_side = self.gemstone_session_record.show_instance_side
+        selected_method_symbol = self.gemstone_session_record.selected_method_symbol
+
+        # Check if tab already exists using open_tabs dictionary
+        if (selected_class, show_instance_side, selected_method_symbol) in self.open_tabs:
+            self.editor_notebook.select(self.open_tabs[(selected_class, show_instance_side, selected_method_symbol)])
+            return
+
+        # Create a new tab using EditorTab
+        new_tab = EditorTab(self.editor_notebook, self.browser_window, self, (selected_class, show_instance_side, selected_method_symbol))
+        self.editor_notebook.add(new_tab, text=selected_method_symbol)
+        self.editor_notebook.select(new_tab)
+
+        # Add the tab to open_tabs dictionary
+        self.open_tabs[(selected_class, show_instance_side, selected_method_symbol)] = new_tab
+
+
+class EditorTab(tk.Frame):
+    def __init__(self, parent, browser_window, method_editor, tab_key):
+        super().__init__(parent)
+        self.browser_window = browser_window
+        self.method_editor = method_editor
+        self.tab_key = tab_key
+
+        # Assuming text editor widget will be placed here (e.g., tk.Text)
+        self.text_editor = tk.Text(self)
+        self.text_editor.pack(fill='both', expand=True)
+
+        self.repopulate()
+
+    def open_tab_menu(self, event):
+        # If a menu is already open, unpost it first
+        if self.method_editor.current_menu:
+            self.method_editor.current_menu.unpost()
+
+        # Create a context menu for the tab
+        self.method_editor.current_menu = tk.Menu(self.browser_window, tearoff=0)
+        self.method_editor.current_menu.add_command(label="Close", command=lambda: self.method_editor.close_tab(self.tab_key))
+        self.method_editor.current_menu.add_command(label="Save", command=lambda: self.method_editor.save_tab(self.tab_key))
+
+        self.method_editor.current_menu.post(event.x_root, event.y_root)
+
+    def repopulate(self):
+        selected_class = self.browser_window.gemstone_session_record.selected_class
+        method_symbol = self.browser_window.gemstone_session_record.selected_method_symbol
+        show_instance_side = self.browser_window.gemstone_session_record.show_instance_side        
+        method_source = self.browser_window.gemstone_session_record.get_method(selected_class, method_symbol, show_instance_side).sourceString().to_py
+        self.text_editor.delete(1.0, tk.END)  # Clear current text
+        self.text_editor.insert(tk.END, method_source)  # Insert updated source code
 
             
 class BrowserWindow(ttk.Frame):
