@@ -531,19 +531,31 @@ class MethodEditor(FramedWidget):
             self.editor_notebook.select(self.open_tabs[(selected_class, show_instance_side, method_symbol)])
             return
 
-        # Create a new tab with a text editor containing the selected text
-        new_tab = ttk.Frame(self.editor_notebook)
-        new_tab.rowconfigure(0, weight=1)
-        new_tab.columnconfigure(0, weight=1)
-        text_editor = tk.Text(new_tab, wrap='word')
-        text_editor.grid(row=0, column=0, sticky="nsew")
-        text_editor.insert(tk.END, self.browser_window.gemstone_session_record.get_method(selected_class, method_symbol, show_instance_side).sourceString().to_py)
-
+        # Create a new tab using EditorTab
+        new_tab = EditorTab(self.editor_notebook, self.browser_window, selected_class, show_instance_side, method_symbol)
         self.editor_notebook.add(new_tab, text=method_symbol)
         self.editor_notebook.select(new_tab)
 
         # Add the tab to open_tabs dictionary
         self.open_tabs[(selected_class, show_instance_side, method_symbol)] = new_tab
+
+
+class EditorTab(tk.Frame):
+    def __init__(self, parent, browser_window, selected_class, show_instance_side, method_symbol, **kwargs):
+        super().__init__(parent, **kwargs)
+        self.browser_window = browser_window
+        self.selected_class = selected_class
+        self.show_instance_side = show_instance_side
+        self.method_symbol = method_symbol
+
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+
+        # Create text editor
+        text_editor = tk.Text(self, wrap='word')
+        text_editor.grid(row=0, column=0, sticky="nsew")
+        method_source = self.browser_window.gemstone_session_record.get_method(selected_class, method_symbol, show_instance_side).sourceString().to_py
+        text_editor.insert(tk.END, method_source)
 
 
             
