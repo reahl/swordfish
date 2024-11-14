@@ -126,6 +126,7 @@ class EventQueue:
         self.root = root
         self.events = {}
         self.queue = []
+        self.root.bind('<<CustomEventsPublished>>', self.process_events)
 
     def subscribe(self, event_name, callback, *args):
         self.events.setdefault(event_name, [])
@@ -154,11 +155,45 @@ class EventQueue:
             self.events[event_name] = cleaned_callbacks
 
 
+class MainMenu(tk.Menu):
+    def __init__(self, parent, event_queue, **kwargs):
+        super().__init__(parent, **kwargs)
+        self.parent = parent
+        self.event_queue = event_queue
+        self.file_menu = tk.Menu(self, tearoff=0)
+        self.session_menu = tk.Menu(self, tearoff=0)
+
+        self._create_menus()
+        self._subscribe_events()
+
+    def _create_menus(self):
+        # File Menu
+        self.add_cascade(label="File", menu=self.file_menu)
+        self.file_menu.add_separator()
+        self.file_menu.add_command(label="Exit", command=self.parent.quit)
+
+        # Session Menu
+        self.add_cascade(label="Session", menu=self.session_menu)
+        self.update_session_menu()
+
+    def _subscribe_events(self):
+        self.event_queue.subscribe('LoggedInSuccessfully', self.update_session_menu)
+        self.event_queue.subscribe('LoggedOut', self.update_session_menu)
+
+    def update_session_menu(self, gemstone_session_record=None):
+        self.session_menu.delete(0, tk.END)
+        if self.parent.is_logged_in:
+            self.session_menu.add_command(label="Commit", command=self.parent.commit)
+            self.session_menu.add_command(label="Abort", command=self.parent.abort)
+            self.session_menu.add_command(label="Logout", command=self.parent.logout)
+        else:
+            self.session_menu.add_command(label="Login", command=self.parent.show_login_screen)
+
+
 class Swordfish(tk.Tk):
     def __init__(self):
         super().__init__()
         self.event_queue = EventQueue(self)
-        self.bind('<<CustomEventsPublished>>', self.event_queue.process_events)
         self.title("Swordfish")
         self.geometry("800x600")
 
@@ -178,29 +213,8 @@ class Swordfish(tk.Tk):
         return self.gemstone_session_record is not None
     
     def create_menu(self):
-        self.menu_bar = tk.Menu(self)
+        self.menu_bar = MainMenu(self, self.event_queue)
         self.config(menu=self.menu_bar)
-
-        self.file_menu = tk.Menu(self.menu_bar, tearoff=0)
-        self.menu_bar.add_cascade(label="File", menu=self.file_menu)
-        self.file_menu.add_separator()
-        self.file_menu.add_command(label="Exit", command=self.quit)
-
-        self.session_menu = tk.Menu(self.menu_bar, tearoff=0)
-        self.menu_bar.add_cascade(label="Session", menu=self.session_menu)
-        self.update_session_menu()
-        
-        self.event_queue.subscribe('LoggedInSuccessfully', self.update_session_menu)
-        self.event_queue.subscribe('LoggedOut', self.update_session_menu)
-
-    def update_session_menu(self, gemstone_session_record=None):
-        self.session_menu.delete(0, tk.END)
-        if self.is_logged_in:
-            self.session_menu.add_command(label="Commit", command=self.commit)
-            self.session_menu.add_command(label="Abort", command=self.abort)
-            self.session_menu.add_command(label="Logout", command=self.logout)
-        else:
-            self.session_menu.add_command(label="Login", command=self.show_login_screen)
 
     def commit(self):
         self.gemstone_session_record.commit()
@@ -451,6 +465,8 @@ class MethodEditor(FramedWidget):
     def __init__(self, parent, event_queue, row, column, colspan=1):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
 
+        self.current_menu = None
+        
         # Add a notebook to editor_area_widget
         self.editor_notebook = ttk.Notebook(self)
         self.editor_notebook.grid(row=0, column=0, sticky='nsew')
@@ -489,7 +505,7 @@ class MethodEditor(FramedWidget):
 
         if key_to_use:
             # If a menu is already open, unpost it first
-            if hasattr(self, 'current_menu') and self.current_menu:
+            if self.current_menu:
                 self.current_menu.unpost()
 
             # Create a context menu for the tab
@@ -551,13 +567,6 @@ class BrowserWindow(ttk.Frame):
         self.rowconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
 
-    def destroy(self):
-        super().destroy()
-        self.packages_widget.destroy()
-        self.classes_widget.destroy()
-        self.categories_widget.destroy()
-        self.methods_widget.destroy()
-        self.editor_area_widget.destroy()
 
         
 class LoginFrame(ttk.Frame):
