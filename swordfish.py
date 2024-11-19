@@ -489,7 +489,7 @@ class CategorySelection(FramedWidget):
         
     def repopulate(self):
         # Repopulate categories_listbox with new options based on the selected class
-        self.all_categories = list(self.gemstone_session_record.get_categories_in_class(
+        self.all_categories = ['*']+list(self.gemstone_session_record.get_categories_in_class(
             self.gemstone_session_record.selected_class, 
             self.gemstone_session_record.show_instance_side
         ))
