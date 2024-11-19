@@ -288,12 +288,27 @@ class PackageSelection(FramedWidget):
     def __init__(self, parent, event_queue, row, column, colspan=1):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
 
+        # Filter entry to allow filtering listbox content
+        self.filter_var = tk.StringVar()
+        self.filter_var.trace_add('write', self.update_filter)
+        self.filter_entry = tk.Entry(self, textvariable=self.filter_var)
+        self.filter_entry.grid(row=0, column=0, sticky='ew')
+
+        # Packages listbox to show filtered packages
         self.packages_listbox = tk.Listbox(self, selectmode=tk.SINGLE, exportselection=False)
-        self.packages_listbox.grid(row=0, column=0, sticky='nsew')
-        self.rowconfigure(0, weight=1)
+        self.packages_listbox.grid(row=1, column=0, sticky='nsew')
+        
+        # Configure row/column weights for proper resizing
+        self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=1)
+
+        # Initial population of listbox
         self.repopulate()
+
+        # Bind the listbox selection event
         self.packages_listbox.bind('<<ListboxSelect>>', self.repopulate_hierarchy_and_list)
+
+        # Subscribe to event_queue for any "Aborted" event
         self.event_queue.subscribe('Aborted', self.repopulate)
 
     def repopulate_hierarchy_and_list(self, event):
@@ -308,9 +323,21 @@ class PackageSelection(FramedWidget):
             pass
 
     def repopulate(self):
+        # Store packages for filtering purposes
+        self.all_packages = list(self.browser_window.gemstone_session_record.class_categories)
+        self.update_filter()
+
+    def update_filter(self, *args):
+        # Get the filter text
+        filter_text = self.filter_var.get().lower()
+
+        # Clear current listbox contents
         self.packages_listbox.delete(0, tk.END)
-        for package in self.browser_window.gemstone_session_record.class_categories:
-            self.packages_listbox.insert(tk.END, package)
+
+        # Add only matching packages to the listbox
+        for package in self.all_packages:
+            if filter_text in package.lower():
+                self.packages_listbox.insert(tk.END, package)
 
             
 class ClassSelection(FramedWidget):        
@@ -325,14 +352,22 @@ class ClassSelection(FramedWidget):
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=1)
 
-        # Create 'List' tab with a listbox
+        # Create 'List' tab with a filter entry and a listbox
         self.list_frame = ttk.Frame(self.classes_notebook)
         self.list_frame.grid(row=0, column=0, sticky="nsew")
-        self.list_frame.rowconfigure(0, weight=1)
+        self.list_frame.rowconfigure(1, weight=1)
         self.list_frame.columnconfigure(0, weight=1)
         self.classes_notebook.add(self.list_frame, text='List')
+
+        # Filter entry to allow filtering listbox content
+        self.filter_var = tk.StringVar()
+        self.filter_var.trace_add('write', self.update_filter)
+        self.filter_entry = tk.Entry(self.list_frame, textvariable=self.filter_var)
+        self.filter_entry.grid(row=0, column=0, sticky='ew')
+
+        # Classes listbox to show filtered classes
         self.list_listbox = tk.Listbox(self.list_frame, selectmode=tk.SINGLE, exportselection=False)
-        self.list_listbox.grid(row=0, column=0, sticky="nsew")
+        self.list_listbox.grid(row=1, column=0, sticky="nsew")
         self.list_listbox.bind('<<ListboxSelect>>', self.repopulate_categories)
 
         # Create 'Hierarchy' tab with a Treeview
@@ -354,15 +389,15 @@ class ClassSelection(FramedWidget):
         self.selection_var.trace_add('write', lambda name, index, operation: self.switch_side())
         self.class_radiobutton = tk.Radiobutton(self, text='Class', variable=self.selection_var, value='class')
         self.instance_radiobutton = tk.Radiobutton(self, text='Instance', variable=self.selection_var, value='instance')
-        self.class_radiobutton.grid(column=0, row=1, sticky="w")
-        self.instance_radiobutton.grid(column=1, row=1, sticky="w")
+        self.class_radiobutton.grid(column=0, row=2, sticky="w")
+        self.instance_radiobutton.grid(column=1, row=2, sticky="w")
 
         # Configure row and column for frame layout to expand properly
         self.rowconfigure(1, weight=0)  # Give no weight to the row with radiobuttons to keep them fixed
 
         self.event_queue.subscribe('RepopulateClasses', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
-        
+
     def switch_side(self):
         self.gemstone_session_record.select_instance_side(self.show_instance_side)
         self.event_queue.publish('SelectedClassChanged')
@@ -387,7 +422,7 @@ class ClassSelection(FramedWidget):
             self.event_queue.publish('SelectedClassChanged')
         except IndexError:
             pass
-        
+
     def repopulate(self):
         # Repopulate hierarchy_tree with new options based on the selected package
         selected_package = self.gemstone_session_record.selected_class_category
@@ -397,23 +432,47 @@ class ClassSelection(FramedWidget):
         self.hierarchy_tree.insert(parent_node, 'end', text=f'{selected_package} Child Node 1.2')
 
         # Repopulate list_listbox with new options based on the selected package
-        self.list_listbox.delete(0, tk.END)
-        for class_name in self.browser_window.gemstone_session_record.get_classes_in_category(selected_package):
-            self.list_listbox.insert(tk.END, class_name)
+        self.all_classes = list(self.browser_window.gemstone_session_record.get_classes_in_category(selected_package))
+        self.update_filter()
 
         # Always select the 'List' tab in the classes_notebook after repopulating
         self.classes_notebook.select(self.list_frame)
+
+    def update_filter(self, *args):
+        # Get the filter text
+        filter_text = self.filter_var.get().lower()
+
+        # Clear current listbox contents
+        self.list_listbox.delete(0, tk.END)
+
+        # Add only matching classes to the listbox
+        for class_name in self.all_classes:
+            if filter_text in class_name.lower():
+                self.list_listbox.insert(tk.END, class_name)
         
+
 class CategorySelection(FramedWidget):        
     def __init__(self, parent, event_queue, row, column, colspan=1):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
 
+        # Filter entry to allow filtering categories_listbox content
+        self.filter_var = tk.StringVar()
+        self.filter_var.trace_add('write', self.update_filter)
+        self.filter_entry = tk.Entry(self, textvariable=self.filter_var)
+        self.filter_entry.grid(row=0, column=0, sticky='ew')
+
+        # Categories listbox to show filtered categories
         self.categories_listbox = tk.Listbox(self, selectmode=tk.SINGLE, exportselection=False)
-        self.categories_listbox.grid(row=0, column=0, sticky='nsew')
-        self.rowconfigure(0, weight=1)
+        self.categories_listbox.grid(row=1, column=0, sticky='nsew')
+
+        # Configure the grid layout to expand properly
+        self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=1)
+
+        # Bind the listbox selection event
         self.categories_listbox.bind('<<ListboxSelect>>', self.repopulate_class_and_instance)
-        
+
+        # Subscribe to event_queue events
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
 
@@ -429,22 +488,48 @@ class CategorySelection(FramedWidget):
             pass
         
     def repopulate(self):
+        # Repopulate categories_listbox with new options based on the selected class
+        self.all_categories = list(self.gemstone_session_record.get_categories_in_class(
+            self.gemstone_session_record.selected_class, 
+            self.gemstone_session_record.show_instance_side
+        ))
+        self.update_filter()
+
+    def update_filter(self, *args):
+        # Get the filter text
+        filter_text = self.filter_var.get().lower()
+
+        # Clear current listbox contents
         self.categories_listbox.delete(0, tk.END)
-        for category in self.gemstone_session_record.get_categories_in_class(self.gemstone_session_record.selected_class, self.gemstone_session_record.show_instance_side):
-            self.categories_listbox.insert(tk.END, category)
+
+        # Add only matching categories to the listbox
+        for category in self.all_categories:
+            if filter_text in category.lower():
+                self.categories_listbox.insert(tk.END, category)
 
         
 class MethodSelection(FramedWidget):        
     def __init__(self, parent, event_queue, row, column, colspan=1):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
 
-        # Create 'Class' tab with a listbox
+        # Filter entry to allow filtering methods_listbox content
+        self.filter_var = tk.StringVar()
+        self.filter_var.trace_add('write', self.update_filter)
+        self.filter_entry = tk.Entry(self, textvariable=self.filter_var)
+        self.filter_entry.grid(row=0, column=0, sticky='ew')
+
+        # Methods listbox to show filtered methods
         self.methods_listbox = tk.Listbox(self, selectmode=tk.SINGLE)
-        self.methods_listbox.grid(row=0, column=0, sticky='nsew')
-        self.rowconfigure(0, weight=1)
+        self.methods_listbox.grid(row=1, column=0, sticky='nsew')
+
+        # Configure the grid layout to expand properly
+        self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=1)
+
+        # Bind the listbox selection event
         self.methods_listbox.bind('<<ListboxSelect>>', self.populate_text_editor)
 
+        # Subscribe to event_queue events
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
         self.event_queue.subscribe('SelectedCategoryChanged', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
@@ -461,9 +546,25 @@ class MethodSelection(FramedWidget):
             pass
         
     def repopulate(self):
+        # Repopulate methods_listbox with new options based on the selected class and category
+        self.all_methods = list(self.gemstone_session_record.get_selectors_in_class(
+            self.gemstone_session_record.selected_class, 
+            self.gemstone_session_record.selected_method_category, 
+            self.gemstone_session_record.show_instance_side
+        ))
+        self.update_filter()
+
+    def update_filter(self, *args):
+        # Get the filter text
+        filter_text = self.filter_var.get().lower()
+
+        # Clear current listbox contents
         self.methods_listbox.delete(0, tk.END)
-        for selector in self.gemstone_session_record.get_selectors_in_class(self.gemstone_session_record.selected_class, self.gemstone_session_record.selected_method_category, self.gemstone_session_record.show_instance_side):
-            self.methods_listbox.insert(tk.END, selector)
+
+        # Add only matching methods to the listbox
+        for method in self.all_methods:
+            if filter_text in method.lower():
+                self.methods_listbox.insert(tk.END, method)
 
             
 class MethodEditor(FramedWidget):
