@@ -655,14 +655,21 @@ class MethodEditor(FramedWidget):
 
         self.current_menu = None
         
+        # Add a label bar above the notebook
+        self.label_bar = tk.Label(self, text="Method Editor", anchor='w')
+        self.label_bar.grid(row=0, column=0, columnspan=2, sticky='ew')
+
         # Add a notebook to editor_area_widget
         self.editor_notebook = ttk.Notebook(self)
-        self.editor_notebook.grid(row=0, column=0, sticky='nsew')
-        self.rowconfigure(0, weight=1)
+        self.editor_notebook.grid(row=1, column=0, sticky='nsew')
+        self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=1)
 
         # Bind right-click event to the notebook for context menu
         self.editor_notebook.bind('<Button-3>', self.open_tab_menu_handler)
+        # Bind hover event to change label bar text when the mouse moves over tabs
+        self.editor_notebook.bind('<Motion>', self.on_tab_motion)
+        self.editor_notebook.bind('<Leave>', self.on_tab_leave)
 
         # Dictionary to keep track of open tabs
         self.open_tabs = {}  # Format: {(class_name, show_instance_side, method_symbol): tab_reference}
@@ -712,6 +719,22 @@ class MethodEditor(FramedWidget):
 
         # Add the tab to open_tabs dictionary
         self.open_tabs[(selected_class, show_instance_side, selected_method_symbol)] = new_tab
+
+    def on_tab_motion(self, event):
+        try:
+            tab_index = self.editor_notebook.index("@%d,%d" % (event.x, event.y))
+            if tab_index is not None:
+                tab_key = self.get_tab(tab_index).tab_key
+                if tab_key[1]:
+                    text = f"{tab_key[0]}>>{tab_key[2]}"
+                else:
+                    text = f"{tab_key[0]} class>>{tab_key[2]}"
+                self.label_bar.config(text=text)
+        except tk.TclError:
+            pass
+
+    def on_tab_leave(self, event):
+        self.label_bar.config(text="Method Editor")
 
 
 class EditorTab(tk.Frame):
