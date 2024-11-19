@@ -173,6 +173,7 @@ class MainMenu(tk.Menu):
     def _create_menus(self):
         # File Menu
         self.add_cascade(label="File", menu=self.file_menu)
+        self.file_menu.add_command(label="Find", command=self.show_find_dialog)
         self.file_menu.add_separator()
         self.file_menu.add_command(label="Exit", command=self.parent.quit)
 
@@ -192,6 +193,80 @@ class MainMenu(tk.Menu):
             self.session_menu.add_command(label="Logout", command=self.parent.logout)
         else:
             self.session_menu.add_command(label="Login", command=self.parent.show_login_screen)
+
+    def show_find_dialog(self):
+        FindDialog(self.parent)
+
+
+class FindDialog(tk.Toplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Find")
+        self.geometry("300x400")
+        self.transient(parent)
+        self.grab_set()
+
+        self.parent = parent
+
+        # Radio buttons for search type
+        self.search_type = tk.StringVar(value="class")
+        ttk.Label(self, text="Search Type:").grid(row=0, column=0, padx=10, pady=5, sticky='w')
+        self.class_radio = ttk.Radiobutton(self, text="Class", variable=self.search_type, value="class")
+        self.class_radio.grid(row=0, column=1, padx=5, pady=5, sticky='w')
+        self.method_radio = ttk.Radiobutton(self, text="Method", variable=self.search_type, value="method")
+        self.method_radio.grid(row=0, column=2, padx=5, pady=5, sticky='w')
+
+        # Find entry
+        ttk.Label(self, text="Find what:").grid(row=1, column=0, padx=10, pady=10, sticky='w')
+        self.find_entry = ttk.Entry(self, width=30)
+        self.find_entry.grid(row=1, column=1, columnspan=2, padx=10, pady=10)
+
+        # Buttons
+        self.button_frame = ttk.Frame(self)
+        self.button_frame.grid(row=2, column=0, columnspan=3, pady=10)
+
+        self.find_button = ttk.Button(self.button_frame, text="Find", command=self.find_text)
+        self.find_button.grid(row=0, column=0, padx=5)
+
+        self.cancel_button = ttk.Button(self.button_frame, text="Cancel", command=self.destroy)
+        self.cancel_button.grid(row=0, column=1, padx=5)
+
+        # Listbox for results (initially hidden)
+        self.results_listbox = tk.Listbox(self, width=50, height=10)
+        self.results_listbox.grid(row=3, column=0, columnspan=3, padx=10, pady=10)
+        self.results_listbox.grid_remove()
+        self.results_listbox.bind('<Double-Button-1>', self.on_result_double_click)
+
+    def find_text(self):
+        # Simulate search results based on the search type and query
+        search_query = self.find_entry.get()
+        search_type = self.search_type.get()
+        results = []
+
+        if search_query:
+            if search_type == "class":
+                # Simulate finding classes
+                results = [f"Class_{i}: {search_query}" for i in range(1, 6)]
+            elif search_type == "method":
+                # Simulate finding methods
+                results = [f"Method_{i}: {search_query}" for i in range(1, 6)]
+
+        # Display results in the listbox
+        self.results_listbox.delete(0, tk.END)
+        for result in results:
+            self.results_listbox.insert(tk.END, result)
+
+        self.results_listbox.grid()  # Show the listbox
+
+    def on_result_double_click(self, event):
+        try:
+            selected_index = self.results_listbox.curselection()[0]
+            selected_text = self.results_listbox.get(selected_index)
+            search_type = self.search_type.get()
+            self.parent.handle_find_selection(search_type, selected_text)
+            self.destroy()
+        except IndexError:
+            pass
 
 
 class Swordfish(tk.Tk):
@@ -267,7 +342,10 @@ class Swordfish(tk.Tk):
         self.browser_tab = BrowserWindow(self.notebook, self.gemstone_session_record, self.event_queue)
         self.notebook.add(self.browser_tab, text="Browser Window")
 
-
+    def handle_find_selection(self, search_type, selected_text):
+        # Placeholder method to handle the selection from the Find dialog
+        print(f"Selected {search_type}: {selected_text}")
+        
 class FramedWidget(ttk.Frame):
     def __init__(self, parent, event_queue, row, column, colspan=1):
         super().__init__(parent, borderwidth=2, relief="sunken")
