@@ -1,5 +1,6 @@
 import logging
 import weakref
+import re
 
 from ptongue.gemproxyrpc import RPCSession
 from ptongue.gemproxylinked import LinkedSession
@@ -124,6 +125,9 @@ class GemstoneSessionRecord:
         except GemstoneError:
             return
         
+    def find_class_names_matching(self, search_input):
+        pattern = re.compile(search_input, re.IGNORECASE)
+        yield from [name for i in self.class_organizer.classNames() if pattern.search(name := i.value().to_py)]        
         
 class EventQueue:
     def __init__(self, root):
@@ -237,6 +241,10 @@ class FindDialog(tk.Toplevel):
         self.results_listbox.grid_remove()
         self.results_listbox.bind('<Double-Button-1>', self.on_result_double_click)
 
+    @property
+    def gemstone_session_record(self):
+        return self.parent.gemstone_session_record
+    
     def find_text(self):
         # Simulate search results based on the search type and query
         search_query = self.find_entry.get()
@@ -246,7 +254,7 @@ class FindDialog(tk.Toplevel):
         if search_query:
             if search_type == "class":
                 # Simulate finding classes
-                results = [search_query] #[f"Class_{i}: {search_query}" for i in range(1, 6)]
+                results = self.gemstone_session_record.find_class_names_matching(search_query)
             elif search_type == "method":
                 # Simulate finding methods
                 results = [f"Method_{i}: {search_query}" for i in range(1, 6)]
