@@ -276,14 +276,13 @@ class FindDialog(tk.Toplevel):
         except IndexError:
             pass
 
-
 class Swordfish(tk.Tk):
     def __init__(self):
         super().__init__()
         self.event_queue = EventQueue(self)
         self.title("Swordfish")
         self.geometry("800x600")
-
+        
         self.notebook = None
         self.browser_tab = None
         
@@ -545,7 +544,11 @@ class ClassSelection(FramedWidget):
         selection_changed = True
         if selected_indices:
             selected_text = self.list_listbox.get(selected_indices[0])
-            selection_changed = selected_text != selected_class
+
+            gemstone_class = self.gemstone_session_record.gemstone_session.resolve_symbol(selected_class)
+            possibly_changed_category = gemstone_class.category().to_py
+            
+            selection_changed = (selected_text != selected_class) or (possibly_changed_category != selected_package)
 
         if selection_changed:
             # Repopulate hierarchy_tree with new options based on the selected package
@@ -879,8 +882,16 @@ class EditorTab(tk.Frame):
         self.tab_key = tab_key
 
         # Assuming text editor widget will be placed here (e.g., tk.Text)
-        self.text_editor = tk.Text(self)
+        self.text_editor = tk.Text(self, tabs=('2c',), wrap='none', spacing1=2, spacing3=2)
         self.text_editor.pack(fill='both', expand=True)
+
+        # Configure a tag for syntax highlighting
+        self.text_editor.tag_configure("smalltalk_keyword", foreground="blue")
+        self.text_editor.tag_configure("smalltalk_comment", foreground="green")
+        self.text_editor.tag_configure("smalltalk_string", foreground="orange")
+
+        # Bind key release event to update syntax highlighting
+        self.text_editor.bind("<KeyRelease>", self.on_key_release)
 
         self.repopulate()
 
@@ -903,8 +914,31 @@ class EditorTab(tk.Frame):
         method_source = self.browser_window.gemstone_session_record.get_method(selected_class, method_symbol, show_instance_side).sourceString().to_py
         self.text_editor.delete(1.0, tk.END)  # Clear current text
         self.text_editor.insert(tk.END, method_source)  # Insert updated source code
+        self.apply_syntax_highlighting(method_source)
 
-            
+    def apply_syntax_highlighting(self, text):
+        # A simple example of syntax highlighting for Smalltalk code
+        # Highlight keywords
+        for match in re.finditer(r'\b(class|self|super|true|false|nil)\b', text):
+            start, end = match.span()
+            self.text_editor.tag_add("smalltalk_keyword", f"1.0 + {start} chars", f"1.0 + {end} chars")
+
+        # Highlight comments
+        for match in re.finditer(r'".*?"', text):
+            start, end = match.span()
+            self.text_editor.tag_add("smalltalk_comment", f"1.0 + {start} chars", f"1.0 + {end} chars")
+
+        # Highlight strings
+        for match in re.finditer(r'\'.*?\'', text):
+            start, end = match.span()
+            self.text_editor.tag_add("smalltalk_string", f"1.0 + {start} chars", f"1.0 + {end} chars")
+
+    def on_key_release(self, event):
+        # Apply syntax highlighting as user types
+        text = self.text_editor.get("1.0", tk.END)
+        self.apply_syntax_highlighting(text)
+
+        
 class BrowserWindow(ttk.Frame):
     def __init__(self, parent, gemstone_session_record, event_queue):
         super().__init__(parent)
