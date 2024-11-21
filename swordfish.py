@@ -246,7 +246,7 @@ class FindDialog(tk.Toplevel):
         if search_query:
             if search_type == "class":
                 # Simulate finding classes
-                results = [f"Class_{i}: {search_query}" for i in range(1, 6)]
+                results = [search_query] #[f"Class_{i}: {search_query}" for i in range(1, 6)]
             elif search_type == "method":
                 # Simulate finding methods
                 results = [f"Method_{i}: {search_query}" for i in range(1, 6)]
@@ -263,7 +263,7 @@ class FindDialog(tk.Toplevel):
             selected_index = self.results_listbox.curselection()[0]
             selected_text = self.results_listbox.get(selected_index)
             search_type = self.search_type.get()
-            self.parent.handle_find_selection(search_type, selected_text)
+            self.parent.handle_find_selection(search_type == 'class', selected_text)
             self.destroy()
         except IndexError:
             pass
@@ -342,9 +342,16 @@ class Swordfish(tk.Tk):
         self.browser_tab = BrowserWindow(self.notebook, self.gemstone_session_record, self.event_queue)
         self.notebook.add(self.browser_tab, text="Browser Window")
 
-    def handle_find_selection(self, search_type, selected_text):
+    def handle_find_selection(self, show_instance_side, selected_text):
         # Placeholder method to handle the selection from the Find dialog
-        print(f"Selected {search_type}: {selected_text}")
+        print(f"Selected {show_instance_side}: {selected_text}")
+        selected_gemstone_class = self.gemstone_session_record.gemstone_session.resolve_symbol(selected_text)
+        selected_package = selected_gemstone_class.category().to_py
+        self.gemstone_session_record.select_class_category(selected_package)
+        self.gemstone_session_record.select_instance_side(show_instance_side)
+        self.gemstone_session_record.select_class(selected_text)
+        self.event_queue.publish('SelectedClassChanged')
+
         
 class FramedWidget(ttk.Frame):
     def __init__(self, parent, event_queue, row, column, colspan=1):
@@ -388,6 +395,7 @@ class PackageSelection(FramedWidget):
 
         # Subscribe to event_queue for any "Aborted" event
         self.event_queue.subscribe('Aborted', self.repopulate)
+        self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
 
     def repopulate_hierarchy_and_list(self, event):
         try:
@@ -401,10 +409,26 @@ class PackageSelection(FramedWidget):
             pass
 
     def repopulate(self):
-        # Store packages for filtering purposes
-        self.all_packages = list(self.browser_window.gemstone_session_record.class_categories)
-        self.update_filter()
+        selected_package = self.gemstone_session_record.selected_class_category
+        selected_indices = self.packages_listbox.curselection()
+        selection_changed = True
+        if selected_indices:
+            selected_text = self.packages_listbox.get(selected_indices[0])
+            selection_changed = selected_text != selected_package
 
+        if selection_changed:
+            # Store packages for filtering purposes
+            self.all_packages = list(self.browser_window.gemstone_session_record.class_categories)
+            self.filter_var.set('')
+            self.update_filter()
+
+            # Scroll into view the selected item if it exists
+            selected_indices = self.packages_listbox.curselection()
+            if selected_indices:
+                index = selected_indices[0]
+                if not self.packages_listbox.bbox(index):
+                    self.packages_listbox.see(index)
+        
     def update_filter(self, *args):
         # Get the filter text
         filter_text = self.filter_var.get().lower()
@@ -412,10 +436,14 @@ class PackageSelection(FramedWidget):
         # Clear current listbox contents
         self.packages_listbox.delete(0, tk.END)
 
-        # Add only matching packages to the listbox
-        for package in self.all_packages:
+        selected_category = self.gemstone_session_record.selected_class_category
+        
+        # Add only matching packages to the listbox and select the matching item
+        for index, package in enumerate(self.all_packages):
             if filter_text in package.lower():
                 self.packages_listbox.insert(tk.END, package)
+                if selected_category and selected_category == package:
+                    self.packages_listbox.selection_set(index)
 
             
 class ClassSelection(FramedWidget):        
@@ -475,6 +503,7 @@ class ClassSelection(FramedWidget):
 
         self.event_queue.subscribe('RepopulateClasses', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
+        self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
 
     def switch_side(self):
         self.gemstone_session_record.select_instance_side(self.show_instance_side)
@@ -502,33 +531,52 @@ class ClassSelection(FramedWidget):
             pass
 
     def repopulate(self):
-        # Repopulate hierarchy_tree with new options based on the selected package
         selected_package = self.gemstone_session_record.selected_class_category
-        self.hierarchy_tree.delete(*self.hierarchy_tree.get_children())
-        parent_node = self.hierarchy_tree.insert('', 'end', text=f'{selected_package} Parent Node 1')
-        self.hierarchy_tree.insert(parent_node, 'end', text=f'{selected_package} Child Node 1.1')
-        self.hierarchy_tree.insert(parent_node, 'end', text=f'{selected_package} Child Node 1.2')
+        selected_class = self.gemstone_session_record.selected_class
+        selected_indices = self.list_listbox.curselection()
+        selection_changed = True
+        if selected_indices:
+            selected_text = self.list_listbox.get(selected_indices[0])
+            selection_changed = selected_text != selected_class
 
-        # Repopulate list_listbox with new options based on the selected package
-        self.all_classes = list(self.browser_window.gemstone_session_record.get_classes_in_category(selected_package))
-        self.update_filter()
+        if selection_changed:
+            # Repopulate hierarchy_tree with new options based on the selected package
+            self.hierarchy_tree.delete(*self.hierarchy_tree.get_children())
+            parent_node = self.hierarchy_tree.insert('', 'end', text=f'{selected_package} Parent Node 1')
+            self.hierarchy_tree.insert(parent_node, 'end', text=f'{selected_package} Child Node 1.1')
+            self.hierarchy_tree.insert(parent_node, 'end', text=f'{selected_package} Child Node 1.2')
 
-        # Always select the 'List' tab in the classes_notebook after repopulating
-        self.classes_notebook.select(self.list_frame)
+            # Repopulate list_listbox with new options based on the selected package
+            self.all_classes = list(self.browser_window.gemstone_session_record.get_classes_in_category(selected_package))
+            self.filter_var.set('')
+            self.update_filter()
+
+            # Scroll into view the selected item if it exists
+            selected_indices = self.list_listbox.curselection()
+            if selected_indices:
+                index = selected_indices[0]
+                if not self.list_listbox.bbox(index):
+                    self.list_listbox.see(index)
+
+            # Always select the 'List' tab in the classes_notebook after repopulating
+            self.classes_notebook.select(self.list_frame)
 
     def update_filter(self, *args):
         # Get the filter text
-        filter_text = self.filter_var.get().lower()
+        filter_text =  self.filter_var.get().lower()
 
         # Clear current listbox contents
         self.list_listbox.delete(0, tk.END)
 
         # Add only matching classes to the listbox
-        for class_name in self.all_classes:
+        for index, class_name in enumerate(self.all_classes):
             if filter_text in class_name.lower():
                 self.list_listbox.insert(tk.END, class_name)
-        
+                # Select the entry if it matches the selected class
+                if class_name == self.gemstone_session_record.selected_class:
+                    self.list_listbox.selection_set(index)
 
+                    
 class CategorySelection(FramedWidget):        
     def __init__(self, parent, event_queue, row, column, colspan=1):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
