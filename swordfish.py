@@ -111,7 +111,11 @@ class GemstoneSessionRecord:
         gemstone_class = self.gemstone_session.resolve_symbol(class_name)
         class_to_query = gemstone_class if show_instance_side else gemstone_class.gemstone_class()
         try:
-            selectors = class_to_query.selectorsIn(method_category).asSortedCollection()
+            if method_category == 'all':
+                selectors = class_to_query.selectors().asSortedCollection()
+            else:
+                selectors = class_to_query.selectorsIn(method_category).asSortedCollection()
+                
         except GemstoneError:
             return
         
@@ -127,7 +131,12 @@ class GemstoneSessionRecord:
         
     def find_class_names_matching(self, search_input):
         pattern = re.compile(search_input, re.IGNORECASE)
-        yield from [name for i in self.class_organizer.classNames() if pattern.search(name := i.value().to_py)]        
+        yield from [name for i in self.class_organizer.classNames() if pattern.search(name := i.value().to_py)]
+        
+    def find_selectors_matching(self, search_input):
+        # Uses object browser code....
+        yield from [gemstone_selector.to_py for gemstone_selector in  self.gemstone_session.Symbol.selectorsContaining(search_input)]
+
         
 class EventQueue:
     def __init__(self, root):
@@ -256,8 +265,7 @@ class FindDialog(tk.Toplevel):
                 # Simulate finding classes
                 results = self.gemstone_session_record.find_class_names_matching(search_query)
             elif search_type == "method":
-                # Simulate finding methods
-                results = [f"Method_{i}: {search_query}" for i in range(1, 6)]
+                results = self.gemstone_session_record.find_selectors_matching(search_query)
 
         # Display results in the listbox
         self.results_listbox.delete(0, tk.END)
@@ -271,7 +279,10 @@ class FindDialog(tk.Toplevel):
             selected_index = self.results_listbox.curselection()[0]
             selected_text = self.results_listbox.get(selected_index)
             search_type = self.search_type.get()
-            self.parent.handle_find_selection(search_type == 'class', selected_text)
+            if search_type == 'class':
+                self.parent.handle_find_selection(search_type == 'class', selected_text)
+            else:
+                pass
             self.destroy()
         except IndexError:
             pass
@@ -626,7 +637,7 @@ class CategorySelection(FramedWidget):
         
     def repopulate(self):
         # Repopulate categories_listbox with new options based on the selected class
-        self.all_categories = ['*']+list(self.gemstone_session_record.get_categories_in_class(
+        self.all_categories = ['all']+list(self.gemstone_session_record.get_categories_in_class(
             self.gemstone_session_record.selected_class, 
             self.gemstone_session_record.show_instance_side
         ))
