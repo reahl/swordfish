@@ -1,3 +1,5 @@
+#!/var/local/gemstone/venv/wonka/bin/python
+
 import logging
 import weakref
 import re
@@ -197,20 +199,21 @@ class MainMenu(tk.Menu):
     def _create_menus(self):
         # File Menu
         self.add_cascade(label="File", menu=self.file_menu)
-        self.file_menu.add_command(label="Find", command=self.show_find_dialog)
-        self.file_menu.add_command(label="Implementors", command=self.show_implementors_dialog)
-        self.file_menu.add_separator()
-        self.file_menu.add_command(label="Exit", command=self.parent.quit)
+        self.update_file_menu()
 
         # Session Menu
         self.add_cascade(label="Session", menu=self.session_menu)
         self.update_session_menu()
 
     def _subscribe_events(self):
-        self.event_queue.subscribe('LoggedInSuccessfully', self.update_session_menu)
-        self.event_queue.subscribe('LoggedOut', self.update_session_menu)
+        self.event_queue.subscribe('LoggedInSuccessfully', self.update_menus)
+        self.event_queue.subscribe('LoggedOut', self.update_menus)
 
-    def update_session_menu(self, gemstone_session_record=None):
+    def update_menus(self, gemstone_session_record):
+        self.update_session_menu()
+        self.update_file_menu()
+        
+    def update_session_menu(self):
         self.session_menu.delete(0, tk.END)
         if self.parent.is_logged_in:
             self.session_menu.add_command(label="Commit", command=self.parent.commit)
@@ -218,6 +221,14 @@ class MainMenu(tk.Menu):
             self.session_menu.add_command(label="Logout", command=self.parent.logout)
         else:
             self.session_menu.add_command(label="Login", command=self.parent.show_login_screen)
+            
+    def update_file_menu(self):
+        self.file_menu.delete(0, tk.END)
+        if self.parent.is_logged_in:
+            self.file_menu.add_command(label="Find", command=self.show_find_dialog)
+            self.file_menu.add_command(label="Implementors", command=self.show_implementors_dialog)
+            self.file_menu.add_separator()
+        self.file_menu.add_command(label="Exit", command=self.parent.quit)
 
     def show_find_dialog(self):
         FindDialog(self.parent)
