@@ -143,7 +143,12 @@ class GemstoneSessionRecord:
     def find_implementors_of_method(self, method_name):
         yield from [(gemstone_method.classSymbol().to_py, gemstone_method.classIsMeta().to_py) for gemstone_method in  self.gemstone_session.SystemNavigation.default().allImplementorsOf(method_name)]
         
+    def update_method_source(self, selected_class, method_symbol, show_instance_side, source):
+        gemstone_class = self.gemstone_session.resolve_symbol(selected_class)
+        class_to_query = gemstone_class if show_instance_side else gemstone_class.gemstone_class()
+        class_to_query.compile(source)
         
+    
 class EventQueue:
     def __init__(self, root):
         self.root = root
@@ -852,7 +857,7 @@ class MethodEditor(FramedWidget):
         
     def repopulate(self, origin=None):
         # Iterate through each open tab and update the text editor with the current method source code
-        for key, tab in self.open_tabs.items():
+        for key, tab in dict(self.open_tabs).items():
             tab.repopulate()
 
     def get_tab(self, tab_index):
@@ -865,15 +870,11 @@ class MethodEditor(FramedWidget):
         tab = self.get_tab(tab_index)
         tab.open_tab_menu(event)
 
-    def save_tab(self, key):
-        # Placeholder for save functionality
-        print(f"Saving content of tab: {key}")
-
-    def close_tab(self, key):
-        tab_id = self.open_tabs[key]
+    def close_tab(self, tab):
+        tab_id = self.open_tabs[tab.tab_key]
         self.editor_notebook.forget(tab_id)
-        if key in self.open_tabs:
-            del self.open_tabs[key]
+        if tab.tab_key in self.open_tabs:
+            del self.open_tabs[tab.tab_key]
 
     def open_method(self, origin=None):
         selected_class = self.gemstone_session_record.selected_class
@@ -938,19 +939,27 @@ class EditorTab(tk.Frame):
 
         # Create a context menu for the tab
         self.method_editor.current_menu = tk.Menu(self.browser_window, tearoff=0)
-        self.method_editor.current_menu.add_command(label="Close", command=lambda: self.method_editor.close_tab(self.tab_key))
-        self.method_editor.current_menu.add_command(label="Save", command=lambda: self.method_editor.save_tab(self.tab_key))
+        self.method_editor.current_menu.add_command(label="Close", command=lambda: self.method_editor.close_tab(self))
+        self.method_editor.current_menu.add_command(label="Save", command=lambda: self.save())
 
         self.method_editor.current_menu.post(event.x_root, event.y_root)
 
+    def save(self):
+        (selected_class, show_instance_side, method_symbol) = self.tab_key
+        self.browser_window.gemstone_session_record.update_method_source(selected_class, method_symbol, show_instance_side, self.text_editor.get("1.0", "end-1c"))
+        self.browser_window.event_queue.publish('MethodSelected', origin=self)
+        self.repopulate()
+        
     def repopulate(self):
-        selected_class = self.browser_window.gemstone_session_record.selected_class
-        method_symbol = self.browser_window.gemstone_session_record.selected_method_symbol
-        show_instance_side = self.browser_window.gemstone_session_record.show_instance_side        
-        method_source = self.browser_window.gemstone_session_record.get_method(selected_class, method_symbol, show_instance_side).sourceString().to_py
-        self.text_editor.delete(1.0, tk.END)  # Clear current text
-        self.text_editor.insert(tk.END, method_source)  # Insert updated source code
-        self.apply_syntax_highlighting(method_source)
+        (selected_class, show_instance_side, method_symbol) = self.tab_key
+        gemstone_method = self.browser_window.gemstone_session_record.get_method(selected_class, method_symbol, show_instance_side)
+        if gemstone_method:
+            method_source = gemstone_method.sourceString().to_py
+            self.text_editor.delete(1.0, tk.END)  # Clear current text
+            self.text_editor.insert(tk.END, method_source)  # Insert updated source code
+            self.apply_syntax_highlighting(method_source)
+        else:
+            self.method_editor.close_tab(self)
 
     def apply_syntax_highlighting(self, text):
         # A simple example of syntax highlighting for Smalltalk code
