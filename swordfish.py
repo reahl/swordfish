@@ -23,15 +23,18 @@ class GemstoneSessionRecord:
 
     def select_class_category(self, class_category):
         self.selected_class_category = class_category
+        self.select_class(None)
         
     def select_instance_side(self, show_instance_side):
         self.show_instance_side = show_instance_side
 
     def select_class(self, selected_class):
         self.selected_class = selected_class
+        self.select_method_category(None)
 
     def select_method_category(self, selected_method_category):
         self.selected_method_category = selected_method_category
+        self.select_method_symbol(None)
         
     def select_method_symbol(self, selected_method_symbol):
         self.selected_method_symbol = selected_method_symbol
@@ -286,11 +289,12 @@ class FindDialog(tk.Toplevel):
             selected_index = self.results_listbox.curselection()[0]
             selected_text = self.results_listbox.get(selected_index)
             search_type = self.search_type.get()
-            if search_type == 'class':
-                self.parent.handle_find_selection(search_type == 'class', selected_text)
-            else:
-                ImplementorsDialog(self.parent, selected_text)
+            parent = self.parent
             self.destroy()
+            if search_type == 'class':
+                parent.handle_find_selection(search_type == 'class', selected_text)
+            else:
+                ImplementorsDialog(parent, selected_text)
         except IndexError:
             pass
 
@@ -327,6 +331,8 @@ class ImplementorsDialog(tk.Toplevel):
         self.results_listbox.grid(row=2, column=0, columnspan=3, padx=10, pady=10)
         self.results_listbox.grid_remove()
         self.results_listbox.bind('<Double-Button-1>', self.on_result_double_click)
+
+        self.find_implementors()
 
     @property
     def gemstone_session_record(self):
@@ -449,10 +455,9 @@ class Swordfish(tk.Tk):
         selected_package = selected_gemstone_class.category().to_py
         selected_show_instance_side = show_instance_side
         selected_method = method_entry
-        class_to_query = selected_gemstone_class if show_instance_side else gemstone_class.gemstone_class()
+        class_to_query = selected_gemstone_class if show_instance_side else selected_gemstone_class.gemstone_class()
         selected_method_category = class_to_query.categoryOfSelector(selected_method).to_py
         self.gemstone_session_record.select_class_category(selected_package)
-        self.gemstone_session_record.select_instance_side(show_instance_side)
         self.gemstone_session_record.select_class(class_name)
         self.gemstone_session_record.select_instance_side(selected_show_instance_side)
         self.gemstone_session_record.select_method_category(selected_method_category)
@@ -463,9 +468,9 @@ class Swordfish(tk.Tk):
 
         
 class FramedWidget(ttk.Frame):
-    def __init__(self, parent, event_queue, row, column, colspan=1):
+    def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
         super().__init__(parent, borderwidth=2, relief="sunken")
-        self.browser_window = parent
+        self.browser_window = browser_window
         self.event_queue = event_queue
         self.grid(row=row, column=column, columnspan=colspan, sticky="nsew", padx=1, pady=1)
 
@@ -479,8 +484,8 @@ class FramedWidget(ttk.Frame):
         
         
 class PackageSelection(FramedWidget):        
-    def __init__(self, parent, event_queue, row, column, colspan=1):
-        super().__init__(parent, event_queue, row, column, colspan=colspan)
+    def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
+        super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
 
         # Filter entry to allow filtering listbox content
         self.filter_var = tk.StringVar()
@@ -513,11 +518,11 @@ class PackageSelection(FramedWidget):
             selected_package = selected_listbox.get(selected_index)
 
             self.gemstone_session_record.select_class_category(selected_package)
-            self.event_queue.publish('RepopulateClasses')
+            self.event_queue.publish('RepopulateClasses', origin=self)
         except IndexError:
             pass
 
-    def repopulate(self):
+    def repopulate(self, origin=None):
         selected_package = self.gemstone_session_record.selected_class_category
         selected_indices = self.packages_listbox.curselection()
         selection_changed = True
@@ -556,8 +561,8 @@ class PackageSelection(FramedWidget):
 
             
 class ClassSelection(FramedWidget):        
-    def __init__(self, parent, event_queue, row, column, colspan=1):
-        super().__init__(parent, event_queue, row, column, colspan=colspan)
+    def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
+        super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
         
         self.classes_notebook = ttk.Notebook(self)
         self.classes_notebook.grid(row=0, column=0, columnspan=2, sticky="nsew")
@@ -635,29 +640,18 @@ class ClassSelection(FramedWidget):
                 selected_class = widget.item(selected_item_id, 'text')
 
             self.gemstone_session_record.select_class(selected_class)
-            self.event_queue.publish('SelectedClassChanged')
+            self.event_queue.publish('SelectedClassChanged', origin=self)
         except IndexError:
             pass
 
-    def repopulate(self):
-        selected_package = self.gemstone_session_record.selected_class_category
-        selected_class = self.gemstone_session_record.selected_class
-        selected_indices = self.list_listbox.curselection()
-        selection_changed = True
-        if selected_indices:
-            selected_text = self.list_listbox.get(selected_indices[0])
-
-            gemstone_class = self.gemstone_session_record.gemstone_session.resolve_symbol(selected_class)
-            possibly_changed_category = gemstone_class.category().to_py
-            
-            selection_changed = (selected_text != selected_class) or (possibly_changed_category != selected_package)
-
-        if selection_changed:
+    def repopulate(self, origin=None):
+        if origin is not self:
+            selected_package = self.gemstone_session_record.selected_class_category
             # Repopulate hierarchy_tree with new options based on the selected package
             self.hierarchy_tree.delete(*self.hierarchy_tree.get_children())
-            parent_node = self.hierarchy_tree.insert('', 'end', text=f'{selected_package} Parent Node 1')
-            self.hierarchy_tree.insert(parent_node, 'end', text=f'{selected_package} Child Node 1.1')
-            self.hierarchy_tree.insert(parent_node, 'end', text=f'{selected_package} Child Node 1.2')
+            # parent_node = self.hierarchy_tree.insert('', 'end', text=f'{selected_package} Parent Node 1')
+            # self.hierarchy_tree.insert(parent_node, 'end', text=f'{selected_package} Child Node 1.1')
+            # self.hierarchy_tree.insert(parent_node, 'end', text=f'{selected_package} Child Node 1.2')
 
             # Repopulate list_listbox with new options based on the selected package
             self.all_classes = list(self.browser_window.gemstone_session_record.get_classes_in_category(selected_package))
@@ -691,8 +685,8 @@ class ClassSelection(FramedWidget):
 
                     
 class CategorySelection(FramedWidget):        
-    def __init__(self, parent, event_queue, row, column, colspan=1):
-        super().__init__(parent, event_queue, row, column, colspan=colspan)
+    def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
+        super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
 
         # Filter entry to allow filtering categories_listbox content
         self.filter_var = tk.StringVar()
@@ -713,6 +707,7 @@ class CategorySelection(FramedWidget):
 
         # Subscribe to event_queue events
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
+        self.event_queue.subscribe('RepopulateClasses', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
 
     def repopulate_class_and_instance(self, event):
@@ -722,17 +717,21 @@ class CategorySelection(FramedWidget):
             self.selected_category = selected_listbox.get(selected_index)
 
             self.gemstone_session_record.select_method_category(self.selected_category)
-            self.event_queue.publish('SelectedCategoryChanged')
+            self.event_queue.publish('SelectedCategoryChanged', origin=self)
         except IndexError:
             pass
         
-    def repopulate(self):
-        # Repopulate categories_listbox with new options based on the selected class
-        self.all_categories = ['all']+list(self.gemstone_session_record.get_categories_in_class(
-            self.gemstone_session_record.selected_class, 
-            self.gemstone_session_record.show_instance_side
-        ))
-        self.update_filter()
+    def repopulate(self, origin=None):
+        if origin is not self:
+            if self.gemstone_session_record.selected_class:
+                # Repopulate categories_listbox with new options based on the selected class
+                self.all_categories = ['all']+list(self.gemstone_session_record.get_categories_in_class(
+                    self.gemstone_session_record.selected_class, 
+                    self.gemstone_session_record.show_instance_side
+                ))
+            else:
+               self.all_categories = []
+            self.update_filter()
 
     def update_filter(self, *args):
         # Get the filter text
@@ -751,8 +750,8 @@ class CategorySelection(FramedWidget):
 
         
 class MethodSelection(FramedWidget):        
-    def __init__(self, parent, event_queue, row, column, colspan=1):
-        super().__init__(parent, event_queue, row, column, colspan=colspan)
+    def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
+        super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
 
         # Filter entry to allow filtering methods_listbox content
         self.filter_var = tk.StringVar()
@@ -772,13 +771,12 @@ class MethodSelection(FramedWidget):
         self.methods_listbox.bind('<<ListboxSelect>>', self.populate_text_editor)
 
         # Subscribe to event_queue events
+        self.event_queue.subscribe('RepopulateClasses', self.repopulate)
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
         self.event_queue.subscribe('SelectedCategoryChanged', self.repopulate)
         self.event_queue.subscribe('MethodSelected', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
 
-        self.selection_changed = True
-        
     def populate_text_editor(self, event):
         selected_listbox = event.widget
         try:
@@ -787,13 +785,13 @@ class MethodSelection(FramedWidget):
 
             self.gemstone_session_record.select_method_symbol(selected_method)
             self.selection_changed = False
-            self.event_queue.publish('MethodSelected')
+            self.event_queue.publish('MethodSelected', origin=self)
 
         except IndexError:
             pass
         
-    def repopulate(self):
-        if self.selection_changed:
+    def repopulate(self, origin=None):
+        if origin is not self:
             # Repopulate methods_listbox with new options based on the selected class and category
             self.all_methods = list(self.gemstone_session_record.get_selectors_in_class(
                 self.gemstone_session_record.selected_class, 
@@ -809,8 +807,6 @@ class MethodSelection(FramedWidget):
                 if not self.methods_listbox.bbox(index):
                     self.methods_listbox.see(index)
                     
-        self.selection_changed = True
-
     def update_filter(self, *args):
         # Get the filter text
         filter_text = self.filter_var.get().lower()
@@ -826,92 +822,9 @@ class MethodSelection(FramedWidget):
                 if method == self.gemstone_session_record.selected_method_symbol:
                     self.methods_listbox.selection_set(index)
 
-                    
 class MethodEditor(FramedWidget):
-    def __init__(self, parent, event_queue, row, column, colspan=1):
-        super().__init__(parent, event_queue, row, column, colspan=colspan)
-
-        self.current_menu = None
-        
-        # Add a notebook to editor_area_widget
-        self.editor_notebook = ttk.Notebook(self)
-        self.editor_notebook.grid(row=0, column=0, sticky='nsew')
-        self.rowconfigure(0, weight=1)
-        self.columnconfigure(0, weight=1)
-
-        # Bind right-click event to the notebook for context menu
-        self.editor_notebook.bind('<Button-3>', self.open_tab_menu)
-
-        # Dictionary to keep track of open tabs
-        self.open_tabs = {}  # Format: {(class_name, show_instance_side, method_symbol): tab_reference}
-
-        self.event_queue.subscribe('MethodSelected', self.open_method)
-        self.event_queue.subscribe('Aborted', self.repopulate)
-        
-    def repopulate(self):
-        # Iterate through each open tab and update the text editor with the current method source code
-        for key, tab in self.open_tabs.items():
-            selected_class, show_instance_side, method_symbol = key
-            method_source = self.gemstone_session_record.get_method(selected_class, method_symbol, show_instance_side).sourceString().to_py
-            text_editor = tab.winfo_children()[0]  # Assuming the text editor is the only child of the tab
-            text_editor.delete(1.0, tk.END)  # Clear current text
-            text_editor.insert(tk.END, method_source)  # Insert updated source code
-
-
-    def get_tab(self, tab_index):
-        tab_id = self.editor_notebook.tabs()[tab_index]
-        return self.editor_notebook.nametowidget(tab_id)
-
-    def open_tab_menu(self, event):
-        # Identify which tab was clicked
-        tab_index = self.editor_notebook.index("@%d,%d" % (event.x, event.y))
-
-        matching_keys = [key for key, value in self.open_tabs.items() if value == self.get_tab(tab_index)]
-        key_to_use = matching_keys[0] if matching_keys else None
-
-        if key_to_use:
-            # If a menu is already open, unpost it first
-            if self.current_menu:
-                self.current_menu.unpost()
-
-            # Create a context menu for the tab
-            self.current_menu = tk.Menu(self.browser_window, tearoff=0)
-            self.current_menu.add_command(label="Close", command=lambda: self.close_tab(key_to_use))
-            self.current_menu.add_command(label="Save", command=lambda: self.save_tab(key_to_use))
-
-            self.current_menu.post(event.x_root, event.y_root)
-
-    def save_tab(self, key):
-        # Placeholder for save functionality
-        print(f"Saving content of tab: {key}")
-
-    def close_tab(self, key):
-        tab_id = self.open_tabs[key]
-        self.editor_notebook.forget(tab_id)
-        if key in self.open_tabs:
-            del self.open_tabs[key]
-
-    def open_method(self):
-        selected_class = self.gemstone_session_record.selected_class
-        show_instance_side = self.gemstone_session_record.show_instance_side
-        selected_method_symbol = self.gemstone_session_record.selected_method_symbol
-
-        # Check if tab already exists using open_tabs dictionary
-        if (selected_class, show_instance_side, selected_method_symbol) in self.open_tabs:
-            self.editor_notebook.select(self.open_tabs[(selected_class, show_instance_side, selected_method_symbol)])
-            return
-
-        # Create a new tab using EditorTab
-        new_tab = EditorTab(self.editor_notebook, self.browser_window)
-        self.editor_notebook.add(new_tab, text=selected_method_symbol)
-        self.editor_notebook.select(new_tab)
-
-        # Add the tab to open_tabs dictionary
-        self.open_tabs[(selected_class, show_instance_side, selected_method_symbol)] = new_tab
-
-class MethodEditor(FramedWidget):
-    def __init__(self, parent, event_queue, row, column, colspan=1):
-        super().__init__(parent, event_queue, row, column, colspan=colspan)
+    def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
+        super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
 
         self.current_menu = None
         
@@ -937,7 +850,7 @@ class MethodEditor(FramedWidget):
         self.event_queue.subscribe('MethodSelected', self.open_method)
         self.event_queue.subscribe('Aborted', self.repopulate)
         
-    def repopulate(self):
+    def repopulate(self, origin=None):
         # Iterate through each open tab and update the text editor with the current method source code
         for key, tab in self.open_tabs.items():
             tab.repopulate()
@@ -962,7 +875,7 @@ class MethodEditor(FramedWidget):
         if key in self.open_tabs:
             del self.open_tabs[key]
 
-    def open_method(self):
+    def open_method(self, origin=None):
         selected_class = self.gemstone_session_record.selected_class
         show_instance_side = self.gemstone_session_record.show_instance_side
         selected_method_symbol = self.gemstone_session_record.selected_method_symbol
@@ -1005,7 +918,7 @@ class EditorTab(tk.Frame):
         self.tab_key = tab_key
 
         # Assuming text editor widget will be placed here (e.g., tk.Text)
-        self.text_editor = tk.Text(self, tabs=('2c',), wrap='none', spacing1=2, spacing3=2)
+        self.text_editor = tk.Text(self, tabs=('4',), wrap='none')
         self.text_editor.pack(fill='both', expand=True)
 
         # Configure a tag for syntax highlighting
@@ -1062,25 +975,39 @@ class EditorTab(tk.Frame):
         self.apply_syntax_highlighting(text)
 
         
-class BrowserWindow(ttk.Frame):
+class BrowserWindow(ttk.PanedWindow):
     def __init__(self, parent, gemstone_session_record, event_queue):
-        super().__init__(parent)
+        super().__init__(parent, orient=tk.VERTICAL)  # Make BrowserWindow a vertical paned window
 
         self.event_queue = event_queue
         self.gemstone_session_record = gemstone_session_record
-        
-        self.packages_widget = PackageSelection(self, self.event_queue, 0, 0)
-        self.classes_widget = ClassSelection(self, self.event_queue, 0, 1)
-        self.categories_widget = CategorySelection(self, self.event_queue, 0, 2)
-        self.methods_widget = MethodSelection(self, self.event_queue, 0, 3)
-        self.editor_area_widget = MethodEditor(self, self.event_queue, 1, 0, colspan=4)
 
-        self.columnconfigure(0, weight=1)
-        self.columnconfigure(1, weight=1)
-        self.columnconfigure(2, weight=1)
-        self.columnconfigure(3, weight=1)
-        self.rowconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
+        # Create two frames to act as rows in the PanedWindow
+        self.top_frame = ttk.Frame(self)
+        self.bottom_frame = ttk.Frame(self)
+
+        # Add frames to the PanedWindow
+        self.add(self.top_frame)   # Add the top frame (row 0)
+        self.add(self.bottom_frame)  # Add the bottom frame (row 1)
+
+        # Add widgets to top_frame (similar to row 0 previously)
+        self.packages_widget = PackageSelection(self.top_frame, self, self.event_queue, 0, 0)
+        self.classes_widget = ClassSelection(self.top_frame, self, self.event_queue, 0, 1)
+        self.categories_widget = CategorySelection(self.top_frame, self, self.event_queue, 0, 2)
+        self.methods_widget = MethodSelection(self.top_frame, self, self.event_queue, 0, 3)
+
+        # Add MethodEditor to bottom_frame (similar to row 1 previously)
+        self.editor_area_widget = MethodEditor(self.bottom_frame, self, self.event_queue, 0, 0, colspan=4)
+
+        # Configure grid in top_frame and bottom_frame for proper resizing
+        self.top_frame.columnconfigure(0, weight=1)
+        self.top_frame.columnconfigure(1, weight=1)
+        self.top_frame.columnconfigure(2, weight=1)
+        self.top_frame.columnconfigure(3, weight=1)
+        self.top_frame.rowconfigure(0, weight=1)
+
+        self.bottom_frame.columnconfigure(0, weight=1)
+        self.bottom_frame.rowconfigure(0, weight=1)
 
 
 class LoginFrame(ttk.Frame):
