@@ -137,6 +137,9 @@ class GemstoneSessionRecord:
         # Uses object browser code....
         yield from [gemstone_selector.to_py for gemstone_selector in  self.gemstone_session.Symbol.selectorsContaining(search_input)]
 
+    def find_implementors_of_method(self, method_name):
+        yield from [(gemstone_method.classSymbol().to_py, gemstone_method.classIsMeta().to_py) for gemstone_method in  self.gemstone_session.SystemNavigation.default().allImplementorsOf(method_name)]
+        
         
 class EventQueue:
     def __init__(self, root):
@@ -149,21 +152,21 @@ class EventQueue:
         self.events.setdefault(event_name, [])
         self.events[event_name].append((weakref.WeakMethod(callback), args))
 
-    def publish(self, event_name, *args):
+    def publish(self, event_name, *args, **kwargs):
         if event_name in self.events:
-            self.queue.append((event_name, args))
+            self.queue.append((event_name, args, kwargs))
         self.root.event_generate('<<CustomEventsPublished>>')
 
     def process_events(self, event):
         while self.queue:
-            event_name, args = self.queue.pop(0)
+            event_name, args, kwargs = self.queue.pop(0)
             if event_name in self.events:
                 logging.getLogger(__name__).debug(f'Processing: {event_name}')
                 for weak_callback, callback_args in self.events[event_name]:
                     callback = weak_callback()
                     if callback is not None:
                         logging.getLogger(__name__).debug(f'Calling: {callback}')
-                        callback(*callback_args, *args)
+                        callback(*callback_args, *args, **kwargs)
                     
     def clear_subscribers(self, owner):
         for event_name, registered_callbacks in self.events.copy().items():
@@ -187,6 +190,7 @@ class MainMenu(tk.Menu):
         # File Menu
         self.add_cascade(label="File", menu=self.file_menu)
         self.file_menu.add_command(label="Find", command=self.show_find_dialog)
+        self.file_menu.add_command(label="Implementors", command=self.show_implementors_dialog)
         self.file_menu.add_separator()
         self.file_menu.add_command(label="Exit", command=self.parent.quit)
 
@@ -209,7 +213,9 @@ class MainMenu(tk.Menu):
 
     def show_find_dialog(self):
         FindDialog(self.parent)
-
+        
+    def show_implementors_dialog(self):
+        ImplementorsDialog(self.parent)        
 
 class FindDialog(tk.Toplevel):
     def __init__(self, parent):
@@ -217,6 +223,7 @@ class FindDialog(tk.Toplevel):
         self.title("Find")
         self.geometry("300x400")
         self.transient(parent)
+        self.wait_visibility()
         self.grab_set()
 
         self.parent = parent
@@ -282,7 +289,72 @@ class FindDialog(tk.Toplevel):
             if search_type == 'class':
                 self.parent.handle_find_selection(search_type == 'class', selected_text)
             else:
-                pass
+                ImplementorsDialog(self.parent, selected_text)
+            self.destroy()
+        except IndexError:
+            pass
+
+class ImplementorsDialog(tk.Toplevel):
+    def __init__(self, parent, method_name=None):
+        super().__init__(parent)
+        self.title("Implementors")
+        self.geometry("400x500")
+        self.transient(parent)
+        self.wait_visibility()
+        self.grab_set()
+
+        self.parent = parent
+
+        # Method name entry
+        ttk.Label(self, text="Method Name:").grid(row=0, column=0, padx=10, pady=10, sticky='w')
+        self.method_entry = ttk.Entry(self, width=30)
+        self.method_entry.grid(row=0, column=1, columnspan=2, padx=10, pady=10)
+        if method_name:
+            self.method_entry.insert(0, method_name)
+
+        # Buttons
+        self.button_frame = ttk.Frame(self)
+        self.button_frame.grid(row=1, column=0, columnspan=3, pady=10)
+
+        self.find_button = ttk.Button(self.button_frame, text="Find", command=self.find_implementors)
+        self.find_button.grid(row=0, column=0, padx=5)
+
+        self.cancel_button = ttk.Button(self.button_frame, text="Cancel", command=self.destroy)
+        self.cancel_button.grid(row=0, column=1, padx=5)
+
+        # Listbox for results (initially hidden)
+        self.results_listbox = tk.Listbox(self, width=50, height=15)
+        self.results_listbox.grid(row=2, column=0, columnspan=3, padx=10, pady=10)
+        self.results_listbox.grid_remove()
+        self.results_listbox.bind('<Double-Button-1>', self.on_result_double_click)
+
+    @property
+    def gemstone_session_record(self):
+        return self.parent.gemstone_session_record
+
+    def find_implementors(self):
+        # Simulate search results for implementors of a method
+        method_name = self.method_entry.get()
+        results = []
+
+        if method_name:
+            results = self.gemstone_session_record.find_implementors_of_method(method_name)
+
+        # Display results in the listbox
+        self.results_listbox.delete(0, tk.END)
+        for class_name, is_meta in results:
+            method_type = " class" if is_meta else ""
+            self.results_listbox.insert(tk.END, f"{class_name}{method_type}")
+
+        self.results_listbox.grid()  # Show the listbox
+
+    def on_result_double_click(self, event):
+        try:
+            selected_index = self.results_listbox.curselection()[0]
+            selected_text = self.results_listbox.get(selected_index)
+            class_name, *rest = selected_text.split(' ', 1)
+            is_instance_side = 'class' not in rest
+            self.parent.handle_implementor_selection(self.method_entry.get(), class_name, is_instance_side)
             self.destroy()
         except IndexError:
             pass
@@ -369,6 +441,25 @@ class Swordfish(tk.Tk):
         self.gemstone_session_record.select_instance_side(show_instance_side)
         self.gemstone_session_record.select_class(selected_text)
         self.event_queue.publish('SelectedClassChanged')
+
+    def handle_implementor_selection(self, method_entry, class_name, show_instance_side):
+        # Placeholder method to handle the selection from the Implementors dialog
+        print(f"Selected {show_instance_side}: {method_entry} : {class_name}")
+        selected_gemstone_class = self.gemstone_session_record.gemstone_session.resolve_symbol(class_name)
+        selected_package = selected_gemstone_class.category().to_py
+        selected_show_instance_side = show_instance_side
+        selected_method = method_entry
+        class_to_query = selected_gemstone_class if show_instance_side else gemstone_class.gemstone_class()
+        selected_method_category = class_to_query.categoryOfSelector(selected_method).to_py
+        self.gemstone_session_record.select_class_category(selected_package)
+        self.gemstone_session_record.select_instance_side(show_instance_side)
+        self.gemstone_session_record.select_class(class_name)
+        self.gemstone_session_record.select_instance_side(selected_show_instance_side)
+        self.gemstone_session_record.select_method_category(selected_method_category)
+        self.gemstone_session_record.select_method_symbol(selected_method)
+        self.event_queue.publish('SelectedClassChanged')
+        self.event_queue.publish('SelectedCategoryChanged')
+        self.event_queue.publish('MethodSelected')
 
         
 class FramedWidget(ttk.Frame):
@@ -651,9 +742,12 @@ class CategorySelection(FramedWidget):
         self.categories_listbox.delete(0, tk.END)
 
         # Add only matching categories to the listbox
-        for category in self.all_categories:
+        for index, category in enumerate(self.all_categories):
             if filter_text in category.lower():
                 self.categories_listbox.insert(tk.END, category)
+                # Select the entry if it matches the selected class
+                if category == self.gemstone_session_record.selected_method_category:
+                    self.categories_listbox.selection_set(index)
 
         
 class MethodSelection(FramedWidget):        
@@ -680,7 +774,10 @@ class MethodSelection(FramedWidget):
         # Subscribe to event_queue events
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
         self.event_queue.subscribe('SelectedCategoryChanged', self.repopulate)
+        self.event_queue.subscribe('MethodSelected', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
+
+        self.selection_changed = True
         
     def populate_text_editor(self, event):
         selected_listbox = event.widget
@@ -689,18 +786,30 @@ class MethodSelection(FramedWidget):
             selected_method = selected_listbox.get(selected_index)
 
             self.gemstone_session_record.select_method_symbol(selected_method)
+            self.selection_changed = False
             self.event_queue.publish('MethodSelected')
+
         except IndexError:
             pass
         
     def repopulate(self):
-        # Repopulate methods_listbox with new options based on the selected class and category
-        self.all_methods = list(self.gemstone_session_record.get_selectors_in_class(
-            self.gemstone_session_record.selected_class, 
-            self.gemstone_session_record.selected_method_category, 
-            self.gemstone_session_record.show_instance_side
-        ))
-        self.update_filter()
+        if self.selection_changed:
+            # Repopulate methods_listbox with new options based on the selected class and category
+            self.all_methods = list(self.gemstone_session_record.get_selectors_in_class(
+                self.gemstone_session_record.selected_class, 
+                self.gemstone_session_record.selected_method_category, 
+                self.gemstone_session_record.show_instance_side
+            ))
+            self.update_filter()
+
+            # Scroll into view the selected item if it exists
+            selected_indices = self.methods_listbox.curselection()
+            if selected_indices:
+                index = selected_indices[0]
+                if not self.methods_listbox.bbox(index):
+                    self.methods_listbox.see(index)
+                    
+        self.selection_changed = True
 
     def update_filter(self, *args):
         # Get the filter text
@@ -710,11 +819,14 @@ class MethodSelection(FramedWidget):
         self.methods_listbox.delete(0, tk.END)
 
         # Add only matching methods to the listbox
-        for method in self.all_methods:
+        for index, method in enumerate(self.all_methods):
             if filter_text in method.lower():
                 self.methods_listbox.insert(tk.END, method)
+                # Select the entry if it matches the selected class
+                if method == self.gemstone_session_record.selected_method_symbol:
+                    self.methods_listbox.selection_set(index)
 
-            
+                    
 class MethodEditor(FramedWidget):
     def __init__(self, parent, event_queue, row, column, colspan=1):
         super().__init__(parent, event_queue, row, column, colspan=colspan)
