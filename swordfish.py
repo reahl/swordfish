@@ -894,6 +894,14 @@ class EditorTab(tk.Frame):
 
         # Assuming text editor widget will be placed here (e.g., tk.Text)
         self.text_editor = tk.Text(self, tabs=('4',), wrap='none')
+
+        # Add scrollbars to the text editor
+        self.scrollbar_y = tk.Scrollbar(self, orient='vertical', command=self.text_editor.yview)
+        self.scrollbar_x = tk.Scrollbar(self, orient='horizontal', command=self.text_editor.xview)
+        self.text_editor.configure(yscrollcommand=self.scrollbar_y.set, xscrollcommand=self.scrollbar_x.set)
+
+        self.scrollbar_y.pack(side='right', fill='y')
+        self.scrollbar_x.pack(side='bottom', fill='x')
         self.text_editor.pack(fill='both', expand=True)
 
         # Configure a tag for syntax highlighting
