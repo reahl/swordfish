@@ -17,14 +17,14 @@ class DomainException(Exception):
 class GemstoneSessionRecord:
     def __init__(self, gemstone_session):
         self.gemstone_session = gemstone_session
-        self.selected_class_category = None
+        self.selected_package = None
         self.selected_class = None
         self.selected_method_category = None
         self.selected_method_symbol = None
         self.show_instance_side = True
 
-    def select_class_category(self, class_category):
-        self.selected_class_category = class_category
+    def select_package(self, package):
+        self.selected_package = package
         self.select_class(None)
         
     def select_instance_side(self, show_instance_side):
@@ -126,13 +126,34 @@ class GemstoneSessionRecord:
         
         yield from [i.to_py for i in selectors]
 
-    def get_method(self, class_name, method_symbol, show_instance_side):
+    def get_method(self, class_name, show_instance_side, method_symbol):
         gemstone_class = self.gemstone_session.resolve_symbol(class_name)
         class_to_query = gemstone_class if show_instance_side else gemstone_class.gemstone_class()
         try:
             return class_to_query.compiledMethodAt(method_symbol)
         except GemstoneError:
             return
+
+    def jump_to_class(self, class_name, show_instance_side):
+        selected_gemstone_class = self.gemstone_session.resolve_symbol(class_name)
+        selected_package = selected_gemstone_class.category().to_py
+        self.select_package(selected_package)
+        self.select_instance_side(show_instance_side)
+        self.select_class(class_name)
+        
+    def jump_to_method(self, class_name, show_instance_side, method_symbol):
+        selected_gemstone_class = self.gemstone_session.resolve_symbol(class_name)
+        selected_package = selected_gemstone_class.category().to_py
+        class_to_query = selected_gemstone_class if show_instance_side else selected_gemstone_class.gemstone_class()
+        selected_method_category = class_to_query.categoryOfSelector(method_symbol).to_py
+        self.select_package(selected_package)
+        self.select_class(class_name)
+        self.select_instance_side(show_instance_side)
+        self.select_method_category(selected_method_category)
+        self.select_method_symbol(method_symbol)
+        
+    def get_current_methods(self):
+        return list(self.get_selectors_in_class(self.selected_class, self.selected_method_category, self.show_instance_side))
         
     def find_class_names_matching(self, search_input):
         pattern = re.compile(search_input, re.IGNORECASE)
@@ -145,7 +166,7 @@ class GemstoneSessionRecord:
     def find_implementors_of_method(self, method_name):
         yield from [(gemstone_method.classSymbol().to_py, gemstone_method.classIsMeta().to_py) for gemstone_method in  self.gemstone_session.SystemNavigation.default().allImplementorsOf(method_name)]
         
-    def update_method_source(self, selected_class, method_symbol, show_instance_side, source):
+    def update_method_source(self, selected_class, show_instance_side, method_symbol, source):
         gemstone_class = self.gemstone_session.resolve_symbol(selected_class)
         class_to_query = gemstone_class if show_instance_side else gemstone_class.gemstone_class()
         class_to_query.compile(source)
@@ -455,30 +476,15 @@ class Swordfish(tk.Tk):
         self.browser_tab = BrowserWindow(self.notebook, self.gemstone_session_record, self.event_queue)
         self.notebook.add(self.browser_tab, text="Browser Window")
 
-    def handle_find_selection(self, show_instance_side, selected_text):
-        # Placeholder method to handle the selection from the Find dialog
-        print(f"Selected {show_instance_side}: {selected_text}")
-        selected_gemstone_class = self.gemstone_session_record.gemstone_session.resolve_symbol(selected_text)
-        selected_package = selected_gemstone_class.category().to_py
-        self.gemstone_session_record.select_class_category(selected_package)
-        self.gemstone_session_record.select_instance_side(show_instance_side)
-        self.gemstone_session_record.select_class(selected_text)
+    def handle_find_selection(self, show_instance_side, class_name):
+        self.gemstone_session_record.jump_to_class(class_name, show_instance_side)
         self.event_queue.publish('SelectedClassChanged')
-
-    def handle_implementor_selection(self, method_entry, class_name, show_instance_side):
-        # Placeholder method to handle the selection from the Implementors dialog
-        print(f"Selected {show_instance_side}: {method_entry} : {class_name}")
-        selected_gemstone_class = self.gemstone_session_record.gemstone_session.resolve_symbol(class_name)
-        selected_package = selected_gemstone_class.category().to_py
+        
+    def handle_implementor_selection(self, method_symbol, class_name, show_instance_side):
         selected_show_instance_side = show_instance_side
-        selected_method = method_entry
-        class_to_query = selected_gemstone_class if show_instance_side else selected_gemstone_class.gemstone_class()
-        selected_method_category = class_to_query.categoryOfSelector(selected_method).to_py
-        self.gemstone_session_record.select_class_category(selected_package)
-        self.gemstone_session_record.select_class(class_name)
-        self.gemstone_session_record.select_instance_side(selected_show_instance_side)
-        self.gemstone_session_record.select_method_category(selected_method_category)
-        self.gemstone_session_record.select_method_symbol(selected_method)
+        selected_method = method_symbol
+
+        self.gemstone_session_record.jump_to_method(class_name, show_instance_side, method_symbol)
         self.event_queue.publish('SelectedClassChanged')
         self.event_queue.publish('SelectedCategoryChanged')
         self.event_queue.publish('MethodSelected')
@@ -588,14 +594,14 @@ class PackageSelection(FramedWidget):
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
 
     def select_package(self, selected_package):
-        self.gemstone_session_record.select_class_category(selected_package)
-        self.event_queue.publish('RepopulateClasses', origin=self)
+        self.gemstone_session_record.select_package(selected_package)
+        self.event_queue.publish('SelectedPackageChanged', origin=self)
         
     def get_all_packages(self):
         return list(self.browser_window.gemstone_session_record.class_categories)
 
     def get_selected_package(self):
-        return self.gemstone_session_record.selected_class_category
+        return self.gemstone_session_record.selected_package
         
     def repopulate(self, origin=None):
         if origin is not self:
@@ -644,7 +650,7 @@ class ClassSelection(FramedWidget):
         # Configure row and column for frame layout to expand properly
         self.rowconfigure(1, weight=0)  # Give no weight to the row with radiobuttons to keep them fixed
 
-        self.event_queue.subscribe('RepopulateClasses', self.repopulate)
+        self.event_queue.subscribe('SelectedPackageChanged', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
 
@@ -675,7 +681,7 @@ class ClassSelection(FramedWidget):
 
     def repopulate(self, origin=None):
         if origin is not self:
-            selected_package = self.gemstone_session_record.selected_class_category
+            selected_package = self.gemstone_session_record.selected_package
             # Repopulate hierarchy_tree with new options based on the selected package
             self.hierarchy_tree.delete(*self.hierarchy_tree.get_children())
             # parent_node = self.hierarchy_tree.insert('', 'end', text=f'{selected_package} Parent Node 1')
@@ -689,7 +695,7 @@ class ClassSelection(FramedWidget):
             self.classes_notebook.select(self.selection_list)
 
     def get_all_classes(self):
-        selected_package = self.gemstone_session_record.selected_class_category
+        selected_package = self.gemstone_session_record.selected_package
         return list(self.browser_window.gemstone_session_record.get_classes_in_category(selected_package))
 
     def get_selected_class(self):
@@ -714,7 +720,7 @@ class CategorySelection(FramedWidget):
 
         # Subscribe to event_queue events
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
-        self.event_queue.subscribe('RepopulateClasses', self.repopulate)
+        self.event_queue.subscribe('SelectedPackageChanged', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
 
     def repopulate_class_and_instance(self, event):
@@ -763,7 +769,7 @@ class MethodSelection(FramedWidget):
         self.columnconfigure(0, weight=1)
 
         # Subscribe to event_queue events
-        self.event_queue.subscribe('RepopulateClasses', self.repopulate)
+        self.event_queue.subscribe('SelectedPackageChanged', self.repopulate)
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
         self.event_queue.subscribe('SelectedCategoryChanged', self.repopulate)
         self.event_queue.subscribe('MethodSelected', self.repopulate)
@@ -787,11 +793,7 @@ class MethodSelection(FramedWidget):
             self.selection_list.repopulate()
 
     def get_all_methods(self):
-        return list(self.gemstone_session_record.get_selectors_in_class(
-            self.gemstone_session_record.selected_class, 
-            self.gemstone_session_record.selected_method_category, 
-            self.gemstone_session_record.show_instance_side
-        ))
+        return self.gemstone_session_record.get_current_methods()
 
     def get_selected_method(self):
         return self.gemstone_session_record.selected_method_symbol
@@ -928,13 +930,13 @@ class EditorTab(tk.Frame):
 
     def save(self):
         (selected_class, show_instance_side, method_symbol) = self.tab_key
-        self.browser_window.gemstone_session_record.update_method_source(selected_class, method_symbol, show_instance_side, self.text_editor.get("1.0", "end-1c"))
+        self.browser_window.gemstone_session_record.update_method_source(selected_class, show_instance_side, method_symbol, self.text_editor.get("1.0", "end-1c"))
         self.browser_window.event_queue.publish('MethodSelected', origin=self)
         self.repopulate()
         
     def repopulate(self):
         (selected_class, show_instance_side, method_symbol) = self.tab_key
-        gemstone_method = self.browser_window.gemstone_session_record.get_method(selected_class, method_symbol, show_instance_side)
+        gemstone_method = self.browser_window.gemstone_session_record.get_method(*self.tab_key)
         if gemstone_method:
             method_source = gemstone_method.sourceString().to_py
             self.text_editor.delete(1.0, tk.END)  # Clear current text
