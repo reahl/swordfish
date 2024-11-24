@@ -209,7 +209,7 @@ class MainMenu(tk.Menu):
         self.event_queue.subscribe('LoggedInSuccessfully', self.update_menus)
         self.event_queue.subscribe('LoggedOut', self.update_menus)
 
-    def update_menus(self, gemstone_session_record):
+    def update_menus(self, gemstone_session_record=None):
         self.update_session_menu()
         self.update_file_menu()
         
@@ -236,6 +236,7 @@ class MainMenu(tk.Menu):
     def show_implementors_dialog(self):
         ImplementorsDialog(self.parent)        
 
+        
 class FindDialog(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
@@ -275,7 +276,7 @@ class FindDialog(tk.Toplevel):
         self.results_listbox.grid(row=3, column=0, columnspan=3, padx=10, pady=10)
         self.results_listbox.grid_remove()
         self.results_listbox.bind('<Double-Button-1>', self.on_result_double_click)
-
+        
     @property
     def gemstone_session_record(self):
         return self.parent.gemstone_session_record
@@ -497,11 +498,14 @@ class FramedWidget(ttk.Frame):
     def destroy(self):
         super().destroy()
         self.event_queue.clear_subscribers(self)
-        
-        
-class PackageSelection(FramedWidget):        
-    def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
-        super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
+
+class InteractiveSelectionList(ttk.Frame):
+    def __init__(self, parent, get_all_entries, get_selected_entry, set_selected_to):
+        super().__init__(parent)
+
+        self.get_all_entries = get_all_entries
+        self.get_selected_entry = get_selected_entry
+        self.set_selected_to = set_selected_to
 
         # Filter entry to allow filtering listbox content
         self.filter_var = tk.StringVar()
@@ -510,10 +514,10 @@ class PackageSelection(FramedWidget):
         self.filter_entry.grid(row=0, column=0, sticky='ew')
 
         # Packages listbox to show filtered packages
-        self.packages_listbox = tk.Listbox(self, selectmode=tk.SINGLE, exportselection=False)
-        self.packages_listbox.grid(row=1, column=0, sticky='nsew')
-        
-        # Configure row/column weights for proper resizing
+        self.selection_listbox = tk.Listbox(self, selectmode=tk.SINGLE, exportselection=False)
+        self.selection_listbox.grid(row=1, column=0, sticky='nsew')
+
+        # Configure weights for proper resizing
         self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=1)
 
@@ -521,59 +525,77 @@ class PackageSelection(FramedWidget):
         self.repopulate()
 
         # Bind the listbox selection event
-        self.packages_listbox.bind('<<ListboxSelect>>', self.repopulate_hierarchy_and_list)
-
-        # Subscribe to event_queue for any "Aborted" event
-        self.event_queue.subscribe('Aborted', self.repopulate)
-        self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
-
-    def repopulate_hierarchy_and_list(self, event):
-        try:
-            selected_listbox = event.widget
-            selected_index = selected_listbox.curselection()[0]
-            selected_package = selected_listbox.get(selected_index)
-
-            self.gemstone_session_record.select_class_category(selected_package)
-            self.event_queue.publish('RepopulateClasses', origin=self)
-        except IndexError:
-            pass
-
-    def repopulate(self, origin=None):
-        selected_package = self.gemstone_session_record.selected_class_category
-        selected_indices = self.packages_listbox.curselection()
-        selection_changed = True
-        if selected_indices:
-            selected_text = self.packages_listbox.get(selected_indices[0])
-            selection_changed = selected_text != selected_package
-
-        if selection_changed:
-            # Store packages for filtering purposes
-            self.all_packages = list(self.browser_window.gemstone_session_record.class_categories)
-            self.filter_var.set('')
-            self.update_filter()
-
-            # Scroll into view the selected item if it exists
-            selected_indices = self.packages_listbox.curselection()
-            if selected_indices:
-                index = selected_indices[0]
-                if not self.packages_listbox.bbox(index):
-                    self.packages_listbox.see(index)
+        self.selection_listbox.bind('<<ListboxSelect>>', self.handle_selection)
         
+    def repopulate(self, origin=None):
+        # Store packages for filtering purposes
+        self.all_entries = self.get_all_entries()
+        self.filter_var.set('')
+        self.update_filter()
+
+        # Scroll into view the selected item if it exists
+        selected_indices = self.selection_listbox.curselection()
+        if selected_indices:
+            index = selected_indices[0]
+            if not self.selection_listbox.bbox(index):
+                self.selection_listbox.see(index)
+                    
     def update_filter(self, *args):
         # Get the filter text
         filter_text = self.filter_var.get().lower()
 
         # Clear current listbox contents
-        self.packages_listbox.delete(0, tk.END)
+        self.selection_listbox.delete(0, tk.END)
 
-        selected_category = self.gemstone_session_record.selected_class_category
+        selected_entry = self.get_selected_entry()
         
         # Add only matching packages to the listbox and select the matching item
-        for index, package in enumerate(self.all_packages):
-            if filter_text in package.lower():
-                self.packages_listbox.insert(tk.END, package)
-                if selected_category and selected_category == package:
-                    self.packages_listbox.selection_set(index)
+        for index, entry in enumerate(self.all_entries):
+            if filter_text in entry.lower():
+                self.selection_listbox.insert(tk.END, entry)
+                if selected_entry and selected_entry == entry:
+                    self.selection_listbox.selection_set(index)
+
+    def handle_selection(self, event):
+        try:
+            selected_listbox = event.widget
+            selected_index = selected_listbox.curselection()[0]
+            selected_entry = selected_listbox.get(selected_index)
+
+            self.set_selected_to(selected_entry)
+        except IndexError:
+            pass
+
+        
+class PackageSelection(FramedWidget):        
+    def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
+        super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
+
+        self.selection_list = InteractiveSelectionList(self, self.get_all_packages, self.get_selected_package, self.select_package)
+        self.selection_list.grid(row=0, column=0, sticky="nsew")
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+                                                       
+        # Initial population of listbox
+        self.repopulate()
+
+        # Subscribe to event_queue for any "Aborted" event
+        self.event_queue.subscribe('Aborted', self.repopulate)
+        self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
+
+    def select_package(self, selected_package):
+        self.gemstone_session_record.select_class_category(selected_package)
+        self.event_queue.publish('RepopulateClasses', origin=self)
+        
+    def get_all_packages(self):
+        return list(self.browser_window.gemstone_session_record.class_categories)
+
+    def get_selected_package(self):
+        return self.gemstone_session_record.selected_class_category
+        
+    def repopulate(self, origin=None):
+        if origin is not self:
+            self.selection_list.repopulate()
 
             
 class ClassSelection(FramedWidget):        
