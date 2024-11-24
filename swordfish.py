@@ -614,23 +614,15 @@ class ClassSelection(FramedWidget):
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=1)
 
-        # Create 'List' tab with a filter entry and a listbox
+        # Create 'List' tab with an InteractiveSelectionList
         self.list_frame = ttk.Frame(self.classes_notebook)
         self.list_frame.grid(row=0, column=0, sticky="nsew")
         self.list_frame.rowconfigure(1, weight=1)
         self.list_frame.columnconfigure(0, weight=1)
         self.classes_notebook.add(self.list_frame, text='List')
 
-        # Filter entry to allow filtering listbox content
-        self.filter_var = tk.StringVar()
-        self.filter_var.trace_add('write', self.update_filter)
-        self.filter_entry = tk.Entry(self.list_frame, textvariable=self.filter_var)
-        self.filter_entry.grid(row=0, column=0, sticky='ew')
-
-        # Classes listbox to show filtered classes
-        self.list_listbox = tk.Listbox(self.list_frame, selectmode=tk.SINGLE, exportselection=False)
-        self.list_listbox.grid(row=1, column=0, sticky="nsew")
-        self.list_listbox.bind('<<ListboxSelect>>', self.repopulate_categories)
+        self.selection_list = InteractiveSelectionList(self.list_frame, self.get_all_classes, self.get_selected_class, self.select_class)
+        self.selection_list.grid(row=0, column=0, sticky="nsew")
 
         # Create 'Hierarchy' tab with a Treeview
         self.hierarchy_frame = ttk.Frame(self.classes_notebook)
@@ -695,35 +687,22 @@ class ClassSelection(FramedWidget):
             # self.hierarchy_tree.insert(parent_node, 'end', text=f'{selected_package} Child Node 1.1')
             # self.hierarchy_tree.insert(parent_node, 'end', text=f'{selected_package} Child Node 1.2')
 
-            # Repopulate list_listbox with new options based on the selected package
-            self.all_classes = list(self.browser_window.gemstone_session_record.get_classes_in_category(selected_package))
-            self.filter_var.set('')
-            self.update_filter()
-
-            # Scroll into view the selected item if it exists
-            selected_indices = self.list_listbox.curselection()
-            if selected_indices:
-                index = selected_indices[0]
-                if not self.list_listbox.bbox(index):
-                    self.list_listbox.see(index)
+            # Repopulate InteractiveSelectionList with new options based on the selected package
+            self.selection_list.repopulate()
 
             # Always select the 'List' tab in the classes_notebook after repopulating
             self.classes_notebook.select(self.list_frame)
 
-    def update_filter(self, *args):
-        # Get the filter text
-        filter_text =  self.filter_var.get().lower()
+    def get_all_classes(self):
+        selected_package = self.gemstone_session_record.selected_class_category
+        return list(self.browser_window.gemstone_session_record.get_classes_in_category(selected_package))
 
-        # Clear current listbox contents
-        self.list_listbox.delete(0, tk.END)
+    def get_selected_class(self):
+        return self.gemstone_session_record.selected_class
 
-        # Add only matching classes to the listbox
-        for index, class_name in enumerate(self.all_classes):
-            if filter_text in class_name.lower():
-                self.list_listbox.insert(tk.END, class_name)
-                # Select the entry if it matches the selected class
-                if class_name == self.gemstone_session_record.selected_class:
-                    self.list_listbox.selection_set(index)
+    def select_class(self, selected_class):
+        self.gemstone_session_record.select_class(selected_class)
+        self.event_queue.publish('SelectedClassChanged', origin=self)
 
                     
 class CategorySelection(FramedWidget):        
