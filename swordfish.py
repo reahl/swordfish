@@ -615,14 +615,9 @@ class ClassSelection(FramedWidget):
         self.columnconfigure(1, weight=1)
 
         # Create 'List' tab with an InteractiveSelectionList
-        self.list_frame = ttk.Frame(self.classes_notebook)
-        self.list_frame.grid(row=0, column=0, sticky="nsew")
-        self.list_frame.rowconfigure(1, weight=1)
-        self.list_frame.columnconfigure(0, weight=1)
-        self.classes_notebook.add(self.list_frame, text='List')
-
-        self.selection_list = InteractiveSelectionList(self.list_frame, self.get_all_classes, self.get_selected_class, self.select_class)
+        self.selection_list = InteractiveSelectionList(self, self.get_all_classes, self.get_selected_class, self.select_class)
         self.selection_list.grid(row=0, column=0, sticky="nsew")
+        self.classes_notebook.add(self.selection_list, text='List')
 
         # Create 'Hierarchy' tab with a Treeview
         self.hierarchy_frame = ttk.Frame(self.classes_notebook)
@@ -691,7 +686,7 @@ class ClassSelection(FramedWidget):
             self.selection_list.repopulate()
 
             # Always select the 'List' tab in the classes_notebook after repopulating
-            self.classes_notebook.select(self.list_frame)
+            self.classes_notebook.select(self.selection_list)
 
     def get_all_classes(self):
         selected_package = self.gemstone_session_record.selected_class_category
