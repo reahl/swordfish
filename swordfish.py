@@ -754,22 +754,13 @@ class MethodSelection(FramedWidget):
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
         super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
 
-        # Filter entry to allow filtering methods_listbox content
-        self.filter_var = tk.StringVar()
-        self.filter_var.trace_add('write', self.update_filter)
-        self.filter_entry = tk.Entry(self, textvariable=self.filter_var)
-        self.filter_entry.grid(row=0, column=0, sticky='ew')
-
-        # Methods listbox to show filtered methods
-        self.methods_listbox = tk.Listbox(self, selectmode=tk.SINGLE)
-        self.methods_listbox.grid(row=1, column=0, sticky='nsew')
+        # Create InteractiveSelectionList for methods
+        self.selection_list = InteractiveSelectionList(self, self.get_all_methods, self.get_selected_method, self.select_method)
+        self.selection_list.grid(row=0, column=0, sticky="nsew")
 
         # Configure the grid layout to expand properly
-        self.rowconfigure(1, weight=1)
+        self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
-
-        # Bind the listbox selection event
-        self.methods_listbox.bind('<<ListboxSelect>>', self.populate_text_editor)
 
         # Subscribe to event_queue events
         self.event_queue.subscribe('RepopulateClasses', self.repopulate)
@@ -793,36 +784,23 @@ class MethodSelection(FramedWidget):
         
     def repopulate(self, origin=None):
         if origin is not self:
-            # Repopulate methods_listbox with new options based on the selected class and category
-            self.all_methods = list(self.gemstone_session_record.get_selectors_in_class(
-                self.gemstone_session_record.selected_class, 
-                self.gemstone_session_record.selected_method_category, 
-                self.gemstone_session_record.show_instance_side
-            ))
-            self.update_filter()
+            self.selection_list.repopulate()
 
-            # Scroll into view the selected item if it exists
-            selected_indices = self.methods_listbox.curselection()
-            if selected_indices:
-                index = selected_indices[0]
-                if not self.methods_listbox.bbox(index):
-                    self.methods_listbox.see(index)
-                    
-    def update_filter(self, *args):
-        # Get the filter text
-        filter_text = self.filter_var.get().lower()
+    def get_all_methods(self):
+        return list(self.gemstone_session_record.get_selectors_in_class(
+            self.gemstone_session_record.selected_class, 
+            self.gemstone_session_record.selected_method_category, 
+            self.gemstone_session_record.show_instance_side
+        ))
 
-        # Clear current listbox contents
-        self.methods_listbox.delete(0, tk.END)
+    def get_selected_method(self):
+        return self.gemstone_session_record.selected_method_symbol
 
-        # Add only matching methods to the listbox
-        for index, method in enumerate(self.all_methods):
-            if filter_text in method.lower():
-                self.methods_listbox.insert(tk.END, method)
-                # Select the entry if it matches the selected class
-                if method == self.gemstone_session_record.selected_method_symbol:
-                    self.methods_listbox.selection_set(index)
+    def select_method(self, selected_method):
+        self.gemstone_session_record.select_method_symbol(selected_method)
+        self.event_queue.publish('MethodSelected', origin=self)
 
+        
 class MethodEditor(FramedWidget):
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
         super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
