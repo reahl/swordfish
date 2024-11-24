@@ -257,7 +257,7 @@ class MainMenu(tk.Menu):
     def show_implementors_dialog(self):
         ImplementorsDialog(self.parent)        
 
-        
+
 class FindDialog(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
@@ -269,6 +269,9 @@ class FindDialog(tk.Toplevel):
 
         self.parent = parent
 
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(3, weight=1)
+
         # Radio buttons for search type
         self.search_type = tk.StringVar(value="class")
         ttk.Label(self, text="Search Type:").grid(row=0, column=0, padx=10, pady=5, sticky='w')
@@ -279,12 +282,14 @@ class FindDialog(tk.Toplevel):
 
         # Find entry
         ttk.Label(self, text="Find what:").grid(row=1, column=0, padx=10, pady=10, sticky='w')
-        self.find_entry = ttk.Entry(self, width=30)
-        self.find_entry.grid(row=1, column=1, columnspan=2, padx=10, pady=10)
+        self.find_entry = ttk.Entry(self)
+        self.find_entry.grid(row=1, column=1, columnspan=2, padx=10, pady=10, sticky='ew')
 
         # Buttons
         self.button_frame = ttk.Frame(self)
         self.button_frame.grid(row=2, column=0, columnspan=3, pady=10)
+        self.button_frame.grid_columnconfigure(0, weight=1)
+        self.button_frame.grid_columnconfigure(1, weight=1)
 
         self.find_button = ttk.Button(self.button_frame, text="Find", command=self.find_text)
         self.find_button.grid(row=0, column=0, padx=5)
@@ -292,17 +297,18 @@ class FindDialog(tk.Toplevel):
         self.cancel_button = ttk.Button(self.button_frame, text="Cancel", command=self.destroy)
         self.cancel_button.grid(row=0, column=1, padx=5)
 
-        # Listbox for results (initially hidden)
-        self.results_listbox = tk.Listbox(self, width=50, height=10)
-        self.results_listbox.grid(row=3, column=0, columnspan=3, padx=10, pady=10)
-        self.results_listbox.grid_remove()
+        # Listbox for results
+        self.results_listbox = tk.Listbox(self)
+        self.results_listbox.grid(row=3, column=0, columnspan=3, padx=10, pady=10, sticky='nsew')
         self.results_listbox.bind('<Double-Button-1>', self.on_result_double_click)
-        
+
     @property
     def gemstone_session_record(self):
         return self.parent.gemstone_session_record
     
     def find_text(self):
+        self.results_listbox.grid()
+
         # Simulate search results based on the search type and query
         search_query = self.find_entry.get()
         search_type = self.search_type.get()
@@ -336,6 +342,7 @@ class FindDialog(tk.Toplevel):
         except IndexError:
             pass
 
+
 class ImplementorsDialog(tk.Toplevel):
     def __init__(self, parent, method_name=None):
         super().__init__(parent)
@@ -347,16 +354,22 @@ class ImplementorsDialog(tk.Toplevel):
 
         self.parent = parent
 
+        # Configure grid for proper resizing
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=1)
+
         # Method name entry
         ttk.Label(self, text="Method Name:").grid(row=0, column=0, padx=10, pady=10, sticky='w')
-        self.method_entry = ttk.Entry(self, width=30)
-        self.method_entry.grid(row=0, column=1, columnspan=2, padx=10, pady=10)
+        self.method_entry = ttk.Entry(self)
+        self.method_entry.grid(row=0, column=1, columnspan=2, padx=10, pady=10, sticky='ew')
         if method_name:
             self.method_entry.insert(0, method_name)
 
-        # Buttons
+        # Buttons frame
         self.button_frame = ttk.Frame(self)
         self.button_frame.grid(row=1, column=0, columnspan=3, pady=10)
+        self.button_frame.grid_columnconfigure(0, weight=1)
+        self.button_frame.grid_columnconfigure(1, weight=1)
 
         self.find_button = ttk.Button(self.button_frame, text="Find", command=self.find_implementors)
         self.find_button.grid(row=0, column=0, padx=5)
@@ -364,12 +377,12 @@ class ImplementorsDialog(tk.Toplevel):
         self.cancel_button = ttk.Button(self.button_frame, text="Cancel", command=self.destroy)
         self.cancel_button.grid(row=0, column=1, padx=5)
 
-        # Listbox for results (initially hidden)
-        self.results_listbox = tk.Listbox(self, width=50, height=15)
-        self.results_listbox.grid(row=2, column=0, columnspan=3, padx=10, pady=10)
-        self.results_listbox.grid_remove()
+        # Listbox for results
+        self.results_listbox = tk.Listbox(self)
         self.results_listbox.bind('<Double-Button-1>', self.on_result_double_click)
+        self.results_listbox.grid(row=2, column=0, columnspan=3, padx=10, pady=10, sticky='nsew')
 
+        # Initialize with the implementors
         self.find_implementors()
 
     @property
@@ -377,6 +390,7 @@ class ImplementorsDialog(tk.Toplevel):
         return self.parent.gemstone_session_record
 
     def find_implementors(self):
+        self.results_listbox.grid()  # Make listbox visible
         # Simulate search results for implementors of a method
         method_name = self.method_entry.get()
         results = []
@@ -902,9 +916,14 @@ class EditorTab(tk.Frame):
         self.scrollbar_x = tk.Scrollbar(self, orient='horizontal', command=self.text_editor.xview)
         self.text_editor.configure(yscrollcommand=self.scrollbar_y.set, xscrollcommand=self.scrollbar_x.set)
 
-        self.scrollbar_y.pack(side='right', fill='y')
-        self.scrollbar_x.pack(side='bottom', fill='x')
-        self.text_editor.pack(fill='both', expand=True)
+        # Use grid instead of pack
+        self.text_editor.grid(row=0, column=0, sticky='nsew')
+        self.scrollbar_y.grid(row=0, column=1, sticky='ns')
+        self.scrollbar_x.grid(row=1, column=0, sticky='ew')
+
+        # Configure the grid weights for resizing
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
 
         # Configure a tag for syntax highlighting
         self.text_editor.tag_configure("smalltalk_keyword", foreground="blue")
