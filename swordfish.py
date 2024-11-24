@@ -511,11 +511,15 @@ class InteractiveSelectionList(ttk.Frame):
         self.filter_var = tk.StringVar()
         self.filter_var.trace_add('write', self.update_filter)
         self.filter_entry = tk.Entry(self, textvariable=self.filter_var)
-        self.filter_entry.grid(row=0, column=0, sticky='ew')
+        self.filter_entry.grid(row=0, column=0, columnspan=2, sticky='ew')
 
-        # Packages listbox to show filtered packages
+        # Packages listbox to show filtered packages with scrollbar
         self.selection_listbox = tk.Listbox(self, selectmode=tk.SINGLE, exportselection=False)
         self.selection_listbox.grid(row=1, column=0, sticky='nsew')
+
+        self.scrollbar = tk.Scrollbar(self, orient="vertical", command=self.selection_listbox.yview)
+        self.scrollbar.grid(row=1, column=1, sticky='ns')
+        self.selection_listbox.config(yscrollcommand=self.scrollbar.set)
 
         # Configure weights for proper resizing
         self.rowconfigure(1, weight=1)
