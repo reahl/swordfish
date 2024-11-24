@@ -704,22 +704,13 @@ class CategorySelection(FramedWidget):
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
         super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
 
-        # Filter entry to allow filtering categories_listbox content
-        self.filter_var = tk.StringVar()
-        self.filter_var.trace_add('write', self.update_filter)
-        self.filter_entry = tk.Entry(self, textvariable=self.filter_var)
-        self.filter_entry.grid(row=0, column=0, sticky='ew')
-
-        # Categories listbox to show filtered categories
-        self.categories_listbox = tk.Listbox(self, selectmode=tk.SINGLE, exportselection=False)
-        self.categories_listbox.grid(row=1, column=0, sticky='nsew')
+        # Create InteractiveSelectionList for categories
+        self.selection_list = InteractiveSelectionList(self, self.get_all_categories, self.get_selected_category, self.select_category)
+        self.selection_list.grid(row=0, column=0, sticky="nsew")
 
         # Configure the grid layout to expand properly
-        self.rowconfigure(1, weight=1)
+        self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
-
-        # Bind the listbox selection event
-        self.categories_listbox.bind('<<ListboxSelect>>', self.repopulate_class_and_instance)
 
         # Subscribe to event_queue events
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
@@ -739,30 +730,24 @@ class CategorySelection(FramedWidget):
         
     def repopulate(self, origin=None):
         if origin is not self:
-            if self.gemstone_session_record.selected_class:
-                # Repopulate categories_listbox with new options based on the selected class
-                self.all_categories = ['all']+list(self.gemstone_session_record.get_categories_in_class(
-                    self.gemstone_session_record.selected_class, 
-                    self.gemstone_session_record.show_instance_side
-                ))
-            else:
-               self.all_categories = []
-            self.update_filter()
+            self.selection_list.repopulate()
 
-    def update_filter(self, *args):
-        # Get the filter text
-        filter_text = self.filter_var.get().lower()
+    def get_all_categories(self):
+        if self.gemstone_session_record.selected_class:
+            # Repopulate InteractiveSelectionList with new options based on the selected class
+            return ['all'] + list(self.gemstone_session_record.get_categories_in_class(
+                self.gemstone_session_record.selected_class, 
+                self.gemstone_session_record.show_instance_side
+            ))
+        else:
+            return  []
 
-        # Clear current listbox contents
-        self.categories_listbox.delete(0, tk.END)
+    def get_selected_category(self):
+        return self.gemstone_session_record.selected_method_category
 
-        # Add only matching categories to the listbox
-        for index, category in enumerate(self.all_categories):
-            if filter_text in category.lower():
-                self.categories_listbox.insert(tk.END, category)
-                # Select the entry if it matches the selected class
-                if category == self.gemstone_session_record.selected_method_category:
-                    self.categories_listbox.selection_set(index)
+    def select_category(self, selected_category):
+        self.gemstone_session_record.select_method_category(selected_category)
+        self.event_queue.publish('SelectedCategoryChanged', origin=self)
 
         
 class MethodSelection(FramedWidget):        
