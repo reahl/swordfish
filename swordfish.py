@@ -170,6 +170,15 @@ class GemstoneSessionRecord:
         gemstone_class = self.gemstone_session.resolve_symbol(selected_class)
         class_to_query = gemstone_class if show_instance_side else gemstone_class.gemstone_class()
         class_to_query.compile(source)
+
+    def run_code(self, source):
+        return self.gemstone_session.execute(source)
+    # except GemstoneError as e:
+    #     try:
+    #         e.context.gciStepOverFromLevel(1)
+    #     except GemstoneError as ex:
+    #         result = ex.continue_with()
+    
         
     
 class EventQueue:
@@ -426,6 +435,7 @@ class Swordfish(tk.Tk):
         
         self.notebook = None
         self.browser_tab = None
+        self.debugger_tab = None
         
         self.gemstone_session_record = None
 
@@ -461,6 +471,7 @@ class Swordfish(tk.Tk):
             if widget != self.menu_bar:
                 widget.destroy()
         self.browser_tab = None
+        self.debugger_tab = None
 
     def show_login_screen(self):
         self.clear_widgets()
@@ -477,6 +488,7 @@ class Swordfish(tk.Tk):
 
         self.create_notebook()
         self.add_browser_tab()
+        self.add_debugger_tab()
 
     def create_notebook(self):
         self.notebook = ttk.Notebook(self)
@@ -490,6 +502,12 @@ class Swordfish(tk.Tk):
         self.browser_tab = BrowserWindow(self.notebook, self.gemstone_session_record, self.event_queue)
         self.notebook.add(self.browser_tab, text="Browser Window")
 
+    def add_debugger_tab(self):
+        if self.debugger_tab:
+            self.debugger_tab.destroy()
+        self.debugger_tab = DebuggerWindow(self.notebook, self.gemstone_session_record, self.event_queue)
+        self.notebook.add(self.debugger_tab, text="Debugger Window")
+
     def handle_find_selection(self, show_instance_side, class_name):
         self.gemstone_session_record.jump_to_class(class_name, show_instance_side)
         self.event_queue.publish('SelectedClassChanged')
@@ -502,7 +520,6 @@ class Swordfish(tk.Tk):
         self.event_queue.publish('SelectedClassChanged')
         self.event_queue.publish('SelectedCategoryChanged')
         self.event_queue.publish('MethodSelected')
-
         
 class FramedWidget(ttk.Frame):
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
@@ -1021,7 +1038,86 @@ class BrowserWindow(ttk.PanedWindow):
         self.bottom_frame.columnconfigure(0, weight=1)
         self.bottom_frame.rowconfigure(0, weight=1)
 
+class DebuggerWindow(ttk.PanedWindow):
+    def __init__(self, parent, gemstone_session_record, event_queue):
+        super().__init__(parent, orient=tk.VERTICAL)  # Make DebuggerWindow a vertical paned window
 
+        self.event_queue = event_queue
+        self.gemstone_session_record = gemstone_session_record
+
+        # Create top and bottom frames to act as rows in the PanedWindow
+        self.top_frame = ttk.Frame(self)
+        self.bottom_frame = ttk.Frame(self)
+
+        # Add frames to the PanedWindow
+        self.add(self.top_frame)   # Add the top frame (row 0)
+        self.add(self.bottom_frame)  # Add the bottom frame (row 1)
+
+        # Add DebuggerControls to the top of the top_frame
+        self.debugger_controls = DebuggerControls(self.top_frame, self, self.event_queue)
+        self.debugger_controls.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+
+        # Add a Treeview widget to the top frame, below DebuggerControls, to represent the two-column list
+        self.listbox = ttk.Treeview(self.top_frame, columns=('Column1', 'Column2'), show='headings')
+        self.listbox.heading('Column1', text='Column 1')
+        self.listbox.heading('Column2', text='Column 2')
+        # Add a Listbox to the top frame, below DebuggerControls
+#        self.listbox = tk.Listbox(self.top_frame)
+        self.listbox.grid(row=1, column=0, sticky="nsew")
+        # Add dummy data to the Treeview
+        dummy_data = [
+            ("Entry 1 - A", "Entry 1 - B"),
+            ("Entry 2 - A", "Entry 2 - B"),
+            ("Entry 3 - A", "Entry 3 - B"),
+            ("Entry 4 - A", "Entry 4 - B")
+        ]
+        for item in dummy_data:
+            self.listbox.insert('', 'end', values=item)
+            
+        # Add a Text widget to the bottom frame (text editor)
+        self.text_editor = tk.Text(self.bottom_frame)
+        self.text_editor.grid(row=0, column=0, sticky="nsew")
+
+        # Configure grid in top_frame and bottom_frame for proper resizing
+        self.top_frame.columnconfigure(0, weight=1)
+        self.top_frame.rowconfigure(1, weight=1)
+
+        self.bottom_frame.columnconfigure(0, weight=1)
+        self.bottom_frame.rowconfigure(0, weight=1)
+
+class DebuggerControls(ttk.Frame):
+    def __init__(self, parent, controller, event_queue):
+        super().__init__(parent)
+        self.controller = controller
+        self.event_queue = event_queue
+
+        # Create buttons for Debugger Controls
+        self.continue_button = ttk.Button(self, text="Continue", command=self.handle_continue)
+        self.continue_button.grid(row=0, column=0, padx=5, pady=5)
+
+        self.over_button = ttk.Button(self, text="Over", command=self.handle_over)
+        self.over_button.grid(row=0, column=1, padx=5, pady=5)
+
+        self.into_button = ttk.Button(self, text="Into", command=self.handle_into)
+        self.into_button.grid(row=0, column=2, padx=5, pady=5)
+
+        self.stop_button = ttk.Button(self, text="Stop", command=self.handle_stop)
+        self.stop_button.grid(row=0, column=3, padx=5, pady=5)
+
+    def handle_continue(self):
+        self.event_queue.publish('DebuggerContinue')
+
+    def handle_over(self):
+        self.event_queue.publish('DebuggerStepOver')
+
+    def handle_into(self):
+        self.event_queue.publish('DebuggerStepInto')
+
+    def handle_stop(self):
+        self.event_queue.publish('DebuggerStop')
+
+
+        
 class LoginFrame(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent)
