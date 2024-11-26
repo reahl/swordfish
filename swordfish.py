@@ -950,6 +950,9 @@ class EditorTab(tk.Frame):
         # Bind key release event to update syntax highlighting
         self.text_editor.bind("<KeyRelease>", self.on_key_release)
 
+        # Bind right-click event to open context menu for selected text
+        self.text_editor.bind("<Button-3>", self.open_text_menu)
+
         self.repopulate()
 
     def open_tab_menu(self, event):
@@ -963,6 +966,21 @@ class EditorTab(tk.Frame):
         self.method_editor.current_menu.add_command(label="Save", command=lambda: self.save())
 
         self.method_editor.current_menu.post(event.x_root, event.y_root)
+
+    def open_text_menu(self, event):
+        # If a menu is already open, unpost it first
+        if self.method_editor.current_menu:
+            self.method_editor.current_menu.unpost()
+
+        # Create a context menu for the selected text
+        self.method_editor.current_menu = tk.Menu(self.browser_window, tearoff=0)
+        self.method_editor.current_menu.add_command(label="Run", command=lambda: self.run_selected_text(self.text_editor.get(tk.SEL_FIRST, tk.SEL_LAST)))
+
+        self.method_editor.current_menu.post(event.x_root, event.y_root)
+
+    def run_selected_text(self, selected_text):
+        # Execute a new method on the class (placeholder for actual logic)
+        self.browser_window.run_code(selected_text)
 
     def save(self):
         (selected_class, show_instance_side, method_symbol) = self.tab_key
