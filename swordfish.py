@@ -499,7 +499,7 @@ class Swordfish(tk.Tk):
     def add_browser_tab(self):
         if self.browser_tab:
             self.browser_tab.destroy()
-        self.browser_tab = BrowserWindow(self.notebook, self.gemstone_session_record, self.event_queue)
+        self.browser_tab = BrowserWindow(self.notebook, self)
         self.notebook.add(self.browser_tab, text="Browser Window")
 
     def add_debugger_tab(self):
@@ -520,6 +520,10 @@ class Swordfish(tk.Tk):
         self.event_queue.publish('SelectedClassChanged')
         self.event_queue.publish('SelectedCategoryChanged')
         self.event_queue.publish('MethodSelected')
+
+    def run_code(self, source):
+        return self.gemstone_session_record.run_code(source)
+
         
 class FramedWidget(ttk.Frame):
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
@@ -979,8 +983,7 @@ class EditorTab(tk.Frame):
         self.method_editor.current_menu.post(event.x_root, event.y_root)
 
     def run_selected_text(self, selected_text):
-        # Execute a new method on the class (placeholder for actual logic)
-        self.browser_window.run_code(selected_text)
+        self.browser_window.application.run_code(selected_text)
 
     def save(self):
         (selected_class, show_instance_side, method_symbol) = self.tab_key
@@ -1023,11 +1026,10 @@ class EditorTab(tk.Frame):
 
         
 class BrowserWindow(ttk.PanedWindow):
-    def __init__(self, parent, gemstone_session_record, event_queue):
+    def __init__(self, parent, application):
         super().__init__(parent, orient=tk.VERTICAL)  # Make BrowserWindow a vertical paned window
 
-        self.event_queue = event_queue
-        self.gemstone_session_record = gemstone_session_record
+        self.application = application
 
         # Create two frames to act as rows in the PanedWindow
         self.top_frame = ttk.Frame(self)
@@ -1056,6 +1058,15 @@ class BrowserWindow(ttk.PanedWindow):
         self.bottom_frame.columnconfigure(0, weight=1)
         self.bottom_frame.rowconfigure(0, weight=1)
 
+    @property
+    def event_queue(self):
+        return self.application.event_queue
+    
+    @property
+    def gemstone_session_record(self):
+        return self.application.gemstone_session_record
+
+    
 class DebuggerWindow(ttk.PanedWindow):
     def __init__(self, parent, gemstone_session_record, event_queue):
         super().__init__(parent, orient=tk.VERTICAL)  # Make DebuggerWindow a vertical paned window
