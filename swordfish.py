@@ -508,15 +508,17 @@ class Swordfish(tk.Tk):
         self.notebook.add(self.browser_tab, text="Browser")
 
     def open_debugger(self, exception):
-        print(f"{exception}")
-        if not self.debugger_tab:
-            self.add_debugger_tab()
-        self.debugger_tab.handle_exception(exception)
-
-    def add_debugger_tab(self):
         if self.debugger_tab:
-            self.debugger_tab.destroy()
-        self.debugger_tab = DebuggerWindow(self.notebook, self.gemstone_session_record, self.event_queue)
+            response = messagebox.askquestion("Debugger Already Open", "A debugger is already open. Replace it with a new one?", icon='warning', type='okcancel')
+            if response == 'cancel':
+                return
+            elif response == 'ok':
+                self.debugger_tab.destroy()
+        
+        self.add_debugger_tab(exception)
+
+    def add_debugger_tab(self, exception):
+        self.debugger_tab = DebuggerWindow(self.notebook, self.gemstone_session_record, self.event_queue, exception)
         self.notebook.add(self.debugger_tab, text="Debugger")
 
     def handle_find_selection(self, show_instance_side, class_name):
@@ -531,7 +533,6 @@ class Swordfish(tk.Tk):
         self.event_queue.publish('SelectedClassChanged')
         self.event_queue.publish('SelectedCategoryChanged')
         self.event_queue.publish('MethodSelected')
-
 
     def run_code(self, source=""):
         RunDialog(self, source=source)
@@ -1143,9 +1144,10 @@ class BrowserWindow(ttk.PanedWindow):
 
     
 class DebuggerWindow(ttk.PanedWindow):
-    def __init__(self, parent, gemstone_session_record, event_queue):
+    def __init__(self, parent, gemstone_session_record, event_queue, exception):
         super().__init__(parent, orient=tk.VERTICAL)  # Make DebuggerWindow a vertical paned window
 
+        self.exception = exception
         self.event_queue = event_queue
         self.gemstone_session_record = gemstone_session_record
 
@@ -1165,8 +1167,6 @@ class DebuggerWindow(ttk.PanedWindow):
         self.listbox = ttk.Treeview(self.top_frame, columns=('Column1', 'Column2'), show='headings')
         self.listbox.heading('Column1', text='Column 1')
         self.listbox.heading('Column2', text='Column 2')
-        # Add a Listbox to the top frame, below DebuggerControls
-#        self.listbox = tk.Listbox(self.top_frame)
         self.listbox.grid(row=1, column=0, sticky="nsew")
         # Add dummy data to the Treeview
         dummy_data = [
