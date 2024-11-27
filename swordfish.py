@@ -514,13 +514,20 @@ class Swordfish(tk.Tk):
                 return
             elif response == 'ok':
                 self.debugger_tab.destroy()
-        
+
         self.add_debugger_tab(exception)
+        self.select_debugger_tab()
 
     def add_debugger_tab(self, exception):
         self.debugger_tab = DebuggerWindow(self.notebook, self.gemstone_session_record, self.event_queue, exception)
         self.notebook.add(self.debugger_tab, text="Debugger")
 
+    def select_debugger_tab(self):
+        if self.debugger_tab:
+            self.notebook.select(self.debugger_tab)
+            self.debugger_tab.forget(self.debugger_tab.top_frame)
+            self.debugger_tab.add(self.debugger_tab.top_frame)            
+        
     def handle_find_selection(self, show_instance_side, class_name):
         self.gemstone_session_record.jump_to_class(class_name, show_instance_side)
         self.event_queue.publish('SelectedClassChanged')
@@ -1189,6 +1196,7 @@ class DebuggerWindow(ttk.PanedWindow):
         self.bottom_frame.columnconfigure(0, weight=1)
         self.bottom_frame.rowconfigure(0, weight=1)
 
+        
 class DebuggerControls(ttk.Frame):
     def __init__(self, parent, controller, event_queue):
         super().__init__(parent)
