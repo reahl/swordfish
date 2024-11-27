@@ -10,6 +10,7 @@ from ptongue.gemproxy import GemstoneError
 
 import tkinter as tk
 from tkinter import ttk
+import tkinter.messagebox as messagebox
 
 class DomainException(Exception):
     pass
@@ -262,13 +263,13 @@ class MainMenu(tk.Menu):
         self.file_menu.add_command(label="Exit", command=self.parent.quit)
 
     def show_find_dialog(self):
-        FindDialog(self.parent)
+        self.parent.open_find_dialog()
         
     def show_implementors_dialog(self):
-        ImplementorsDialog(self.parent)
+        self.parent.open_implementors_dialog()
 
     def show_run_dialog(self):
-        RunDialog(self.parent, source="")
+        self.parent.run_code()
 
 
 class FindDialog(tk.Toplevel):
@@ -351,7 +352,7 @@ class FindDialog(tk.Toplevel):
             if search_type == 'class':
                 parent.handle_find_selection(search_type == 'class', selected_text)
             else:
-                ImplementorsDialog(parent, selected_text)
+                parent.open_implementors_dialog(method_symbol=selected_text)
         except IndexError:
             pass
 
@@ -430,57 +431,6 @@ class ImplementorsDialog(tk.Toplevel):
         except IndexError:
             pass
 
-class RunDialog:
-    def __init__(self, parent, source=""):
-        self.dialog = tk.Toplevel(parent)
-        self.dialog.title("Run Code")
-        self.dialog.geometry("600x500")
-        self.dialog.transient(parent)  # Set to be on top of the parent window
-        self.dialog.grab_set()  # Prevent interaction with the main window
-        self.dialog.focus_force()  # Force focus to the dialog
-
-        self.source_label = tk.Label(self.dialog, text="Source Code:")
-        self.source_label.pack(anchor="w", padx=10, pady=(10, 0))
-
-        self.source_text = tk.Text(self.dialog, height=10)
-        self.source_text.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        self.source_text.insert(tk.END, source)
-
-        self.run_button = tk.Button(self.dialog, text="Run", command=self.run_code_from_editor)
-        self.run_button.pack(pady=(0, 10))
-
-        self.status_label = tk.Label(self.dialog, text="Running...")
-        self.status_label.pack(anchor="w", padx=10)
-
-        self.result_label = tk.Label(self.dialog, text="Result:")
-        self.result_label.pack(anchor="w", padx=10, pady=(10, 0))
-
-        self.result_text = tk.Text(self.dialog, height=5, state="disabled")
-        self.result_text.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-
-        self.close_button = tk.Button(self.dialog, text="Close", command=self.dialog.destroy)
-        self.close_button.pack(pady=(0, 10))
-
-        # Run the code immediately if there is any in the source area
-        if source.strip():
-            self.run_code_from_editor()
-
-    def run_code_from_editor(self):
-        self.status_label.config(text="Running...")
-        try:
-            code_to_run = self.source_text.get("1.0", tk.END).strip()
-            result = self.dialog.master.gemstone_session_record.run_code(code_to_run)
-            self.on_run_complete(result)
-        except Exception as e:
-            self.status_label.config(text=f"Error: {str(e)}")
-
-    def on_run_complete(self, result):
-        self.status_label.config(text="Completed successfully")
-        self.result_text.config(state="normal")
-        self.result_text.delete("1.0", tk.END)
-        self.result_text.insert(tk.END, result.asString().to_py)
-        self.result_text.config(state="disabled")
-
         
 class Swordfish(tk.Tk):
     def __init__(self):
@@ -544,7 +494,6 @@ class Swordfish(tk.Tk):
 
         self.create_notebook()
         self.add_browser_tab()
-        self.add_debugger_tab()
 
     def create_notebook(self):
         self.notebook = ttk.Notebook(self)
@@ -556,13 +505,19 @@ class Swordfish(tk.Tk):
         if self.browser_tab:
             self.browser_tab.destroy()
         self.browser_tab = BrowserWindow(self.notebook, self)
-        self.notebook.add(self.browser_tab, text="Browser Window")
+        self.notebook.add(self.browser_tab, text="Browser")
+
+    def open_debugger(self, exception):
+        print(f"{exception}")
+        if not self.debugger_tab:
+            self.add_debugger_tab()
+        self.debugger_tab.handle_exception(exception)
 
     def add_debugger_tab(self):
         if self.debugger_tab:
             self.debugger_tab.destroy()
         self.debugger_tab = DebuggerWindow(self.notebook, self.gemstone_session_record, self.event_queue)
-        self.notebook.add(self.debugger_tab, text="Debugger Window")
+        self.notebook.add(self.debugger_tab, text="Debugger")
 
     def handle_find_selection(self, show_instance_side, class_name):
         self.gemstone_session_record.jump_to_class(class_name, show_instance_side)
@@ -577,9 +532,73 @@ class Swordfish(tk.Tk):
         self.event_queue.publish('SelectedCategoryChanged')
         self.event_queue.publish('MethodSelected')
 
-    def run_code(self, source=""):
-        RunDialog(self, source=source)        
 
+    def run_code(self, source=""):
+        RunDialog(self, source=source)
+        
+    def open_find_dialog(self):
+        FindDialog(self)
+        
+    def open_implementors_dialog(self, method_symbol=None):
+        ImplementorsDialog(self, method_name=method_symbol)
+        
+        
+class RunDialog(tk.Toplevel):
+    def __init__(self, parent, source=""):
+        super().__init__(parent)
+        self.title("Run Code")
+        self.geometry("600x500")
+        self.transient(parent)  # Set to be on top of the parent window
+        self.grab_set()  # Prevent interaction with the main window
+        self.focus_force()  # Force focus to the dialog
+
+        self.source_label = tk.Label(self, text="Source Code:")
+        self.source_label.pack(anchor="w", padx=10, pady=(10, 0))
+
+        self.source_text = tk.Text(self, height=10)
+        self.source_text.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.source_text.insert(tk.END, source)
+
+        self.run_button = tk.Button(self, text="Run", command=self.run_code_from_editor)
+        self.run_button.pack(pady=(0, 10))
+
+        self.status_label = tk.Label(self, text="Running...")
+        self.status_label.pack(anchor="w", padx=10)
+
+        self.result_label = tk.Label(self, text="Result:")
+        self.result_label.pack(anchor="w", padx=10, pady=(10, 0))
+
+        self.result_text = tk.Text(self, height=5, state="disabled")
+        self.result_text.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        self.close_button = tk.Button(self, text="Close", command=self.destroy)
+        self.close_button.pack(pady=(0, 10))
+
+        # Run the code immediately if there is any in the source area
+        if source.strip():
+            self.run_code_from_editor()
+
+    def run_code_from_editor(self):
+        self.status_label.config(text="Running...")
+        try:
+            code_to_run = self.source_text.get("1.0", tk.END).strip()
+            result = self.master.gemstone_session_record.run_code(code_to_run)
+            self.on_run_complete(result)
+        except Exception as e:
+            self.status_label.config(text=f"Error: {str(e)}")
+            self.debug_button = tk.Button(self, text="Debug", command=lambda exc=e: self.open_debugger(exc))
+            self.debug_button.pack(pady=(0, 10))
+            
+    def on_run_complete(self, result):
+        self.status_label.config(text="Completed successfully")
+        self.result_text.config(state="normal")
+        self.result_text.delete("1.0", tk.END)
+        self.result_text.insert(tk.END, result.asString().to_py)
+        self.result_text.config(state="disabled")
+
+    def open_debugger(self, exception):
+        self.destroy()        
+        self.master.open_debugger(exception)
         
 class FramedWidget(ttk.Frame):
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
