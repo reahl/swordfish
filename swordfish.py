@@ -519,7 +519,7 @@ class Swordfish(tk.Tk):
         self.select_debugger_tab()
 
     def add_debugger_tab(self, exception):
-        self.debugger_tab = DebuggerWindow(self.notebook, self.gemstone_session_record, self.event_queue, exception)
+        self.debugger_tab = DebuggerWindow(self.notebook, self, self.gemstone_session_record, self.event_queue, exception)
         self.notebook.add(self.debugger_tab, text="Debugger")
 
     def select_debugger_tab(self):
@@ -1178,11 +1178,12 @@ class BrowserWindow(ttk.PanedWindow):
     def gemstone_session_record(self):
         return self.application.gemstone_session_record
 
-    
+
 class DebuggerWindow(ttk.PanedWindow):
-    def __init__(self, parent, gemstone_session_record, event_queue, exception):
+    def __init__(self, parent, application, gemstone_session_record, event_queue, exception):
         super().__init__(parent, orient=tk.VERTICAL)  # Make DebuggerWindow a vertical paned window
 
+        self.application = application
         self.exception = exception
         self.event_queue = event_queue
         self.gemstone_session_record = gemstone_session_record
@@ -1215,8 +1216,8 @@ class DebuggerWindow(ttk.PanedWindow):
             self.listbox.insert('', 'end', values=item)
             
         # Add a Text widget to the bottom frame (text editor)
-        self.text_editor = tk.Text(self.bottom_frame)
-        self.text_editor.grid(row=0, column=0, sticky="nsew")
+        self.code_panel = CodePanel(self.bottom_frame, application=application)
+        self.code_panel.grid(row=0, column=0, sticky="nsew")
 
         # Configure grid in top_frame and bottom_frame for proper resizing
         self.top_frame.columnconfigure(0, weight=1)
