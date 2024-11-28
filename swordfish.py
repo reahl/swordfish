@@ -1036,7 +1036,10 @@ class CodePanel(tk.Frame):
         self.text_editor.tag_configure("smalltalk_keyword", foreground="blue")
         self.text_editor.tag_configure("smalltalk_comment", foreground="green")
         self.text_editor.tag_configure("smalltalk_string", foreground="orange")
-
+        
+        # Configure a tag for highlighting with a darker background color
+        self.text_editor.tag_configure("highlight", background="darkgrey")
+        
         # Bind key release event to update syntax highlighting
         self.text_editor.bind("<KeyRelease>", self.on_key_release)
 
@@ -1090,6 +1093,21 @@ class CodePanel(tk.Frame):
         text = self.text_editor.get("1.0", tk.END)
         self.apply_syntax_highlighting(text)
 
+    def refresh(self, source, mark=None):
+        print(f'Highlight: {mark}')
+        # Update the CodePanel with the source code of the method
+        self.text_editor.delete("1.0", tk.END)
+        self.text_editor.insert("1.0", source)
+
+        # Highlight the word starting at the position given by mark, if valid
+        if mark is not None and mark >= 0:
+            position = self.text_editor.index(f"1.0 + {mark-1} chars")
+            self.text_editor.tag_add("highlight", position, f"{position} + 1c")
+            
+        # Apply syntax highlighting
+        self.apply_syntax_highlighting(source)
+        
+
 class EditorTab(tk.Frame):
     def __init__(self, parent, browser_window, method_editor, tab_key):
         super().__init__(parent)
@@ -1130,9 +1148,7 @@ class EditorTab(tk.Frame):
         gemstone_method = self.browser_window.gemstone_session_record.get_method(*self.tab_key)
         if gemstone_method:
             method_source = gemstone_method.sourceString().to_py
-            self.code_panel.text_editor.delete(1.0, tk.END)  # Clear current text
-            self.code_panel.text_editor.insert(tk.END, method_source)  # Insert updated source code
-            self.code_panel.apply_syntax_highlighting(method_source)
+            self.code_panel.refresh(method_source)
         else:
             self.method_editor.close_tab(self)
         
@@ -1200,17 +1216,22 @@ class DebuggerWindow(ttk.PanedWindow):
         self.debugger_controls = DebuggerControls(self.top_frame, self, self.event_queue)
         self.debugger_controls.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 
-        # Add a Treeview widget to the top frame, below DebuggerControls, to represent the two-column list
-        self.listbox = ttk.Treeview(self.top_frame, columns=('Column1', 'Column2'), show='headings')
-#        self.listbox.heading('Column1', text='Column 1')
-#        self.listbox.heading('Column2', text='Column 2')
+        # Add a Treeview widget to the top frame, below DebuggerControls, to represent the three-column list
+        self.listbox = ttk.Treeview(self.top_frame, columns=('Level', 'Column1', 'Column2'), show='headings')
+        self.listbox.heading('Level', text='Level')
+        self.listbox.heading('Column1', text='Class Name')
+        self.listbox.heading('Column2', text='Method Name')
         self.listbox.grid(row=1, column=0, sticky="nsew")
+        
         # Add dummy data to the Treeview
-        for frame in self.stack(self.exception.context, 10):
+        for level, frame in enumerate(self.stack(self.exception.context, self.exception.context.stackDepth().to_py), start=1):
             method_name = frame.at(1).selector().to_py
             class_name = frame.at(1).homeMethod().inClass().asString().to_py
-            self.listbox.insert('', 'end', values=(class_name, method_name))
-            
+            self.listbox.insert('', 'end', values=(level, class_name, method_name))
+        
+        # Bind item selection to method execution
+        self.listbox.bind("<ButtonRelease-1>", self.on_listbox_select)
+        
         # Add a Text widget to the bottom frame (text editor)
         self.code_panel = CodePanel(self.bottom_frame, application=application)
         self.code_panel.grid(row=0, column=0, sticky="nsew")
@@ -1226,11 +1247,35 @@ class DebuggerWindow(ttk.PanedWindow):
         session = self.gemstone_session_record.gemstone_session
         stack = []
         level = 1
-        while level <= max_level and not ((frame := gemstone_process.perform('_frameContentsAt:', session.from_py(level))).isNil().to_py):
+        while level <= max_level and not ((frame := self.stack_frame(gemstone_process, level)).isNil().to_py):
             stack.append(frame)
             level += 1
         return stack
+    
+    def stack_frame(self, gemstone_process, level):
+        session = self.gemstone_session_record.gemstone_session
+        return gemstone_process.perform('_frameContentsAt:', session.from_py(level))
 
+    def on_listbox_select(self, event):
+        selected_item = self.listbox.focus()
+        if selected_item:
+            values = self.listbox.item(selected_item, 'values')
+            level, class_name, method_name = values
+            self.execute_frame_method(self.stack_frame(self.exception.context, int(level)))
+
+    def execute_frame_method(self, frame):
+        # See OGStackFrame initializeContexts
+        gemstone_method = frame.at(1)
+        ip_offset = frame.at(2)
+        step_point = gemstone_method.perform('_nextStepPointForIp:', ip_offset)
+        offsets = gemstone_method.perform('_sourceOffsets')
+        offset = offsets.at(step_point.min(offsets.size()))
+        source = gemstone_method.fullSource().to_py
+        self.code_panel.refresh(source, mark=offset.to_py)
+
+
+        
+        
     
 class DebuggerControls(ttk.Frame):
     def __init__(self, parent, controller, event_queue):
