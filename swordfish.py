@@ -523,10 +523,14 @@ class Swordfish(tk.Tk):
         self.notebook.add(self.debugger_tab, text="Debugger")
 
     def select_debugger_tab(self):
-        if self.debugger_tab:
-            self.notebook.select(self.debugger_tab)
-            self.debugger_tab.forget(self.debugger_tab.top_frame)
-            self.debugger_tab.add(self.debugger_tab.top_frame)            
+        pass
+        # if self.debugger_tab:
+        #     self.notebook.select(self.debugger_tab)
+        #     self.debugger_tab.top_frame.lift()
+        #     self.debugger_tab.forget(self.debugger_tab.top_frame)
+        #     self.debugger_tab.add(self.debugger_tab.top_frame)            
+        #     self.debugger_tab.event_generate('<Configure>')
+        #     self.debugger_tab.update()
         
     def handle_find_selection(self, show_instance_side, class_name):
         self.gemstone_session_record.jump_to_class(class_name, show_instance_side)
@@ -1005,13 +1009,12 @@ class MethodEditor(FramedWidget):
         self.label_bar.config(text="Method Editor")
 
 
-class EditorTab(tk.Frame):
-    def __init__(self, parent, browser_window, method_editor, tab_key):
+class CodePanel(tk.Frame):
+    def __init__(self, parent, application):
         super().__init__(parent)
-        self.browser_window = browser_window
-        self.method_editor = method_editor
-        self.tab_key = tab_key
 
+        self.application = application
+        
         # Assuming text editor widget will be placed here (e.g., tk.Text)
         self.text_editor = tk.Text(self, tabs=('4',), wrap='none')
 
@@ -1040,50 +1043,30 @@ class EditorTab(tk.Frame):
         # Bind right-click event to open context menu for selected text
         self.text_editor.bind("<Button-3>", self.open_text_menu)
 
-        self.repopulate()
+        # Track the current context menu
+        self.current_context_menu = None
 
-    def open_tab_menu(self, event):
-        # If a menu is already open, unpost it first
-        if self.method_editor.current_menu:
-            self.method_editor.current_menu.unpost()
-
-        # Create a context menu for the tab
-        self.method_editor.current_menu = tk.Menu(self.browser_window, tearoff=0)
-        self.method_editor.current_menu.add_command(label="Close", command=lambda: self.method_editor.close_tab(self))
-        self.method_editor.current_menu.add_command(label="Save", command=lambda: self.save())
-
-        self.method_editor.current_menu.post(event.x_root, event.y_root)
+        # Bind click event to close context menu when clicking outside
+        self.text_editor.bind("<Button-1>", self.close_context_menu, add="+")
 
     def open_text_menu(self, event):
-        # If a menu is already open, unpost it first
-        if self.method_editor.current_menu:
-            self.method_editor.current_menu.unpost()
+        # Close any existing context menu before opening a new one
+        if self.current_context_menu:
+            self.current_context_menu.unpost()
 
         # Create a context menu for the selected text
-        self.method_editor.current_menu = tk.Menu(self.browser_window, tearoff=0)
-        self.method_editor.current_menu.add_command(label="Run", command=lambda: self.run_selected_text(self.text_editor.get(tk.SEL_FIRST, tk.SEL_LAST)))
+        self.current_context_menu = tk.Menu(self, tearoff=0)
+        self.current_context_menu.add_command(label="Run", command=lambda: self.run_selected_text(self.text_editor.get(tk.SEL_FIRST, tk.SEL_LAST)))
+        self.current_context_menu.post(event.x_root, event.y_root)
 
-        self.method_editor.current_menu.post(event.x_root, event.y_root)
+    def close_context_menu(self, event):
+        # Close the current context menu if it exists
+        if self.current_context_menu:
+            self.current_context_menu.unpost()
+            self.current_context_menu = None
 
     def run_selected_text(self, selected_text):
-        self.browser_window.application.run_code(selected_text)
-
-    def save(self):
-        (selected_class, show_instance_side, method_symbol) = self.tab_key
-        self.browser_window.gemstone_session_record.update_method_source(selected_class, show_instance_side, method_symbol, self.text_editor.get("1.0", "end-1c"))
-        self.browser_window.event_queue.publish('MethodSelected', origin=self)
-        self.repopulate()
-        
-    def repopulate(self):
-        (selected_class, show_instance_side, method_symbol) = self.tab_key
-        gemstone_method = self.browser_window.gemstone_session_record.get_method(*self.tab_key)
-        if gemstone_method:
-            method_source = gemstone_method.sourceString().to_py
-            self.text_editor.delete(1.0, tk.END)  # Clear current text
-            self.text_editor.insert(tk.END, method_source)  # Insert updated source code
-            self.apply_syntax_highlighting(method_source)
-        else:
-            self.method_editor.close_tab(self)
+        self.application.run_code(selected_text)
 
     def apply_syntax_highlighting(self, text):
         # A simple example of syntax highlighting for Smalltalk code
@@ -1107,6 +1090,52 @@ class EditorTab(tk.Frame):
         text = self.text_editor.get("1.0", tk.END)
         self.apply_syntax_highlighting(text)
 
+class EditorTab(tk.Frame):
+    def __init__(self, parent, browser_window, method_editor, tab_key):
+        super().__init__(parent)
+        self.browser_window = browser_window
+        self.method_editor = method_editor
+        self.tab_key = tab_key
+
+        # Create CodePanel instance
+        self.code_panel = CodePanel(self, self.browser_window.application)
+        self.code_panel.grid(row=0, column=0, sticky='nsew')
+
+        # Configure the grid weights for resizing
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        self.repopulate()
+
+    def open_tab_menu(self, event):
+        # If a menu is already open, unpost it first
+        if self.method_editor.current_menu:
+            self.method_editor.current_menu.unpost()
+
+        # Create a context menu for the tab
+        self.method_editor.current_menu = tk.Menu(self.browser_window, tearoff=0)
+        self.method_editor.current_menu.add_command(label="Close", command=lambda: self.method_editor.close_tab(self))
+        self.method_editor.current_menu.add_command(label="Save", command=lambda: self.save())
+
+        self.method_editor.current_menu.post(event.x_root, event.y_root)
+
+    def save(self):
+        (selected_class, show_instance_side, method_symbol) = self.tab_key
+        self.browser_window.gemstone_session_record.update_method_source(selected_class, show_instance_side, method_symbol, self.code_panel.text_editor.get("1.0", "end-1c"))
+        self.browser_window.event_queue.publish('MethodSelected', origin=self)
+        self.repopulate()
+        
+    def repopulate(self):
+        (selected_class, show_instance_side, method_symbol) = self.tab_key
+        gemstone_method = self.browser_window.gemstone_session_record.get_method(*self.tab_key)
+        if gemstone_method:
+            method_source = gemstone_method.sourceString().to_py
+            self.code_panel.text_editor.delete(1.0, tk.END)  # Clear current text
+            self.code_panel.text_editor.insert(tk.END, method_source)  # Insert updated source code
+            self.code_panel.apply_syntax_highlighting(method_source)
+        else:
+            self.method_editor.close_tab(self)
+        
         
 class BrowserWindow(ttk.PanedWindow):
     def __init__(self, parent, application):
