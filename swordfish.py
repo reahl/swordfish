@@ -1202,18 +1202,14 @@ class DebuggerWindow(ttk.PanedWindow):
 
         # Add a Treeview widget to the top frame, below DebuggerControls, to represent the two-column list
         self.listbox = ttk.Treeview(self.top_frame, columns=('Column1', 'Column2'), show='headings')
-        self.listbox.heading('Column1', text='Column 1')
-        self.listbox.heading('Column2', text='Column 2')
+#        self.listbox.heading('Column1', text='Column 1')
+#        self.listbox.heading('Column2', text='Column 2')
         self.listbox.grid(row=1, column=0, sticky="nsew")
         # Add dummy data to the Treeview
-        dummy_data = [
-            ("Entry 1 - A", "Entry 1 - B"),
-            ("Entry 2 - A", "Entry 2 - B"),
-            ("Entry 3 - A", "Entry 3 - B"),
-            ("Entry 4 - A", "Entry 4 - B")
-        ]
-        for item in dummy_data:
-            self.listbox.insert('', 'end', values=item)
+        for frame in self.stack(self.exception.context, 10):
+            method_name = frame.at(1).selector().to_py
+            class_name = frame.at(1).homeMethod().inClass().asString().to_py
+            self.listbox.insert('', 'end', values=(class_name, method_name))
             
         # Add a Text widget to the bottom frame (text editor)
         self.code_panel = CodePanel(self.bottom_frame, application=application)
@@ -1226,7 +1222,16 @@ class DebuggerWindow(ttk.PanedWindow):
         self.bottom_frame.columnconfigure(0, weight=1)
         self.bottom_frame.rowconfigure(0, weight=1)
 
-        
+    def stack(self, gemstone_process, max_level):
+        session = self.gemstone_session_record.gemstone_session
+        stack = []
+        level = 1
+        while level <= max_level and not ((frame := gemstone_process.perform('_frameContentsAt:', session.from_py(level))).isNil().to_py):
+            stack.append(frame)
+            level += 1
+        return stack
+
+    
 class DebuggerControls(ttk.Frame):
     def __init__(self, parent, controller, event_queue):
         super().__init__(parent)
