@@ -1094,7 +1094,6 @@ class CodePanel(tk.Frame):
         self.apply_syntax_highlighting(text)
 
     def refresh(self, source, mark=None):
-        print(f'Highlight: {mark}')
         # Update the CodePanel with the source code of the method
         self.text_editor.delete("1.0", tk.END)
         self.text_editor.insert("1.0", source)
@@ -1194,7 +1193,38 @@ class BrowserWindow(ttk.PanedWindow):
     def gemstone_session_record(self):
         return self.application.gemstone_session_record
 
+class StackFrame:
+    def __init__(self, gemstone_session, gemstone_process, level):
+        self.gemstone_session = gemstone_session
+        self.gemstone_process = gemstone_process
+        self.level = level
+        frame_data = self.gemstone_process.perform('_frameContentsAt:', self.gemstone_session.from_py(self.level))
+        self.is_valid = not frame_data.isNil().to_py
+        if self.is_valid:
+            self.gemstone_method = frame_data.at(1)
+            self.ip_offset = frame_data.at(2)
 
+    @property
+    def step_point_offset(self):
+        # See OGStackFrame initializeContexts
+        step_point = self.gemstone_method.perform('_nextStepPointForIp:', self.ip_offset)
+        offsets = self.gemstone_method.perform('_sourceOffsets')
+        offset = offsets.at(step_point.min(offsets.size()))
+        return offset.to_py
+
+    @property
+    def method_source(self):
+        return self.gemstone_method.fullSource().to_py
+
+    @property
+    def method_name(self):
+        return self.gemstone_method.selector().to_py
+
+    @property
+    def class_name(self):
+        return self.gemstone_method.homeMethod().inClass().asString().to_py
+    
+    
 class DebuggerWindow(ttk.PanedWindow):
     def __init__(self, parent, application, gemstone_session_record, event_queue, exception):
         super().__init__(parent, orient=tk.VERTICAL)  # Make DebuggerWindow a vertical paned window
@@ -1225,9 +1255,7 @@ class DebuggerWindow(ttk.PanedWindow):
         
         # Add dummy data to the Treeview
         for level, frame in enumerate(self.stack(self.exception.context, self.exception.context.stackDepth().to_py), start=1):
-            method_name = frame.at(1).selector().to_py
-            class_name = frame.at(1).homeMethod().inClass().asString().to_py
-            self.listbox.insert('', 'end', values=(level, class_name, method_name))
+            self.listbox.insert('', 'end', values=(frame.level, frame.class_name, frame.method_name))
         
         # Bind item selection to method execution
         self.listbox.bind("<ButtonRelease-1>", self.on_listbox_select)
@@ -1247,14 +1275,14 @@ class DebuggerWindow(ttk.PanedWindow):
         session = self.gemstone_session_record.gemstone_session
         stack = []
         level = 1
-        while level <= max_level and not ((frame := self.stack_frame(gemstone_process, level)).isNil().to_py):
+        while level <= max_level and ((frame := self.stack_frame(gemstone_process, level)).is_valid):
             stack.append(frame)
             level += 1
         return stack
     
     def stack_frame(self, gemstone_process, level):
-        session = self.gemstone_session_record.gemstone_session
-        return gemstone_process.perform('_frameContentsAt:', session.from_py(level))
+        gemstone_session = self.gemstone_session_record.gemstone_session
+        return StackFrame(gemstone_session, gemstone_process, level)
 
     def on_listbox_select(self, event):
         selected_item = self.listbox.focus()
@@ -1264,23 +1292,32 @@ class DebuggerWindow(ttk.PanedWindow):
             self.execute_frame_method(self.stack_frame(self.exception.context, int(level)))
 
     def execute_frame_method(self, frame):
-        # See OGStackFrame initializeContexts
-        gemstone_method = frame.at(1)
-        ip_offset = frame.at(2)
-        step_point = gemstone_method.perform('_nextStepPointForIp:', ip_offset)
-        offsets = gemstone_method.perform('_sourceOffsets')
-        offset = offsets.at(step_point.min(offsets.size()))
-        source = gemstone_method.fullSource().to_py
-        self.code_panel.refresh(source, mark=offset.to_py)
+        self.code_panel.refresh(frame.method_source, mark=frame.step_point_offset)
 
-
+    def step_over(self):
+        selected_item = self.listbox.focus()
+        print('a')
+        if selected_item:
+            print('b')
+            values = self.listbox.item(selected_item, 'values')
+            level, class_name, method_name = values
+            frame = self.stack_frame(self.exception.context, int(level))
+            gemstone_method = frame.at(1)
+            self.exception.context.stepOverFromLevel(int(level))
+            gemstone_method = frame.at(1)
+            ip_offset = frame.at(2)
+            step_point = gemstone_method.perform('_nextStepPointForIp:', ip_offset)
+            offsets = gemstone_method.perform('_sourceOffsets')
+            offset = offsets.at(step_point.min(offsets.size()))
+            source = gemstone_method.fullSource().to_py
+            self.code_panel.refresh(source, mark=offset.to_py)
+            print(offset.to_py)
         
-        
-    
+            
 class DebuggerControls(ttk.Frame):
-    def __init__(self, parent, controller, event_queue):
+    def __init__(self, parent, debugger, event_queue):
         super().__init__(parent)
-        self.controller = controller
+        self.debugger = debugger
         self.event_queue = event_queue
 
         # Create buttons for Debugger Controls
@@ -1300,7 +1337,7 @@ class DebuggerControls(ttk.Frame):
         self.event_queue.publish('DebuggerContinue')
 
     def handle_over(self):
-        self.event_queue.publish('DebuggerStepOver')
+        self.debugger.step_over()
 
     def handle_into(self):
         self.event_queue.publish('DebuggerStepInto')
