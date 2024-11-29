@@ -1194,8 +1194,8 @@ class BrowserWindow(ttk.PanedWindow):
         return self.application.gemstone_session_record
 
 class StackFrame:
-    def __init__(self, gemstone_session, gemstone_process, level):
-        self.gemstone_session = gemstone_session
+    def __init__(self, gemstone_process, level):
+        self.gemstone_session = gemstone_process.session
         self.gemstone_process = gemstone_process
         self.level = level
         frame_data = self.gemstone_process.perform('_frameContentsAt:', self.gemstone_session.from_py(self.level))
@@ -1223,6 +1223,30 @@ class StackFrame:
     @property
     def class_name(self):
         return self.gemstone_method.homeMethod().inClass().asString().to_py
+    
+class CallStack:
+    def __init__(self, gemstone_process):
+        self.gemstone_process = gemstone_process
+        self.frames = self.make_frames()
+        
+    def make_frames(self):
+        session = self.gemstone_process.session
+        max_level = self.gemstone_process.stackDepth().to_py
+        stack = []
+        level = 1
+        while level <= max_level and ((frame := self.stack_frame(level)).is_valid):
+            stack.append(frame)
+            level += 1
+        return stack
+    
+    def stack_frame(self, level):
+        return StackFrame(self.gemstone_process, level)
+
+    def __getitem__(self, level):
+        return self.frames[level-1]
+
+    def __iter__(self):
+        return iter(self.frames)
     
     
 class DebuggerWindow(ttk.PanedWindow):
@@ -1253,9 +1277,9 @@ class DebuggerWindow(ttk.PanedWindow):
         self.listbox.heading('Column2', text='Method Name')
         self.listbox.grid(row=1, column=0, sticky="nsew")
         
-        # Add dummy data to the Treeview
-        for level, frame in enumerate(self.stack(self.exception.context, self.exception.context.stackDepth().to_py), start=1):
-            self.listbox.insert('', 'end', values=(frame.level, frame.class_name, frame.method_name))
+        # Dictionary to store StackFrame objects by Treeview item ID
+        self.stack_frames = CallStack(self.exception.context)
+        
         
         # Bind item selection to method execution
         self.listbox.bind("<ButtonRelease-1>", self.on_listbox_select)
@@ -1271,47 +1295,49 @@ class DebuggerWindow(ttk.PanedWindow):
         self.bottom_frame.columnconfigure(0, weight=1)
         self.bottom_frame.rowconfigure(0, weight=1)
 
-    def stack(self, gemstone_process, max_level):
-        session = self.gemstone_session_record.gemstone_session
-        stack = []
-        level = 1
-        while level <= max_level and ((frame := self.stack_frame(gemstone_process, level)).is_valid):
-            stack.append(frame)
-            level += 1
-        return stack
-    
-    def stack_frame(self, gemstone_process, level):
-        gemstone_session = self.gemstone_session_record.gemstone_session
-        return StackFrame(gemstone_session, gemstone_process, level)
+        self.refresh()
+        
+    def refresh(self):
+        # Clear the existing contents of the listbox
+        for item in self.listbox.get_children():
+            self.listbox.delete(item)
+        
+        # Re-populate the listbox with updated stack frames
+        for frame in self.stack_frames:
+            iid = str(frame.level)
+            self.listbox.insert('', 'end', iid=iid, values=(frame.level, frame.class_name, frame.method_name))
+        
+        # Select the first entry in the listbox by iid
+        if self.stack_frames:
+            first_iid = str(1)
+            self.listbox.selection_set(first_iid)
+            self.listbox.focus(first_iid)
 
+            self.code_panel.refresh(self.stack_frames[1].method_source, mark=self.stack_frames[1].step_point_offset)
+            
     def on_listbox_select(self, event):
+        frame = self.get_selected_stack_frame()
+        if frame:
+            self.code_panel.refresh(frame.method_source, mark=frame.step_point_offset)
+
+    def get_selected_stack_frame(self):
         selected_item = self.listbox.focus()
         if selected_item:
-            values = self.listbox.item(selected_item, 'values')
-            level, class_name, method_name = values
-            self.execute_frame_method(self.stack_frame(self.exception.context, int(level)))
-
-    def execute_frame_method(self, frame):
-        self.code_panel.refresh(frame.method_source, mark=frame.step_point_offset)
+            return self.stack_frames[int(selected_item)]
+        return None
 
     def step_over(self):
-        selected_item = self.listbox.focus()
-        print('a')
-        if selected_item:
-            print('b')
-            values = self.listbox.item(selected_item, 'values')
-            level, class_name, method_name = values
-            frame = self.stack_frame(self.exception.context, int(level))
-            gemstone_method = frame.at(1)
-            self.exception.context.stepOverFromLevel(int(level))
-            gemstone_method = frame.at(1)
-            ip_offset = frame.at(2)
-            step_point = gemstone_method.perform('_nextStepPointForIp:', ip_offset)
-            offsets = gemstone_method.perform('_sourceOffsets')
-            offset = offsets.at(step_point.min(offsets.size()))
-            source = gemstone_method.fullSource().to_py
-            self.code_panel.refresh(source, mark=offset.to_py)
-            print(offset.to_py)
+        frame = self.get_selected_stack_frame()
+        if frame:
+            try:
+                result = self.exception.context.gciStepOverFromLevel(frame.level)
+            except GemstoneError as ex:
+                self.exception = ex
+                self.stack_frames = CallStack(self.exception.context)
+            else:
+                self.stack_frames = []
+                self.code_panel.refresh(result.asString().to_py)
+            self.refresh()
         
             
 class DebuggerControls(ttk.Frame):
