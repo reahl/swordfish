@@ -3,6 +3,7 @@
 import logging
 import weakref
 import re
+import contextlib
 
 from ptongue.gemproxyrpc import RPCSession
 from ptongue.gemproxylinked import LinkedSession
@@ -1337,18 +1338,36 @@ class DebuggerWindow(ttk.PanedWindow):
             return self.stack_frames[int(selected_item)]
         return None
 
-    def step_over(self):
+    @contextlib.contextmanager
+    def active_frame(self):
         frame = self.get_selected_stack_frame()
         if frame:
             try:
-                result = self.exception.context.gciStepOverFromLevel(frame.level)
+                yield frame
+                frame.result.asString()
             except GemstoneError as ex:
                 self.exception = ex
                 self.stack_frames = CallStack(self.exception.context)
                 self.refresh()
             else:
-                self.finish(result)
+                self.finish(frame.result)
+        
+    def continue_running(self):
+        with self.active_frame() as frame:
+            frame.result = self.exception.continue_with()
+    
+    def step_over(self):
+        with self.active_frame() as frame:
+            frame.result = self.exception.context.gciStepOverFromLevel(frame.level)
 
+    def step_into(self):
+        with self.active_frame() as frame:
+            frame.result = self.exception.context.gciStepIntoFromLevel(frame.level)
+                
+    def step_through(self):
+        with self.active_frame() as frame:
+            frame.result = self.exception.context.gciStepThruFromLevel(frame.level)
+                
     def finish(self, result):
         self.stack_frames = None
 
@@ -1378,17 +1397,23 @@ class DebuggerControls(ttk.Frame):
         self.into_button = ttk.Button(self, text="Into", command=self.handle_into)
         self.into_button.grid(row=0, column=2, padx=5, pady=5)
 
+        self.through_button = ttk.Button(self, text="Through", command=self.handle_through)
+        self.through_button.grid(row=0, column=3, padx=5, pady=5)
+
         self.stop_button = ttk.Button(self, text="Stop", command=self.handle_stop)
-        self.stop_button.grid(row=0, column=3, padx=5, pady=5)
+        self.stop_button.grid(row=0, column=4, padx=5, pady=5)
 
     def handle_continue(self):
-        self.event_queue.publish('DebuggerContinue')
+        self.debugger.continue_running()
 
     def handle_over(self):
         self.debugger.step_over()
 
     def handle_into(self):
-        self.event_queue.publish('DebuggerStepInto')
+        self.debugger.step_into()
+        
+    def handle_through(self):
+        self.debugger.step_through()
 
     def handle_stop(self):
         self.event_queue.publish('DebuggerStop')
