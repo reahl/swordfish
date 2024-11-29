@@ -509,11 +509,11 @@ class Swordfish(tk.Tk):
 
     def open_debugger(self, exception):
         if self.debugger_tab:
-            response = messagebox.askquestion("Debugger Already Open", "A debugger is already open. Replace it with a new one?", icon='warning', type='okcancel')
-            if response == 'cancel':
-                return
-            elif response == 'ok':
-                self.debugger_tab.destroy()
+            if self.debugger_tab.is_running:
+                response = messagebox.askquestion("Debugger Already Open", "A debugger is already open. Replace it with a new one?", icon='warning', type='okcancel')
+                if response == 'cancel':
+                    return
+            self.debugger_tab.destroy()
 
         self.add_debugger_tab(exception)
         self.select_debugger_tab()
@@ -1248,7 +1248,7 @@ class CallStack:
     def __iter__(self):
         return iter(self.frames)
     
-    
+
 class DebuggerWindow(ttk.PanedWindow):
     def __init__(self, parent, application, gemstone_session_record, event_queue, exception):
         super().__init__(parent, orient=tk.VERTICAL)  # Make DebuggerWindow a vertical paned window
@@ -1257,6 +1257,8 @@ class DebuggerWindow(ttk.PanedWindow):
         self.exception = exception
         self.event_queue = event_queue
         self.gemstone_session_record = gemstone_session_record
+
+        self.state = "running"
 
         # Create top and bottom frames to act as rows in the PanedWindow
         self.top_frame = ttk.Frame(self)
@@ -1280,7 +1282,6 @@ class DebuggerWindow(ttk.PanedWindow):
         # Dictionary to store StackFrame objects by Treeview item ID
         self.stack_frames = CallStack(self.exception.context)
         
-        
         # Bind item selection to method execution
         self.listbox.bind("<ButtonRelease-1>", self.on_listbox_select)
         
@@ -1296,8 +1297,18 @@ class DebuggerWindow(ttk.PanedWindow):
         self.bottom_frame.rowconfigure(0, weight=1)
 
         self.refresh()
-        
+
+    @property
+    def is_running(self):
+        return bool(self.stack_frames)
+    
     def refresh(self):
+        # Update state based on stack frames
+        if not self.stack_frames:
+            self.state = "stopped"
+        else:
+            self.state = "running"
+
         # Clear the existing contents of the listbox
         for item in self.listbox.get_children():
             self.listbox.delete(item)
@@ -1334,10 +1345,21 @@ class DebuggerWindow(ttk.PanedWindow):
             except GemstoneError as ex:
                 self.exception = ex
                 self.stack_frames = CallStack(self.exception.context)
+                self.refresh()
             else:
-                self.stack_frames = []
-                self.code_panel.refresh(result.asString().to_py)
-            self.refresh()
+                self.finish(result)
+
+    def finish(self, result):
+        self.stack_frames = None
+
+        # Remove existing frames from the PanedWindow
+        self.forget(self.top_frame)
+        self.forget(self.bottom_frame)
+
+        # Create and add a Text widget to display the result
+        self.result_text = tk.Text(self)
+        self.result_text.insert('1.0', result.asString().to_py)
+        self.result_text.pack(fill='both', expand=True)
         
             
 class DebuggerControls(ttk.Frame):
