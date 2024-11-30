@@ -1344,7 +1344,6 @@ class DebuggerWindow(ttk.PanedWindow):
         if frame:
             try:
                 yield frame
-                frame.result.asString()
             except GemstoneError as ex:
                 self.exception = ex
                 self.stack_frames = CallStack(self.exception.context)
@@ -1355,6 +1354,7 @@ class DebuggerWindow(ttk.PanedWindow):
     def continue_running(self):
         with self.active_frame() as frame:
             frame.result = self.exception.continue_with()
+            frame.result.gemstone_class().asString()
     
     def step_over(self):
         with self.active_frame() as frame:
