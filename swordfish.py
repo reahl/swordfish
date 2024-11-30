@@ -1199,11 +1199,12 @@ class StackFrame:
         self.gemstone_session = gemstone_process.session
         self.gemstone_process = gemstone_process
         self.level = level
-        frame_data = self.gemstone_process.perform('_frameContentsAt:', self.gemstone_session.from_py(self.level))
+        self.frame_data = frame_data = self.gemstone_process.perform('_frameContentsAt:', self.gemstone_session.from_py(self.level))
         self.is_valid = not frame_data.isNil().to_py
         if self.is_valid:
             self.gemstone_method = frame_data.at(1)
             self.ip_offset = frame_data.at(2)
+            self.var_context = frame_data.at(4)
 
     @property
     def step_point_offset(self):
@@ -1224,6 +1225,20 @@ class StackFrame:
     @property
     def class_name(self):
         return self.gemstone_method.homeMethod().inClass().asString().to_py
+
+    @property
+    def self(self):
+        return self.frame_data.at(8)
+
+    @property
+    def vars(self):
+        vars = {}
+        var_names = self.frame_data.at(9)
+        for idx, name in enumerate(var_names):
+            value = self.frame_data.at(11+idx)
+            vars[name] = value
+        return vars
+
     
 class CallStack:
     def __init__(self, gemstone_process):
@@ -1258,8 +1273,6 @@ class DebuggerWindow(ttk.PanedWindow):
         self.exception = exception
         self.event_queue = event_queue
         self.gemstone_session_record = gemstone_session_record
-
-        self.state = "running"
 
         # Create top and bottom frames to act as rows in the PanedWindow
         self.top_frame = ttk.Frame(self)
@@ -1353,6 +1366,8 @@ class DebuggerWindow(ttk.PanedWindow):
         
     def continue_running(self):
         with self.active_frame() as frame:
+            breakpoint()
+            frame.var_context
             frame.result = self.exception.continue_with()
             frame.result.gemstone_class().asString()
     
@@ -1367,6 +1382,12 @@ class DebuggerWindow(ttk.PanedWindow):
     def step_through(self):
         with self.active_frame() as frame:
             frame.result = self.exception.context.gciStepThruFromLevel(frame.level)
+            
+    def stop(self):
+        with self.active_frame() as frame:
+            frame.result = self.exception.context.resume()
+        self.stack_frames = None
+        self.destroy()
                 
     def finish(self, result):
         self.stack_frames = None
@@ -1416,7 +1437,7 @@ class DebuggerControls(ttk.Frame):
         self.debugger.step_through()
 
     def handle_stop(self):
-        self.event_queue.publish('DebuggerStop')
+        self.debugger.stop()
 
 
         
