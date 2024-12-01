@@ -1194,6 +1194,7 @@ class BrowserWindow(ttk.PanedWindow):
     def gemstone_session_record(self):
         return self.application.gemstone_session_record
 
+
 class StackFrame:
     def __init__(self, gemstone_process, level):
         self.gemstone_session = gemstone_process.session
@@ -1264,7 +1265,58 @@ class CallStack:
     def __iter__(self):
         return iter(self.frames)
 
-    
+
+class ObjectInspector(ttk.Frame):
+    def __init__(self, parent, an_object=None, values=None):
+        super().__init__(parent)
+
+        if not values:
+            values = {}
+            for instvar_name in an_object.gemstone_class().allInstVarNames():
+                values[instvar_name.to_py] = an_object.instVarNamed(instvar_name)
+        
+        # Keep a list of actual value objects
+        self.actual_values = []
+
+        # Create a Treeview widget in the 'context' tab
+        self.treeview = ttk.Treeview(self, columns=('Name', 'Class', 'Value'), show='headings')
+        self.treeview.heading('Name', text='Name')
+        self.treeview.heading('Class', text='Class')
+        self.treeview.heading('Value', text='Value')
+        self.treeview.grid(row=0, column=0, sticky="nsew")
+
+        # Add data to the Treeview and keep track of actual values
+        for name, value in values.items():
+            self.treeview.insert('', 'end', values=(name, value.gemstone_class().asString().to_py, value.asString().to_py))
+            self.actual_values.append(value)
+
+        # Configure grid in the context_frame for proper resizing
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        # Bind double-click event to add new tab
+        self.treeview.bind("<Double-1>", self.on_item_double_click)
+
+    def on_item_double_click(self, event):
+        selected_item = self.treeview.focus()
+        if selected_item:
+            index = self.treeview.index(selected_item)
+            value = self.actual_values[index]  # Fetch the actual value from the list
+            if hasattr(value, 'gemstone_class') and hasattr(value, 'allInstVarNames'):
+                new_tab = ObjectInspector(self.master, an_object=value)
+                self.master.add(new_tab, text=f"Inspector: {self.treeview.item(selected_item, 'values')[0]}")                
+
+
+
+class Explorer(ttk.Notebook):
+    def __init__(self, parent, an_object=None, values=None):
+        super().__init__(parent)
+
+        # Create a new ObjectInspector for the 'context' tab
+        context_frame = ObjectInspector(self, an_object=an_object, values=values)
+        self.add(context_frame, text='Context')
+
+
 class DebuggerWindow(ttk.PanedWindow):
     def __init__(self, parent, application, gemstone_session_record, event_queue, exception):
         super().__init__(parent, orient=tk.VERTICAL)  # Make DebuggerWindow a vertical paned window
@@ -1352,28 +1404,9 @@ class DebuggerWindow(ttk.PanedWindow):
         for widget in self.explorer_frame.winfo_children():
             widget.destroy()
 
-        # Create a new Notebook widget
-        notebook = ttk.Notebook(self.explorer_frame)
-        notebook.grid(row=0, column=0, sticky="nsew")
-
-        # Create a new Frame for the 'context' tab
-        context_frame = ttk.Frame(notebook)
-        notebook.add(context_frame, text='Context')
-
-        # Create a Treeview widget in the 'context' tab
-        treeview = ttk.Treeview(context_frame, columns=('Name', 'Class', 'Value'), show='headings')
-        treeview.heading('Name', text='Name')
-        treeview.heading('Class', text='Class')
-        treeview.heading('Value', text='Value')
-        treeview.grid(row=0, column=0, sticky="nsew")
-
-        # Add data to the Treeview
-        for name, value in [('self', frame.self)]+list(frame.vars.items()):
-            treeview.insert('', 'end', values=(name, value.gemstone_class().asString().to_py, value.asString().to_py))
-
-        # Configure grid in context_frame for proper resizing
-        context_frame.columnconfigure(0, weight=1)
-        context_frame.rowconfigure(0, weight=1)
+        # Create an Explorer widget in the explorer_frame
+        explorer = Explorer(self.explorer_frame, frame, values=dict([('self', frame.self)] + list(frame.vars.items())))
+        explorer.grid(row=0, column=0, sticky="nsew")
     
     def on_listbox_select(self, event):
         frame = self.get_selected_stack_frame()
