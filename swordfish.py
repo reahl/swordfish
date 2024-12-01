@@ -1236,7 +1236,7 @@ class StackFrame:
         var_names = self.frame_data.at(9)
         for idx, name in enumerate(var_names):
             value = self.frame_data.at(11+idx)
-            vars[name] = value
+            vars[name.to_py] = value
         return vars
 
     
@@ -1263,8 +1263,8 @@ class CallStack:
 
     def __iter__(self):
         return iter(self.frames)
-    
 
+    
 class DebuggerWindow(ttk.PanedWindow):
     def __init__(self, parent, application, gemstone_session_record, event_queue, exception):
         super().__init__(parent, orient=tk.VERTICAL)  # Make DebuggerWindow a vertical paned window
@@ -1275,19 +1275,21 @@ class DebuggerWindow(ttk.PanedWindow):
         self.gemstone_session_record = gemstone_session_record
 
         # Create top and bottom frames to act as rows in the PanedWindow
-        self.top_frame = ttk.Frame(self)
-        self.bottom_frame = ttk.Frame(self)
+        self.call_stack_frame = ttk.Frame(self)
+        self.code_panel_frame = ttk.Frame(self)
+        self.explorer_frame = ttk.Frame(self)
 
-        # Add frames to the PanedWindow
-        self.add(self.top_frame)   # Add the top frame (row 0)
-        self.add(self.bottom_frame)  # Add the bottom frame (row 1)
+        # Add frames to the PanedWindow with equal weights
+        self.add(self.call_stack_frame, weight=1)
+        self.add(self.code_panel_frame, weight=1)
+        self.add(self.explorer_frame, weight=1)
 
-        # Add DebuggerControls to the top of the top_frame
-        self.debugger_controls = DebuggerControls(self.top_frame, self, self.event_queue)
+        # Add DebuggerControls to the top of the call_stack_frame
+        self.debugger_controls = DebuggerControls(self.call_stack_frame, self, self.event_queue)
         self.debugger_controls.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 
         # Add a Treeview widget to the top frame, below DebuggerControls, to represent the three-column list
-        self.listbox = ttk.Treeview(self.top_frame, columns=('Level', 'Column1', 'Column2'), show='headings')
+        self.listbox = ttk.Treeview(self.call_stack_frame, columns=('Level', 'Column1', 'Column2'), show='headings')
         self.listbox.heading('Level', text='Level')
         self.listbox.heading('Column1', text='Class Name')
         self.listbox.heading('Column2', text='Method Name')
@@ -1300,15 +1302,25 @@ class DebuggerWindow(ttk.PanedWindow):
         self.listbox.bind("<ButtonRelease-1>", self.on_listbox_select)
         
         # Add a Text widget to the bottom frame (text editor)
-        self.code_panel = CodePanel(self.bottom_frame, application=application)
+        self.code_panel = CodePanel(self.code_panel_frame, application=application)
         self.code_panel.grid(row=0, column=0, sticky="nsew")
 
-        # Configure grid in top_frame and bottom_frame for proper resizing
-        self.top_frame.columnconfigure(0, weight=1)
-        self.top_frame.rowconfigure(1, weight=1)
+        # Configure grid in call_stack_frame, code_panel_frame, and explorer_frame for proper resizing
+        self.call_stack_frame.columnconfigure(0, weight=1)
+        self.call_stack_frame.rowconfigure(1, weight=1)
 
-        self.bottom_frame.columnconfigure(0, weight=1)
-        self.bottom_frame.rowconfigure(0, weight=1)
+        self.code_panel_frame.columnconfigure(0, weight=1)
+        self.code_panel_frame.rowconfigure(0, weight=1)
+
+        self.explorer_frame.columnconfigure(0, weight=1)
+        self.explorer_frame.rowconfigure(0, weight=1)
+
+        # Make the parent window expand correctly
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(0, weight=1)
+
+        # Ensure DebuggerWindow itself expands within its parent
+        self.grid(row=0, column=0, sticky="nsew")
 
         self.refresh()
 
@@ -1317,12 +1329,6 @@ class DebuggerWindow(ttk.PanedWindow):
         return bool(self.stack_frames)
     
     def refresh(self):
-        # Update state based on stack frames
-        if not self.stack_frames:
-            self.state = "stopped"
-        else:
-            self.state = "running"
-
         # Clear the existing contents of the listbox
         for item in self.listbox.get_children():
             self.listbox.delete(item)
@@ -1339,12 +1345,42 @@ class DebuggerWindow(ttk.PanedWindow):
             self.listbox.focus(first_iid)
 
             self.code_panel.refresh(self.stack_frames[1].method_source, mark=self.stack_frames[1].step_point_offset)
-            
+            self.refresh_explorer(self.stack_frames[1])
+
+    def refresh_explorer(self, frame):
+        # Clear existing widgets in the explorer_frame
+        for widget in self.explorer_frame.winfo_children():
+            widget.destroy()
+
+        # Create a new Notebook widget
+        notebook = ttk.Notebook(self.explorer_frame)
+        notebook.grid(row=0, column=0, sticky="nsew")
+
+        # Create a new Frame for the 'context' tab
+        context_frame = ttk.Frame(notebook)
+        notebook.add(context_frame, text='Context')
+
+        # Create a Treeview widget in the 'context' tab
+        treeview = ttk.Treeview(context_frame, columns=('Name', 'Class', 'Value'), show='headings')
+        treeview.heading('Name', text='Name')
+        treeview.heading('Class', text='Class')
+        treeview.heading('Value', text='Value')
+        treeview.grid(row=0, column=0, sticky="nsew")
+
+        # Add data to the Treeview
+        for name, value in [('self', frame.self)]+list(frame.vars.items()):
+            treeview.insert('', 'end', values=(name, value.gemstone_class().asString().to_py, value.asString().to_py))
+
+        # Configure grid in context_frame for proper resizing
+        context_frame.columnconfigure(0, weight=1)
+        context_frame.rowconfigure(0, weight=1)
+    
     def on_listbox_select(self, event):
         frame = self.get_selected_stack_frame()
         if frame:
             self.code_panel.refresh(frame.method_source, mark=frame.step_point_offset)
-
+            self.refresh_explorer(frame)
+            
     def get_selected_stack_frame(self):
         selected_item = self.listbox.focus()
         if selected_item:
@@ -1366,8 +1402,6 @@ class DebuggerWindow(ttk.PanedWindow):
         
     def continue_running(self):
         with self.active_frame() as frame:
-            breakpoint()
-            frame.var_context
             frame.result = self.exception.continue_with()
             frame.result.gemstone_class().asString()
     
@@ -1393,8 +1427,9 @@ class DebuggerWindow(ttk.PanedWindow):
         self.stack_frames = None
 
         # Remove existing frames from the PanedWindow
-        self.forget(self.top_frame)
-        self.forget(self.bottom_frame)
+        self.forget(self.call_stack_frame)
+        self.forget(self.code_panel_frame)
+        self.forget(self.explorer_frame)
 
         # Create and add a Text widget to display the result
         self.result_text = tk.Text(self)
