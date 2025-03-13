@@ -1600,6 +1600,9 @@ class LoginFrame(ttk.Frame):
             self.error_label.grid(column=0,row=6,columnspan=2)           
 
 
-if __name__ == "__main__":
+def run_application():
     app = Swordfish()
     app.mainloop()
+
+if __name__ == "__main__":
+    run_application()

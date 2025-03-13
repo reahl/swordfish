@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "swordfish"
+version = "0.1.0"
+description = "A classic Smalltalk IDE for GemStone/Smalltalk"
+readme = "README.md"
+authors = [
+    {name = "Reahl Software Services (Pty) Ltd", email = "info@reahl.org"}
+]
+license = {text = "GPL-3.0-or-later"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.6",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Software Development :: Integrated Development Environments (IDE)",
+]
+keywords = ["smalltalk", "gemstone", "ide", "development"]
+dependencies = [
+    "parseltongue",  # Your custom dependency
+]
+requires-python = ">=3.6"
+
+[project.urls]
+"Homepage" = "https://github.com/reahl/swordfish"
+"Bug Tracker" = "https://github.com/reahl/swordfish/issues"
+
+[project.scripts]
+swordfish = "swordfish.main:run_application"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["swordfish"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+
+[tool.black]
+line-length = 88
+target-version = ["py36"]
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 88
+src_paths = ["src", "tests"]
