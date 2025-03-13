@@ -1,0 +1,92 @@
+# Swordfish
+
+A classic Smalltalk IDE for GemStone/Smalltalk developed by Reahl Software Services.
+
+## Overview
+
+Swordfish is a Python-based IDE that provides a classic Smalltalk development experience for GemStone/Smalltalk. It features class/method browsing, method editing, debugging capabilities with stepping functionality, and an object inspector.
+
+This project was developed as an experiment in AI-assisted programming, with significant portions (including this README and other metadata) generated through collaboration between human developers and AI, followed by developer refinement and refactoring.
+
+## Features
+
+- Class and method browsing
+- Method editing
+- Debugging with step execution
+- Object inspection
+- Classic Smalltalk IDE experience
+
+## Technical Details
+
+Swordfish is built with:
+- Python
+- Tcl/Tk for the GUI interface (implemented without prior knowledge of the toolkit)
+- Parseltongue - our custom library that enables calling GemStone/Smalltalk methods from Python
+
+## Installation
+
+### From PyPI (Recommended)
+
+```bash
+# Create a virtual environment (optional but recommended)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install from PyPI
+pip install swordfish
+```
+
+### From Source
+
+```bash
+# Clone the repository
+git clone https://github.com/reahl/swordfish.git
+cd swordfish
+
+# Set up a virtual environment (optional but recommended)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install in development mode
+pip install -e .
+```
+
+## Usage
+
+```bash
+# After installation, run directly from command line
+swordfish
+
+# Or if installed from source
+python -m swordfish
+```
+
+## Requirements
+
+- Python 3.6+
+- Tcl/Tk
+- Parseltongue (proprietary dependency)
+- Access to a GemStone/Smalltalk environment
+
+## AI-Assisted Development
+
+This project serves as an exploration of how AI can be incorporated into software development workflows. Our key insights include:
+
+- The initial framework of the app was developed entirely by prompting the AI.
+- As the codebase grew, we started refactoring to extract duplication and address other important code smells.
+- We introduced an event-handling mechanism to allow for better design regarding event handling.
+- We found that refactoring helps tremendously by allowing us to give the AI smaller relevant chunks of context to work with.
+
+Throughout the process, human developers provided domain expertise, drove architectural decisions, performed code reviews, and handled integration and testing. The project demonstrates how AI can be an effective collaborator in software development when combined with sound software engineering practices.
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+
+## Contributing
+
+We welcome contributions! Please feel free to submit a Pull Request.
+
+## About Reahl Software Services
+
+Reahl Software Services (Pty) Ltd is a software development company specializing in innovative software solutions. For more information, visit [our website](https://www.reahl.org/).
