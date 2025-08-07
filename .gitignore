@@ -67,3 +67,6 @@ venv.bak/
 *.log
 
 *~
+copy_and_modify.py
+.serena
+CLAUDE.md

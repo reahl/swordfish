@@ -21,7 +21,7 @@ This project was developed as an experiment in AI-assisted programming, with sig
 Swordfish is built with:
 - Python
 - Tcl/Tk for the GUI interface (implemented without prior knowledge of the toolkit)
-- Parseltongue - our custom library that enables calling GemStone/Smalltalk methods from Python
+- Parseltongue (reahl-parseltongue) - library that enables calling GemStone/Smalltalk methods from Python
 
 ## Installation
 
@@ -65,7 +65,7 @@ python -m swordfish
 
 - Python 3.6+
 - Tcl/Tk
-- Parseltongue (proprietary dependency)
+- reahl-parseltongue
 - Access to a GemStone/Smalltalk environment
 
 ## AI-Assisted Development
