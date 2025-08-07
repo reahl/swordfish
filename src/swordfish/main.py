@@ -5,9 +5,7 @@ import weakref
 import re
 import contextlib
 
-from ptongue.gemproxyrpc import RPCSession
-from ptongue.gemproxylinked import LinkedSession
-from ptongue.gemproxy import GemstoneError
+from reahl.ptongue import RPCSession, LinkedSession, GemstoneError
 
 import tkinter as tk
 from tkinter import ttk

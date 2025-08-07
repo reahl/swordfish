@@ -9,7 +9,7 @@ Thank you for your interest in contributing to Swordfish! We appreciate your hel
 - Python 3.6 or higher
 - Git
 - Tcl/Tk
-- Parseltongue (proprietary dependency)
+- reahl-parseltongue
 - Access to a GemStone/Smalltalk environment
 
 ### Setup for Development
