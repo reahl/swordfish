@@ -1,0 +1,38 @@
+services:
+  swordfish:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        GEMSTONE_VERSION: "3.7.4.3"
+        http_proxy: ${HTTP_PROXY:-}
+        CACHE_DIR: ${CACHE_DIR:-../../cache/downloads}
+      x-bake:
+        platforms: ["linux/amd64"]
+    container_name: swordfish-dev
+    hostname: swordfish-dev
+    volumes:
+      # Mount the entire project directory for development
+      - .:/workspace
+      # Mount X11 socket for GUI support
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # Preserve bash history
+      - swordfish-bash-history:/home/${HOST_USER:-developer}/.bash_history
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - PYTHONPATH=/workspace/src
+      - BUILDKIT_PROGRESS=plain
+      # Pass host user information to container
+      - USER_ID=${HOST_UID:-1000}
+      - GROUP_ID=${HOST_GID:-1000} 
+      - USERNAME=${HOST_USER:-developer}
+    network_mode: host
+    stdin_open: true
+    tty: true
+    working_dir: /workspace
+    command: /bin/bash
+    # For GUI applications
+    privileged: false
+
+volumes:
+  swordfish-bash-history:

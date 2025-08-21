@@ -1,0 +1,6 @@
+services:
+  swordfish:
+    environment:
+      - DEV_HOME=/workspace
+    volumes:
+      - ../../cache/downloads:/workspace/testdownloads
