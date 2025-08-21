@@ -25,6 +25,40 @@ Swordfish is built with:
 
 ## Installation
 
+### Using Docker (Recommended for Development)
+
+```bash
+# Clone the repository
+git clone https://github.com/reahl/swordfish.git
+cd swordfish
+
+# Start the development environment
+./docker-start.sh
+
+# Once inside the container, install the project in editable mode
+pip install -e .
+
+# Run the application
+swordfish
+```
+
+#### Docker Script Options
+
+```bash
+./docker-start.sh                    # Normal development mode
+./docker-start.sh --no-cache         # Clean rebuild (clears Docker cache)
+./docker-start.sh --foreground       # Debug mode (bypass entrypoint, root shell)
+```
+
+
+The Docker setup includes:
+- Ubuntu 24.04 base with Python 3.12
+- GemStone/Smalltalk 3.7.4.3 environment  
+- Python development tools (black, isort, pytest) in virtual environment
+- X11 forwarding for GUI applications
+- Volume mounts for live code editing
+- Automatic user mapping for file permissions
+
 ### From PyPI (Recommended)
 
 ```bash
