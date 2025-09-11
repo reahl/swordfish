@@ -9,8 +9,8 @@ services:
         CACHE_DIR: ${CACHE_DIR:-../../cache/downloads}
       x-bake:
         platforms: ["linux/amd64"]
-    container_name: swordfish-dev
-    hostname: swordfish-dev
+    container_name: swordfish
+    hostname: swordfish
     volumes:
       # Mount the entire project directory for development
       - .:/workspace
@@ -33,6 +33,9 @@ services:
     command: /bin/bash
     # For GUI applications
     privileged: false
+    # Fix hostname resolution for sudo
+    extra_hosts:
+      - "swordfish:127.0.0.1"
 
 volumes:
   swordfish-bash-history:
