@@ -59,6 +59,51 @@ The Docker setup includes:
 - Volume mounts for live code editing
 - Automatic user mapping for file permissions
 
+#### GemStone Server Management
+
+Once inside the container, you can start and manage the GemStone server:
+
+```bash
+# Start the GemStone server (stone name: gs64stone)
+sudo -u gemstone bash -l -c "startstone gs64stone"
+
+# Check server status
+sudo -u gemstone bash -l -c "gslist"
+
+# Stop the GemStone server
+sudo -u gemstone bash -l -c "stopstone gs64stone"
+
+# Alternative: Interactive gemstone user session
+sudo -u gemstone -i
+```
+
+**Note**: GemStone server operations must be run as the `gemstone` user for proper permissions and security. The `-l` flag ensures the GemStone environment is loaded.
+
+#### Running Swordfish in the Development Container
+
+To try out Swordfish with GemStone in the development container:
+
+```bash
+# 1. Start the GemStone server
+sudo -u gemstone bash -l -c "startstone gs64stone"
+
+# 2. Verify the stone is running
+sudo -u gemstone bash -l -c "gslist"
+
+# 3. Install Swordfish in development mode
+pip install -e .
+
+# 4. Run Swordfish
+swordfish
+
+# 5. In the Swordfish GUI, connect to GemStone:
+#    - Use "Linked Session" connection type
+#    - Set stone name to: gs64stone
+#    - Leave other connection settings as defaults
+```
+
+The Swordfish GUI will open with X11 forwarding, allowing you to browse classes, edit methods, and use the debugger with your local GemStone installation.
+
 ### From PyPI (Recommended)
 
 ```bash

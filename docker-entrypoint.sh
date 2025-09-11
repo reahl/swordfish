@@ -19,23 +19,35 @@ if ! getent passwd "$USERNAME" >/dev/null 2>&1; then
     useradd -m -u "$USER_ID" -g "$GROUP_ID" -s /bin/bash "$USERNAME"
     echo "$USERNAME:developer" | chpasswd
     usermod -aG sudo "$USERNAME"
+    # Add development user to gemstone group for GemStone file access
+    usermod -aG gemstone "$USERNAME"
     echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 fi
 
-# Set up GemStone environment for the user
+# Ensure the user's home directory exists and has proper permissions first
 USER_HOME=$(getent passwd "$USERNAME" | cut -d: -f6)
-if [ -f /opt/dev/defineGemStoneEnvironment.sh ]; then
-    if ! grep -q "defineGemStoneEnvironment.sh" "$USER_HOME/.bashrc" 2>/dev/null; then
-        echo "source /opt/dev/defineGemStoneEnvironment.sh \$GEMSTONE_VERSION" >> "$USER_HOME/.bashrc"
-        echo "export GEMSTONE_VERSION=3.7.4.3" >> "$USER_HOME/.bashrc"
+mkdir -p "$USER_HOME"
+chown "$USERNAME:$USERNAME" "$USER_HOME"
+
+# Set up GemStone environment for the user
+if [ -f /opt/dev/gemstone/defineGemStoneEnvironment.sh ]; then
+    if [ ! -f "$USER_HOME/.gemstone_setup_done" ]; then
+        echo "Setting up GemStone environment for $USERNAME"
+        gosu "$USERNAME" /opt/dev/gemstone/defineGemStoneEnvironment.sh 3.7.4.3
+        # Also add the GemStone environment directly to the user's profile for immediate access
+        if ! grep -q "GEMSHELL" "$USER_HOME/.profile" 2>/dev/null; then
+            echo "" >> "$USER_HOME/.profile"
+            echo "# GemStone Environment" >> "$USER_HOME/.profile"
+            echo "echo GEMSHELL: /opt/dev/gemstone/gemShell.sh" >> "$USER_HOME/.profile"
+            echo "VERSION=3.7.4.3" >> "$USER_HOME/.profile"
+            echo ". /opt/dev/gemstone/gemShell.sh 3.7.4.3" >> "$USER_HOME/.profile"
+        fi
+        touch "$USER_HOME/.gemstone_setup_done"
     fi
 fi
 
 # Install Python development tools for the user in a virtual environment
 if [ ! -f "$USER_HOME/.dev_tools_installed" ]; then
-    # Ensure the user's home directory exists and has proper permissions
-    mkdir -p "$USER_HOME"
-    chown "$USERNAME:$USERNAME" "$USER_HOME"
     
     # Create virtual environment for development tools
     gosu "$USERNAME" python3 -m venv "$USER_HOME/.local/venv"
@@ -51,6 +63,26 @@ fi
 
 # Change ownership of workspace to the user
 chown -R "$USERNAME:$USERNAME" /workspace
+
+# Set up GemStone configuration and environment for gemstone user
+if [ -f /opt/gemstone/GemStone*/bin/initial.config ]; then
+    GEMSTONE_DIR=$(ls -d /opt/gemstone/GemStone* | head -1)
+    if [ ! -f "$GEMSTONE_DIR/data/system.conf" ]; then
+        echo "Setting up GemStone system configuration..."
+        mkdir -p "$GEMSTONE_DIR/data"
+        cp "$GEMSTONE_DIR/bin/initial.config" "$GEMSTONE_DIR/data/system.conf"
+        chown -R gemstone:gemstone "$GEMSTONE_DIR/data"
+    fi
+    
+    # Set up GemStone environment for gemstone user
+    GEMSTONE_USER_HOME="/home/gemstone"
+    if [ -f /opt/dev/gemstone/defineGemStoneEnvironment.sh ] && [ ! -f "$GEMSTONE_USER_HOME/.gemstone_setup_done" ]; then
+        echo "Setting up GemStone environment for gemstone user..."
+        gosu gemstone /opt/dev/gemstone/defineGemStoneEnvironment.sh 3.7.4.3
+        # Note: .profile already sources .bashrc, so no circular reference needed
+        touch "$GEMSTONE_USER_HOME/.gemstone_setup_done"
+    fi
+fi
 
 # Set up X11 socket permissions for secure GUI access
 if [ -S /tmp/.X11-unix/X0 ]; then

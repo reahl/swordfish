@@ -4,6 +4,7 @@
 # Parse command line arguments
 NO_CACHE=""
 FOREGROUND=""
+NO_ENTRYPOINT=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -14,12 +15,17 @@ while [[ $# -gt 0 ]]; do
             ;;
         --foreground)
             FOREGROUND="true"
-            echo "Running container in foreground (bypassing entrypoint)"
+            echo "Running container in foreground"
+            shift
+            ;;
+        --no-entry-point)
+            NO_ENTRYPOINT="true"
+            echo "Bypassing entrypoint"
             shift
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--no-cache] [--foreground]"
+            echo "Usage: $0 [--no-cache] [--foreground] [--no-entry-point]"
             exit 1
             ;;
     esac
@@ -62,8 +68,13 @@ sudo -E docker compose --progress=plain build --pull $NO_CACHE
 
 # Start the development environment
 if [[ "$FOREGROUND" == "true" ]]; then
-    # Run in foreground with debug entrypoint (bypass entrypoint, interactive shell)
-    sudo -E docker compose run --rm --entrypoint /bin/bash swordfish
+    if [[ "$NO_ENTRYPOINT" == "true" ]]; then
+        # Run in foreground with bypassed entrypoint (debug mode)
+        sudo -E docker compose run --rm --entrypoint /bin/bash swordfish
+    else
+        # Run in foreground with normal entrypoint
+        sudo -E docker compose run --rm swordfish
+    fi
 else
     # Run in background with normal entrypoint
     sudo -E docker compose up -d
