@@ -39,6 +39,7 @@ cd swordfish
 pip install -e .
 
 # Run the application
+source ~/.profile
 swordfish
 ```
 
