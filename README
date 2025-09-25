@@ -112,7 +112,7 @@ python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install from PyPI
-pip install swordfish
+pip install reahl-swordfish
 ```
 
 ### From Source
