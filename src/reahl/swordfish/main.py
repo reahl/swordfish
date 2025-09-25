@@ -1,15 +1,15 @@
 #!/var/local/gemstone/venv/wonka/bin/python
 
-import logging
-import weakref
-import re
 import contextlib
-
-from reahl.ptongue import RPCSession, LinkedSession, GemstoneError
-
+import logging
+import re
 import tkinter as tk
-from tkinter import ttk
 import tkinter.messagebox as messagebox
+import weakref
+from tkinter import ttk
+
+from reahl.ptongue import GemstoneError, LinkedSession, RPCSession
+
 
 class DomainException(Exception):
     pass
