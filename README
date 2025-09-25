@@ -163,6 +163,44 @@ Throughout the process, human developers provided domain expertise, drove archit
 
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
+## Development & CI/CD
+
+### Continuous Integration
+
+This project uses GitHub Actions for continuous integration and deployment:
+
+- **CI Workflow**: Automatically runs on pull requests and pushes to main branch
+  - Tests package installation across Python 3.8-3.12
+  - Validates code formatting with Black and isort
+  - Builds wheel packages for verification
+  - Runs import tests
+
+- **Deploy Workflow**: Automatically publishes to PyPI on version tags
+  - Triggers on tags matching `v*` pattern (e.g., `v1.0.0`)
+  - Builds wheel and source distributions
+  - Publishes to PyPI using secure token authentication
+  - Creates GitHub releases with auto-generated notes
+
+### Release Process
+
+To create a new release:
+
+1. Update the version in `pyproject.toml`
+2. Commit your changes and push to main branch
+3. Create and push a version tag:
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+4. The GitHub Actions workflow will automatically:
+   - Build the package
+   - Publish to PyPI as `reahl-swordfish`
+   - Create a GitHub release
+
+### Repository Setup
+
+To enable automated PyPI publishing, the repository must have a `PYPI_API_TOKEN` secret configured with a valid PyPI API token for the `reahl-swordfish` package.
+
 ## Contributing
 
 We welcome contributions! Please feel free to submit a Pull Request.
