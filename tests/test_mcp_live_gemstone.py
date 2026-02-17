@@ -90,7 +90,11 @@ class LiveMcpConnectionFixture(Fixture):
 
     def new_registered_mcp_tools(self):
         registrar = McpToolRegistrar()
-        register_tools(registrar)
+        register_tools(
+            registrar,
+            allow_eval=True,
+            allow_compile=True,
+        )
         return registrar.registered_tools_by_name
 
     def new_connect_result(self):
