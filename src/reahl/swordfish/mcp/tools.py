@@ -12,6 +12,12 @@ from reahl.swordfish.gemstone import create_linked_session
 from reahl.swordfish.gemstone import create_rpc_session
 from reahl.swordfish.gemstone import gemstone_error_payload
 from reahl.swordfish.gemstone import session_summary
+from reahl.swordfish.mcp.debug_registry import add_debug_session
+from reahl.swordfish.mcp.debug_registry import get_debug_metadata
+from reahl.swordfish.mcp.debug_registry import get_debug_session
+from reahl.swordfish.mcp.debug_registry import has_debug_session
+from reahl.swordfish.mcp.debug_registry import remove_debug_session
+from reahl.swordfish.mcp.debug_registry import remove_debug_sessions_for_connection
 from reahl.swordfish.mcp.session_registry import add_connection
 from reahl.swordfish.mcp.session_registry import get_metadata
 from reahl.swordfish.mcp.session_registry import get_session
@@ -40,6 +46,26 @@ def register_tools(
             return None, error_response
         return GemstoneBrowserSession(gemstone_session), None
 
+    def get_active_debug_session(connection_id, debug_id):
+        if not has_debug_session(debug_id):
+            return None, {
+                'ok': False,
+                'connection_id': connection_id,
+                'debug_id': debug_id,
+                'error': {'message': 'Unknown debug_id.'},
+            }
+        debug_metadata = get_debug_metadata(debug_id)
+        if debug_metadata['connection_id'] != connection_id:
+            return None, {
+                'ok': False,
+                'connection_id': connection_id,
+                'debug_id': debug_id,
+                'error': {
+                    'message': 'debug_id is not associated with connection_id.'
+                },
+            }
+        return get_debug_session(debug_id), None
+
     def disabled_tool_response(connection_id, message):
         return {
             'ok': False,
@@ -47,8 +73,7 @@ def register_tools(
             'error': {'message': message},
         }
 
-    def serialized_debug_frames(error):
-        debug_session = GemstoneDebugSession(error)
+    def serialized_debug_frames(debug_session):
         stack_frames = debug_session.call_stack()
         return [
             {
@@ -60,6 +85,37 @@ def register_tools(
             }
             for frame in stack_frames
         ]
+
+    def debug_payload(debug_session):
+        return {
+            'stack_frames': serialized_debug_frames(debug_session),
+        }
+
+    def debug_action_response(
+        connection_id,
+        debug_id,
+        debug_session,
+        action_outcome,
+    ):
+        if action_outcome.has_completed:
+            remove_debug_session(debug_id)
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'debug_id': debug_id,
+                'completed': True,
+                'output': debug_session.rendered_result_payload(
+                    action_outcome.result
+                ),
+            }
+        return {
+            'ok': True,
+            'connection_id': connection_id,
+            'debug_id': debug_id,
+            'completed': False,
+            'error': gemstone_error_payload(debug_session.exception),
+            'debug': debug_payload(debug_session),
+        }
 
     @mcp_server.tool()
     def gs_connect(
@@ -125,6 +181,7 @@ def register_tools(
                 },
             }
 
+        remove_debug_sessions_for_connection(connection_id)
         gemstone_session = remove_connection(connection_id)
         try:
             close_session(gemstone_session)
@@ -475,6 +532,151 @@ def register_tools(
             }
 
     @mcp_server.tool()
+    def gs_debug_eval(connection_id, source):
+        if not allow_eval:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_debug_eval is disabled. '
+                    'Start swordfish-mcp with --allow-eval to enable.'
+                ),
+            )
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            output = browser_session.evaluate_source(source)
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'completed': True,
+                'output': output,
+            }
+        except GemstoneError as error:
+            debug_session = GemstoneDebugSession(error)
+            debug_id = add_debug_session(connection_id, debug_session)
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'debug_id': debug_id,
+                'completed': False,
+                'error': gemstone_error_payload(error),
+                'debug': debug_payload(debug_session),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_debug_stack(connection_id, debug_id):
+        debug_session, error_response = get_active_debug_session(
+            connection_id,
+            debug_id,
+        )
+        if error_response:
+            return error_response
+        return {
+            'ok': True,
+            'connection_id': connection_id,
+            'debug_id': debug_id,
+            'completed': False,
+            'error': gemstone_error_payload(debug_session.exception),
+            'debug': debug_payload(debug_session),
+        }
+
+    @mcp_server.tool()
+    def gs_debug_continue(connection_id, debug_id):
+        debug_session, error_response = get_active_debug_session(
+            connection_id,
+            debug_id,
+        )
+        if error_response:
+            return error_response
+        action_outcome = debug_session.continue_running()
+        return debug_action_response(
+            connection_id,
+            debug_id,
+            debug_session,
+            action_outcome,
+        )
+
+    @mcp_server.tool()
+    def gs_debug_step_over(connection_id, debug_id, level=1):
+        debug_session, error_response = get_active_debug_session(
+            connection_id,
+            debug_id,
+        )
+        if error_response:
+            return error_response
+        action_outcome = debug_session.step_over(level)
+        return debug_action_response(
+            connection_id,
+            debug_id,
+            debug_session,
+            action_outcome,
+        )
+
+    @mcp_server.tool()
+    def gs_debug_step_into(connection_id, debug_id, level=1):
+        debug_session, error_response = get_active_debug_session(
+            connection_id,
+            debug_id,
+        )
+        if error_response:
+            return error_response
+        action_outcome = debug_session.step_into(level)
+        return debug_action_response(
+            connection_id,
+            debug_id,
+            debug_session,
+            action_outcome,
+        )
+
+    @mcp_server.tool()
+    def gs_debug_step_through(connection_id, debug_id, level=1):
+        debug_session, error_response = get_active_debug_session(
+            connection_id,
+            debug_id,
+        )
+        if error_response:
+            return error_response
+        action_outcome = debug_session.step_through(level)
+        return debug_action_response(
+            connection_id,
+            debug_id,
+            debug_session,
+            action_outcome,
+        )
+
+    @mcp_server.tool()
+    def gs_debug_stop(connection_id, debug_id):
+        debug_session, error_response = get_active_debug_session(
+            connection_id,
+            debug_id,
+        )
+        if error_response:
+            return error_response
+        action_outcome = debug_session.stop()
+        remove_debug_session(debug_id)
+        if action_outcome.has_completed:
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'debug_id': debug_id,
+                'stopped': True,
+            }
+        return {
+            'ok': False,
+            'connection_id': connection_id,
+            'debug_id': debug_id,
+            'stopped': False,
+            'error': gemstone_error_payload(debug_session.exception),
+        }
+
+    @mcp_server.tool()
     def gs_eval(connection_id, source):
         if not allow_eval:
             return disabled_tool_response(
@@ -498,12 +700,13 @@ def register_tools(
                 'output': output,
             }
         except GemstoneError as error:
+            debug_session = GemstoneDebugSession(error)
             return {
                 'ok': False,
                 'connection_id': connection_id,
                 'error': gemstone_error_payload(error),
                 'debug': {
-                    'stack_frames': serialized_debug_frames(error),
+                    'stack_frames': serialized_debug_frames(debug_session),
                 },
             }
         except GemstoneApiError as error:

@@ -1,5 +1,7 @@
 from reahl.ptongue import GemstoneError
 
+from reahl.swordfish.gemstone.session import render_result
+
 
 class GemstoneDebugActionOutcome:
     def __init__(self, has_completed, result=None):
@@ -98,6 +100,11 @@ class GemstoneDebugSession:
         if self.exception is None or self.exception.context is None:
             return []
         return GemstoneCallStack(self.exception.context)
+
+    def rendered_result_payload(self, result):
+        return {
+            'result': render_result(result),
+        }
 
     def continue_running(self):
         return self.debug_action_outcome(self.continued_result)
