@@ -97,6 +97,27 @@ class GemstoneBrowserSession:
             'result': render_result(result),
         }
 
+    def run_gemstone_tests(self, test_case_class_name):
+        test_case_class = self.gemstone_session.resolve_symbol(test_case_class_name)
+        test_suite = test_case_class.suite()
+        test_result = test_suite.run()
+        failure_entries = [
+            failure.printString().to_py
+            for failure in test_result.failures().asSortedCollection()
+        ]
+        error_entries = [
+            error.printString().to_py
+            for error in test_result.errors().asSortedCollection()
+        ]
+        return {
+            'run_count': test_result.runCount().to_py,
+            'failure_count': test_result.failureCount().to_py,
+            'error_count': test_result.errorCount().to_py,
+            'has_passed': test_result.hasPassed().to_py,
+            'failures': failure_entries,
+            'errors': error_entries,
+        }
+
     def find_classes(self, search_input):
         try:
             pattern = re.compile(search_input, re.IGNORECASE)

@@ -152,6 +152,9 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_compile_method(self):
         return self.registered_mcp_tools['gs_compile_method']
 
+    def new_gs_run_gemstone_tests(self):
+        return self.registered_mcp_tools['gs_run_gemstone_tests']
+
     def evaluate_python_value(self, source):
         eval_result = self.gs_eval(self.connection_id, source)
         assert eval_result['ok'], eval_result
@@ -292,6 +295,74 @@ def test_live_gs_compile_method_returns_ok(live_connection):
     )
     assert source_result['ok'], source_result
     assert selector in source_result['source']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_run_gemstone_tests_reports_passing_suite(live_connection):
+    class_name = 'McpPassingTestCase%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_eval(
+        live_connection.connection_id,
+        (
+            "TestCase subclass: '%s' instVarNames: #() classVars: #() "
+            "classInstVars: #() poolDictionaries: #() "
+            "inDictionary: UserGlobals options: #()"
+        )
+        % class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'testPass ^self assert: true',
+        True,
+    )
+    assert compile_result['ok'], compile_result
+    run_result = live_connection.gs_run_gemstone_tests(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert run_result['ok'], run_result
+    assert run_result['tests_passed']
+    assert run_result['result']['run_count'] == 1
+    assert run_result['result']['failure_count'] == 0
+    assert run_result['result']['error_count'] == 0
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_run_gemstone_tests_reports_failing_suite(live_connection):
+    class_name = 'McpFailingTestCase%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_eval(
+        live_connection.connection_id,
+        (
+            "TestCase subclass: '%s' instVarNames: #() classVars: #() "
+            "classInstVars: #() poolDictionaries: #() "
+            "inDictionary: UserGlobals options: #()"
+        )
+        % class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'testFail ^self assert: false',
+        True,
+    )
+    assert compile_result['ok'], compile_result
+    run_result = live_connection.gs_run_gemstone_tests(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert run_result['ok'], run_result
+    assert not run_result['tests_passed']
+    assert run_result['result']['run_count'] == 1
+    assert run_result['result']['failure_count'] == 1
+    assert run_result['result']['error_count'] == 0
+    assert run_result['result']['failures']
+    assert class_name in run_result['result']['failures'][0]
 
 
 @with_fixtures(LiveMcpConnectionFixture)
