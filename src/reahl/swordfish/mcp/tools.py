@@ -9,7 +9,6 @@ from reahl.swordfish.gemstone import GemstoneBrowserSession
 from reahl.swordfish.gemstone import close_session
 from reahl.swordfish.gemstone import create_linked_session
 from reahl.swordfish.gemstone import create_rpc_session
-from reahl.swordfish.gemstone import evaluate_source
 from reahl.swordfish.gemstone import gemstone_error_payload
 from reahl.swordfish.gemstone import session_summary
 from reahl.swordfish.mcp.session_registry import add_connection
@@ -380,14 +379,49 @@ def register_tools(mcp_server):
             }
 
     @mcp_server.tool()
+    def gs_compile_method(
+        connection_id,
+        class_name,
+        source,
+        show_instance_side=True,
+    ):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            browser_session.compile_method(
+                class_name,
+                show_instance_side,
+                source,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'show_instance_side': show_instance_side,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
     def gs_eval(connection_id, source):
-        gemstone_session, error_response = get_active_session(connection_id)
+        browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
         metadata = get_metadata(connection_id)
 
         try:
-            output = evaluate_source(gemstone_session, source)
+            output = browser_session.evaluate_source(source)
             return {
                 'ok': True,
                 'connection_id': connection_id,

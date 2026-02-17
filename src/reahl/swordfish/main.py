@@ -170,12 +170,14 @@ class GemstoneSessionRecord:
         ]
         
     def update_method_source(self, selected_class, show_instance_side, method_symbol, source):
-        gemstone_class = self.gemstone_session.resolve_symbol(selected_class)
-        class_to_query = gemstone_class if show_instance_side else gemstone_class.gemstone_class()
-        class_to_query.compile(source)
+        self.gemstone_browser_session.compile_method(
+            selected_class,
+            show_instance_side,
+            source,
+        )
 
     def run_code(self, source):
-        return self.gemstone_session.execute(source)
+        return self.gemstone_browser_session.run_code(source)
     # except GemstoneError as e:
     #     try:
     #         e.context.gciStepOverFromLevel(1)
