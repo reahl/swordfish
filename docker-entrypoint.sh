@@ -8,6 +8,10 @@ trap 'echo "Received signal, shutting down..."; exit 0' SIGTERM SIGINT
 USER_ID=${USER_ID:-1000}
 GROUP_ID=${GROUP_ID:-1000}
 USERNAME=${USERNAME:-developer}
+ENABLE_SSHD=${ENABLE_SSHD:-false}
+SSH_PORT=${SSH_PORT:-2222}
+SSH_BIND_ADDRESS=${SSH_BIND_ADDRESS:-127.0.0.1}
+SSH_AUTHORIZED_KEY=${SSH_AUTHORIZED_KEY:-}
 
 # Create group if it doesn't exist
 if ! getent group "$USERNAME" >/dev/null 2>&1; then
@@ -92,6 +96,42 @@ fi
 # Ensure X11 auth file has correct ownership if it exists
 if [ -f "$USER_HOME/.Xauthority" ]; then
     chown "$USERNAME:$USERNAME" "$USER_HOME/.Xauthority" 2>/dev/null || true
+fi
+
+if [ "$ENABLE_SSHD" = "true" ]; then
+    mkdir -p /run/sshd
+    ssh-keygen -A >/dev/null
+    USER_SSH_DIR="$USER_HOME/.ssh"
+    AUTHORIZED_KEYS_FILE="$USER_SSH_DIR/authorized_keys"
+    mkdir -p "$USER_SSH_DIR"
+    touch "$AUTHORIZED_KEYS_FILE"
+    if [ -n "$SSH_AUTHORIZED_KEY" ]; then
+        printf '%s\n' "$SSH_AUTHORIZED_KEY" >> "$AUTHORIZED_KEYS_FILE"
+    fi
+    sort -u "$AUTHORIZED_KEYS_FILE" -o "$AUTHORIZED_KEYS_FILE"
+    chmod 700 "$USER_SSH_DIR"
+    chmod 600 "$AUTHORIZED_KEYS_FILE"
+    chown -R "$USERNAME:$USERNAME" "$USER_SSH_DIR"
+    mkdir -p /etc/ssh/sshd_config.d
+    cat > /etc/ssh/sshd_config.d/swordfish.conf <<EOF
+Port $SSH_PORT
+ListenAddress $SSH_BIND_ADDRESS
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+ChallengeResponseAuthentication no
+UsePAM no
+PermitRootLogin no
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+AllowUsers $USERNAME
+AllowTcpForwarding no
+X11Forwarding no
+PermitTunnel no
+GatewayPorts no
+PrintMotd no
+EOF
+    /usr/sbin/sshd
+    echo "SSH server is listening on ${SSH_BIND_ADDRESS}:${SSH_PORT}"
 fi
 
 # Execute the command as the user

@@ -22,6 +22,10 @@ services:
       - DISPLAY=${DISPLAY:-:0}
       - PYTHONPATH=/workspace/src
       - BUILDKIT_PROGRESS=plain
+      - ENABLE_SSHD=${ENABLE_SSHD:-false}
+      - SSH_PORT=${SF_SSH_PORT:-2222}
+      - SSH_BIND_ADDRESS=${SF_SSH_BIND_ADDRESS:-127.0.0.1}
+      - SSH_AUTHORIZED_KEY=${SF_SSH_AUTHORIZED_KEY:-}
       # Pass host user information to container
       - USER_ID=${HOST_UID:-1000}
       - GROUP_ID=${HOST_GID:-1000} 
