@@ -35,6 +35,16 @@ requires-python = ">=3.6"
 
 [project.scripts]
 swordfish = "reahl.swordfish.main:run_application"
+swordfish-mcp = "reahl.swordfish.mcp.main:run_application"
+
+[project.optional-dependencies]
+mcp = [
+    "mcp[cli]>=1.0,<2; python_version >= '3.10'",
+]
+test = [
+    "reahl-tofu",
+    "setuptools<81",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
