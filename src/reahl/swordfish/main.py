@@ -595,7 +595,7 @@ class RunDialog(tk.Toplevel):
             code_to_run = self.source_text.get("1.0", tk.END).strip()
             result = self.master.gemstone_session_record.run_code(code_to_run)
             self.on_run_complete(result)
-        except Exception as e:
+        except GemstoneError as e:
             self.status_label.config(text=f"Error: {str(e)}")
             self.debug_button = tk.Button(self, text="Debug", command=lambda exc=e: self.open_debugger(exc))
             self.debug_button.pack(pady=(0, 10))
