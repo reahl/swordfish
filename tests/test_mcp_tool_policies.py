@@ -28,6 +28,9 @@ class RestrictedToolsFixture(Fixture):
     def new_gs_compile_method(self):
         return self.registered_mcp_tools['gs_compile_method']
 
+    def new_gs_debug_eval(self):
+        return self.registered_mcp_tools['gs_debug_eval']
+
 
 class AllowedToolsFixture(Fixture):
     def new_registered_mcp_tools(self):
@@ -44,6 +47,9 @@ class AllowedToolsFixture(Fixture):
 
     def new_gs_compile_method(self):
         return self.registered_mcp_tools['gs_compile_method']
+
+    def new_gs_debug_eval(self):
+        return self.registered_mcp_tools['gs_debug_eval']
 
 
 @with_fixtures(RestrictedToolsFixture)
@@ -71,6 +77,19 @@ def test_gs_compile_method_is_disabled_by_default(tools_fixture):
     )
 
 
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_debug_eval_is_disabled_by_default(tools_fixture):
+    debug_eval_result = tools_fixture.gs_debug_eval(
+        'missing-connection-id',
+        '3 + 4',
+    )
+    assert not debug_eval_result['ok']
+    assert debug_eval_result['error']['message'] == (
+        'gs_debug_eval is disabled. '
+        'Start swordfish-mcp with --allow-eval to enable.'
+    )
+
+
 @with_fixtures(AllowedToolsFixture)
 def test_gs_eval_checks_connection_when_allowed(tools_fixture):
     eval_result = tools_fixture.gs_eval('missing-connection-id', '3 + 4')
@@ -88,3 +107,13 @@ def test_gs_compile_method_checks_connection_when_allowed(tools_fixture):
     )
     assert not compile_result['ok']
     assert compile_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_debug_eval_checks_connection_when_allowed(tools_fixture):
+    debug_eval_result = tools_fixture.gs_debug_eval(
+        'missing-connection-id',
+        '3 + 4',
+    )
+    assert not debug_eval_result['ok']
+    assert debug_eval_result['error']['message'] == 'Unknown connection_id.'

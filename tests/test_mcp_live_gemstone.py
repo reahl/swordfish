@@ -20,6 +20,7 @@ from reahl.swordfish.gemstone import GemstoneBrowserSession
 from reahl.swordfish.gemstone import GemstoneDebugSession
 from reahl.swordfish.gemstone import close_session
 from reahl.swordfish.gemstone import create_linked_session
+from reahl.swordfish.mcp.debug_registry import clear_debug_sessions
 from reahl.swordfish.mcp.session_registry import clear_connections
 from reahl.swordfish.mcp.session_registry import get_session
 from reahl.swordfish.mcp.session_registry import has_connection
@@ -78,6 +79,7 @@ class LiveMcpConnectionFixture(Fixture):
     @set_up
     def prepare_registry(self):
         self.active_connection_id = None
+        clear_debug_sessions()
         clear_connections()
 
     @tear_down
@@ -88,6 +90,7 @@ class LiveMcpConnectionFixture(Fixture):
                 get_session(self.active_connection_id).abort()
             disconnect_result = self.gs_disconnect(self.active_connection_id)
             assert disconnect_result['ok'], disconnect_result
+        clear_debug_sessions()
         clear_connections()
 
     def new_registered_mcp_tools(self):
@@ -160,6 +163,27 @@ class LiveMcpConnectionFixture(Fixture):
 
     def new_gs_run_gemstone_tests(self):
         return self.registered_mcp_tools['gs_run_gemstone_tests']
+
+    def new_gs_debug_eval(self):
+        return self.registered_mcp_tools['gs_debug_eval']
+
+    def new_gs_debug_stack(self):
+        return self.registered_mcp_tools['gs_debug_stack']
+
+    def new_gs_debug_continue(self):
+        return self.registered_mcp_tools['gs_debug_continue']
+
+    def new_gs_debug_step_over(self):
+        return self.registered_mcp_tools['gs_debug_step_over']
+
+    def new_gs_debug_step_into(self):
+        return self.registered_mcp_tools['gs_debug_step_into']
+
+    def new_gs_debug_step_through(self):
+        return self.registered_mcp_tools['gs_debug_step_through']
+
+    def new_gs_debug_stop(self):
+        return self.registered_mcp_tools['gs_debug_stop']
 
     def evaluate_python_value(self, source):
         eval_result = self.gs_eval(self.connection_id, source)
@@ -283,6 +307,91 @@ def test_live_gs_eval_error_includes_serialized_debug_stack(live_connection):
     assert top_frame['method_name']
     assert top_frame['method_source']
     assert top_frame['step_point_offset'] > 0
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_debug_eval_returns_debug_session_for_halt(live_connection):
+    debug_eval_result = live_connection.gs_debug_eval(
+        live_connection.connection_id,
+        'true ifTrue: [ 0 halt. 1+1. 122+1 ]',
+    )
+    assert debug_eval_result['ok'], debug_eval_result
+    assert not debug_eval_result['completed']
+    assert debug_eval_result['debug_id']
+    assert debug_eval_result['debug']['stack_frames']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_debug_stack_returns_stack_for_existing_debug_session(
+    live_connection,
+):
+    debug_eval_result = live_connection.gs_debug_eval(
+        live_connection.connection_id,
+        'true ifTrue: [ 0 halt. 1+1. 122+1 ]',
+    )
+    assert debug_eval_result['ok'], debug_eval_result
+    debug_id = debug_eval_result['debug_id']
+    stack_result = live_connection.gs_debug_stack(
+        live_connection.connection_id,
+        debug_id,
+    )
+    assert stack_result['ok'], stack_result
+    assert not stack_result['completed']
+    assert stack_result['debug']['stack_frames']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_debug_step_over_then_continue_completes_debug_session(
+    live_connection,
+):
+    debug_eval_result = live_connection.gs_debug_eval(
+        live_connection.connection_id,
+        'true ifTrue: [ 0 halt. 1+1. 122+1 ]',
+    )
+    assert debug_eval_result['ok'], debug_eval_result
+    debug_id = debug_eval_result['debug_id']
+    step_result = live_connection.gs_debug_step_over(
+        live_connection.connection_id,
+        debug_id,
+        1,
+    )
+    assert step_result['ok'], step_result
+    assert not step_result['completed']
+    continue_result = live_connection.gs_debug_continue(
+        live_connection.connection_id,
+        debug_id,
+    )
+    assert continue_result['ok'], continue_result
+    assert continue_result['completed']
+    assert continue_result['output']['result']['python_value'] == 123
+    stack_after_continue = live_connection.gs_debug_stack(
+        live_connection.connection_id,
+        debug_id,
+    )
+    assert not stack_after_continue['ok']
+    assert stack_after_continue['error']['message'] == 'Unknown debug_id.'
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_debug_stop_clears_debug_session(live_connection):
+    debug_eval_result = live_connection.gs_debug_eval(
+        live_connection.connection_id,
+        'true ifTrue: [ 0 halt. 1+1. 122+1 ]',
+    )
+    assert debug_eval_result['ok'], debug_eval_result
+    debug_id = debug_eval_result['debug_id']
+    stop_result = live_connection.gs_debug_stop(
+        live_connection.connection_id,
+        debug_id,
+    )
+    assert stop_result['ok'], stop_result
+    assert stop_result['stopped']
+    stack_after_stop = live_connection.gs_debug_stack(
+        live_connection.connection_id,
+        debug_id,
+    )
+    assert not stack_after_stop['ok']
+    assert stack_after_stop['error']['message'] == 'Unknown debug_id.'
 
 
 @with_fixtures(LiveMcpConnectionFixture)
