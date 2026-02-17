@@ -5,19 +5,12 @@ from reahl.swordfish.gemstone import abort_transaction
 from reahl.swordfish.gemstone import begin_transaction
 from reahl.swordfish.gemstone import commit_transaction
 from reahl.swordfish.gemstone import DomainException
+from reahl.swordfish.gemstone import GemstoneBrowserSession
 from reahl.swordfish.gemstone import close_session
 from reahl.swordfish.gemstone import create_linked_session
 from reahl.swordfish.gemstone import create_rpc_session
 from reahl.swordfish.gemstone import evaluate_source
-from reahl.swordfish.gemstone import find_classes
-from reahl.swordfish.gemstone import find_implementors
-from reahl.swordfish.gemstone import find_selectors
 from reahl.swordfish.gemstone import gemstone_error_payload
-from reahl.swordfish.gemstone import get_method_source
-from reahl.swordfish.gemstone import list_classes
-from reahl.swordfish.gemstone import list_method_categories
-from reahl.swordfish.gemstone import list_methods
-from reahl.swordfish.gemstone import list_packages
 from reahl.swordfish.gemstone import session_summary
 from reahl.swordfish.mcp.session_registry import add_connection
 from reahl.swordfish.mcp.session_registry import get_metadata
@@ -36,6 +29,12 @@ def register_tools(mcp_server):
                 },
             }
         return get_session(connection_id), None
+
+    def get_browser_session(connection_id):
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return None, error_response
+        return GemstoneBrowserSession(gemstone_session), None
 
     @mcp_server.tool()
     def gs_connect(
@@ -189,14 +188,14 @@ def register_tools(mcp_server):
 
     @mcp_server.tool()
     def gs_list_packages(connection_id):
-        gemstone_session, error_response = get_active_session(connection_id)
+        browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
         try:
             return {
                 'ok': True,
                 'connection_id': connection_id,
-                'packages': list_packages(gemstone_session),
+                'packages': browser_session.list_packages(),
             }
         except GemstoneError as error:
             return {
@@ -207,7 +206,7 @@ def register_tools(mcp_server):
 
     @mcp_server.tool()
     def gs_list_classes(connection_id, package_name):
-        gemstone_session, error_response = get_active_session(connection_id)
+        browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
         try:
@@ -215,7 +214,7 @@ def register_tools(mcp_server):
                 'ok': True,
                 'connection_id': connection_id,
                 'package_name': package_name,
-                'classes': list_classes(gemstone_session, package_name),
+                'classes': browser_session.list_classes(package_name),
             }
         except GemstoneError as error:
             return {
@@ -230,7 +229,7 @@ def register_tools(mcp_server):
         class_name,
         show_instance_side=True,
     ):
-        gemstone_session, error_response = get_active_session(connection_id)
+        browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
         try:
@@ -239,10 +238,9 @@ def register_tools(mcp_server):
                 'connection_id': connection_id,
                 'class_name': class_name,
                 'show_instance_side': show_instance_side,
-                'method_categories': list_method_categories(
-                    gemstone_session,
+                'method_categories': browser_session.list_method_categories(
                     class_name,
-                    show_instance_side,
+                    show_instance_side
                 ),
             }
         except GemstoneError as error:
@@ -259,7 +257,7 @@ def register_tools(mcp_server):
         method_category='all',
         show_instance_side=True,
     ):
-        gemstone_session, error_response = get_active_session(connection_id)
+        browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
         try:
@@ -269,8 +267,7 @@ def register_tools(mcp_server):
                 'class_name': class_name,
                 'method_category': method_category,
                 'show_instance_side': show_instance_side,
-                'selectors': list_methods(
-                    gemstone_session,
+                'selectors': browser_session.list_methods(
                     class_name,
                     method_category,
                     show_instance_side,
@@ -290,7 +287,7 @@ def register_tools(mcp_server):
         method_selector,
         show_instance_side=True,
     ):
-        gemstone_session, error_response = get_active_session(connection_id)
+        browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
         try:
@@ -300,8 +297,7 @@ def register_tools(mcp_server):
                 'class_name': class_name,
                 'method_selector': method_selector,
                 'show_instance_side': show_instance_side,
-                'source': get_method_source(
-                    gemstone_session,
+                'source': browser_session.get_method_source(
                     class_name,
                     method_selector,
                     show_instance_side,
@@ -322,7 +318,7 @@ def register_tools(mcp_server):
 
     @mcp_server.tool()
     def gs_find_classes(connection_id, search_input):
-        gemstone_session, error_response = get_active_session(connection_id)
+        browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
         try:
@@ -330,7 +326,7 @@ def register_tools(mcp_server):
                 'ok': True,
                 'connection_id': connection_id,
                 'search_input': search_input,
-                'class_names': find_classes(gemstone_session, search_input),
+                'class_names': browser_session.find_classes(search_input),
             }
         except GemstoneError as error:
             return {
@@ -347,7 +343,7 @@ def register_tools(mcp_server):
 
     @mcp_server.tool()
     def gs_find_selectors(connection_id, search_input):
-        gemstone_session, error_response = get_active_session(connection_id)
+        browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
         try:
@@ -355,7 +351,7 @@ def register_tools(mcp_server):
                 'ok': True,
                 'connection_id': connection_id,
                 'search_input': search_input,
-                'selectors': find_selectors(gemstone_session, search_input),
+                'selectors': browser_session.find_selectors(search_input),
             }
         except GemstoneError as error:
             return {
@@ -366,7 +362,7 @@ def register_tools(mcp_server):
 
     @mcp_server.tool()
     def gs_find_implementors(connection_id, method_name):
-        gemstone_session, error_response = get_active_session(connection_id)
+        browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
         try:
@@ -374,7 +370,7 @@ def register_tools(mcp_server):
                 'ok': True,
                 'connection_id': connection_id,
                 'method_name': method_name,
-                'implementors': find_implementors(gemstone_session, method_name),
+                'implementors': browser_session.find_implementors(method_name),
             }
         except GemstoneError as error:
             return {
