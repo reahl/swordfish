@@ -1,3 +1,4 @@
+from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 from reahl.swordfish.gemstone.browser import find_classes
 from reahl.swordfish.gemstone.browser import find_implementors
 from reahl.swordfish.gemstone.browser import find_selectors
@@ -19,6 +20,7 @@ from reahl.swordfish.gemstone.session import session_summary
 
 __all__ = [
     'DomainException',
+    'GemstoneBrowserSession',
     'abort_transaction',
     'begin_transaction',
     'close_session',

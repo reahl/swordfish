@@ -13,6 +13,10 @@ from reahl.tofu import with_fixtures
 
 from reahl.ptongue.gemstonecontrol import Stone
 
+from reahl.swordfish.gemstone import DomainException
+from reahl.swordfish.gemstone import GemstoneBrowserSession
+from reahl.swordfish.gemstone import close_session
+from reahl.swordfish.gemstone import create_linked_session
 from reahl.swordfish.mcp.session_registry import clear_connections
 from reahl.swordfish.mcp.session_registry import get_session
 from reahl.swordfish.mcp.session_registry import has_connection
@@ -175,6 +179,45 @@ class LiveEvalScenarios(Fixture):
         self.has_expected_class_name_suffix = True
 
 
+@uses(running_stone=RunningStoneFixture)
+class LiveBrowserSessionFixture(Fixture):
+    @set_up
+    def prepare_session_slot(self):
+        self.gemstone_session = None
+
+    @set_up
+    def open_linked_session(self):
+        self.gemstone_session = create_linked_session(
+            'DataCurator',
+            'swordfish',
+            'gs64stone',
+        )
+
+    @set_up
+    def begin_transaction(self):
+        with expected(NoException):
+            self.gemstone_session.begin()
+
+    @set_up
+    def new_browser_session(self):
+        return GemstoneBrowserSession(self.gemstone_session)
+
+    @tear_down
+    def abort_transaction(self):
+        if self.gemstone_session is not None:
+            with expected(NoException):
+                self.gemstone_session.abort()
+
+    @tear_down
+    def close_linked_session(self):
+        if self.gemstone_session is not None:
+            with expected(NoException):
+                close_session(self.gemstone_session)
+
+    def new_known_package_name(self):
+        return self.gemstone_session.resolve_symbol('Object').category().to_py
+
+
 @with_fixtures(LiveMcpConnectionFixture)
 def test_live_gs_connect_returns_session_summary(live_connection):
     session_summary = live_connection.connect_result['session']
@@ -211,86 +254,6 @@ def test_live_gs_list_packages_returns_non_empty_result(live_connection):
     package_result = live_connection.gs_list_packages(live_connection.connection_id)
     assert package_result['ok'], package_result
     assert package_result['packages']
-
-
-@with_fixtures(LiveMcpConnectionFixture)
-def test_live_gs_list_classes_returns_classes_for_a_known_package(live_connection):
-    package_result = live_connection.gs_list_packages(live_connection.connection_id)
-    assert package_result['ok'], package_result
-    package_name = package_result['packages'][0]
-    classes_result = live_connection.gs_list_classes(
-        live_connection.connection_id,
-        package_name,
-    )
-    assert classes_result['ok'], classes_result
-    assert classes_result['classes']
-
-
-@with_fixtures(LiveMcpConnectionFixture)
-def test_live_gs_list_method_categories_includes_all_category(live_connection):
-    categories_result = live_connection.gs_list_method_categories(
-        live_connection.connection_id,
-        'Object',
-        True,
-    )
-    assert categories_result['ok'], categories_result
-    assert categories_result['method_categories'][0] == 'all'
-
-
-@with_fixtures(LiveMcpConnectionFixture)
-def test_live_gs_list_methods_returns_selectors_for_selected_category(
-    live_connection,
-):
-    methods_result = live_connection.gs_list_methods(
-        live_connection.connection_id,
-        'Object',
-        'all',
-        True,
-    )
-    assert methods_result['ok'], methods_result
-    assert methods_result['selectors']
-
-
-@with_fixtures(LiveMcpConnectionFixture)
-def test_live_gs_get_method_source_returns_source(live_connection):
-    source_result = live_connection.gs_get_method_source(
-        live_connection.connection_id,
-        'Object',
-        'yourself',
-        True,
-    )
-    assert source_result['ok'], source_result
-    assert 'yourself' in source_result['source']
-
-
-@with_fixtures(LiveMcpConnectionFixture)
-def test_live_gs_find_classes_returns_matching_class_names(live_connection):
-    find_result = live_connection.gs_find_classes(
-        live_connection.connection_id,
-        'Date',
-    )
-    assert find_result['ok'], find_result
-    assert find_result['class_names']
-
-
-@with_fixtures(LiveMcpConnectionFixture)
-def test_live_gs_find_selectors_returns_matching_selector_names(live_connection):
-    find_result = live_connection.gs_find_selectors(
-        live_connection.connection_id,
-        'yourself',
-    )
-    assert find_result['ok'], find_result
-    assert 'yourself' in find_result['selectors']
-
-
-@with_fixtures(LiveMcpConnectionFixture)
-def test_live_gs_find_implementors_returns_implementing_classes(live_connection):
-    find_result = live_connection.gs_find_implementors(
-        live_connection.connection_id,
-        'yourself',
-    )
-    assert find_result['ok'], find_result
-    assert find_result['implementors']
 
 
 @with_fixtures(LiveMcpConnectionFixture)
@@ -331,3 +294,68 @@ def test_live_gs_commit_persists_changes_until_removed(live_connection):
     )
     cleanup_commit_result = live_connection.gs_commit(live_connection.connection_id)
     assert cleanup_commit_result['ok'], cleanup_commit_result
+
+
+@with_fixtures(LiveBrowserSessionFixture)
+def test_live_browser_lists_classes_for_a_known_package(browser_fixture):
+    classes = browser_fixture.browser_session.list_classes(
+        browser_fixture.known_package_name
+    )
+    assert classes
+
+
+@with_fixtures(LiveBrowserSessionFixture)
+def test_live_browser_lists_method_categories_with_all_first(browser_fixture):
+    categories = browser_fixture.browser_session.list_method_categories(
+        'Object',
+        True,
+    )
+    assert categories[0] == 'all'
+
+
+@with_fixtures(LiveBrowserSessionFixture)
+def test_live_browser_lists_methods_for_all_category(browser_fixture):
+    selectors = browser_fixture.browser_session.list_methods(
+        'Object',
+        'all',
+        True,
+    )
+    assert selectors
+    assert 'yourself' in selectors
+
+
+@with_fixtures(LiveBrowserSessionFixture)
+def test_live_browser_reads_method_source(browser_fixture):
+    source = browser_fixture.browser_session.get_method_source(
+        'Object',
+        'yourself',
+        True,
+    )
+    assert 'yourself' in source
+
+
+@with_fixtures(LiveBrowserSessionFixture)
+def test_live_browser_finds_matching_class_names(browser_fixture):
+    class_names = browser_fixture.browser_session.find_classes('Date')
+    assert class_names
+
+
+@with_fixtures(LiveBrowserSessionFixture)
+def test_live_browser_rejects_invalid_class_search_regex(browser_fixture):
+    with expected(DomainException):
+        browser_fixture.browser_session.find_classes('[')
+
+
+@with_fixtures(LiveBrowserSessionFixture)
+def test_live_browser_finds_matching_selectors(browser_fixture):
+    selectors = browser_fixture.browser_session.find_selectors('yourself')
+    assert 'yourself' in selectors
+
+
+@with_fixtures(LiveBrowserSessionFixture)
+def test_live_browser_finds_implementors_with_class_side_information(browser_fixture):
+    implementors = browser_fixture.browser_session.find_implementors('yourself')
+    assert {
+        'class_name': 'Object',
+        'show_instance_side': True,
+    } in implementors

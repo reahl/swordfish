@@ -9,6 +9,7 @@ import weakref
 from tkinter import ttk
 
 from reahl.ptongue import GemstoneError, LinkedSession, RPCSession
+from reahl.swordfish.gemstone import GemstoneBrowserSession
 
 
 class DomainException(Exception):
@@ -17,6 +18,7 @@ class DomainException(Exception):
 class GemstoneSessionRecord:
     def __init__(self, gemstone_session):
         self.gemstone_session = gemstone_session
+        self.gemstone_browser_session = GemstoneBrowserSession(gemstone_session)
         self.selected_package = None
         self.selected_class = None
         self.selected_method_category = None
@@ -91,46 +93,38 @@ class GemstoneSessionRecord:
 
     @property
     def class_organizer(self):
-        return self.gemstone_session.ClassOrganizer.new()
+        return self.gemstone_browser_session.class_organizer
 
     @property
     def class_categories(self):
-        yield from [i.to_py for i in self.class_organizer.categories().keys().asSortedCollection()]
+        yield from self.gemstone_browser_session.list_packages()
         
     def get_classes_in_category(self, category):
-        if not category:
-            return
-        yield from [i.name().to_py for i in self.class_organizer.categories().at(category)]
+        yield from self.gemstone_browser_session.list_classes(category)
         
     def get_categories_in_class(self, class_name, show_instance_side):
-        if not class_name:
-            return
-        gemstone_class = self.gemstone_session.resolve_symbol(class_name)
-        class_to_query = gemstone_class if show_instance_side else gemstone_class.gemstone_class()
-        yield from [i.to_py for i in class_to_query.categoryNames().asSortedCollection()]
+        categories = self.gemstone_browser_session.list_method_categories(
+            class_name,
+            show_instance_side,
+        )
+        if categories and categories[0] == 'all':
+            categories = categories[1:]
+        yield from categories
 
     def get_selectors_in_class(self, class_name, method_category, show_instance_side):
-        if not class_name or not method_category:
-            return
-        
-        gemstone_class = self.gemstone_session.resolve_symbol(class_name)
-        class_to_query = gemstone_class if show_instance_side else gemstone_class.gemstone_class()
-        try:
-            if method_category == 'all':
-                selectors = class_to_query.selectors().asSortedCollection()
-            else:
-                selectors = class_to_query.selectorsIn(method_category).asSortedCollection()
-                
-        except GemstoneError:
-            return
-        
-        yield from [i.to_py for i in selectors]
+        yield from self.gemstone_browser_session.list_methods(
+            class_name,
+            method_category,
+            show_instance_side,
+        )
 
     def get_method(self, class_name, show_instance_side, method_symbol):
-        gemstone_class = self.gemstone_session.resolve_symbol(class_name)
-        class_to_query = gemstone_class if show_instance_side else gemstone_class.gemstone_class()
         try:
-            return class_to_query.compiledMethodAt(method_symbol)
+            return self.gemstone_browser_session.get_compiled_method(
+                class_name,
+                method_symbol,
+                show_instance_side,
+            )
         except GemstoneError:
             return
 
@@ -144,8 +138,11 @@ class GemstoneSessionRecord:
     def jump_to_method(self, class_name, show_instance_side, method_symbol):
         selected_gemstone_class = self.gemstone_session.resolve_symbol(class_name)
         selected_package = selected_gemstone_class.category().to_py
-        class_to_query = selected_gemstone_class if show_instance_side else selected_gemstone_class.gemstone_class()
-        selected_method_category = class_to_query.categoryOfSelector(method_symbol).to_py
+        selected_method_category = self.gemstone_browser_session.get_method_category(
+            class_name,
+            method_symbol,
+            show_instance_side,
+        )
         self.select_package(selected_package)
         self.select_class(class_name)
         self.select_instance_side(show_instance_side)
@@ -156,15 +153,21 @@ class GemstoneSessionRecord:
         return list(self.get_selectors_in_class(self.selected_class, self.selected_method_category, self.show_instance_side))
         
     def find_class_names_matching(self, search_input):
-        pattern = re.compile(search_input, re.IGNORECASE)
-        yield from [name for i in self.class_organizer.classNames() if pattern.search(name := i.value().to_py)]
+        yield from self.gemstone_browser_session.find_classes(search_input)
         
     def find_selectors_matching(self, search_input):
-        # Uses object browser code....
-        yield from [gemstone_selector.to_py for gemstone_selector in  self.gemstone_session.Symbol.selectorsContaining(search_input)]
+        yield from self.gemstone_browser_session.find_selectors(search_input)
 
     def find_implementors_of_method(self, method_name):
-        yield from [(gemstone_method.classSymbol().to_py, gemstone_method.classIsMeta().to_py) for gemstone_method in  self.gemstone_session.SystemNavigation.default().allImplementorsOf(method_name)]
+        yield from [
+            (
+                implementor['class_name'],
+                not implementor['show_instance_side'],
+            )
+            for implementor in self.gemstone_browser_session.find_implementors(
+                method_name
+            )
+        ]
         
     def update_method_source(self, selected_class, show_instance_side, method_symbol, source):
         gemstone_class = self.gemstone_session.resolve_symbol(selected_class)
