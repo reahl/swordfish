@@ -1,5 +1,6 @@
 import os
 import subprocess
+import uuid
 
 from reahl.tofu import Fixture
 from reahl.tofu import NoException
@@ -148,6 +149,9 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_find_implementors(self):
         return self.registered_mcp_tools['gs_find_implementors']
 
+    def new_gs_compile_method(self):
+        return self.registered_mcp_tools['gs_compile_method']
+
     def evaluate_python_value(self, source):
         eval_result = self.gs_eval(self.connection_id, source)
         assert eval_result['ok'], eval_result
@@ -257,6 +261,40 @@ def test_live_gs_list_packages_returns_non_empty_result(live_connection):
 
 
 @with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_compile_method_returns_ok(live_connection):
+    class_name = 'McpCompileClass%s' % uuid.uuid4().hex[:8]
+    selector = 'mcpCompile%s' % uuid.uuid4().hex[:8]
+    source = '%s ^123' % selector
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_eval(
+        live_connection.connection_id,
+        (
+            "Object subclass: '%s' instVarNames: #() classVars: #() "
+            "classInstVars: #() poolDictionaries: #() "
+            "inDictionary: UserGlobals options: #()"
+        )
+        % class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        source,
+        True,
+    )
+    assert compile_result['ok'], compile_result
+    source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        class_name,
+        selector,
+        True,
+    )
+    assert source_result['ok'], source_result
+    assert selector in source_result['source']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
 def test_live_gs_abort_discards_uncommitted_changes(live_connection):
     symbol_name = 'MCP_TEST_ABORT_%s' % live_connection.connection_id.split('-')[0]
     begin_result = live_connection.gs_begin(live_connection.connection_id)
@@ -359,3 +397,34 @@ def test_live_browser_finds_implementors_with_class_side_information(browser_fix
         'class_name': 'Object',
         'show_instance_side': True,
     } in implementors
+
+
+@with_fixtures(LiveBrowserSessionFixture)
+def test_live_browser_compile_method_adds_selector_in_current_transaction(
+    browser_fixture,
+):
+    class_name = 'BrowserCompileClass%s' % uuid.uuid4().hex[:8]
+    selector = 'browserCompile%s' % uuid.uuid4().hex[:8]
+    source = '%s ^987' % selector
+    browser_fixture.browser_session.run_code(
+        (
+            "Object subclass: '%s' instVarNames: #() classVars: #() "
+            "classInstVars: #() poolDictionaries: #() "
+            "inDictionary: UserGlobals options: #()"
+        )
+        % class_name
+    )
+    browser_fixture.browser_session.compile_method(class_name, True, source)
+    method_source = browser_fixture.browser_session.get_method_source(
+        class_name,
+        selector,
+        True,
+    )
+    assert selector in method_source
+
+
+@with_fixtures(LiveBrowserSessionFixture)
+def test_live_browser_evaluate_source_returns_rendered_payload(browser_fixture):
+    output = browser_fixture.browser_session.evaluate_source('3 + 4')
+    assert output['result']['class_name'] == 'SmallInteger'
+    assert output['result']['python_value'] == 7

@@ -4,6 +4,7 @@ from reahl.ptongue import GemstoneApiError
 from reahl.ptongue import GemstoneError
 
 from reahl.swordfish.gemstone.session import DomainException
+from reahl.swordfish.gemstone.session import render_result
 
 
 class GemstoneBrowserSession:
@@ -76,6 +77,25 @@ class GemstoneBrowserSession:
     ):
         class_to_query = self.class_to_query(class_name, show_instance_side)
         return class_to_query.categoryOfSelector(method_selector).to_py
+
+    def compile_method(self, class_name, show_instance_side, source):
+        class_to_query = self.class_to_query(class_name, show_instance_side)
+        symbol_list = self.gemstone_session.execute('System myUserProfile symbolList')
+        return class_to_query.compileMethod_dictionaries_category_environmentId(
+            source,
+            symbol_list,
+            'as yet unclassified',
+            0,
+        )
+
+    def run_code(self, source):
+        return self.gemstone_session.execute(source)
+
+    def evaluate_source(self, source):
+        result = self.run_code(source)
+        return {
+            'result': render_result(result),
+        }
 
     def find_classes(self, search_input):
         try:
