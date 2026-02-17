@@ -32,6 +32,7 @@ RUN http_proxy=$http_proxy apt-get update && apt-get install -y \
     # System admin tools
     sudo \
     vim \
+    openssh-server \
     # X11 and GUI support
     xvfb \
     x11-apps \

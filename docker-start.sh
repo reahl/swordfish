@@ -5,6 +5,8 @@
 NO_CACHE=""
 FOREGROUND=""
 NO_ENTRYPOINT=""
+ENABLE_SSHD="${ENABLE_SSHD:-}"
+SSH_PUBKEY_FILE="${SF_SSH_PUBKEY_FILE:-}"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -23,9 +25,24 @@ while [[ $# -gt 0 ]]; do
             echo "Bypassing entrypoint"
             shift
             ;;
+        --enable-ssh)
+            ENABLE_SSHD="true"
+            echo "Enabling SSH server in the container"
+            shift
+            ;;
+        --ssh-pubkey-file)
+            if [[ -z "${2:-}" ]]; then
+                echo "--ssh-pubkey-file requires a file path"
+                exit 1
+            fi
+            ENABLE_SSHD="true"
+            SSH_PUBKEY_FILE="$2"
+            echo "Using SSH public key from: $SSH_PUBKEY_FILE"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--no-cache] [--foreground] [--no-entry-point]"
+            echo "Usage: $0 [--no-cache] [--foreground] [--no-entry-point] [--enable-ssh] [--ssh-pubkey-file PATH]"
             exit 1
             ;;
     esac
@@ -35,6 +52,20 @@ done
 export HOST_UID=$(id -u)
 export HOST_GID=$(id -g)
 export HOST_USER=$(whoami)
+
+if [[ "$ENABLE_SSHD" == "true" ]]; then
+    export ENABLE_SSHD="true"
+    export SF_SSH_PORT="${SF_SSH_PORT:-2222}"
+    export SF_SSH_BIND_ADDRESS="${SF_SSH_BIND_ADDRESS:-127.0.0.1}"
+    if [[ -n "$SSH_PUBKEY_FILE" ]]; then
+        if [[ ! -f "$SSH_PUBKEY_FILE" ]]; then
+            echo "SSH public key file not found: $SSH_PUBKEY_FILE"
+            exit 1
+        fi
+        export SF_SSH_AUTHORIZED_KEY="$(tr -d '\n' < "$SSH_PUBKEY_FILE")"
+    fi
+    echo "SSH server requested at ${SF_SSH_BIND_ADDRESS}:${SF_SSH_PORT}"
+fi
 
 # Use plain progress for detailed build output
 export BUILDKIT_PROGRESS=plain
