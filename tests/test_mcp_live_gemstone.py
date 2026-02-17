@@ -12,10 +12,12 @@ from reahl.tofu import tear_down
 from reahl.tofu import uses
 from reahl.tofu import with_fixtures
 
+from reahl.ptongue import GemstoneError
 from reahl.ptongue.gemstonecontrol import Stone
 
 from reahl.swordfish.gemstone import DomainException
 from reahl.swordfish.gemstone import GemstoneBrowserSession
+from reahl.swordfish.gemstone import GemstoneDebugSession
 from reahl.swordfish.gemstone import close_session
 from reahl.swordfish.gemstone import create_linked_session
 from reahl.swordfish.mcp.session_registry import clear_connections
@@ -228,6 +230,13 @@ class LiveBrowserSessionFixture(Fixture):
     def new_known_package_name(self):
         return self.gemstone_session.resolve_symbol('Object').category().to_py
 
+    def new_halt_exception(self):
+        try:
+            self.gemstone_session.execute('true ifTrue: [ 0 halt. 1+1. 122+1 ]')
+        except GemstoneError as error:
+            return error
+        raise AssertionError('AI: Expected a GemstoneError raised from halt.')
+
 
 @with_fixtures(LiveMcpConnectionFixture)
 def test_live_gs_connect_returns_session_summary(live_connection):
@@ -258,6 +267,22 @@ def test_live_gs_eval_reports_expected_result_shape(live_connection, live_eval):
 
     if live_eval.has_expected_string_value:
         assert result_payload['string_value'] == live_eval.expected_string_value
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_eval_error_includes_serialized_debug_stack(live_connection):
+    eval_result = live_connection.gs_eval(
+        live_connection.connection_id,
+        'true ifTrue: [ 0 halt. 1+1. 122+1 ]',
+    )
+    assert not eval_result['ok']
+    assert eval_result['debug']['stack_frames']
+    top_frame = eval_result['debug']['stack_frames'][0]
+    assert top_frame['level'] == 1
+    assert top_frame['class_name']
+    assert top_frame['method_name']
+    assert top_frame['method_source']
+    assert top_frame['step_point_offset'] > 0
 
 
 @with_fixtures(LiveMcpConnectionFixture)
@@ -503,3 +528,25 @@ def test_live_browser_evaluate_source_returns_rendered_payload(browser_fixture):
     output = browser_fixture.browser_session.evaluate_source('3 + 4')
     assert output['result']['class_name'] == 'SmallInteger'
     assert output['result']['python_value'] == 7
+
+
+@with_fixtures(LiveBrowserSessionFixture)
+def test_live_debug_session_has_stack_frames_when_halted(browser_fixture):
+    debug_session = GemstoneDebugSession(browser_fixture.halt_exception)
+    stack_frames = debug_session.call_stack()
+    assert stack_frames
+    first_frame = stack_frames[1]
+    assert first_frame.level == 1
+    assert first_frame.class_name
+    assert first_frame.method_name
+    assert first_frame.method_source
+
+
+@with_fixtures(LiveBrowserSessionFixture)
+def test_live_debug_session_step_over_then_continue_returns_result(browser_fixture):
+    debug_session = GemstoneDebugSession(browser_fixture.halt_exception)
+    step_outcome = debug_session.step_over(1)
+    assert not step_outcome.has_completed
+    continue_outcome = debug_session.continue_running()
+    assert continue_outcome.has_completed
+    assert continue_outcome.result.to_py == 123

@@ -6,6 +6,7 @@ from reahl.swordfish.gemstone import begin_transaction
 from reahl.swordfish.gemstone import commit_transaction
 from reahl.swordfish.gemstone import DomainException
 from reahl.swordfish.gemstone import GemstoneBrowserSession
+from reahl.swordfish.gemstone import GemstoneDebugSession
 from reahl.swordfish.gemstone import close_session
 from reahl.swordfish.gemstone import create_linked_session
 from reahl.swordfish.gemstone import create_rpc_session
@@ -45,6 +46,20 @@ def register_tools(
             'connection_id': connection_id,
             'error': {'message': message},
         }
+
+    def serialized_debug_frames(error):
+        debug_session = GemstoneDebugSession(error)
+        stack_frames = debug_session.call_stack()
+        return [
+            {
+                'level': frame.level,
+                'class_name': frame.class_name,
+                'method_name': frame.method_name,
+                'method_source': frame.method_source,
+                'step_point_offset': frame.step_point_offset,
+            }
+            for frame in stack_frames
+        ]
 
     @mcp_server.tool()
     def gs_connect(
@@ -487,6 +502,9 @@ def register_tools(
                 'ok': False,
                 'connection_id': connection_id,
                 'error': gemstone_error_payload(error),
+                'debug': {
+                    'stack_frames': serialized_debug_frames(error),
+                },
             }
         except GemstoneApiError as error:
             return {

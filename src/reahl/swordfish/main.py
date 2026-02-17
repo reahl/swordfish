@@ -1,6 +1,5 @@
 #!/var/local/gemstone/venv/wonka/bin/python
 
-import contextlib
 import logging
 import re
 import tkinter as tk
@@ -10,6 +9,7 @@ from tkinter import ttk
 
 from reahl.ptongue import GemstoneError, LinkedSession, RPCSession
 from reahl.swordfish.gemstone import GemstoneBrowserSession
+from reahl.swordfish.gemstone import GemstoneDebugSession
 
 
 class DomainException(Exception):
@@ -1198,77 +1198,6 @@ class BrowserWindow(ttk.PanedWindow):
         return self.application.gemstone_session_record
 
 
-class StackFrame:
-    def __init__(self, gemstone_process, level):
-        self.gemstone_session = gemstone_process.session
-        self.gemstone_process = gemstone_process
-        self.level = level
-        self.frame_data = frame_data = self.gemstone_process.perform('_frameContentsAt:', self.gemstone_session.from_py(self.level))
-        self.is_valid = not frame_data.isNil().to_py
-        if self.is_valid:
-            self.gemstone_method = frame_data.at(1)
-            self.ip_offset = frame_data.at(2)
-            self.var_context = frame_data.at(4)
-
-    @property
-    def step_point_offset(self):
-        # See OGStackFrame initializeContexts
-        step_point = self.gemstone_method.perform('_nextStepPointForIp:', self.ip_offset)
-        offsets = self.gemstone_method.perform('_sourceOffsets')
-        offset = offsets.at(step_point.min(offsets.size()))
-        return offset.to_py
-
-    @property
-    def method_source(self):
-        return self.gemstone_method.fullSource().to_py
-
-    @property
-    def method_name(self):
-        return self.gemstone_method.selector().to_py
-
-    @property
-    def class_name(self):
-        return self.gemstone_method.homeMethod().inClass().asString().to_py
-
-    @property
-    def self(self):
-        return self.frame_data.at(8)
-
-    @property
-    def vars(self):
-        vars = {}
-        var_names = self.frame_data.at(9)
-        for idx, name in enumerate(var_names):
-            value = self.frame_data.at(11+idx)
-            vars[name.to_py] = value
-        return vars
-
-    
-class CallStack:
-    def __init__(self, gemstone_process):
-        self.gemstone_process = gemstone_process
-        self.frames = self.make_frames()
-        
-    def make_frames(self):
-        session = self.gemstone_process.session
-        max_level = self.gemstone_process.stackDepth().to_py
-        stack = []
-        level = 1
-        while level <= max_level and ((frame := self.stack_frame(level)).is_valid):
-            stack.append(frame)
-            level += 1
-        return stack
-    
-    def stack_frame(self, level):
-        return StackFrame(self.gemstone_process, level)
-
-    def __getitem__(self, level):
-        return self.frames[level-1]
-
-    def __iter__(self):
-        return iter(self.frames)
-
-
 class ObjectInspector(ttk.Frame):
     def __init__(self, parent, an_object=None, values=None):
         super().__init__(parent)
@@ -1350,8 +1279,8 @@ class DebuggerWindow(ttk.PanedWindow):
         self.listbox.heading('Column2', text='Method Name')
         self.listbox.grid(row=1, column=0, sticky="nsew")
         
-        # Dictionary to store StackFrame objects by Treeview item ID
-        self.stack_frames = CallStack(self.exception.context)
+        self.debug_session = GemstoneDebugSession(self.exception)
+        self.stack_frames = self.debug_session.call_stack()
         
         # Bind item selection to method execution
         self.listbox.bind("<ButtonRelease-1>", self.on_listbox_select)
@@ -1423,41 +1352,53 @@ class DebuggerWindow(ttk.PanedWindow):
             return self.stack_frames[int(selected_item)]
         return None
 
-    @contextlib.contextmanager
-    def active_frame(self):
+    def selected_frame_level(self):
         frame = self.get_selected_stack_frame()
         if frame:
-            try:
-                yield frame
-            except GemstoneError as ex:
-                self.exception = ex
-                self.stack_frames = CallStack(self.exception.context)
-                self.refresh()
-            else:
-                self.finish(frame.result)
+            return frame.level
+        return None
+
+    def apply_debug_action_outcome(self, action_outcome):
+        self.stack_frames = self.debug_session.call_stack()
+        if action_outcome.has_completed:
+            self.finish(action_outcome.result)
+        else:
+            self.refresh()
         
     def continue_running(self):
-        with self.active_frame() as frame:
-            frame.result = self.exception.continue_with()
-            frame.result.gemstone_class().asString()
+        frame_level = self.selected_frame_level()
+        if frame_level:
+            action_outcome = self.debug_session.continue_running()
+            self.apply_debug_action_outcome(action_outcome)
     
     def step_over(self):
-        with self.active_frame() as frame:
-            frame.result = self.exception.context.gciStepOverFromLevel(frame.level)
+        frame_level = self.selected_frame_level()
+        if frame_level:
+            action_outcome = self.debug_session.step_over(frame_level)
+            self.apply_debug_action_outcome(action_outcome)
 
     def step_into(self):
-        with self.active_frame() as frame:
-            frame.result = self.exception.context.gciStepIntoFromLevel(frame.level)
+        frame_level = self.selected_frame_level()
+        if frame_level:
+            action_outcome = self.debug_session.step_into(frame_level)
+            self.apply_debug_action_outcome(action_outcome)
                 
     def step_through(self):
-        with self.active_frame() as frame:
-            frame.result = self.exception.context.gciStepThruFromLevel(frame.level)
+        frame_level = self.selected_frame_level()
+        if frame_level:
+            action_outcome = self.debug_session.step_through(frame_level)
+            self.apply_debug_action_outcome(action_outcome)
             
     def stop(self):
-        with self.active_frame() as frame:
-            frame.result = self.exception.context.resume()
-        self.stack_frames = None
-        self.destroy()
+        frame_level = self.selected_frame_level()
+        if frame_level:
+            action_outcome = self.debug_session.stop()
+            if action_outcome.has_completed:
+                self.stack_frames = None
+                self.destroy()
+            else:
+                self.stack_frames = self.debug_session.call_stack()
+                self.refresh()
                 
     def finish(self, result):
         self.stack_frames = None
