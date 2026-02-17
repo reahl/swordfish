@@ -49,6 +49,45 @@ swordfish
 ./docker-start.sh                    # Normal development mode
 ./docker-start.sh --no-cache         # Clean rebuild (clears Docker cache)
 ./docker-start.sh --foreground       # Debug mode (bypass entrypoint, root shell)
+./docker-start.sh --enable-ssh       # Start sshd in container (key-only auth)
+./docker-start.sh --enable-ssh --ssh-pubkey-file ~/.ssh/id_ed25519.pub
+```
+
+#### SSH Access For Automated Commands
+
+You can run an SSH server in the development container for non-interactive automation.
+
+```bash
+# Start container with sshd enabled and your public key provisioned
+./docker-start.sh --enable-ssh --ssh-pubkey-file ~/.ssh/id_ed25519.pub
+
+# Optional overrides
+export SF_SSH_PORT=2222
+export SF_SSH_BIND_ADDRESS=127.0.0.1
+```
+
+Then connect from the host:
+
+```bash
+ssh -p 2222 "$(whoami)"@127.0.0.1
+```
+
+Run tests through SSH:
+
+```bash
+ssh -p 2222 "$(whoami)"@127.0.0.1 'cd /workspace && source ~/.local/venv/bin/activate && pytest -q'
+```
+
+Or use project wrappers from the host:
+
+```bash
+# Run any command in /workspace with ~/.local/venv activated
+./docker-run-over-ssh.sh python -V
+./docker-run-over-ssh.sh pytest -q
+
+# Convenience wrapper for pytest
+./docker-test-over-ssh.sh
+./docker-test-over-ssh.sh tests/test_mcp_session_registry.py -q
 ```
 
 
@@ -140,6 +179,28 @@ swordfish
 # Or if installed from source
 python -m swordfish
 ```
+
+## MCP Server (Phase 0)
+
+Swordfish now includes an MCP server entrypoint named `swordfish-mcp`.
+
+### Install MCP dependencies
+
+```bash
+pip install -e ".[mcp]"
+```
+
+### Run the server
+
+```bash
+swordfish-mcp
+```
+
+The server identifies itself as `SwordfishMCP` and currently supports:
+
+- `gs_connect`
+- `gs_disconnect`
+- `gs_eval`
 
 ## Requirements
 
