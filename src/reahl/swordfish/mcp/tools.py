@@ -414,6 +414,33 @@ def register_tools(mcp_server):
             }
 
     @mcp_server.tool()
+    def gs_run_gemstone_tests(connection_id, test_case_class_name):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            test_result = browser_session.run_gemstone_tests(test_case_class_name)
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'test_case_class_name': test_case_class_name,
+                'result': test_result,
+                'tests_passed': test_result['has_passed'],
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
     def gs_eval(connection_id, source):
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
