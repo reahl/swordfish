@@ -16,11 +16,18 @@ def import_fast_mcp():
     return FastMCP
 
 
-def create_server():
+def create_server(
+    allow_eval=False,
+    allow_compile=False,
+):
     fast_mcp = import_fast_mcp()
     register_tools = import_tool_registration()
     mcp_server = fast_mcp(name='SwordfishMCP', version=__version__)
-    register_tools(mcp_server)
+    register_tools(
+        mcp_server,
+        allow_eval=allow_eval,
+        allow_compile=allow_compile,
+    )
     return mcp_server
 
 

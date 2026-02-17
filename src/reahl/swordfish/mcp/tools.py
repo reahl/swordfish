@@ -18,7 +18,11 @@ from reahl.swordfish.mcp.session_registry import has_connection
 from reahl.swordfish.mcp.session_registry import remove_connection
 
 
-def register_tools(mcp_server):
+def register_tools(
+    mcp_server,
+    allow_eval=False,
+    allow_compile=False,
+):
     def get_active_session(connection_id):
         if not has_connection(connection_id):
             return None, {
@@ -34,6 +38,13 @@ def register_tools(mcp_server):
         if error_response:
             return None, error_response
         return GemstoneBrowserSession(gemstone_session), None
+
+    def disabled_tool_response(connection_id, message):
+        return {
+            'ok': False,
+            'connection_id': connection_id,
+            'error': {'message': message},
+        }
 
     @mcp_server.tool()
     def gs_connect(
@@ -385,6 +396,14 @@ def register_tools(mcp_server):
         source,
         show_instance_side=True,
     ):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_compile_method is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -442,6 +461,14 @@ def register_tools(mcp_server):
 
     @mcp_server.tool()
     def gs_eval(connection_id, source):
+        if not allow_eval:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_eval is disabled. '
+                    'Start swordfish-mcp with --allow-eval to enable.'
+                ),
+            )
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
