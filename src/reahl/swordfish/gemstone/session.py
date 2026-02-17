@@ -56,6 +56,18 @@ def close_session(gemstone_session):
     gemstone_session.log_out()
 
 
+def begin_transaction(gemstone_session):
+    gemstone_session.begin()
+
+
+def commit_transaction(gemstone_session):
+    gemstone_session.commit()
+
+
+def abort_transaction(gemstone_session):
+    gemstone_session.abort()
+
+
 def session_summary(gemstone_session):
     return {
         'stone_name': gemstone_session.System.stoneName().to_py,
