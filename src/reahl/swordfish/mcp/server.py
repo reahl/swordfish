@@ -1,3 +1,5 @@
+import inspect
+
 from reahl.swordfish import __version__
 
 
@@ -22,7 +24,28 @@ def create_server(
 ):
     fast_mcp = import_fast_mcp()
     register_tools = import_tool_registration()
-    mcp_server = fast_mcp(name='SwordfishMCP', version=__version__)
+    try:
+        constructor_signature = inspect.signature(fast_mcp)
+    except (TypeError, ValueError):
+        constructor_signature = None
+    supports_keyword_arguments = any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in (
+            constructor_signature.parameters.values()
+            if constructor_signature
+            else []
+        )
+    )
+    server_arguments = {'name': 'SwordfishMCP'}
+    if (
+        supports_keyword_arguments
+        or (
+            constructor_signature
+            and 'version' in constructor_signature.parameters
+        )
+    ):
+        server_arguments['version'] = __version__
+    mcp_server = fast_mcp(**server_arguments)
     register_tools(
         mcp_server,
         allow_eval=allow_eval,
