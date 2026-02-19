@@ -1,4 +1,7 @@
+import contextlib
 import logging
+import os
+import threading
 
 from reahl.ptongue import GemstoneApiError
 from reahl.ptongue import GemstoneError
@@ -11,6 +14,32 @@ class DomainException(Exception):
     pass
 
 
+standard_stream_lock = threading.Lock()
+
+
+@contextlib.contextmanager
+def without_process_output():
+    with standard_stream_lock:
+        stdout_descriptor = os.dup(1)
+        stderr_descriptor = os.dup(2)
+        null_descriptor = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(null_descriptor, 1)
+            os.dup2(null_descriptor, 2)
+            yield
+        finally:
+            os.dup2(stdout_descriptor, 1)
+            os.dup2(stderr_descriptor, 2)
+            os.close(null_descriptor)
+            os.close(stdout_descriptor)
+            os.close(stderr_descriptor)
+
+
+def perform_without_process_output(action):
+    with without_process_output():
+        return action()
+
+
 def create_linked_session(gemstone_user_name, gemstone_password, stone_name):
     logging.getLogger(__name__).debug(
         'Logging in linked session as %s stone_name=%s',
@@ -18,10 +47,12 @@ def create_linked_session(gemstone_user_name, gemstone_password, stone_name):
         stone_name,
     )
     try:
-        return LinkedSession(
-            gemstone_user_name,
-            gemstone_password,
-            stone_name=stone_name,
+        return perform_without_process_output(
+            lambda: LinkedSession(
+                gemstone_user_name,
+                gemstone_password,
+                stone_name=stone_name,
+            )
         )
     except GemstoneError as error:
         raise DomainException('Gemstone error: %s' % error)
@@ -42,43 +73,49 @@ def create_rpc_session(
         nrs_string,
     )
     try:
-        return RPCSession(
-            gemstone_user_name,
-            gemstone_password,
-            stone_name=stone_name,
-            netldi_task=nrs_string,
+        return perform_without_process_output(
+            lambda: RPCSession(
+                gemstone_user_name,
+                gemstone_password,
+                stone_name=stone_name,
+                netldi_task=nrs_string,
+            )
         )
     except GemstoneError as error:
         raise DomainException('Gemstone error: %s' % error)
 
 
 def close_session(gemstone_session):
-    gemstone_session.log_out()
+    perform_without_process_output(gemstone_session.log_out)
 
 
 def begin_transaction(gemstone_session):
-    gemstone_session.begin()
+    perform_without_process_output(gemstone_session.begin)
 
 
 def commit_transaction(gemstone_session):
-    gemstone_session.commit()
+    perform_without_process_output(gemstone_session.commit)
 
 
 def abort_transaction(gemstone_session):
-    gemstone_session.abort()
+    perform_without_process_output(gemstone_session.abort)
 
 
 def session_summary(gemstone_session):
-    return {
-        'stone_name': gemstone_session.System.stoneName().to_py,
-        'host_name': gemstone_session.System.hostname().to_py,
-        'user_name': gemstone_session.System.myUserProfile().userId().to_py,
-        'session_id': gemstone_session.execute('System session').to_py,
-    }
+    return perform_without_process_output(
+        lambda: {
+            'stone_name': gemstone_session.System.stoneName().to_py,
+            'host_name': gemstone_session.System.hostname().to_py,
+            'user_name': gemstone_session.System.myUserProfile().userId().to_py,
+            'session_id': gemstone_session.execute('System session').to_py,
+        }
+    )
 
 
 def evaluate_source(gemstone_session, source):
-    result = gemstone_session.execute(source)
+    result = perform_without_process_output(
+        lambda: gemstone_session.execute(source)
+    )
     result_payload = render_result(result)
     return {
         'result': result_payload,

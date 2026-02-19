@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 import uuid
 
 from reahl.tofu import Fixture
@@ -269,6 +270,33 @@ def test_live_gs_connect_returns_session_summary(live_connection):
     assert session_summary['user_name'] == 'DataCurator'
     assert 'gs64stone' in session_summary['stone_name']
     assert session_summary['session_id'] > 0
+
+
+@with_fixtures(RunningStoneFixture)
+def test_live_linked_session_lifecycle_does_not_emit_unexpected_stdout(
+    running_stone,
+):
+    assert running_stone.is_stone_running()
+    command_result = subprocess.run(
+        [
+            sys.executable,
+            '-c',
+            (
+                "from reahl.swordfish.gemstone import close_session; "
+                "from reahl.swordfish.gemstone import create_linked_session; "
+                "session = create_linked_session("
+                "'DataCurator', 'swordfish', 'gs64stone'"
+                "); "
+                "close_session(session); "
+                "print('completed')"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert command_result.returncode == 0, command_result.stderr
+    assert command_result.stdout.strip() == 'completed'
 
 
 @with_fixtures(LiveMcpConnectionFixture, LiveEvalScenarios)
