@@ -46,6 +46,21 @@ def register_tools(
             }
         return get_session(connection_id), None
 
+    def require_active_transaction(connection_id):
+        metadata = get_metadata(connection_id)
+        if metadata.get('transaction_active'):
+            return None
+        return {
+            'ok': False,
+            'connection_id': connection_id,
+            'error': {
+                'message': (
+                    'No active transaction. '
+                    'Call gs_begin before write operations.'
+                ),
+            },
+        }
+
     def get_browser_session(connection_id):
         gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
@@ -242,7 +257,10 @@ def register_tools(
 
         connection_id = add_connection(
             gemstone_session,
-            {'connection_mode': connection_mode},
+            {
+                'connection_mode': connection_mode,
+                'transaction_active': False,
+            },
         )
         return {
             'ok': True,
@@ -283,6 +301,7 @@ def register_tools(
             return error_response
         try:
             begin_transaction(gemstone_session)
+            get_metadata(connection_id)['transaction_active'] = True
             return {
                 'ok': True,
                 'connection_id': connection_id,
@@ -307,6 +326,7 @@ def register_tools(
             return error_response
         try:
             commit_transaction(gemstone_session)
+            get_metadata(connection_id)['transaction_active'] = False
             return {
                 'ok': True,
                 'connection_id': connection_id,
@@ -331,6 +351,7 @@ def register_tools(
             return error_response
         try:
             abort_transaction(gemstone_session)
+            get_metadata(connection_id)['transaction_active'] = False
             return {
                 'ok': True,
                 'connection_id': connection_id,
@@ -557,9 +578,13 @@ def register_tools(
                     'Start swordfish-mcp with --allow-compile to enable.'
                 ),
             )
-        browser_session, error_response = get_browser_session(connection_id)
+        gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
             return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
         try:
             class_name = validated_identifier(class_name, 'class_name')
             source = validated_non_empty_string(source, 'source')
@@ -618,9 +643,13 @@ def register_tools(
                     'Start swordfish-mcp with --allow-compile to enable.'
                 ),
             )
-        browser_session, error_response = get_browser_session(connection_id)
+        gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
             return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
         try:
             class_name = validated_identifier(class_name, 'class_name')
             superclass_name = validated_identifier(
@@ -700,9 +729,13 @@ def register_tools(
                     'Start swordfish-mcp with --allow-compile to enable.'
                 ),
             )
-        browser_session, error_response = get_browser_session(connection_id)
+        gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
             return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
         try:
             class_name = validated_identifier(class_name, 'class_name')
             in_dictionary = validated_identifier(
@@ -787,9 +820,13 @@ def register_tools(
                     'Start swordfish-mcp with --allow-compile to enable.'
                 ),
             )
-        browser_session, error_response = get_browser_session(connection_id)
+        gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
             return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
         try:
             class_name = validated_identifier(class_name, 'class_name')
             in_dictionary = validated_identifier(
@@ -840,9 +877,13 @@ def register_tools(
                     'Start swordfish-mcp with --allow-compile to enable.'
                 ),
             )
-        browser_session, error_response = get_browser_session(connection_id)
+        gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
             return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
         try:
             class_name = validated_identifier(class_name, 'class_name')
             method_selector = validated_non_empty_string(
@@ -896,9 +937,13 @@ def register_tools(
                     'Start swordfish-mcp with --allow-compile to enable.'
                 ),
             )
-        browser_session, error_response = get_browser_session(connection_id)
+        gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
             return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
         try:
             class_name = validated_identifier(class_name, 'class_name')
             method_selector = validated_non_empty_string(
@@ -1124,9 +1169,13 @@ def register_tools(
                     'Start swordfish-mcp with --allow-compile to enable.'
                 ),
             )
-        browser_session, error_response = get_browser_session(connection_id)
+        gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
             return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
         try:
             old_selector, new_selector = validated_selector_rename_pair(
                 old_selector,
@@ -1177,9 +1226,13 @@ def register_tools(
                     'Start swordfish-mcp with --allow-compile to enable.'
                 ),
             )
-        browser_session, error_response = get_browser_session(connection_id)
+        gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
             return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
         try:
             symbol_name = validated_identifier(symbol_name, 'symbol_name')
             literal_value = validated_literal_value(
@@ -1238,9 +1291,13 @@ def register_tools(
                     'Start swordfish-mcp with --allow-compile to enable.'
                 ),
             )
-        browser_session, error_response = get_browser_session(connection_id)
+        gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
             return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
         try:
             symbol_name = validated_identifier(symbol_name, 'symbol_name')
             in_dictionary = validated_identifier(

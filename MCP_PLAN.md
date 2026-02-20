@@ -112,6 +112,13 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - targeted refactor tools (selector rename workflow)
 - debugger-oriented MCP operations
 
+## Current Status
+
+- Phase 0: completed
+- Phase 1: completed
+- Phase 2: completed
+- Phase 3: completed for targeted selector rename + debugger operations
+
 ## Testing Approach
 
 - Start with `pytest` for MCP contract and integration tests.
@@ -124,14 +131,19 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - `gs_eval` can be risky and should be policy-gated.
 - Performance on large images may require caching/indexing.
 
-## Pending Decisions
+## Resolved Decisions
 
 1. Write transaction policy:
-- explicit `gs_begin` / `gs_commit` only (recommended) vs auto-commit per write.
+- explicit `gs_begin` / `gs_commit` only.
+- write tools now require an active transaction and return a clear error otherwise.
 
 2. `gs_eval` safety:
-- disabled unless `--allow-eval` flag (recommended) vs enabled by default.
+- `gs_eval` remains gated by `--allow-eval`.
+- even when enabled, callers must pass `unsafe=True` (optionally with `reason`).
 
 ## Next Implementation Step
 
-Create the MCP scaffolding and tool schemas first, then wire read-only browser tools to extracted shared GemStone domain modules.
+Phase 4 hardening:
+- add transaction introspection (`gs_transaction_status`) and optional `gs_begin_if_needed` convenience
+- improve selector-rename precision for keyword selectors and edge-case source rewrites
+- broaden live integration coverage for end-to-end workflows used by AI agents

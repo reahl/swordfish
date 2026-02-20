@@ -226,6 +226,8 @@ For normal browse/edit/test workflows, prefer explicit tools like:
 `gs_create_class`, `gs_create_test_case_class`, `gs_compile_method`, and
 `gs_run_gemstone_tests`.
 When you do use `gs_eval`, pass `unsafe=True` (and optionally a `reason`).
+Write tools require an explicit transaction: call `gs_begin` before writes,
+then `gs_commit` (or `gs_abort`) when done.
 
 The server identifies itself as `SwordfishMCP` and currently supports:
 

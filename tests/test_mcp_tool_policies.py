@@ -1,6 +1,10 @@
 from reahl.tofu import Fixture
+from reahl.tofu import set_up
+from reahl.tofu import tear_down
 from reahl.tofu import with_fixtures
 
+from reahl.swordfish.mcp.session_registry import add_connection
+from reahl.swordfish.mcp.session_registry import clear_connections
 from reahl.swordfish.mcp.tools import register_tools
 
 
@@ -134,6 +138,43 @@ class AllowedToolsFixture(Fixture):
 
     def new_gs_debug_eval(self):
         return self.registered_mcp_tools['gs_debug_eval']
+
+
+class AllowedToolsWithNoActiveTransactionFixture(Fixture):
+    @set_up
+    def prepare_registry(self):
+        clear_connections()
+
+    @tear_down
+    def clear_registry(self):
+        clear_connections()
+
+    def new_registered_mcp_tools(self):
+        registrar = McpToolRegistrar()
+        register_tools(
+            registrar,
+            allow_eval=True,
+            allow_compile=True,
+        )
+        return registrar.registered_tools_by_name
+
+    def new_connection_id(self):
+        return add_connection(
+            object(),
+            {
+                'connection_mode': 'linked',
+                'transaction_active': False,
+            },
+        )
+
+    def new_gs_create_class(self):
+        return self.registered_mcp_tools['gs_create_class']
+
+    def new_gs_global_set(self):
+        return self.registered_mcp_tools['gs_global_set']
+
+    def new_gs_apply_selector_rename(self):
+        return self.registered_mcp_tools['gs_apply_selector_rename']
 
 
 @with_fixtures(RestrictedToolsFixture)
@@ -472,3 +513,48 @@ def test_gs_debug_eval_checks_connection_when_allowed(tools_fixture):
     )
     assert not debug_eval_result['ok']
     assert debug_eval_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_write_tools_require_active_transaction_for_create_class(
+    tools_fixture,
+):
+    create_result = tools_fixture.gs_create_class(
+        tools_fixture.connection_id,
+        'ExampleClass',
+    )
+    assert not create_result['ok']
+    assert create_result['error']['message'] == (
+        'No active transaction. '
+        'Call gs_begin before write operations.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_write_tools_require_active_transaction_for_global_set(tools_fixture):
+    set_result = tools_fixture.gs_global_set(
+        tools_fixture.connection_id,
+        'EXAMPLE_GLOBAL',
+        1,
+    )
+    assert not set_result['ok']
+    assert set_result['error']['message'] == (
+        'No active transaction. '
+        'Call gs_begin before write operations.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_write_tools_require_active_transaction_for_selector_rename(
+    tools_fixture,
+):
+    rename_result = tools_fixture.gs_apply_selector_rename(
+        tools_fixture.connection_id,
+        'oldSelector',
+        'newSelector',
+    )
+    assert not rename_result['ok']
+    assert rename_result['error']['message'] == (
+        'No active transaction. '
+        'Call gs_begin before write operations.'
+    )
