@@ -94,6 +94,11 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - `gs_transaction_status`
 - `gs_begin_if_needed`
 - `gs_find_senders`
+- `gs_tracer_status`
+- `gs_tracer_install`
+- `gs_tracer_enable`
+- `gs_tracer_disable`
+- `gs_tracer_uninstall`
 
 ## Phased Delivery
 
@@ -155,6 +160,10 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 5. Implementor/sender discovery hardening:
 - `gs_find_implementors` now supports `max_results`, `count_only`, and returns timing.
 - `gs_find_senders` provides explicit sender search without requiring `gs_eval`.
+
+6. Tracer version safety:
+- tracer Smalltalk source is shipped in-project and installed via explicit MCP tools.
+- image manifest stores tracer version/hash and `gs_tracer_status` verifies it against local source.
 
 ## Next Implementation Step
 

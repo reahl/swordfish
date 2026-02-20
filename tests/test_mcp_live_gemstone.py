@@ -169,6 +169,21 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_find_senders(self):
         return self.registered_mcp_tools['gs_find_senders']
 
+    def new_gs_tracer_status(self):
+        return self.registered_mcp_tools['gs_tracer_status']
+
+    def new_gs_tracer_install(self):
+        return self.registered_mcp_tools['gs_tracer_install']
+
+    def new_gs_tracer_enable(self):
+        return self.registered_mcp_tools['gs_tracer_enable']
+
+    def new_gs_tracer_disable(self):
+        return self.registered_mcp_tools['gs_tracer_disable']
+
+    def new_gs_tracer_uninstall(self):
+        return self.registered_mcp_tools['gs_tracer_uninstall']
+
     def new_gs_compile_method(self):
         return self.registered_mcp_tools['gs_compile_method']
 
@@ -650,6 +665,46 @@ def test_live_gs_list_packages_returns_non_empty_result(live_connection):
     package_result = live_connection.gs_list_packages(live_connection.connection_id)
     assert package_result['ok'], package_result
     assert package_result['packages']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_tracer_lifecycle_tracks_manifest_and_hash(live_connection):
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    uninstall_before_install_result = live_connection.gs_tracer_uninstall(
+        live_connection.connection_id
+    )
+    assert uninstall_before_install_result['ok'], uninstall_before_install_result
+    status_before_install_result = live_connection.gs_tracer_status(
+        live_connection.connection_id
+    )
+    assert status_before_install_result['ok'], status_before_install_result
+    assert not status_before_install_result['tracer_installed']
+    install_result = live_connection.gs_tracer_install(
+        live_connection.connection_id
+    )
+    assert install_result['ok'], install_result
+    assert install_result['tracer_installed']
+    assert install_result['hashes_match']
+    assert install_result['versions_match']
+    assert install_result['manifest_matches']
+    assert not install_result['tracer_enabled']
+    enable_result = live_connection.gs_tracer_enable(
+        live_connection.connection_id
+    )
+    assert enable_result['ok'], enable_result
+    assert enable_result['tracer_enabled']
+    disable_result = live_connection.gs_tracer_disable(
+        live_connection.connection_id
+    )
+    assert disable_result['ok'], disable_result
+    assert not disable_result['tracer_enabled']
+    uninstall_result = live_connection.gs_tracer_uninstall(
+        live_connection.connection_id
+    )
+    assert uninstall_result['ok'], uninstall_result
+    assert not uninstall_result['tracer_installed']
+    assert not uninstall_result['manifest_matches']
 
 
 @with_fixtures(LiveMcpConnectionFixture)

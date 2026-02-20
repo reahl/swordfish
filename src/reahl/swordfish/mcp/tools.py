@@ -26,6 +26,9 @@ from reahl.swordfish.mcp.session_registry import get_metadata
 from reahl.swordfish.mcp.session_registry import get_session
 from reahl.swordfish.mcp.session_registry import has_connection
 from reahl.swordfish.mcp.session_registry import remove_connection
+from reahl.swordfish.mcp.tracer_assets import tracer_source
+from reahl.swordfish.mcp.tracer_assets import tracer_source_hash
+from reahl.swordfish.mcp.tracer_assets import TRACER_VERSION
 
 
 def register_tools(
@@ -146,6 +149,85 @@ def register_tools(
         if not isinstance(input_value, bool):
             raise DomainException('%s must be a boolean.' % argument_name)
         return input_value
+
+    def tracer_status_for_browser_session(browser_session):
+        expected_source_hash = tracer_source_hash()
+        expected_version = TRACER_VERSION
+        manifest_exists = browser_session.run_code(
+            'UserGlobals includesKey: #SwordfishMcpTracerManifest'
+        ).to_py
+        installed_source_hash = ''
+        installed_version = ''
+        installed_at = ''
+        enabled = browser_session.run_code(
+            'UserGlobals at: #SwordfishMcpTracerEnabled ifAbsent: [ false ]'
+        ).to_py
+        if manifest_exists:
+            installed_source_hash = browser_session.run_code(
+                (
+                    '(UserGlobals at: #SwordfishMcpTracerManifest) '
+                    "at: #sourceHash ifAbsent: ['']"
+                )
+            ).to_py
+            installed_version = browser_session.run_code(
+                (
+                    '(UserGlobals at: #SwordfishMcpTracerManifest) '
+                    "at: #version ifAbsent: ['']"
+                )
+            ).to_py
+            installed_at = browser_session.run_code(
+                (
+                    '(UserGlobals at: #SwordfishMcpTracerManifest) '
+                    "at: #installedAt ifAbsent: ['']"
+                )
+            ).to_py
+        hashes_match = manifest_exists and (
+            installed_source_hash == expected_source_hash
+        )
+        versions_match = manifest_exists and (
+            installed_version == expected_version
+        )
+        manifest_matches = hashes_match and versions_match
+        return {
+            'tracer_installed': manifest_exists,
+            'tracer_enabled': enabled,
+            'expected_version': expected_version,
+            'installed_version': installed_version,
+            'versions_match': versions_match,
+            'expected_source_hash': expected_source_hash,
+            'installed_source_hash': installed_source_hash,
+            'hashes_match': hashes_match,
+            'manifest_matches': manifest_matches,
+            'installed_at': installed_at,
+        }
+
+    def tracer_manifest_install_script(browser_session):
+        expected_source_hash = tracer_source_hash()
+        expected_version = TRACER_VERSION
+        expected_version_literal = browser_session.smalltalk_string_literal(
+            expected_version
+        )
+        expected_hash_literal = browser_session.smalltalk_string_literal(
+            expected_source_hash
+        )
+        installed_by_literal = browser_session.smalltalk_string_literal(
+            'swordfish-mcp'
+        )
+        return (
+            '| manifest |\n'
+            'manifest := Dictionary new.\n'
+            'manifest at: #version put: %s.\n'
+            'manifest at: #sourceHash put: %s.\n'
+            'manifest at: #installedBy put: %s.\n'
+            'manifest at: #installedAt put: DateAndTime now printString.\n'
+            'UserGlobals at: #SwordfishMcpTracerManifest put: manifest.\n'
+            'UserGlobals at: #SwordfishMcpTracerEnabled put: false.\n'
+            'true'
+        ) % (
+            expected_version_literal,
+            expected_hash_literal,
+            installed_by_literal,
+        )
 
     def validated_literal_value(input_value, argument_name):
         if input_value is None:
@@ -717,6 +799,208 @@ def register_tools(
                 'error': {'message': str(error)},
             }
         except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_tracer_status(connection_id):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                **tracer_status_for_browser_session(browser_session),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_tracer_install(connection_id):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_tracer_install is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
+        try:
+            browser_session.run_code(tracer_source())
+            browser_session.run_code(
+                tracer_manifest_install_script(browser_session)
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                **tracer_status_for_browser_session(browser_session),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_tracer_enable(connection_id, force=False):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_tracer_enable is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
+        try:
+            force = validated_boolean(force, 'force')
+            tracer_status = tracer_status_for_browser_session(browser_session)
+            if not force and not tracer_status['manifest_matches']:
+                return disabled_tool_response(
+                    connection_id,
+                    (
+                        'Tracer manifest does not match local MCP source. '
+                        'Run gs_tracer_install or use force=True.'
+                    ),
+                )
+            browser_session.run_code(
+                'UserGlobals at: #SwordfishMcpTracerEnabled put: true. true'
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                **tracer_status_for_browser_session(browser_session),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_tracer_disable(connection_id):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_tracer_disable is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
+        try:
+            browser_session.run_code(
+                'UserGlobals at: #SwordfishMcpTracerEnabled put: false. true'
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                **tracer_status_for_browser_session(browser_session),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_tracer_uninstall(connection_id):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_tracer_uninstall is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
+        try:
+            browser_session.run_code(
+                (
+                    'UserGlobals removeKey: #SwordfishMcpTracerManifest '
+                    'ifAbsent: [ ].\n'
+                    'UserGlobals at: #SwordfishMcpTracerEnabled put: false.\n'
+                    'true'
+                )
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                **tracer_status_for_browser_session(browser_session),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
             return {
                 'ok': False,
                 'connection_id': connection_id,

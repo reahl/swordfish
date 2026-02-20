@@ -117,6 +117,8 @@ For normal browse/edit/test workflows, prefer explicit tools like:
 `gs_run_gemstone_tests`.
 For selector exploration, use `gs_find_implementors` and `gs_find_senders`
 instead of free-form evaluation. Both support `max_results` and `count_only`.
+For optional tracer installation, use `gs_tracer_install` and verify with
+`gs_tracer_status` before enabling via `gs_tracer_enable`.
 When you do use `gs_eval`, pass `unsafe=True` (and optionally a `reason`).
 Write tools require an explicit transaction: call `gs_begin` before writes,
 then `gs_commit` (or `gs_abort`) when done. With default policy,
@@ -141,6 +143,11 @@ The server identifies itself as `SwordfishMCP` and currently supports:
 - `gs_find_selectors`
 - `gs_find_implementors`
 - `gs_find_senders`
+- `gs_tracer_status`
+- `gs_tracer_install`
+- `gs_tracer_enable`
+- `gs_tracer_disable`
+- `gs_tracer_uninstall`
 - `gs_create_class`
 - `gs_create_test_case_class`
 - `gs_get_class_definition`
