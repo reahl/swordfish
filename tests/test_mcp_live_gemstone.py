@@ -162,6 +162,42 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_compile_method(self):
         return self.registered_mcp_tools['gs_compile_method']
 
+    def new_gs_get_class_definition(self):
+        return self.registered_mcp_tools['gs_get_class_definition']
+
+    def new_gs_create_class(self):
+        return self.registered_mcp_tools['gs_create_class']
+
+    def new_gs_create_test_case_class(self):
+        return self.registered_mcp_tools['gs_create_test_case_class']
+
+    def new_gs_delete_class(self):
+        return self.registered_mcp_tools['gs_delete_class']
+
+    def new_gs_delete_method(self):
+        return self.registered_mcp_tools['gs_delete_method']
+
+    def new_gs_set_method_category(self):
+        return self.registered_mcp_tools['gs_set_method_category']
+
+    def new_gs_list_test_case_classes(self):
+        return self.registered_mcp_tools['gs_list_test_case_classes']
+
+    def new_gs_run_tests_in_package(self):
+        return self.registered_mcp_tools['gs_run_tests_in_package']
+
+    def new_gs_run_test_method(self):
+        return self.registered_mcp_tools['gs_run_test_method']
+
+    def new_gs_global_set(self):
+        return self.registered_mcp_tools['gs_global_set']
+
+    def new_gs_global_remove(self):
+        return self.registered_mcp_tools['gs_global_remove']
+
+    def new_gs_global_exists(self):
+        return self.registered_mcp_tools['gs_global_exists']
+
     def new_gs_run_gemstone_tests(self):
         return self.registered_mcp_tools['gs_run_gemstone_tests']
 
@@ -187,7 +223,12 @@ class LiveMcpConnectionFixture(Fixture):
         return self.registered_mcp_tools['gs_debug_stop']
 
     def evaluate_python_value(self, source):
-        eval_result = self.gs_eval(self.connection_id, source)
+        eval_result = self.gs_eval(
+            self.connection_id,
+            source,
+            unsafe=True,
+            reason='test-helper',
+        )
         assert eval_result['ok'], eval_result
         return eval_result['output']['result']['python_value']
 
@@ -304,6 +345,8 @@ def test_live_gs_eval_reports_expected_result_shape(live_connection, live_eval):
     eval_result = live_connection.gs_eval(
         live_connection.connection_id,
         live_eval.source,
+        unsafe=True,
+        reason='integration-test',
     )
     assert eval_result['ok'], eval_result
     result_payload = eval_result['output']['result']
@@ -326,6 +369,8 @@ def test_live_gs_eval_error_includes_serialized_debug_stack(live_connection):
     eval_result = live_connection.gs_eval(
         live_connection.connection_id,
         'true ifTrue: [ 0 halt. 1+1. 122+1 ]',
+        unsafe=True,
+        reason='integration-test',
     )
     assert not eval_result['ok']
     assert eval_result['debug']['stack_frames']
@@ -335,6 +380,19 @@ def test_live_gs_eval_error_includes_serialized_debug_stack(live_connection):
     assert top_frame['method_name']
     assert top_frame['method_source']
     assert top_frame['step_point_offset'] > 0
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_eval_requires_unsafe_flag(live_connection):
+    eval_result = live_connection.gs_eval(
+        live_connection.connection_id,
+        '3 + 4',
+    )
+    assert not eval_result['ok']
+    assert eval_result['error']['message'] == (
+        'gs_eval requires unsafe=True. '
+        'Prefer explicit gs_* tools when possible.'
+    )
 
 
 @with_fixtures(LiveMcpConnectionFixture)
@@ -436,14 +494,10 @@ def test_live_gs_compile_method_returns_ok(live_connection):
     source = '%s ^123' % selector
     begin_result = live_connection.gs_begin(live_connection.connection_id)
     assert begin_result['ok'], begin_result
-    create_class_result = live_connection.gs_eval(
+    create_class_result = live_connection.gs_create_class(
         live_connection.connection_id,
-        (
-            "Object subclass: '%s' instVarNames: #() classVars: #() "
-            "classInstVars: #() poolDictionaries: #() "
-            "inDictionary: UserGlobals options: #()"
-        )
-        % class_name,
+        class_name,
+        superclass_name='Object',
     )
     assert create_class_result['ok'], create_class_result
     compile_result = live_connection.gs_compile_method(
@@ -464,18 +518,256 @@ def test_live_gs_compile_method_returns_ok(live_connection):
 
 
 @with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_get_class_definition_reports_expected_values(live_connection):
+    class_name = 'McpDefinitionClass%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+        superclass_name='Object',
+        inst_var_names=['exampleInstVar'],
+        class_var_names=['ExampleClassVar'],
+        class_inst_var_names=['exampleClassInstVar'],
+    )
+    assert create_class_result['ok'], create_class_result
+    definition_result = live_connection.gs_get_class_definition(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert definition_result['ok'], definition_result
+    definition = definition_result['class_definition']
+    assert definition['class_name'] == class_name
+    assert definition['superclass_name'] == 'Object'
+    assert definition['inst_var_names'] == ['exampleInstVar']
+    assert definition['class_var_names'] == ['ExampleClassVar']
+    assert definition['class_inst_var_names'] == ['exampleClassInstVar']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_delete_method_removes_selector(live_connection):
+    class_name = 'McpDeleteMethodClass%s' % uuid.uuid4().hex[:8]
+    selector = 'deleteSelector%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s ^123' % selector,
+        True,
+    )
+    assert compile_result['ok'], compile_result
+    delete_result = live_connection.gs_delete_method(
+        live_connection.connection_id,
+        class_name,
+        selector,
+        True,
+    )
+    assert delete_result['ok'], delete_result
+    methods_result = live_connection.gs_list_methods(
+        live_connection.connection_id,
+        class_name,
+        'all',
+        True,
+    )
+    assert methods_result['ok'], methods_result
+    assert selector not in methods_result['selectors']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_set_method_category_moves_selector(live_connection):
+    class_name = 'McpMethodCategoryClass%s' % uuid.uuid4().hex[:8]
+    selector = 'moveSelector%s' % uuid.uuid4().hex[:8]
+    target_category = 'examples'
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s ^321' % selector,
+        True,
+    )
+    assert compile_result['ok'], compile_result
+    move_result = live_connection.gs_set_method_category(
+        live_connection.connection_id,
+        class_name,
+        selector,
+        target_category,
+        True,
+    )
+    assert move_result['ok'], move_result
+    methods_in_target_category = live_connection.gs_list_methods(
+        live_connection.connection_id,
+        class_name,
+        target_category,
+        True,
+    )
+    assert methods_in_target_category['ok'], methods_in_target_category
+    assert selector in methods_in_target_category['selectors']
+    methods_in_default_category = live_connection.gs_list_methods(
+        live_connection.connection_id,
+        class_name,
+        'as yet unclassified',
+        True,
+    )
+    assert methods_in_default_category['ok'], methods_in_default_category
+    assert selector not in methods_in_default_category['selectors']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_delete_class_removes_global_binding(live_connection):
+    class_name = 'McpDeleteClass%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    delete_result = live_connection.gs_delete_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert delete_result['ok'], delete_result
+    assert not live_connection.evaluate_python_value(
+        "UserGlobals includesKey: #'%s'" % class_name
+    )
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_list_test_case_classes_includes_created_class(live_connection):
+    class_name = 'McpPackageTestCase%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_test_case_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    class_result = live_connection.gs_list_test_case_classes(
+        live_connection.connection_id,
+    )
+    assert class_result['ok'], class_result
+    assert class_name in class_result['test_case_classes']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_run_tests_in_package_aggregates_results(live_connection):
+    class_name = 'McpPackageRunTestCase%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_test_case_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'testPass ^self assert: true',
+        True,
+    )
+    assert compile_result['ok'], compile_result
+    definition_result = live_connection.gs_get_class_definition(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert definition_result['ok'], definition_result
+    package_name = definition_result['class_definition']['package_name']
+    run_result = live_connection.gs_run_tests_in_package(
+        live_connection.connection_id,
+        package_name,
+    )
+    assert run_result['ok'], run_result
+    assert class_name in run_result['result']['test_case_classes']
+    assert run_result['result']['run_count'] >= 1
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_run_test_method_runs_only_selected_test(live_connection):
+    class_name = 'McpSingleMethodRunTestCase%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_test_case_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    pass_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'testPass ^self assert: true',
+        True,
+    )
+    assert pass_compile_result['ok'], pass_compile_result
+    fail_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'testFail ^self assert: false',
+        True,
+    )
+    assert fail_compile_result['ok'], fail_compile_result
+    run_result = live_connection.gs_run_test_method(
+        live_connection.connection_id,
+        class_name,
+        'testPass',
+    )
+    assert run_result['ok'], run_result
+    assert run_result['test_method_selector'] == 'testPass'
+    assert run_result['tests_passed']
+    assert run_result['result']['run_count'] == 1
+    assert run_result['result']['failure_count'] == 0
+    assert run_result['result']['error_count'] == 0
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_global_set_exists_and_remove_manage_binding(live_connection):
+    symbol_name = 'MCP_GLOBAL_%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    set_result = live_connection.gs_global_set(
+        live_connection.connection_id,
+        symbol_name,
+        777,
+    )
+    assert set_result['ok'], set_result
+    exists_after_set_result = live_connection.gs_global_exists(
+        live_connection.connection_id,
+        symbol_name,
+    )
+    assert exists_after_set_result['ok'], exists_after_set_result
+    assert exists_after_set_result['exists']
+    remove_result = live_connection.gs_global_remove(
+        live_connection.connection_id,
+        symbol_name,
+    )
+    assert remove_result['ok'], remove_result
+    exists_after_remove_result = live_connection.gs_global_exists(
+        live_connection.connection_id,
+        symbol_name,
+    )
+    assert exists_after_remove_result['ok'], exists_after_remove_result
+    assert not exists_after_remove_result['exists']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
 def test_live_gs_run_gemstone_tests_reports_passing_suite(live_connection):
     class_name = 'McpPassingTestCase%s' % uuid.uuid4().hex[:8]
     begin_result = live_connection.gs_begin(live_connection.connection_id)
     assert begin_result['ok'], begin_result
-    create_class_result = live_connection.gs_eval(
+    create_class_result = live_connection.gs_create_test_case_class(
         live_connection.connection_id,
-        (
-            "TestCase subclass: '%s' instVarNames: #() classVars: #() "
-            "classInstVars: #() poolDictionaries: #() "
-            "inDictionary: UserGlobals options: #()"
-        )
-        % class_name,
+        class_name,
     )
     assert create_class_result['ok'], create_class_result
     compile_result = live_connection.gs_compile_method(
@@ -501,14 +793,9 @@ def test_live_gs_run_gemstone_tests_reports_failing_suite(live_connection):
     class_name = 'McpFailingTestCase%s' % uuid.uuid4().hex[:8]
     begin_result = live_connection.gs_begin(live_connection.connection_id)
     assert begin_result['ok'], begin_result
-    create_class_result = live_connection.gs_eval(
+    create_class_result = live_connection.gs_create_test_case_class(
         live_connection.connection_id,
-        (
-            "TestCase subclass: '%s' instVarNames: #() classVars: #() "
-            "classInstVars: #() poolDictionaries: #() "
-            "inDictionary: UserGlobals options: #()"
-        )
-        % class_name,
+        class_name,
     )
     assert create_class_result['ok'], create_class_result
     compile_result = live_connection.gs_compile_method(
@@ -643,13 +930,9 @@ def test_live_browser_compile_method_adds_selector_in_current_transaction(
     class_name = 'BrowserCompileClass%s' % uuid.uuid4().hex[:8]
     selector = 'browserCompile%s' % uuid.uuid4().hex[:8]
     source = '%s ^987' % selector
-    browser_fixture.browser_session.run_code(
-        (
-            "Object subclass: '%s' instVarNames: #() classVars: #() "
-            "classInstVars: #() poolDictionaries: #() "
-            "inDictionary: UserGlobals options: #()"
-        )
-        % class_name
+    browser_fixture.browser_session.create_class(
+        class_name=class_name,
+        superclass_name='Object',
     )
     browser_fixture.browser_session.compile_method(class_name, True, source)
     method_source = browser_fixture.browser_session.get_method_source(

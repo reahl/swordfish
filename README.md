@@ -196,10 +196,73 @@ pip install -e ".[mcp]"
 swordfish-mcp
 ```
 
+### Configure Claude Code and Codex (Docker-over-SSH)
+
+Start the development container with SSH enabled in one terminal and keep it running:
+
+```bash
+./docker-start.sh --enable-ssh --ssh-pubkey-file ~/.ssh/id_ed25519.pub --foreground
+```
+
+In another terminal, from the project root, configure MCP clients to launch
+`swordfish-mcp` through `docker-run-over-ssh.sh`:
+
+```bash
+PROJECT_DIR="$(pwd)"
+
+# Claude Code
+claude mcp remove -s project swordfish 2>/dev/null || true
+claude mcp add -s project swordfish -- "$PROJECT_DIR/docker-run-over-ssh.sh" swordfish-mcp --allow-compile
+claude mcp list
+
+# Codex
+codex mcp remove swordfish 2>/dev/null || true
+codex mcp add swordfish -- "$PROJECT_DIR/docker-run-over-ssh.sh" swordfish-mcp --allow-compile
+codex mcp list --json
+```
+
+Add `--allow-eval` only when you explicitly want free-form evaluation.
+For normal browse/edit/test workflows, prefer explicit tools like:
+`gs_create_class`, `gs_create_test_case_class`, `gs_compile_method`, and
+`gs_run_gemstone_tests`.
+When you do use `gs_eval`, pass `unsafe=True` (and optionally a `reason`).
+
 The server identifies itself as `SwordfishMCP` and currently supports:
 
 - `gs_connect`
 - `gs_disconnect`
+- `gs_begin`
+- `gs_commit`
+- `gs_abort`
+- `gs_list_packages`
+- `gs_list_classes`
+- `gs_list_method_categories`
+- `gs_list_methods`
+- `gs_get_method_source`
+- `gs_find_classes`
+- `gs_find_selectors`
+- `gs_find_implementors`
+- `gs_create_class`
+- `gs_create_test_case_class`
+- `gs_get_class_definition`
+- `gs_delete_class`
+- `gs_compile_method`
+- `gs_delete_method`
+- `gs_set_method_category`
+- `gs_list_test_case_classes`
+- `gs_run_tests_in_package`
+- `gs_run_test_method`
+- `gs_global_set`
+- `gs_global_remove`
+- `gs_global_exists`
+- `gs_run_gemstone_tests`
+- `gs_debug_eval`
+- `gs_debug_stack`
+- `gs_debug_continue`
+- `gs_debug_step_over`
+- `gs_debug_step_into`
+- `gs_debug_step_through`
+- `gs_debug_stop`
 - `gs_eval`
 
 ## Requirements

@@ -78,18 +78,97 @@ class GemstoneBrowserSession:
         class_to_query = self.class_to_query(class_name, show_instance_side)
         return class_to_query.categoryOfSelector(method_selector).to_py
 
-    def compile_method(self, class_name, show_instance_side, source):
+    def compile_method(
+        self,
+        class_name,
+        show_instance_side,
+        source,
+        method_category='as yet unclassified',
+    ):
         class_to_query = self.class_to_query(class_name, show_instance_side)
         symbol_list = self.gemstone_session.execute('System myUserProfile symbolList')
         return class_to_query.compileMethod_dictionaries_category_environmentId(
             source,
             symbol_list,
-            'as yet unclassified',
+            method_category,
             0,
+        )
+
+    def create_class(
+        self,
+        class_name,
+        superclass_name='Object',
+        inst_var_names=None,
+        class_var_names=None,
+        class_inst_var_names=None,
+        pool_dictionary_names=None,
+        in_dictionary='UserGlobals',
+    ):
+        inst_var_names = inst_var_names if inst_var_names is not None else []
+        class_var_names = class_var_names if class_var_names is not None else []
+        class_inst_var_names = (
+            class_inst_var_names if class_inst_var_names is not None else []
+        )
+        pool_dictionary_names = (
+            pool_dictionary_names if pool_dictionary_names is not None else []
+        )
+        source = (
+            '%s subclass: #%s\n'
+            '    instVarNames: %s\n'
+            '    classVars: %s\n'
+            '    classInstVars: %s\n'
+            '    poolDictionaries: %s\n'
+            '    inDictionary: %s'
+        ) % (
+            superclass_name,
+            class_name,
+            self.symbol_array_literal(inst_var_names),
+            self.symbol_array_literal(class_var_names),
+            self.symbol_array_literal(class_inst_var_names),
+            self.symbol_array_literal(pool_dictionary_names),
+            in_dictionary,
+        )
+        return self.run_code(source)
+
+    def create_test_case_class(
+        self,
+        class_name,
+        in_dictionary='UserGlobals',
+    ):
+        return self.create_class(
+            class_name=class_name,
+            superclass_name='TestCase',
+            in_dictionary=in_dictionary,
         )
 
     def run_code(self, source):
         return self.gemstone_session.execute(source)
+
+    def symbol_array_literal(self, symbol_names):
+        if not symbol_names:
+            return '#()'
+        return '#(%s)' % ' '.join(symbol_names)
+
+    def smalltalk_string_literal(self, value):
+        return "'%s'" % value.replace("'", "''")
+
+    def smalltalk_literal(self, value):
+        if value is None:
+            return 'nil'
+        if isinstance(value, bool):
+            return 'true' if value else 'false'
+        if isinstance(value, (int, float)):
+            return str(value)
+        if isinstance(value, str):
+            return self.smalltalk_string_literal(value)
+        raise DomainException(
+            'literal_value must be None, bool, int, float, or string.'
+        )
+
+    def class_reference_expression(self, class_name, show_instance_side):
+        if show_instance_side:
+            return class_name
+        return '%s class' % class_name
 
     def evaluate_source(self, source):
         result = self.run_code(source)
@@ -101,6 +180,24 @@ class GemstoneBrowserSession:
         test_case_class = self.gemstone_session.resolve_symbol(test_case_class_name)
         test_suite = test_case_class.suite()
         test_result = test_suite.run()
+        return self.summarized_test_result(test_result)
+
+    def run_test_method(self, test_case_class_name, test_method_selector):
+        selector_literal = self.smalltalk_string_literal(test_method_selector)
+        test_result = self.run_code(
+            (
+                '| testCaseClass testCase testSuite |\n'
+                'testCaseClass := %s.\n'
+                'testCase := testCaseClass selector: (%s asSymbol).\n'
+                'testSuite := TestSuite named: testCaseClass name.\n'
+                'testSuite addTest: testCase.\n'
+                'testSuite run'
+            )
+            % (test_case_class_name, selector_literal)
+        )
+        return self.summarized_test_result(test_result)
+
+    def summarized_test_result(self, test_result):
         failure_entries = [
             failure.printString().to_py
             for failure in test_result.failures().asSortedCollection()
@@ -117,6 +214,154 @@ class GemstoneBrowserSession:
             'failures': failure_entries,
             'errors': error_entries,
         }
+
+    def run_tests_in_package(self, package_name):
+        test_case_classes = self.list_test_case_classes(package_name)
+        run_count = 0
+        failure_count = 0
+        error_count = 0
+        has_passed = True
+        failure_entries = []
+        error_entries = []
+        for test_case_class_name in test_case_classes:
+            test_result = self.run_gemstone_tests(test_case_class_name)
+            run_count += test_result['run_count']
+            failure_count += test_result['failure_count']
+            error_count += test_result['error_count']
+            has_passed = has_passed and test_result['has_passed']
+            failure_entries += test_result['failures']
+            error_entries += test_result['errors']
+        return {
+            'package_name': package_name,
+            'test_case_classes': test_case_classes,
+            'run_count': run_count,
+            'failure_count': failure_count,
+            'error_count': error_count,
+            'has_passed': has_passed,
+            'failures': failure_entries,
+            'errors': error_entries,
+        }
+
+    def get_class_definition(self, class_name):
+        gemstone_class = self.resolved_class(class_name)
+        if gemstone_class is None:
+            raise DomainException('Unknown class_name.')
+        superclass = gemstone_class.superclass()
+        superclass_name = None
+        if not superclass.isNil().to_py:
+            superclass_name = superclass.name().to_py
+        pool_names = [
+            gemstone_pool.name().to_py
+            for gemstone_pool in gemstone_class.allSharedPools()
+        ]
+        return {
+            'class_name': gemstone_class.name().to_py,
+            'superclass_name': superclass_name,
+            'package_name': gemstone_class.category().to_py,
+            'inst_var_names': [
+                gemstone_name.to_py
+                for gemstone_name in gemstone_class.instVarNames()
+            ],
+            'class_var_names': [
+                gemstone_name.to_py
+                for gemstone_name in gemstone_class.classVarNames()
+            ],
+            'class_inst_var_names': [
+                gemstone_name.to_py
+                for gemstone_name in gemstone_class.gemstone_class().instVarNames()
+            ],
+            'pool_dictionary_names': pool_names,
+        }
+
+    def delete_class(self, class_name, in_dictionary='UserGlobals'):
+        return self.run_code(
+            (
+                '| classToDelete |\n'
+                'classToDelete := %s at: #%s ifAbsent: [ nil ].\n'
+                'classToDelete ifNotNil: [\n'
+                '    classToDelete removeAllMethods: 0.\n'
+                '    classToDelete class removeAllMethods: 0.\n'
+                '    %s removeKey: #%s ifAbsent: [].\n'
+                '].'
+            )
+            % (in_dictionary, class_name, in_dictionary, class_name)
+        )
+
+    def delete_method(self, class_name, method_selector, show_instance_side):
+        class_reference = self.class_reference_expression(
+            class_name,
+            show_instance_side,
+        )
+        selector_literal = self.smalltalk_string_literal(method_selector)
+        return self.run_code(
+            (
+                '%s removeSelector: (%s asSymbol) '
+                'environmentId: 0 ifAbsent: []'
+            )
+            % (class_reference, selector_literal)
+        )
+
+    def set_method_category(
+        self,
+        class_name,
+        method_selector,
+        method_category,
+        show_instance_side,
+    ):
+        method_source = self.get_method_source(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        return self.compile_method(
+            class_name=class_name,
+            show_instance_side=show_instance_side,
+            source=method_source,
+            method_category=method_category,
+        )
+
+    def class_inherits_from(self, class_name, ancestor_class_name):
+        source = '%s inheritsFrom: %s' % (class_name, ancestor_class_name)
+        return self.run_code(source).to_py
+
+    def list_test_case_classes(self, package_name=None):
+        class_names = (
+            self.list_classes(package_name)
+            if package_name
+            else self.all_class_names()
+        )
+        return sorted(
+            [
+                class_name
+                for class_name in class_names
+                if self.class_inherits_from(class_name, 'TestCase')
+            ]
+        )
+
+    def global_set(
+        self,
+        symbol_name,
+        literal_value,
+        in_dictionary='UserGlobals',
+    ):
+        literal_source = self.smalltalk_literal(literal_value)
+        return self.run_code(
+            '%s at: #%s put: %s' % (
+                in_dictionary,
+                symbol_name,
+                literal_source,
+            )
+        )
+
+    def global_remove(self, symbol_name, in_dictionary='UserGlobals'):
+        return self.run_code(
+            '%s removeKey: #%s ifAbsent: []' % (in_dictionary, symbol_name)
+        )
+
+    def global_exists(self, symbol_name, in_dictionary='UserGlobals'):
+        return self.run_code(
+            '%s includesKey: #%s' % (in_dictionary, symbol_name)
+        ).to_py
 
     def find_classes(self, search_input):
         try:
