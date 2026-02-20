@@ -28,6 +28,42 @@ class RestrictedToolsFixture(Fixture):
     def new_gs_compile_method(self):
         return self.registered_mcp_tools['gs_compile_method']
 
+    def new_gs_create_class(self):
+        return self.registered_mcp_tools['gs_create_class']
+
+    def new_gs_create_test_case_class(self):
+        return self.registered_mcp_tools['gs_create_test_case_class']
+
+    def new_gs_get_class_definition(self):
+        return self.registered_mcp_tools['gs_get_class_definition']
+
+    def new_gs_delete_class(self):
+        return self.registered_mcp_tools['gs_delete_class']
+
+    def new_gs_delete_method(self):
+        return self.registered_mcp_tools['gs_delete_method']
+
+    def new_gs_set_method_category(self):
+        return self.registered_mcp_tools['gs_set_method_category']
+
+    def new_gs_list_test_case_classes(self):
+        return self.registered_mcp_tools['gs_list_test_case_classes']
+
+    def new_gs_run_tests_in_package(self):
+        return self.registered_mcp_tools['gs_run_tests_in_package']
+
+    def new_gs_run_test_method(self):
+        return self.registered_mcp_tools['gs_run_test_method']
+
+    def new_gs_global_set(self):
+        return self.registered_mcp_tools['gs_global_set']
+
+    def new_gs_global_remove(self):
+        return self.registered_mcp_tools['gs_global_remove']
+
+    def new_gs_global_exists(self):
+        return self.registered_mcp_tools['gs_global_exists']
+
     def new_gs_debug_eval(self):
         return self.registered_mcp_tools['gs_debug_eval']
 
@@ -47,6 +83,42 @@ class AllowedToolsFixture(Fixture):
 
     def new_gs_compile_method(self):
         return self.registered_mcp_tools['gs_compile_method']
+
+    def new_gs_create_class(self):
+        return self.registered_mcp_tools['gs_create_class']
+
+    def new_gs_create_test_case_class(self):
+        return self.registered_mcp_tools['gs_create_test_case_class']
+
+    def new_gs_get_class_definition(self):
+        return self.registered_mcp_tools['gs_get_class_definition']
+
+    def new_gs_delete_class(self):
+        return self.registered_mcp_tools['gs_delete_class']
+
+    def new_gs_delete_method(self):
+        return self.registered_mcp_tools['gs_delete_method']
+
+    def new_gs_set_method_category(self):
+        return self.registered_mcp_tools['gs_set_method_category']
+
+    def new_gs_list_test_case_classes(self):
+        return self.registered_mcp_tools['gs_list_test_case_classes']
+
+    def new_gs_run_tests_in_package(self):
+        return self.registered_mcp_tools['gs_run_tests_in_package']
+
+    def new_gs_run_test_method(self):
+        return self.registered_mcp_tools['gs_run_test_method']
+
+    def new_gs_global_set(self):
+        return self.registered_mcp_tools['gs_global_set']
+
+    def new_gs_global_remove(self):
+        return self.registered_mcp_tools['gs_global_remove']
+
+    def new_gs_global_exists(self):
+        return self.registered_mcp_tools['gs_global_exists']
 
     def new_gs_debug_eval(self):
         return self.registered_mcp_tools['gs_debug_eval']
@@ -78,6 +150,101 @@ def test_gs_compile_method_is_disabled_by_default(tools_fixture):
 
 
 @with_fixtures(RestrictedToolsFixture)
+def test_gs_create_class_is_disabled_by_default(tools_fixture):
+    create_result = tools_fixture.gs_create_class(
+        'missing-connection-id',
+        'ExampleClass',
+    )
+    assert not create_result['ok']
+    assert create_result['error']['message'] == (
+        'gs_create_class is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_create_test_case_class_is_disabled_by_default(tools_fixture):
+    create_result = tools_fixture.gs_create_test_case_class(
+        'missing-connection-id',
+        'ExampleTestCase',
+    )
+    assert not create_result['ok']
+    assert create_result['error']['message'] == (
+        'gs_create_test_case_class is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_delete_class_is_disabled_by_default(tools_fixture):
+    delete_result = tools_fixture.gs_delete_class(
+        'missing-connection-id',
+        'ExampleClass',
+    )
+    assert not delete_result['ok']
+    assert delete_result['error']['message'] == (
+        'gs_delete_class is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_delete_method_is_disabled_by_default(tools_fixture):
+    delete_result = tools_fixture.gs_delete_method(
+        'missing-connection-id',
+        'ExampleClass',
+        'exampleMethod',
+    )
+    assert not delete_result['ok']
+    assert delete_result['error']['message'] == (
+        'gs_delete_method is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_set_method_category_is_disabled_by_default(tools_fixture):
+    set_result = tools_fixture.gs_set_method_category(
+        'missing-connection-id',
+        'ExampleClass',
+        'exampleMethod',
+        'examples',
+    )
+    assert not set_result['ok']
+    assert set_result['error']['message'] == (
+        'gs_set_method_category is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_global_set_is_disabled_by_default(tools_fixture):
+    set_result = tools_fixture.gs_global_set(
+        'missing-connection-id',
+        'EXAMPLE_GLOBAL',
+        1,
+    )
+    assert not set_result['ok']
+    assert set_result['error']['message'] == (
+        'gs_global_set is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_global_remove_is_disabled_by_default(tools_fixture):
+    remove_result = tools_fixture.gs_global_remove(
+        'missing-connection-id',
+        'EXAMPLE_GLOBAL',
+    )
+    assert not remove_result['ok']
+    assert remove_result['error']['message'] == (
+        'gs_global_remove is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
 def test_gs_debug_eval_is_disabled_by_default(tools_fixture):
     debug_eval_result = tools_fixture.gs_debug_eval(
         'missing-connection-id',
@@ -91,8 +258,22 @@ def test_gs_debug_eval_is_disabled_by_default(tools_fixture):
 
 
 @with_fixtures(AllowedToolsFixture)
-def test_gs_eval_checks_connection_when_allowed(tools_fixture):
+def test_gs_eval_requires_unsafe_flag_when_allowed(tools_fixture):
     eval_result = tools_fixture.gs_eval('missing-connection-id', '3 + 4')
+    assert not eval_result['ok']
+    assert eval_result['error']['message'] == (
+        'gs_eval requires unsafe=True. '
+        'Prefer explicit gs_* tools when possible.'
+    )
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_eval_checks_connection_when_allowed(tools_fixture):
+    eval_result = tools_fixture.gs_eval(
+        'missing-connection-id',
+        '3 + 4',
+        unsafe=True,
+    )
     assert not eval_result['ok']
     assert eval_result['error']['message'] == 'Unknown connection_id.'
 
@@ -107,6 +288,132 @@ def test_gs_compile_method_checks_connection_when_allowed(tools_fixture):
     )
     assert not compile_result['ok']
     assert compile_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_create_class_checks_connection_when_allowed(tools_fixture):
+    create_result = tools_fixture.gs_create_class(
+        'missing-connection-id',
+        'ExampleClass',
+    )
+    assert not create_result['ok']
+    assert create_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_create_test_case_class_checks_connection_when_allowed(
+    tools_fixture,
+):
+    create_result = tools_fixture.gs_create_test_case_class(
+        'missing-connection-id',
+        'ExampleTestCase',
+    )
+    assert not create_result['ok']
+    assert create_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_get_class_definition_checks_connection(tools_fixture):
+    class_result = tools_fixture.gs_get_class_definition(
+        'missing-connection-id',
+        'ExampleClass',
+    )
+    assert not class_result['ok']
+    assert class_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_delete_class_checks_connection_when_allowed(tools_fixture):
+    delete_result = tools_fixture.gs_delete_class(
+        'missing-connection-id',
+        'ExampleClass',
+    )
+    assert not delete_result['ok']
+    assert delete_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_delete_method_checks_connection_when_allowed(tools_fixture):
+    delete_result = tools_fixture.gs_delete_method(
+        'missing-connection-id',
+        'ExampleClass',
+        'exampleMethod',
+    )
+    assert not delete_result['ok']
+    assert delete_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_set_method_category_checks_connection_when_allowed(tools_fixture):
+    set_result = tools_fixture.gs_set_method_category(
+        'missing-connection-id',
+        'ExampleClass',
+        'exampleMethod',
+        'examples',
+    )
+    assert not set_result['ok']
+    assert set_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_list_test_case_classes_checks_connection(tools_fixture):
+    class_result = tools_fixture.gs_list_test_case_classes(
+        'missing-connection-id',
+    )
+    assert not class_result['ok']
+    assert class_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_run_tests_in_package_checks_connection(tools_fixture):
+    run_result = tools_fixture.gs_run_tests_in_package(
+        'missing-connection-id',
+        'Kernel-Objects',
+    )
+    assert not run_result['ok']
+    assert run_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_run_test_method_checks_connection(tools_fixture):
+    run_result = tools_fixture.gs_run_test_method(
+        'missing-connection-id',
+        'ExampleTestCase',
+        'testPass',
+    )
+    assert not run_result['ok']
+    assert run_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_global_set_checks_connection(tools_fixture):
+    set_result = tools_fixture.gs_global_set(
+        'missing-connection-id',
+        'EXAMPLE_GLOBAL',
+        1,
+    )
+    assert not set_result['ok']
+    assert set_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_global_remove_checks_connection(tools_fixture):
+    remove_result = tools_fixture.gs_global_remove(
+        'missing-connection-id',
+        'EXAMPLE_GLOBAL',
+    )
+    assert not remove_result['ok']
+    assert remove_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_global_exists_checks_connection(tools_fixture):
+    exists_result = tools_fixture.gs_global_exists(
+        'missing-connection-id',
+        'EXAMPLE_GLOBAL',
+    )
+    assert not exists_result['ok']
+    assert exists_result['error']['message'] == 'Unknown connection_id.'
 
 
 @with_fixtures(AllowedToolsFixture)

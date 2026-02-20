@@ -1,3 +1,5 @@
+import re
+
 from reahl.ptongue import GemstoneApiError
 from reahl.ptongue import GemstoneError
 
@@ -30,6 +32,8 @@ def register_tools(
     allow_eval=False,
     allow_compile=False,
 ):
+    identifier_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*$')
+
     def get_active_session(connection_id):
         if not has_connection(connection_id):
             return None, {
@@ -72,6 +76,53 @@ def register_tools(
             'connection_id': connection_id,
             'error': {'message': message},
         }
+
+    def validated_identifier(input_value, argument_name):
+        if not isinstance(input_value, str):
+            raise DomainException('%s must be a string.' % argument_name)
+        if not input_value:
+            raise DomainException('%s cannot be empty.' % argument_name)
+        if not identifier_pattern.match(input_value):
+            raise DomainException(
+                (
+                    '%s must contain only letters, digits, and underscores '
+                    'and start with a letter.'
+                )
+                % argument_name
+            )
+        return input_value
+
+    def validated_identifier_names(input_values, argument_name):
+        if input_values is None:
+            return []
+        if not isinstance(input_values, list):
+            raise DomainException('%s must be a list of strings.' % argument_name)
+        validated_values = []
+        for index, input_value in enumerate(input_values):
+            validated_values.append(
+                validated_identifier(
+                    input_value,
+                    '%s[%s]' % (argument_name, index),
+                )
+            )
+        return validated_values
+
+    def validated_non_empty_string(input_value, argument_name):
+        if not isinstance(input_value, str):
+            raise DomainException('%s must be a string.' % argument_name)
+        if not input_value:
+            raise DomainException('%s cannot be empty.' % argument_name)
+        return input_value
+
+    def validated_literal_value(input_value, argument_name):
+        if input_value is None:
+            return input_value
+        if isinstance(input_value, (bool, int, float, str)):
+            return input_value
+        raise DomainException(
+            '%s must be None, bool, int, float, or string.'
+            % argument_name
+        )
 
     def serialized_debug_frames(debug_session):
         stack_frames = debug_session.call_stack()
@@ -467,6 +518,7 @@ def register_tools(
         class_name,
         source,
         show_instance_side=True,
+        method_category='as yet unclassified',
     ):
         if not allow_compile:
             return disabled_tool_response(
@@ -480,15 +532,304 @@ def register_tools(
         if error_response:
             return error_response
         try:
+            class_name = validated_identifier(class_name, 'class_name')
+            source = validated_non_empty_string(source, 'source')
+            method_category = validated_non_empty_string(
+                method_category,
+                'method_category',
+            )
             browser_session.compile_method(
                 class_name,
                 show_instance_side,
                 source,
+                method_category,
             )
             return {
                 'ok': True,
                 'connection_id': connection_id,
                 'class_name': class_name,
+                'show_instance_side': show_instance_side,
+                'method_category': method_category,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_create_class(
+        connection_id,
+        class_name,
+        superclass_name='Object',
+        inst_var_names=None,
+        class_var_names=None,
+        class_inst_var_names=None,
+        pool_dictionary_names=None,
+        in_dictionary='UserGlobals',
+    ):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_create_class is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            class_name = validated_identifier(class_name, 'class_name')
+            superclass_name = validated_identifier(
+                superclass_name,
+                'superclass_name',
+            )
+            in_dictionary = validated_identifier(
+                in_dictionary,
+                'in_dictionary',
+            )
+            inst_var_names = validated_identifier_names(
+                inst_var_names,
+                'inst_var_names',
+            )
+            class_var_names = validated_identifier_names(
+                class_var_names,
+                'class_var_names',
+            )
+            class_inst_var_names = validated_identifier_names(
+                class_inst_var_names,
+                'class_inst_var_names',
+            )
+            pool_dictionary_names = validated_identifier_names(
+                pool_dictionary_names,
+                'pool_dictionary_names',
+            )
+            browser_session.create_class(
+                class_name=class_name,
+                superclass_name=superclass_name,
+                inst_var_names=inst_var_names,
+                class_var_names=class_var_names,
+                class_inst_var_names=class_inst_var_names,
+                pool_dictionary_names=pool_dictionary_names,
+                in_dictionary=in_dictionary,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'superclass_name': superclass_name,
+                'inst_var_names': inst_var_names,
+                'class_var_names': class_var_names,
+                'class_inst_var_names': class_inst_var_names,
+                'pool_dictionary_names': pool_dictionary_names,
+                'in_dictionary': in_dictionary,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_create_test_case_class(
+        connection_id,
+        class_name,
+        in_dictionary='UserGlobals',
+    ):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_create_test_case_class is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            class_name = validated_identifier(class_name, 'class_name')
+            in_dictionary = validated_identifier(
+                in_dictionary,
+                'in_dictionary',
+            )
+            browser_session.create_test_case_class(
+                class_name=class_name,
+                in_dictionary=in_dictionary,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'superclass_name': 'TestCase',
+                'in_dictionary': in_dictionary,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_get_class_definition(connection_id, class_name):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            class_name = validated_identifier(class_name, 'class_name')
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'class_definition': browser_session.get_class_definition(
+                    class_name
+                ),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_delete_class(
+        connection_id,
+        class_name,
+        in_dictionary='UserGlobals',
+    ):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_delete_class is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            class_name = validated_identifier(class_name, 'class_name')
+            in_dictionary = validated_identifier(
+                in_dictionary,
+                'in_dictionary',
+            )
+            browser_session.delete_class(
+                class_name=class_name,
+                in_dictionary=in_dictionary,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'in_dictionary': in_dictionary,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_delete_method(
+        connection_id,
+        class_name,
+        method_selector,
+        show_instance_side=True,
+    ):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_delete_method is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            class_name = validated_identifier(class_name, 'class_name')
+            method_selector = validated_non_empty_string(
+                method_selector,
+                'method_selector',
+            )
+            browser_session.delete_method(
+                class_name=class_name,
+                method_selector=method_selector,
+                show_instance_side=show_instance_side,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'method_selector': method_selector,
                 'show_instance_side': show_instance_side,
             }
         except GemstoneError as error:
@@ -498,6 +839,360 @@ def register_tools(
                 'error': gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_set_method_category(
+        connection_id,
+        class_name,
+        method_selector,
+        method_category,
+        show_instance_side=True,
+    ):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_set_method_category is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            class_name = validated_identifier(class_name, 'class_name')
+            method_selector = validated_non_empty_string(
+                method_selector,
+                'method_selector',
+            )
+            method_category = validated_non_empty_string(
+                method_category,
+                'method_category',
+            )
+            browser_session.set_method_category(
+                class_name=class_name,
+                method_selector=method_selector,
+                method_category=method_category,
+                show_instance_side=show_instance_side,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'method_selector': method_selector,
+                'method_category': method_category,
+                'show_instance_side': show_instance_side,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_list_test_case_classes(connection_id, package_name=None):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            if package_name is not None:
+                package_name = validated_non_empty_string(
+                    package_name,
+                    'package_name',
+                )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'package_name': package_name,
+                'test_case_classes': browser_session.list_test_case_classes(
+                    package_name
+                ),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_run_tests_in_package(connection_id, package_name):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            package_name = validated_non_empty_string(
+                package_name,
+                'package_name',
+            )
+            test_result = browser_session.run_tests_in_package(package_name)
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'package_name': package_name,
+                'result': test_result,
+                'tests_passed': test_result['has_passed'],
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_run_test_method(
+        connection_id,
+        test_case_class_name,
+        test_method_selector,
+    ):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            test_case_class_name = validated_identifier(
+                test_case_class_name,
+                'test_case_class_name',
+            )
+            test_method_selector = validated_non_empty_string(
+                test_method_selector,
+                'test_method_selector',
+            )
+            test_result = browser_session.run_test_method(
+                test_case_class_name,
+                test_method_selector,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'test_case_class_name': test_case_class_name,
+                'test_method_selector': test_method_selector,
+                'result': test_result,
+                'tests_passed': test_result['has_passed'],
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_global_set(
+        connection_id,
+        symbol_name,
+        literal_value,
+        in_dictionary='UserGlobals',
+    ):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_global_set is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            symbol_name = validated_identifier(symbol_name, 'symbol_name')
+            literal_value = validated_literal_value(
+                literal_value,
+                'literal_value',
+            )
+            in_dictionary = validated_identifier(
+                in_dictionary,
+                'in_dictionary',
+            )
+            browser_session.global_set(
+                symbol_name=symbol_name,
+                literal_value=literal_value,
+                in_dictionary=in_dictionary,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'symbol_name': symbol_name,
+                'in_dictionary': in_dictionary,
+                'exists': browser_session.global_exists(
+                    symbol_name,
+                    in_dictionary,
+                ),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_global_remove(
+        connection_id,
+        symbol_name,
+        in_dictionary='UserGlobals',
+    ):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_global_remove is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            symbol_name = validated_identifier(symbol_name, 'symbol_name')
+            in_dictionary = validated_identifier(
+                in_dictionary,
+                'in_dictionary',
+            )
+            browser_session.global_remove(
+                symbol_name=symbol_name,
+                in_dictionary=in_dictionary,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'symbol_name': symbol_name,
+                'in_dictionary': in_dictionary,
+                'exists': browser_session.global_exists(
+                    symbol_name,
+                    in_dictionary,
+                ),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_global_exists(
+        connection_id,
+        symbol_name,
+        in_dictionary='UserGlobals',
+    ):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            symbol_name = validated_identifier(symbol_name, 'symbol_name')
+            in_dictionary = validated_identifier(
+                in_dictionary,
+                'in_dictionary',
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'symbol_name': symbol_name,
+                'in_dictionary': in_dictionary,
+                'exists': browser_session.global_exists(
+                    symbol_name,
+                    in_dictionary,
+                ),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
             return {
                 'ok': False,
                 'connection_id': connection_id,
@@ -677,7 +1372,12 @@ def register_tools(
         }
 
     @mcp_server.tool()
-    def gs_eval(connection_id, source):
+    def gs_eval(
+        connection_id,
+        source,
+        unsafe=False,
+        reason='',
+    ):
         if not allow_eval:
             return disabled_tool_response(
                 connection_id,
@@ -686,17 +1386,31 @@ def register_tools(
                     'Start swordfish-mcp with --allow-eval to enable.'
                 ),
             )
+        if not unsafe:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_eval requires unsafe=True. '
+                    'Prefer explicit gs_* tools when possible.'
+                ),
+            )
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
         metadata = get_metadata(connection_id)
 
         try:
+            source = validated_non_empty_string(source, 'source')
+            if reason is not None:
+                if not isinstance(reason, str):
+                    raise DomainException('reason must be a string.')
             output = browser_session.evaluate_source(source)
             return {
                 'ok': True,
                 'connection_id': connection_id,
                 'connection_mode': metadata['connection_mode'],
+                'unsafe': unsafe,
+                'reason': reason,
                 'output': output,
             }
         except GemstoneError as error:
