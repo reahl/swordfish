@@ -23,126 +23,13 @@ Swordfish is built with:
 - Tcl/Tk for the GUI interface (implemented without prior knowledge of the toolkit)
 - Parseltongue (reahl-parseltongue) - library that enables calling GemStone/Smalltalk methods from Python
 
-## Installation
+## IDE
 
-### Using Docker (Recommended for Development)
+This section covers using Swordfish as a GUI IDE via the `swordfish` command.
 
-```bash
-# Clone the repository
-git clone https://github.com/reahl/swordfish.git
-cd swordfish
+### Installation
 
-# Start the development environment
-./docker-start.sh
-
-# Once inside the container, install the project in editable mode
-pip install -e .
-
-# Run the application
-source ~/.profile
-swordfish
-```
-
-#### Docker Script Options
-
-```bash
-./docker-start.sh                    # Normal development mode
-./docker-start.sh --no-cache         # Clean rebuild (clears Docker cache)
-./docker-start.sh --foreground       # Debug mode (bypass entrypoint, root shell)
-./docker-start.sh --enable-ssh       # Start sshd in container (key-only auth)
-./docker-start.sh --enable-ssh --ssh-pubkey-file ~/.ssh/id_ed25519.pub
-```
-
-#### SSH Access For Automated Commands
-
-You can run an SSH server in the development container for non-interactive automation.
-
-```bash
-# Start container with sshd enabled and your public key provisioned
-./docker-start.sh --enable-ssh --ssh-pubkey-file ~/.ssh/id_ed25519.pub
-
-# Optional overrides
-export SF_SSH_PORT=2222
-export SF_SSH_BIND_ADDRESS=127.0.0.1
-```
-
-Then connect from the host:
-
-```bash
-ssh -p 2222 "$(whoami)"@127.0.0.1
-```
-
-Run tests through SSH:
-
-```bash
-ssh -p 2222 "$(whoami)"@127.0.0.1 'cd /workspace && source ~/.local/venv/bin/activate && pytest -q'
-```
-
-Or use project wrappers from the host:
-
-```bash
-# Run any command in /workspace with ~/.local/venv activated
-./docker-run-over-ssh.sh python -V
-./docker-run-over-ssh.sh pytest -q
-
-# Convenience wrapper for pytest
-./docker-test-over-ssh.sh
-./docker-test-over-ssh.sh tests/test_mcp_session_registry.py -q
-```
-
-
-The Docker setup includes:
-- Ubuntu 24.04 base with Python 3.12
-- GemStone/Smalltalk 3.7.4.3 environment  
-- Python development tools (black, isort, pytest) in virtual environment
-- X11 forwarding for GUI applications
-- Volume mounts for live code editing
-- Automatic user mapping for file permissions
-
-#### GemStone Server Management
-
-Once inside the container, you can start and manage the GemStone server:
-
-```bash
-# Start the GemStone server (stone name: gs64stone)
-sudo -u gemstone bash -l -c "startstone gs64stone"
-
-# Check server status
-sudo -u gemstone bash -l -c "gslist"
-
-# Stop the GemStone server
-sudo -u gemstone bash -l -c "stopstone gs64stone"
-
-# Alternative: Interactive gemstone user session
-sudo -u gemstone -i
-```
-
-**Note**: GemStone server operations must be run as the `gemstone` user for proper permissions and security. The `-l` flag ensures the GemStone environment is loaded.
-
-#### Running Swordfish in the Development Container
-
-To try out Swordfish with GemStone in the development container:
-
-```bash
-# 1. Start the GemStone server
-sudo -u gemstone bash -l -c "startstone gs64stone"
-
-# 2. Verify the stone is running
-sudo -u gemstone bash -l -c "gslist"
-
-# 3. Install Swordfish in development mode
-pip install -e .
-
-# 4. Run Swordfish
-swordfish
-
-# 5. In the Swordfish GUI, connect to GemStone:
-#    - Use "Linked Session" connection type
-#    - Set stone name to: gs64stone
-#    - Leave other connection settings as defaults
-```
-
-The Swordfish GUI will open with X11 forwarding, allowing you to browse classes, edit methods, and use the debugger with your local GemStone installation.
+For Docker-based development of both IDE and MCP, see `How to Develop (Docker)` at the end of this README.
 
 ### From PyPI (Recommended)
 
@@ -170,7 +57,7 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -e .
 ```
 
-## Usage
+### Run the IDE
 
 ```bash
 # After installation, run directly from command line
@@ -180,7 +67,7 @@ swordfish
 python -m swordfish
 ```
 
-## MCP Server (Phase 0)
+## MCP
 
 Swordfish now includes an MCP server entrypoint named `swordfish-mcp`.
 
@@ -196,7 +83,9 @@ pip install -e ".[mcp]"
 swordfish-mcp
 ```
 
-### Configure Claude Code and Codex (Docker-over-SSH)
+### Add MCP to Claude Code and Codex (Docker-over-SSH)
+
+For Docker and SSH setup details used by this flow, see `How to Develop (Docker)` at the end of this README.
 
 Start the development container with SSH enabled in one terminal and keep it running:
 
@@ -341,3 +230,112 @@ We welcome contributions! Please feel free to submit a Pull Request.
 ## About Reahl Software Services
 
 Reahl Software Services (Pty) Ltd is a software development company specializing in innovative software solutions. For more information, visit [our website](https://www.reahl.org/).
+
+## How to Develop (Docker)
+
+This section applies to both IDE and MCP workflows.
+
+### Start the development container
+
+```bash
+# Clone the repository
+git clone https://github.com/reahl/swordfish.git
+cd swordfish
+
+# Start the development environment
+./docker-start.sh
+```
+
+Docker script options:
+
+```bash
+./docker-start.sh                    # Normal development mode
+./docker-start.sh --no-cache         # Clean rebuild (clears Docker cache)
+./docker-start.sh --foreground       # Debug mode (bypass entrypoint, root shell)
+./docker-start.sh --enable-ssh       # Start sshd in container (key-only auth)
+./docker-start.sh --enable-ssh --ssh-pubkey-file ~/.ssh/id_ed25519.pub
+```
+
+The Docker setup includes:
+- Ubuntu 24.04 base with Python 3.12
+- GemStone/Smalltalk 3.7.4.3 environment
+- Python development tools (black, isort, pytest) in virtual environment
+- X11 forwarding for GUI applications
+- Volume mounts for live code editing
+- Automatic user mapping for file permissions
+
+### SSH access for automated commands
+
+```bash
+# Start container with sshd enabled and your public key provisioned
+./docker-start.sh --enable-ssh --ssh-pubkey-file ~/.ssh/id_ed25519.pub
+
+# Optional overrides
+export SF_SSH_PORT=2222
+export SF_SSH_BIND_ADDRESS=127.0.0.1
+```
+
+Then connect from the host:
+
+```bash
+ssh -p 2222 "$(whoami)"@127.0.0.1
+```
+
+Run tests through SSH:
+
+```bash
+ssh -p 2222 "$(whoami)"@127.0.0.1 'cd /workspace && source ~/.local/venv/bin/activate && pytest -q'
+```
+
+Or use project wrappers from the host:
+
+```bash
+# Run any command in /workspace with ~/.local/venv activated
+./docker-run-over-ssh.sh python -V
+./docker-run-over-ssh.sh pytest -q
+
+# Convenience wrapper for pytest
+./docker-test-over-ssh.sh
+./docker-test-over-ssh.sh tests/test_mcp_session_registry.py -q
+```
+
+### GemStone server management
+
+Once inside the container, you can start and manage the GemStone server:
+
+```bash
+# Start the GemStone server (stone name: gs64stone)
+sudo -u gemstone bash -l -c "startstone gs64stone"
+
+# Check server status
+sudo -u gemstone bash -l -c "gslist"
+
+# Stop the GemStone server
+sudo -u gemstone bash -l -c "stopstone gs64stone"
+
+# Alternative: Interactive gemstone user session
+sudo -u gemstone -i
+```
+
+Note: GemStone server operations must be run as the `gemstone` user for proper permissions and security. The `-l` flag ensures the GemStone environment is loaded.
+
+### Run the IDE inside the container
+
+```bash
+# 1. Start the GemStone server
+sudo -u gemstone bash -l -c "startstone gs64stone"
+
+# 2. Verify the stone is running
+sudo -u gemstone bash -l -c "gslist"
+
+# 3. Install Swordfish in development mode
+pip install -e .
+
+# 4. Run Swordfish
+swordfish
+
+# 5. In the Swordfish GUI, connect to GemStone:
+#    - Use "Linked Session" connection type
+#    - Set stone name to: gs64stone
+#    - Leave other connection settings as defaults
+```
