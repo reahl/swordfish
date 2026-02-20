@@ -92,6 +92,21 @@ class RestrictedToolsFixture(Fixture):
     def new_gs_find_senders(self):
         return self.registered_mcp_tools['gs_find_senders']
 
+    def new_gs_tracer_status(self):
+        return self.registered_mcp_tools['gs_tracer_status']
+
+    def new_gs_tracer_install(self):
+        return self.registered_mcp_tools['gs_tracer_install']
+
+    def new_gs_tracer_enable(self):
+        return self.registered_mcp_tools['gs_tracer_enable']
+
+    def new_gs_tracer_disable(self):
+        return self.registered_mcp_tools['gs_tracer_disable']
+
+    def new_gs_tracer_uninstall(self):
+        return self.registered_mcp_tools['gs_tracer_uninstall']
+
 
 class AllowedToolsFixture(Fixture):
     def new_registered_mcp_tools(self):
@@ -170,6 +185,21 @@ class AllowedToolsFixture(Fixture):
     def new_gs_find_senders(self):
         return self.registered_mcp_tools['gs_find_senders']
 
+    def new_gs_tracer_status(self):
+        return self.registered_mcp_tools['gs_tracer_status']
+
+    def new_gs_tracer_install(self):
+        return self.registered_mcp_tools['gs_tracer_install']
+
+    def new_gs_tracer_enable(self):
+        return self.registered_mcp_tools['gs_tracer_enable']
+
+    def new_gs_tracer_disable(self):
+        return self.registered_mcp_tools['gs_tracer_disable']
+
+    def new_gs_tracer_uninstall(self):
+        return self.registered_mcp_tools['gs_tracer_uninstall']
+
 
 class AllowedToolsWithNoActiveTransactionFixture(Fixture):
     @set_up
@@ -214,6 +244,50 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
     def new_gs_find_senders(self):
         return self.registered_mcp_tools['gs_find_senders']
 
+    def new_gs_tracer_install(self):
+        return self.registered_mcp_tools['gs_tracer_install']
+
+    def new_gs_tracer_enable(self):
+        return self.registered_mcp_tools['gs_tracer_enable']
+
+    def new_gs_tracer_disable(self):
+        return self.registered_mcp_tools['gs_tracer_disable']
+
+    def new_gs_tracer_uninstall(self):
+        return self.registered_mcp_tools['gs_tracer_uninstall']
+
+
+class AllowedToolsWithActiveTransactionFixture(Fixture):
+    @set_up
+    def prepare_registry(self):
+        clear_connections()
+
+    @tear_down
+    def clear_registry(self):
+        clear_connections()
+
+    def new_registered_mcp_tools(self):
+        registrar = McpToolRegistrar()
+        register_tools(
+            registrar,
+            allow_eval=True,
+            allow_compile=True,
+            allow_commit=True,
+        )
+        return registrar.registered_tools_by_name
+
+    def new_connection_id(self):
+        return add_connection(
+            object(),
+            {
+                'connection_mode': 'linked',
+                'transaction_active': True,
+            },
+        )
+
+    def new_gs_tracer_enable(self):
+        return self.registered_mcp_tools['gs_tracer_enable']
+
 
 @with_fixtures(RestrictedToolsFixture)
 def test_gs_eval_is_disabled_by_default(tools_fixture):
@@ -232,6 +306,54 @@ def test_gs_commit_is_disabled_by_default(tools_fixture):
     assert commit_result['error']['message'] == (
         'gs_commit is disabled. '
         'Start swordfish-mcp with --allow-commit to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_tracer_install_is_disabled_by_default(tools_fixture):
+    tracer_install_result = tools_fixture.gs_tracer_install(
+        'missing-connection-id'
+    )
+    assert not tracer_install_result['ok']
+    assert tracer_install_result['error']['message'] == (
+        'gs_tracer_install is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_tracer_enable_is_disabled_by_default(tools_fixture):
+    tracer_enable_result = tools_fixture.gs_tracer_enable(
+        'missing-connection-id'
+    )
+    assert not tracer_enable_result['ok']
+    assert tracer_enable_result['error']['message'] == (
+        'gs_tracer_enable is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_tracer_disable_is_disabled_by_default(tools_fixture):
+    tracer_disable_result = tools_fixture.gs_tracer_disable(
+        'missing-connection-id'
+    )
+    assert not tracer_disable_result['ok']
+    assert tracer_disable_result['error']['message'] == (
+        'gs_tracer_disable is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_tracer_uninstall_is_disabled_by_default(tools_fixture):
+    tracer_uninstall_result = tools_fixture.gs_tracer_uninstall(
+        'missing-connection-id'
+    )
+    assert not tracer_uninstall_result['ok']
+    assert tracer_uninstall_result['error']['message'] == (
+        'gs_tracer_uninstall is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
     )
 
 
@@ -553,6 +675,51 @@ def test_gs_find_senders_checks_connection(tools_fixture):
 
 
 @with_fixtures(AllowedToolsFixture)
+def test_gs_tracer_status_checks_connection(tools_fixture):
+    tracer_status_result = tools_fixture.gs_tracer_status(
+        'missing-connection-id'
+    )
+    assert not tracer_status_result['ok']
+    assert tracer_status_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_tracer_install_checks_connection(tools_fixture):
+    tracer_install_result = tools_fixture.gs_tracer_install(
+        'missing-connection-id'
+    )
+    assert not tracer_install_result['ok']
+    assert tracer_install_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_tracer_enable_checks_connection(tools_fixture):
+    tracer_enable_result = tools_fixture.gs_tracer_enable(
+        'missing-connection-id'
+    )
+    assert not tracer_enable_result['ok']
+    assert tracer_enable_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_tracer_disable_checks_connection(tools_fixture):
+    tracer_disable_result = tools_fixture.gs_tracer_disable(
+        'missing-connection-id'
+    )
+    assert not tracer_disable_result['ok']
+    assert tracer_disable_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_tracer_uninstall_checks_connection(tools_fixture):
+    tracer_uninstall_result = tools_fixture.gs_tracer_uninstall(
+        'missing-connection-id'
+    )
+    assert not tracer_uninstall_result['ok']
+    assert tracer_uninstall_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
 def test_gs_apply_selector_rename_checks_connection(tools_fixture):
     rename_result = tools_fixture.gs_apply_selector_rename(
         'missing-connection-id',
@@ -636,6 +803,52 @@ def test_gs_find_senders_validates_count_only_flag(tools_fixture):
     )
     assert not senders_result['ok']
     assert senders_result['error']['message'] == 'count_only must be a boolean.'
+
+
+@with_fixtures(AllowedToolsWithActiveTransactionFixture)
+def test_gs_tracer_enable_validates_force_flag(tools_fixture):
+    tracer_enable_result = tools_fixture.gs_tracer_enable(
+        tools_fixture.connection_id,
+        force='true',
+    )
+    assert not tracer_enable_result['ok']
+    assert tracer_enable_result['error']['message'] == 'force must be a boolean.'
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_tracer_write_tools_require_active_transaction(tools_fixture):
+    tracer_install_result = tools_fixture.gs_tracer_install(
+        tools_fixture.connection_id
+    )
+    assert not tracer_install_result['ok']
+    assert tracer_install_result['error']['message'] == (
+        'No active transaction. '
+        'Call gs_begin before write operations.'
+    )
+    tracer_enable_result = tools_fixture.gs_tracer_enable(
+        tools_fixture.connection_id
+    )
+    assert not tracer_enable_result['ok']
+    assert tracer_enable_result['error']['message'] == (
+        'No active transaction. '
+        'Call gs_begin before write operations.'
+    )
+    tracer_disable_result = tools_fixture.gs_tracer_disable(
+        tools_fixture.connection_id
+    )
+    assert not tracer_disable_result['ok']
+    assert tracer_disable_result['error']['message'] == (
+        'No active transaction. '
+        'Call gs_begin before write operations.'
+    )
+    tracer_uninstall_result = tools_fixture.gs_tracer_uninstall(
+        tools_fixture.connection_id
+    )
+    assert not tracer_uninstall_result['ok']
+    assert tracer_uninstall_result['error']['message'] == (
+        'No active transaction. '
+        'Call gs_begin before write operations.'
+    )
 
 
 @with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
