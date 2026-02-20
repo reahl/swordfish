@@ -31,6 +31,7 @@ def register_tools(
     mcp_server,
     allow_eval=False,
     allow_compile=False,
+    allow_commit=False,
 ):
     identifier_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*$')
     unary_selector_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*$')
@@ -320,7 +321,50 @@ def register_tools(
             }
 
     @mcp_server.tool()
+    def gs_begin_if_needed(connection_id):
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        metadata = get_metadata(connection_id)
+        if metadata.get('transaction_active'):
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'began_transaction': False,
+                'transaction_active': True,
+            }
+        try:
+            begin_transaction(gemstone_session)
+            metadata['transaction_active'] = True
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'began_transaction': True,
+                'transaction_active': True,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
     def gs_commit(connection_id):
+        if not allow_commit:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_commit is disabled. '
+                    'Start swordfish-mcp with --allow-commit to enable.'
+                ),
+            )
         gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
             return error_response
@@ -343,6 +387,19 @@ def register_tools(
                 'connection_id': connection_id,
                 'error': {'message': str(error)},
             }
+
+    @mcp_server.tool()
+    def gs_transaction_status(connection_id):
+        _, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        metadata = get_metadata(connection_id)
+        return {
+            'ok': True,
+            'connection_id': connection_id,
+            'connection_mode': metadata['connection_mode'],
+            'transaction_active': metadata.get('transaction_active', False),
+        }
 
     @mcp_server.tool()
     def gs_abort(connection_id):

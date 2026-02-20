@@ -222,20 +222,25 @@ codex mcp list --json
 ```
 
 Add `--allow-eval` only when you explicitly want free-form evaluation.
+Add `--allow-commit` only when you explicitly want transactions to persist.
 For normal browse/edit/test workflows, prefer explicit tools like:
 `gs_create_class`, `gs_create_test_case_class`, `gs_compile_method`, and
 `gs_run_gemstone_tests`.
 When you do use `gs_eval`, pass `unsafe=True` (and optionally a `reason`).
 Write tools require an explicit transaction: call `gs_begin` before writes,
-then `gs_commit` (or `gs_abort`) when done.
+then `gs_commit` (or `gs_abort`) when done. With default policy,
+`gs_commit` is disabled unless the MCP server is started with
+`--allow-commit`.
 
 The server identifies itself as `SwordfishMCP` and currently supports:
 
 - `gs_connect`
 - `gs_disconnect`
 - `gs_begin`
+- `gs_begin_if_needed`
 - `gs_commit`
 - `gs_abort`
+- `gs_transaction_status`
 - `gs_list_packages`
 - `gs_list_classes`
 - `gs_list_method_categories`

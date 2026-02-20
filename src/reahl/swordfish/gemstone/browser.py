@@ -529,6 +529,19 @@ class GemstoneBrowserSession:
         }
 
     def renamed_selector_source(self, source, old_selector, new_selector):
+        if ':' in old_selector:
+            old_tokens = self.selector_keyword_tokens(old_selector)
+            new_tokens = self.selector_keyword_tokens(new_selector)
+            updated_source = source
+            for old_token, new_token in zip(old_tokens, new_tokens):
+                replacement_pattern = self.selector_replacement_pattern(
+                    old_token
+                )
+                updated_source = replacement_pattern.sub(
+                    new_token,
+                    updated_source,
+                )
+            return updated_source
         replacement_pattern = self.selector_replacement_pattern(old_selector)
         return replacement_pattern.sub(new_selector, source)
 
@@ -544,6 +557,13 @@ class GemstoneBrowserSession:
                 )
             )
         return re.compile(escaped_selector)
+
+    def selector_keyword_tokens(self, selector):
+        return [
+            keyword + ':'
+            for keyword in selector.split(':')
+            if keyword
+        ]
 
     def global_set(
         self,

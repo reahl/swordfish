@@ -29,6 +29,15 @@ class RestrictedToolsFixture(Fixture):
     def new_gs_eval(self):
         return self.registered_mcp_tools['gs_eval']
 
+    def new_gs_transaction_status(self):
+        return self.registered_mcp_tools['gs_transaction_status']
+
+    def new_gs_begin_if_needed(self):
+        return self.registered_mcp_tools['gs_begin_if_needed']
+
+    def new_gs_commit(self):
+        return self.registered_mcp_tools['gs_commit']
+
     def new_gs_compile_method(self):
         return self.registered_mcp_tools['gs_compile_method']
 
@@ -85,11 +94,21 @@ class AllowedToolsFixture(Fixture):
             registrar,
             allow_eval=True,
             allow_compile=True,
+            allow_commit=True,
         )
         return registrar.registered_tools_by_name
 
     def new_gs_eval(self):
         return self.registered_mcp_tools['gs_eval']
+
+    def new_gs_transaction_status(self):
+        return self.registered_mcp_tools['gs_transaction_status']
+
+    def new_gs_begin_if_needed(self):
+        return self.registered_mcp_tools['gs_begin_if_needed']
+
+    def new_gs_commit(self):
+        return self.registered_mcp_tools['gs_commit']
 
     def new_gs_compile_method(self):
         return self.registered_mcp_tools['gs_compile_method']
@@ -155,6 +174,7 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
             registrar,
             allow_eval=True,
             allow_compile=True,
+            allow_commit=True,
         )
         return registrar.registered_tools_by_name
 
@@ -184,6 +204,16 @@ def test_gs_eval_is_disabled_by_default(tools_fixture):
     assert eval_result['error']['message'] == (
         'gs_eval is disabled. '
         'Start swordfish-mcp with --allow-eval to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_commit_is_disabled_by_default(tools_fixture):
+    commit_result = tools_fixture.gs_commit('missing-connection-id')
+    assert not commit_result['ok']
+    assert commit_result['error']['message'] == (
+        'gs_commit is disabled. '
+        'Start swordfish-mcp with --allow-commit to enable.'
     )
 
 
@@ -343,6 +373,27 @@ def test_gs_eval_checks_connection_when_allowed(tools_fixture):
     )
     assert not eval_result['ok']
     assert eval_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_transaction_status_checks_connection_when_allowed(tools_fixture):
+    status_result = tools_fixture.gs_transaction_status('missing-connection-id')
+    assert not status_result['ok']
+    assert status_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_begin_if_needed_checks_connection_when_allowed(tools_fixture):
+    begin_result = tools_fixture.gs_begin_if_needed('missing-connection-id')
+    assert not begin_result['ok']
+    assert begin_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_commit_checks_connection_when_allowed(tools_fixture):
+    commit_result = tools_fixture.gs_commit('missing-connection-id')
+    assert not commit_result['ok']
+    assert commit_result['error']['message'] == 'Unknown connection_id.'
 
 
 @with_fixtures(AllowedToolsFixture)
