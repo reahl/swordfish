@@ -272,6 +272,74 @@ class LiveEvalScenarios(Fixture):
 
 
 @uses(running_stone=RunningStoneFixture)
+class LiveMcpConnectionWithoutCommitPermissionFixture(Fixture):
+    @set_up
+    def prepare_registry(self):
+        self.active_connection_id = None
+        clear_debug_sessions()
+        clear_connections()
+
+    @tear_down
+    def close_connection_and_abort(self):
+        if self.active_connection_id:
+            assert has_connection(self.active_connection_id)
+            with expected(NoException):
+                get_session(self.active_connection_id).abort()
+            disconnect_result = self.gs_disconnect(self.active_connection_id)
+            assert disconnect_result['ok'], disconnect_result
+        clear_debug_sessions()
+        clear_connections()
+
+    def new_registered_mcp_tools(self):
+        registrar = McpToolRegistrar()
+        register_tools(
+            registrar,
+            allow_eval=True,
+            allow_compile=True,
+            allow_commit=False,
+        )
+        return registrar.registered_tools_by_name
+
+    def new_connect_result(self):
+        connect_result = self.gs_connect(
+            'linked',
+            'DataCurator',
+            'swordfish',
+            stone_name='gs64stone',
+        )
+        assert connect_result['ok'], connect_result
+        self.active_connection_id = connect_result['connection_id']
+        return connect_result
+
+    def new_connection_id(self):
+        return self.connect_result['connection_id']
+
+    def new_gs_connect(self):
+        return self.registered_mcp_tools['gs_connect']
+
+    def new_gs_disconnect(self):
+        return self.registered_mcp_tools['gs_disconnect']
+
+    def new_gs_begin_if_needed(self):
+        return self.registered_mcp_tools['gs_begin_if_needed']
+
+    def new_gs_transaction_status(self):
+        return self.registered_mcp_tools['gs_transaction_status']
+
+    def new_gs_create_class(self):
+        return self.registered_mcp_tools['gs_create_class']
+
+    def new_gs_compile_method(self):
+        return self.registered_mcp_tools['gs_compile_method']
+
+    def new_gs_commit(self):
+        return self.registered_mcp_tools['gs_commit']
+
+    def new_gs_abort(self):
+        return self.registered_mcp_tools['gs_abort']
+
+
+@uses(running_stone=RunningStoneFixture)
 class LiveBrowserSessionFixture(Fixture):
     @set_up
     def prepare_session_slot(self):
@@ -391,6 +459,47 @@ def test_live_gs_begin_if_needed_is_idempotent(live_connection):
     assert second_begin_result['transaction_active']
     commit_result = live_connection.gs_commit(live_connection.connection_id)
     assert commit_result['ok'], commit_result
+
+
+@with_fixtures(LiveMcpConnectionWithoutCommitPermissionFixture)
+def test_live_workflow_without_commit_permission_requires_abort(
+    live_connection,
+):
+    begin_result = live_connection.gs_begin_if_needed(
+        live_connection.connection_id
+    )
+    assert begin_result['ok'], begin_result
+    assert begin_result['transaction_active']
+    class_name = 'McpNoCommitWorkflow%s' % uuid.uuid4().hex[:8]
+    create_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_result['ok'], create_result
+    compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'proofOfWrite ^42',
+    )
+    assert compile_result['ok'], compile_result
+    commit_result = live_connection.gs_commit(live_connection.connection_id)
+    assert not commit_result['ok']
+    assert commit_result['error']['message'] == (
+        'gs_commit is disabled. '
+        'Start swordfish-mcp with --allow-commit to enable.'
+    )
+    active_status_result = live_connection.gs_transaction_status(
+        live_connection.connection_id
+    )
+    assert active_status_result['ok'], active_status_result
+    assert active_status_result['transaction_active']
+    abort_result = live_connection.gs_abort(live_connection.connection_id)
+    assert abort_result['ok'], abort_result
+    aborted_status_result = live_connection.gs_transaction_status(
+        live_connection.connection_id
+    )
+    assert aborted_status_result['ok'], aborted_status_result
+    assert not aborted_status_result['transaction_active']
 
 
 @with_fixtures(LiveMcpConnectionFixture, LiveEvalScenarios)

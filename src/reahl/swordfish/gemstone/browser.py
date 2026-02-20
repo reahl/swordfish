@@ -529,21 +529,276 @@ class GemstoneBrowserSession:
         }
 
     def renamed_selector_source(self, source, old_selector, new_selector):
-        if ':' in old_selector:
-            old_tokens = self.selector_keyword_tokens(old_selector)
-            new_tokens = self.selector_keyword_tokens(new_selector)
-            updated_source = source
-            for old_token, new_token in zip(old_tokens, new_tokens):
-                replacement_pattern = self.selector_replacement_pattern(
-                    old_token
+        old_tokens = (
+            self.selector_keyword_tokens(old_selector)
+            if ':' in old_selector
+            else [old_selector]
+        )
+        new_tokens = (
+            self.selector_keyword_tokens(new_selector)
+            if ':' in new_selector
+            else [new_selector]
+        )
+        if len(old_tokens) != len(new_tokens):
+            return source
+        selector_token_ranges = self.selector_token_ranges_in_source(
+            source,
+            old_tokens,
+        )
+        replacement_plan = self.replacement_plan_for_selector_tokens(
+            selector_token_ranges,
+            new_tokens,
+        )
+        return self.source_with_replaced_selector_tokens(
+            source,
+            replacement_plan,
+        )
+
+    def selector_token_ranges_in_source(self, source, selector_tokens):
+        if not selector_tokens:
+            return []
+        code_character_map = self.source_code_character_map(source)
+        selector_token_ranges = []
+        search_start = 0
+        found_more = True
+        while found_more:
+            first_token_range = self.next_selector_token_range(
+                source,
+                selector_tokens[0],
+                search_start,
+                code_character_map,
+            )
+            if first_token_range is None:
+                found_more = False
+            else:
+                matched_token_ranges = [first_token_range]
+                previous_token_range = first_token_range
+                matched_all_tokens = True
+                for selector_token in selector_tokens[1:]:
+                    if matched_all_tokens:
+                        next_token_range = (
+                            self.next_selector_token_range_in_statement(
+                                source,
+                                selector_token,
+                                previous_token_range[1],
+                                code_character_map,
+                            )
+                        )
+                        if next_token_range is None:
+                            matched_all_tokens = False
+                        else:
+                            matched_token_ranges.append(next_token_range)
+                            previous_token_range = next_token_range
+                if matched_all_tokens:
+                    selector_token_ranges.append(matched_token_ranges)
+                    search_start = matched_token_ranges[-1][1]
+                else:
+                    search_start = first_token_range[1]
+        return selector_token_ranges
+
+    def next_selector_token_range(
+        self,
+        source,
+        selector_token,
+        search_start,
+        code_character_map,
+    ):
+        maximum_start = len(source) - len(selector_token)
+        index = search_start
+        while index <= maximum_start:
+            if source.startswith(selector_token, index):
+                token_end = index + len(selector_token)
+                has_boundaries = self.selector_token_in_source_has_boundaries(
+                    source,
+                    index,
+                    token_end,
                 )
-                updated_source = replacement_pattern.sub(
-                    new_token,
-                    updated_source,
+                is_code = self.token_range_is_code(
+                    code_character_map,
+                    index,
+                    token_end,
                 )
-            return updated_source
-        replacement_pattern = self.selector_replacement_pattern(old_selector)
-        return replacement_pattern.sub(new_selector, source)
+                if has_boundaries and is_code:
+                    return (index, token_end)
+            index = index + 1
+        return None
+
+    def next_selector_token_range_in_statement(
+        self,
+        source,
+        selector_token,
+        search_start,
+        code_character_map,
+    ):
+        maximum_start = len(source) - len(selector_token)
+        index = search_start
+        parenthesis_depth = 0
+        bracket_depth = 0
+        brace_depth = 0
+        while index <= maximum_start:
+            is_code_character = code_character_map[index]
+            if is_code_character:
+                character = source[index]
+                if character == '(':
+                    parenthesis_depth = parenthesis_depth + 1
+                elif character == ')':
+                    parenthesis_depth = (
+                        parenthesis_depth - 1
+                        if parenthesis_depth > 0
+                        else 0
+                    )
+                elif character == '[':
+                    bracket_depth = bracket_depth + 1
+                elif character == ']':
+                    bracket_depth = (
+                        bracket_depth - 1
+                        if bracket_depth > 0
+                        else 0
+                    )
+                elif character == '{':
+                    brace_depth = brace_depth + 1
+                elif character == '}':
+                    brace_depth = (
+                        brace_depth - 1
+                        if brace_depth > 0
+                        else 0
+                    )
+                at_statement_level = (
+                    parenthesis_depth == 0
+                    and bracket_depth == 0
+                    and brace_depth == 0
+                )
+                if character in '.;^' and at_statement_level:
+                    return None
+                if source.startswith(selector_token, index):
+                    token_end = index + len(selector_token)
+                    has_boundaries = (
+                        self.selector_token_in_source_has_boundaries(
+                            source,
+                            index,
+                            token_end,
+                        )
+                    )
+                    is_code = self.token_range_is_code(
+                        code_character_map,
+                        index,
+                        token_end,
+                    )
+                    if has_boundaries and is_code and at_statement_level:
+                        return (index, token_end)
+            index = index + 1
+        return None
+
+    def selector_token_in_source_has_boundaries(
+        self,
+        source,
+        token_start,
+        token_end,
+    ):
+        previous_character = (
+            source[token_start - 1]
+            if token_start > 0
+            else ''
+        )
+        next_character = (
+            source[token_end]
+            if token_end < len(source)
+            else ''
+        )
+        has_start_boundary = (
+            not previous_character
+            or not self.is_identifier_character(previous_character)
+        )
+        has_end_boundary = (
+            not next_character
+            or not self.is_identifier_character(next_character)
+        )
+        return has_start_boundary and has_end_boundary
+
+    def is_identifier_character(self, character):
+        return character.isalnum() or character == '_'
+
+    def token_range_is_code(
+        self,
+        code_character_map,
+        token_start,
+        token_end,
+    ):
+        index = token_start
+        is_code = True
+        while index < token_end and is_code:
+            is_code = code_character_map[index]
+            index = index + 1
+        return is_code
+
+    def source_code_character_map(self, source):
+        code_character_map = [True for _ in source]
+        index = 0
+        state = 'code'
+        while index < len(source):
+            character = source[index]
+            if state == 'code':
+                if character == "'":
+                    code_character_map[index] = False
+                    state = 'string'
+                elif character == '"':
+                    code_character_map[index] = False
+                    state = 'comment'
+            elif state == 'string':
+                code_character_map[index] = False
+                if character == "'":
+                    has_escaped_quote = (
+                        index + 1 < len(source)
+                        and source[index + 1] == "'"
+                    )
+                    if has_escaped_quote:
+                        code_character_map[index + 1] = False
+                        index = index + 1
+                    else:
+                        state = 'code'
+            elif state == 'comment':
+                code_character_map[index] = False
+                if character == '"':
+                    state = 'code'
+            index = index + 1
+        return code_character_map
+
+    def replacement_plan_for_selector_tokens(
+        self,
+        selector_token_ranges,
+        replacement_tokens,
+    ):
+        replacement_plan = []
+        for token_ranges in selector_token_ranges:
+            for token_index in range(len(token_ranges)):
+                token_range = token_ranges[token_index]
+                replacement_plan.append(
+                    (
+                        token_range[0],
+                        token_range[1],
+                        replacement_tokens[token_index],
+                    )
+                )
+        return sorted(
+            replacement_plan,
+            key=lambda replacement: replacement[0],
+        )
+
+    def source_with_replaced_selector_tokens(
+        self,
+        source,
+        replacement_plan,
+    ):
+        if not replacement_plan:
+            return source
+        source_fragments = []
+        cursor = 0
+        for token_start, token_end, replacement in replacement_plan:
+            source_fragments.append(source[cursor:token_start])
+            source_fragments.append(replacement)
+            cursor = token_end
+        source_fragments.append(source[cursor:])
+        return ''.join(source_fragments)
 
     def selector_replacement_pattern(self, selector):
         escaped_selector = re.escape(selector)
