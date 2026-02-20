@@ -170,6 +170,10 @@ class GemstoneBrowserSession:
             return class_name
         return '%s class' % class_name
 
+    def selector_reference_expression(self, method_selector):
+        selector_literal = self.smalltalk_string_literal(method_selector)
+        return '(%s asSymbol)' % selector_literal
+
     def evaluate_source(self, source):
         result = self.run_code(source)
         return {
@@ -337,6 +341,209 @@ class GemstoneBrowserSession:
                 if self.class_inherits_from(class_name, 'TestCase')
             ]
         )
+
+    def selector_rename_preview(self, old_selector, new_selector):
+        planned_changes = self.selector_rename_plan(
+            old_selector,
+            new_selector,
+        )
+        return {
+            'old_selector': old_selector,
+            'new_selector': new_selector,
+            'implementor_count': len(
+                [
+                    planned_change
+                    for planned_change in planned_changes
+                    if planned_change['change_type'] == 'implementor'
+                ]
+            ),
+            'sender_count': len(
+                [
+                    planned_change
+                    for planned_change in planned_changes
+                    if planned_change['change_type'] == 'sender'
+                ]
+            ),
+            'total_changes': len(planned_changes),
+            'changes': [
+                {
+                    'class_name': planned_change['class_name'],
+                    'show_instance_side': planned_change['show_instance_side'],
+                    'method_selector': planned_change['method_selector'],
+                    'method_category': planned_change['method_category'],
+                    'change_type': planned_change['change_type'],
+                }
+                for planned_change in planned_changes
+            ],
+        }
+
+    def apply_selector_rename(self, old_selector, new_selector):
+        planned_changes = self.selector_rename_plan(
+            old_selector,
+            new_selector,
+        )
+        for planned_change in planned_changes:
+            self.compile_method(
+                class_name=planned_change['class_name'],
+                show_instance_side=planned_change['show_instance_side'],
+                source=planned_change['updated_source'],
+                method_category=planned_change['method_category'],
+            )
+        if old_selector != new_selector:
+            deleted_implementors = set()
+            for planned_change in planned_changes:
+                is_implementor_change = (
+                    planned_change['change_type'] == 'implementor'
+                )
+                implementor_key = (
+                    planned_change['class_name'],
+                    planned_change['show_instance_side'],
+                )
+                has_not_deleted_implementor = (
+                    implementor_key not in deleted_implementors
+                )
+                if is_implementor_change and has_not_deleted_implementor:
+                    self.delete_method(
+                        class_name=planned_change['class_name'],
+                        method_selector=old_selector,
+                        show_instance_side=planned_change['show_instance_side'],
+                    )
+                    deleted_implementors.add(implementor_key)
+        preview = self.selector_rename_preview(old_selector, new_selector)
+        preview['applied_change_count'] = len(planned_changes)
+        preview['old_selector_removed'] = old_selector != new_selector
+        return preview
+
+    def selector_rename_plan(self, old_selector, new_selector):
+        selector_expression = self.selector_reference_expression(old_selector)
+        implementors = self.run_code(
+            'ClassOrganizer new implementorsOf: %s' % selector_expression
+        )
+        senders = self.run_code(
+            'ClassOrganizer new sendersOf: %s' % selector_expression
+        )
+        implementor_methods = self.flatten_compiled_methods(implementors)
+        sender_methods = self.flatten_compiled_methods(senders)
+        planned_changes = []
+        planned_method_keys = set()
+        for compiled_method in implementor_methods:
+            planned_change = self.planned_selector_rename_change(
+                compiled_method,
+                old_selector,
+                new_selector,
+                'implementor',
+            )
+            if planned_change is not None:
+                planned_changes.append(planned_change)
+                planned_method_keys.add(
+                    (
+                        planned_change['class_name'],
+                        planned_change['show_instance_side'],
+                        planned_change['method_selector'],
+                    )
+                )
+        for compiled_method in sender_methods:
+            planned_change = self.planned_selector_rename_change(
+                compiled_method,
+                old_selector,
+                new_selector,
+                'sender',
+            )
+            planned_change_key = (
+                (
+                    planned_change['class_name'],
+                    planned_change['show_instance_side'],
+                    planned_change['method_selector'],
+                )
+                if planned_change is not None
+                else None
+            )
+            has_not_seen_method = (
+                planned_change_key not in planned_method_keys
+                if planned_change is not None
+                else False
+            )
+            if planned_change is not None and has_not_seen_method:
+                planned_changes.append(planned_change)
+                planned_method_keys.add(planned_change_key)
+        return sorted(
+            planned_changes,
+            key=lambda planned_change: (
+                planned_change['class_name'],
+                planned_change['show_instance_side'],
+                planned_change['method_selector'],
+            ),
+        )
+
+    def flatten_compiled_methods(self, candidate_value):
+        flattened_methods = []
+        candidate_class_name = candidate_value.gemstone_class().name().to_py
+        if candidate_class_name == 'GsNMethod':
+            flattened_methods.append(candidate_value)
+        else:
+            try:
+                for nested_candidate in candidate_value:
+                    flattened_methods += self.flatten_compiled_methods(
+                        nested_candidate
+                    )
+            except (TypeError, GemstoneError, GemstoneApiError):
+                flattened_methods = []
+        return flattened_methods
+
+    def planned_selector_rename_change(
+        self,
+        compiled_method,
+        old_selector,
+        new_selector,
+        change_type,
+    ):
+        source = compiled_method.sourceString().to_py
+        updated_source = self.renamed_selector_source(
+            source,
+            old_selector,
+            new_selector,
+        )
+        if source == updated_source:
+            return None
+        selector = compiled_method.selector().to_py
+        in_class = compiled_method.inClass()
+        show_instance_side = not in_class.isMeta().to_py
+        in_class_name = in_class.name().to_py
+        class_name = (
+            in_class_name[:-6]
+            if not show_instance_side and in_class_name.endswith(' class')
+            else in_class_name
+        )
+        method_category = self.get_method_category(
+            class_name,
+            selector,
+            show_instance_side,
+        )
+        return {
+            'class_name': class_name,
+            'show_instance_side': show_instance_side,
+            'method_selector': selector,
+            'method_category': method_category,
+            'change_type': change_type,
+            'updated_source': updated_source,
+        }
+
+    def renamed_selector_source(self, source, old_selector, new_selector):
+        replacement_pattern = self.selector_replacement_pattern(old_selector)
+        return replacement_pattern.sub(new_selector, source)
+
+    def selector_replacement_pattern(self, selector):
+        escaped_selector = re.escape(selector)
+        identifier_selector_pattern = re.compile('^[A-Za-z][A-Za-z0-9_:]*$')
+        if identifier_selector_pattern.match(selector):
+            return re.compile(
+                (
+                    '(?<![A-Za-z0-9_])'
+                    + escaped_selector
+                    + '(?![A-Za-z0-9_])'
+                )
+            )
+        return re.compile(escaped_selector)
 
     def global_set(
         self,
