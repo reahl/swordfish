@@ -75,6 +75,8 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - `gs_delete_class`
 - `gs_delete_method`
 - `gs_set_method_category`
+- `gs_preview_selector_rename`
+- `gs_apply_selector_rename`
 - `gs_list_test_case_classes`
 - `gs_run_tests_in_package`
 - `gs_run_test_method`

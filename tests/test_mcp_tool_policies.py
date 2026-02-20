@@ -55,6 +55,12 @@ class RestrictedToolsFixture(Fixture):
     def new_gs_run_test_method(self):
         return self.registered_mcp_tools['gs_run_test_method']
 
+    def new_gs_preview_selector_rename(self):
+        return self.registered_mcp_tools['gs_preview_selector_rename']
+
+    def new_gs_apply_selector_rename(self):
+        return self.registered_mcp_tools['gs_apply_selector_rename']
+
     def new_gs_global_set(self):
         return self.registered_mcp_tools['gs_global_set']
 
@@ -110,6 +116,12 @@ class AllowedToolsFixture(Fixture):
 
     def new_gs_run_test_method(self):
         return self.registered_mcp_tools['gs_run_test_method']
+
+    def new_gs_preview_selector_rename(self):
+        return self.registered_mcp_tools['gs_preview_selector_rename']
+
+    def new_gs_apply_selector_rename(self):
+        return self.registered_mcp_tools['gs_apply_selector_rename']
 
     def new_gs_global_set(self):
         return self.registered_mcp_tools['gs_global_set']
@@ -240,6 +252,20 @@ def test_gs_global_remove_is_disabled_by_default(tools_fixture):
     assert not remove_result['ok']
     assert remove_result['error']['message'] == (
         'gs_global_remove is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_apply_selector_rename_is_disabled_by_default(tools_fixture):
+    rename_result = tools_fixture.gs_apply_selector_rename(
+        'missing-connection-id',
+        'oldSelector',
+        'newSelector',
+    )
+    assert not rename_result['ok']
+    assert rename_result['error']['message'] == (
+        'gs_apply_selector_rename is disabled. '
         'Start swordfish-mcp with --allow-compile to enable.'
     )
 
@@ -383,6 +409,28 @@ def test_gs_run_test_method_checks_connection(tools_fixture):
     )
     assert not run_result['ok']
     assert run_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_preview_selector_rename_checks_connection(tools_fixture):
+    preview_result = tools_fixture.gs_preview_selector_rename(
+        'missing-connection-id',
+        'oldSelector',
+        'newSelector',
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_apply_selector_rename_checks_connection(tools_fixture):
+    rename_result = tools_fixture.gs_apply_selector_rename(
+        'missing-connection-id',
+        'oldSelector',
+        'newSelector',
+    )
+    assert not rename_result['ok']
+    assert rename_result['error']['message'] == 'Unknown connection_id.'
 
 
 @with_fixtures(AllowedToolsFixture)

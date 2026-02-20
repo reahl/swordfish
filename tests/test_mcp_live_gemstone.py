@@ -189,6 +189,12 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_run_test_method(self):
         return self.registered_mcp_tools['gs_run_test_method']
 
+    def new_gs_preview_selector_rename(self):
+        return self.registered_mcp_tools['gs_preview_selector_rename']
+
+    def new_gs_apply_selector_rename(self):
+        return self.registered_mcp_tools['gs_apply_selector_rename']
+
     def new_gs_global_set(self):
         return self.registered_mcp_tools['gs_global_set']
 
@@ -758,6 +764,97 @@ def test_live_gs_global_set_exists_and_remove_manage_binding(live_connection):
     )
     assert exists_after_remove_result['ok'], exists_after_remove_result
     assert not exists_after_remove_result['exists']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_preview_selector_rename_reports_changes(live_connection):
+    class_name = 'McpRenamePreviewClass%s' % uuid.uuid4().hex[:8]
+    old_selector = 'oldSelector%s' % uuid.uuid4().hex[:8]
+    new_selector = 'newSelector%s' % uuid.uuid4().hex[:8]
+    sender_selector = 'callsOld%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    implementor_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s ^123' % old_selector,
+        True,
+    )
+    assert implementor_compile_result['ok'], implementor_compile_result
+    sender_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s ^self %s' % (sender_selector, old_selector),
+        True,
+    )
+    assert sender_compile_result['ok'], sender_compile_result
+    preview_result = live_connection.gs_preview_selector_rename(
+        live_connection.connection_id,
+        old_selector,
+        new_selector,
+    )
+    assert preview_result['ok'], preview_result
+    assert preview_result['preview']['implementor_count'] >= 1
+    assert preview_result['preview']['sender_count'] >= 1
+    assert preview_result['preview']['total_changes'] >= 2
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_apply_selector_rename_updates_methods(live_connection):
+    class_name = 'McpRenameApplyClass%s' % uuid.uuid4().hex[:8]
+    old_selector = 'oldSelector%s' % uuid.uuid4().hex[:8]
+    new_selector = 'newSelector%s' % uuid.uuid4().hex[:8]
+    sender_selector = 'callsOld%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    implementor_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s ^123' % old_selector,
+        True,
+    )
+    assert implementor_compile_result['ok'], implementor_compile_result
+    sender_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s ^self %s' % (sender_selector, old_selector),
+        True,
+    )
+    assert sender_compile_result['ok'], sender_compile_result
+    apply_result = live_connection.gs_apply_selector_rename(
+        live_connection.connection_id,
+        old_selector,
+        new_selector,
+    )
+    assert apply_result['ok'], apply_result
+    selectors_result = live_connection.gs_list_methods(
+        live_connection.connection_id,
+        class_name,
+        'all',
+        True,
+    )
+    assert selectors_result['ok'], selectors_result
+    assert old_selector not in selectors_result['selectors']
+    assert new_selector in selectors_result['selectors']
+    sender_source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        class_name,
+        sender_selector,
+        True,
+    )
+    assert sender_source_result['ok'], sender_source_result
+    assert old_selector not in sender_source_result['source']
+    assert new_selector in sender_source_result['source']
 
 
 @with_fixtures(LiveMcpConnectionFixture)

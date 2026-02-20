@@ -33,6 +33,8 @@ def register_tools(
     allow_compile=False,
 ):
     identifier_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*$')
+    unary_selector_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*$')
+    keyword_selector_pattern = re.compile('^([A-Za-z][A-Za-z0-9_]*:)+$')
 
     def get_active_session(connection_id):
         if not has_connection(connection_id):
@@ -123,6 +125,33 @@ def register_tools(
             '%s must be None, bool, int, float, or string.'
             % argument_name
         )
+
+    def validated_selector(input_value, argument_name):
+        input_value = validated_non_empty_string(input_value, argument_name)
+        matches_unary_selector = unary_selector_pattern.match(input_value)
+        matches_keyword_selector = keyword_selector_pattern.match(input_value)
+        if not matches_unary_selector and not matches_keyword_selector:
+            raise DomainException(
+                (
+                    '%s must be a unary selector (exampleSelector) '
+                    'or keyword selector (example:with:).'
+                )
+                % argument_name
+            )
+        return input_value
+
+    def validated_selector_rename_pair(old_selector, new_selector):
+        old_selector = validated_selector(old_selector, 'old_selector')
+        new_selector = validated_selector(new_selector, 'new_selector')
+        if old_selector.count(':') != new_selector.count(':'):
+            raise DomainException(
+                'old_selector and new_selector must have the same arity.'
+            )
+        if old_selector == new_selector:
+            raise DomainException(
+                'old_selector and new_selector cannot be the same.'
+            )
+        return old_selector, new_selector
 
     def serialized_debug_frames(debug_session):
         stack_frames = debug_session.call_stack()
@@ -1017,6 +1046,102 @@ def register_tools(
                 'test_method_selector': test_method_selector,
                 'result': test_result,
                 'tests_passed': test_result['has_passed'],
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_preview_selector_rename(
+        connection_id,
+        old_selector,
+        new_selector,
+    ):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            old_selector, new_selector = validated_selector_rename_pair(
+                old_selector,
+                new_selector,
+            )
+            preview = browser_session.selector_rename_preview(
+                old_selector,
+                new_selector,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'old_selector': old_selector,
+                'new_selector': new_selector,
+                'preview': preview,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_apply_selector_rename(
+        connection_id,
+        old_selector,
+        new_selector,
+    ):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_apply_selector_rename is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            old_selector, new_selector = validated_selector_rename_pair(
+                old_selector,
+                new_selector,
+            )
+            result = browser_session.apply_selector_rename(
+                old_selector,
+                new_selector,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'old_selector': old_selector,
+                'new_selector': new_selector,
+                'result': result,
             }
         except GemstoneError as error:
             return {

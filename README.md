@@ -249,6 +249,8 @@ The server identifies itself as `SwordfishMCP` and currently supports:
 - `gs_compile_method`
 - `gs_delete_method`
 - `gs_set_method_category`
+- `gs_preview_selector_rename`
+- `gs_apply_selector_rename`
 - `gs_list_test_case_classes`
 - `gs_run_tests_in_package`
 - `gs_run_test_method`
