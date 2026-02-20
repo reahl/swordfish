@@ -494,6 +494,20 @@ def test_live_gs_list_packages_returns_non_empty_result(live_connection):
 
 
 @with_fixtures(LiveMcpConnectionFixture)
+def test_live_write_tools_require_gs_begin(live_connection):
+    class_name = 'McpWriteWithoutBegin%s' % uuid.uuid4().hex[:8]
+    create_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert not create_result['ok']
+    assert create_result['error']['message'] == (
+        'No active transaction. '
+        'Call gs_begin before write operations.'
+    )
+
+
+@with_fixtures(LiveMcpConnectionFixture)
 def test_live_gs_compile_method_returns_ok(live_connection):
     class_name = 'McpCompileClass%s' % uuid.uuid4().hex[:8]
     selector = 'mcpCompile%s' % uuid.uuid4().hex[:8]
