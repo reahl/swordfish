@@ -91,6 +91,8 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - `gs_debug_step_into`
 - `gs_debug_step_through`
 - `gs_debug_stop`
+- `gs_transaction_status`
+- `gs_begin_if_needed`
 
 ## Phased Delivery
 
@@ -141,9 +143,12 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - `gs_eval` remains gated by `--allow-eval`.
 - even when enabled, callers must pass `unsafe=True` (optionally with `reason`).
 
+3. Commit safety:
+- `gs_commit` is now gated by `--allow-commit`.
+- default MCP startup runs without commit permission for safer sessions.
+
 ## Next Implementation Step
 
 Phase 4 hardening:
-- add transaction introspection (`gs_transaction_status`) and optional `gs_begin_if_needed` convenience
 - improve selector-rename precision for keyword selectors and edge-case source rewrites
 - broaden live integration coverage for end-to-end workflows used by AI agents

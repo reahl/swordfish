@@ -23,10 +23,16 @@ def run_application():
         action='store_true',
         help='Enable gs_compile_method tool (disabled by default).',
     )
+    parser.add_argument(
+        '--allow-commit',
+        action='store_true',
+        help='Enable gs_commit tool (disabled by default).',
+    )
     arguments = parser.parse_args()
     mcp_server = create_server(
         allow_eval=arguments.allow_eval,
         allow_compile=arguments.allow_compile,
+        allow_commit=arguments.allow_commit,
     )
     mcp_server.run(transport=arguments.transport)
 

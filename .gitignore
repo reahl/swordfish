@@ -65,6 +65,7 @@ venv.bak/
 
 # Project specific
 *.log
+.mcp.json
 
 *~
 copy_and_modify.py

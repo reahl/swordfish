@@ -100,6 +100,7 @@ class LiveMcpConnectionFixture(Fixture):
             registrar,
             allow_eval=True,
             allow_compile=True,
+            allow_commit=True,
         )
         return registrar.registered_tools_by_name
 
@@ -125,6 +126,12 @@ class LiveMcpConnectionFixture(Fixture):
 
     def new_gs_eval(self):
         return self.registered_mcp_tools['gs_eval']
+
+    def new_gs_transaction_status(self):
+        return self.registered_mcp_tools['gs_transaction_status']
+
+    def new_gs_begin_if_needed(self):
+        return self.registered_mcp_tools['gs_begin_if_needed']
 
     def new_gs_begin(self):
         return self.registered_mcp_tools['gs_begin']
@@ -344,6 +351,46 @@ def test_live_linked_session_lifecycle_does_not_emit_unexpected_stdout(
     )
     assert command_result.returncode == 0, command_result.stderr
     assert command_result.stdout.strip() == 'completed'
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_transaction_status_tracks_state(live_connection):
+    initial_status_result = live_connection.gs_transaction_status(
+        live_connection.connection_id
+    )
+    assert initial_status_result['ok'], initial_status_result
+    assert not initial_status_result['transaction_active']
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    active_status_result = live_connection.gs_transaction_status(
+        live_connection.connection_id
+    )
+    assert active_status_result['ok'], active_status_result
+    assert active_status_result['transaction_active']
+    commit_result = live_connection.gs_commit(live_connection.connection_id)
+    assert commit_result['ok'], commit_result
+    committed_status_result = live_connection.gs_transaction_status(
+        live_connection.connection_id
+    )
+    assert committed_status_result['ok'], committed_status_result
+    assert not committed_status_result['transaction_active']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_begin_if_needed_is_idempotent(live_connection):
+    first_begin_result = live_connection.gs_begin_if_needed(
+        live_connection.connection_id
+    )
+    assert first_begin_result['ok'], first_begin_result
+    assert first_begin_result['began_transaction']
+    second_begin_result = live_connection.gs_begin_if_needed(
+        live_connection.connection_id
+    )
+    assert second_begin_result['ok'], second_begin_result
+    assert not second_begin_result['began_transaction']
+    assert second_begin_result['transaction_active']
+    commit_result = live_connection.gs_commit(live_connection.connection_id)
+    assert commit_result['ok'], commit_result
 
 
 @with_fixtures(LiveMcpConnectionFixture, LiveEvalScenarios)
@@ -869,6 +916,52 @@ def test_live_gs_apply_selector_rename_updates_methods(live_connection):
     assert sender_source_result['ok'], sender_source_result
     assert old_selector not in sender_source_result['source']
     assert new_selector in sender_source_result['source']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_apply_selector_rename_for_keyword_selector(
+    live_connection,
+):
+    class_name = 'McpRenameKeywordClass%s' % uuid.uuid4().hex[:8]
+    old_selector = 'oldSelector:with:'
+    new_selector = 'newSelector:with:'
+    sender_selector = 'callsOld%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    implementor_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'oldSelector: a with: b ^a + b',
+        True,
+    )
+    assert implementor_compile_result['ok'], implementor_compile_result
+    sender_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s ^self oldSelector: 1 with: 2' % sender_selector,
+        True,
+    )
+    assert sender_compile_result['ok'], sender_compile_result
+    apply_result = live_connection.gs_apply_selector_rename(
+        live_connection.connection_id,
+        old_selector,
+        new_selector,
+    )
+    assert apply_result['ok'], apply_result
+    sender_source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        class_name,
+        sender_selector,
+        True,
+    )
+    assert sender_source_result['ok'], sender_source_result
+    assert 'newSelector:' in sender_source_result['source']
+    assert 'oldSelector:' not in sender_source_result['source']
 
 
 @with_fixtures(LiveMcpConnectionFixture)

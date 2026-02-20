@@ -33,10 +33,16 @@ def test_create_server_passes_policy_flags_to_tool_registration():
 
     captured = {}
 
-    def fake_register_tools(mcp_server, allow_eval=False, allow_compile=False):
+    def fake_register_tools(
+        mcp_server,
+        allow_eval=False,
+        allow_compile=False,
+        allow_commit=False,
+    ):
         captured['mcp_server'] = mcp_server
         captured['allow_eval'] = allow_eval
         captured['allow_compile'] = allow_compile
+        captured['allow_commit'] = allow_commit
 
     with patch(
         'reahl.swordfish.mcp.server.import_fast_mcp',
@@ -49,11 +55,13 @@ def test_create_server_passes_policy_flags_to_tool_registration():
             mcp_server = create_server(
                 allow_eval=True,
                 allow_compile=True,
+                allow_commit=True,
             )
 
     assert mcp_server is captured['mcp_server']
     assert captured['allow_eval']
     assert captured['allow_compile']
+    assert captured['allow_commit']
 
 
 def test_create_server_supports_fast_mcp_without_version_argument():
@@ -68,10 +76,16 @@ def test_create_server_supports_fast_mcp_without_version_argument():
 
     captured = {}
 
-    def fake_register_tools(mcp_server, allow_eval=False, allow_compile=False):
+    def fake_register_tools(
+        mcp_server,
+        allow_eval=False,
+        allow_compile=False,
+        allow_commit=False,
+    ):
         captured['mcp_server'] = mcp_server
         captured['allow_eval'] = allow_eval
         captured['allow_compile'] = allow_compile
+        captured['allow_commit'] = allow_commit
 
     with patch(
         'reahl.swordfish.mcp.server.import_fast_mcp',
@@ -84,7 +98,9 @@ def test_create_server_supports_fast_mcp_without_version_argument():
             mcp_server = create_server(
                 allow_eval=False,
                 allow_compile=False,
+                allow_commit=False,
             )
 
     assert mcp_server is captured['mcp_server']
     assert mcp_server.name == 'SwordfishMCP'
+    assert not captured['allow_commit']
