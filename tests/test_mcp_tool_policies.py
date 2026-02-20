@@ -86,6 +86,12 @@ class RestrictedToolsFixture(Fixture):
     def new_gs_debug_eval(self):
         return self.registered_mcp_tools['gs_debug_eval']
 
+    def new_gs_find_implementors(self):
+        return self.registered_mcp_tools['gs_find_implementors']
+
+    def new_gs_find_senders(self):
+        return self.registered_mcp_tools['gs_find_senders']
+
 
 class AllowedToolsFixture(Fixture):
     def new_registered_mcp_tools(self):
@@ -158,6 +164,12 @@ class AllowedToolsFixture(Fixture):
     def new_gs_debug_eval(self):
         return self.registered_mcp_tools['gs_debug_eval']
 
+    def new_gs_find_implementors(self):
+        return self.registered_mcp_tools['gs_find_implementors']
+
+    def new_gs_find_senders(self):
+        return self.registered_mcp_tools['gs_find_senders']
+
 
 class AllowedToolsWithNoActiveTransactionFixture(Fixture):
     @set_up
@@ -195,6 +207,12 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
 
     def new_gs_apply_selector_rename(self):
         return self.registered_mcp_tools['gs_apply_selector_rename']
+
+    def new_gs_find_implementors(self):
+        return self.registered_mcp_tools['gs_find_implementors']
+
+    def new_gs_find_senders(self):
+        return self.registered_mcp_tools['gs_find_senders']
 
 
 @with_fixtures(RestrictedToolsFixture)
@@ -515,6 +533,26 @@ def test_gs_preview_selector_rename_checks_connection(tools_fixture):
 
 
 @with_fixtures(AllowedToolsFixture)
+def test_gs_find_implementors_checks_connection(tools_fixture):
+    implementors_result = tools_fixture.gs_find_implementors(
+        'missing-connection-id',
+        'yourself',
+    )
+    assert not implementors_result['ok']
+    assert implementors_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_find_senders_checks_connection(tools_fixture):
+    senders_result = tools_fixture.gs_find_senders(
+        'missing-connection-id',
+        'yourself',
+    )
+    assert not senders_result['ok']
+    assert senders_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
 def test_gs_apply_selector_rename_checks_connection(tools_fixture):
     rename_result = tools_fixture.gs_apply_selector_rename(
         'missing-connection-id',
@@ -564,6 +602,40 @@ def test_gs_debug_eval_checks_connection_when_allowed(tools_fixture):
     )
     assert not debug_eval_result['ok']
     assert debug_eval_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_find_implementors_validates_max_results(tools_fixture):
+    implementors_result = tools_fixture.gs_find_implementors(
+        tools_fixture.connection_id,
+        'yourself',
+        max_results=-1,
+    )
+    assert not implementors_result['ok']
+    assert implementors_result['error']['message'] == (
+        'max_results cannot be negative.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_find_senders_validates_method_name(tools_fixture):
+    senders_result = tools_fixture.gs_find_senders(
+        tools_fixture.connection_id,
+        '',
+    )
+    assert not senders_result['ok']
+    assert senders_result['error']['message'] == 'method_name cannot be empty.'
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_find_senders_validates_count_only_flag(tools_fixture):
+    senders_result = tools_fixture.gs_find_senders(
+        tools_fixture.connection_id,
+        'yourself',
+        count_only='true',
+    )
+    assert not senders_result['ok']
+    assert senders_result['error']['message'] == 'count_only must be a boolean.'
 
 
 @with_fixtures(AllowedToolsWithNoActiveTransactionFixture)

@@ -1,6 +1,7 @@
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 from reahl.swordfish.gemstone.browser import find_classes
 from reahl.swordfish.gemstone.browser import find_implementors
+from reahl.swordfish.gemstone.browser import find_senders
 from reahl.swordfish.gemstone.browser import find_selectors
 from reahl.swordfish.gemstone.browser import get_method_source
 from reahl.swordfish.gemstone.browser import list_classes
@@ -38,6 +39,7 @@ __all__ = [
     'evaluate_source',
     'find_classes',
     'find_implementors',
+    'find_senders',
     'find_selectors',
     'gemstone_error_payload',
     'get_method_source',

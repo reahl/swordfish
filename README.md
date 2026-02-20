@@ -115,6 +115,8 @@ Add `--allow-commit` only when you explicitly want transactions to persist.
 For normal browse/edit/test workflows, prefer explicit tools like:
 `gs_create_class`, `gs_create_test_case_class`, `gs_compile_method`, and
 `gs_run_gemstone_tests`.
+For selector exploration, use `gs_find_implementors` and `gs_find_senders`
+instead of free-form evaluation. Both support `max_results` and `count_only`.
 When you do use `gs_eval`, pass `unsafe=True` (and optionally a `reason`).
 Write tools require an explicit transaction: call `gs_begin` before writes,
 then `gs_commit` (or `gs_abort`) when done. With default policy,
@@ -138,6 +140,7 @@ The server identifies itself as `SwordfishMCP` and currently supports:
 - `gs_find_classes`
 - `gs_find_selectors`
 - `gs_find_implementors`
+- `gs_find_senders`
 - `gs_create_class`
 - `gs_create_test_case_class`
 - `gs_get_class_definition`

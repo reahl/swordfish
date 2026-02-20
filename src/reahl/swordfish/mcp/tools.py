@@ -1,4 +1,5 @@
 import re
+import time
 
 from reahl.ptongue import GemstoneApiError
 from reahl.ptongue import GemstoneError
@@ -130,6 +131,20 @@ def register_tools(
             raise DomainException('%s must be a string.' % argument_name)
         if not input_value:
             raise DomainException('%s cannot be empty.' % argument_name)
+        return input_value
+
+    def validated_non_negative_integer_or_none(input_value, argument_name):
+        if input_value is None:
+            return None
+        if not isinstance(input_value, int):
+            raise DomainException('%s must be an integer or None.' % argument_name)
+        if input_value < 0:
+            raise DomainException('%s cannot be negative.' % argument_name)
+        return input_value
+
+    def validated_boolean(input_value, argument_name):
+        if not isinstance(input_value, bool):
+            raise DomainException('%s must be a boolean.' % argument_name)
         return input_value
 
     def validated_literal_value(input_value, argument_name):
@@ -601,22 +616,111 @@ def register_tools(
             }
 
     @mcp_server.tool()
-    def gs_find_implementors(connection_id, method_name):
+    def gs_find_implementors(
+        connection_id,
+        method_name,
+        max_results=None,
+        count_only=False,
+    ):
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
         try:
+            method_name = validated_non_empty_string(method_name, 'method_name')
+            max_results = validated_non_negative_integer_or_none(
+                max_results,
+                'max_results',
+            )
+            count_only = validated_boolean(count_only, 'count_only')
+            started_at = time.perf_counter()
+            search_result = browser_session.find_implementors_with_summary(
+                method_name,
+                max_results=max_results,
+                count_only=count_only,
+            )
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             return {
                 'ok': True,
                 'connection_id': connection_id,
                 'method_name': method_name,
-                'implementors': browser_session.find_implementors(method_name),
+                'max_results': max_results,
+                'count_only': count_only,
+                'total_count': search_result['total_count'],
+                'returned_count': search_result['returned_count'],
+                'elapsed_ms': elapsed_ms,
+                'implementors': search_result['implementors'],
             }
         except GemstoneError as error:
             return {
                 'ok': False,
                 'connection_id': connection_id,
                 'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_find_senders(
+        connection_id,
+        method_name,
+        max_results=None,
+        count_only=False,
+    ):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            method_name = validated_non_empty_string(method_name, 'method_name')
+            max_results = validated_non_negative_integer_or_none(
+                max_results,
+                'max_results',
+            )
+            count_only = validated_boolean(count_only, 'count_only')
+            started_at = time.perf_counter()
+            search_result = browser_session.find_senders(
+                method_name,
+                max_results=max_results,
+                count_only=count_only,
+            )
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'method_name': method_name,
+                'max_results': max_results,
+                'count_only': count_only,
+                'total_count': search_result['total_count'],
+                'returned_count': search_result['returned_count'],
+                'elapsed_ms': elapsed_ms,
+                'senders': search_result['senders'],
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
             }
 
     @mcp_server.tool()
