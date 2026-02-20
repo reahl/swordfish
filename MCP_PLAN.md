@@ -93,6 +93,7 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - `gs_debug_stop`
 - `gs_transaction_status`
 - `gs_begin_if_needed`
+- `gs_find_senders`
 
 ## Phased Delivery
 
@@ -150,6 +151,10 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 4. Selector rename rewrite safety:
 - selector rewrite now uses token-aware, statement-scoped matching.
 - keyword selector renames avoid rewriting unrelated sends and skip strings/comments.
+
+5. Implementor/sender discovery hardening:
+- `gs_find_implementors` now supports `max_results`, `count_only`, and returns timing.
+- `gs_find_senders` provides explicit sender search without requiring `gs_eval`.
 
 ## Next Implementation Step
 

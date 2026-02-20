@@ -868,31 +868,105 @@ class GemstoneBrowserSession:
         return sorted(selector_matches)
 
     def find_implementors(self, method_name):
+        search_result = self.find_implementors_with_summary(method_name)
+        return search_result['implementors']
+
+    def find_implementors_with_summary(
+        self,
+        method_name,
+        max_results=None,
+        count_only=False,
+    ):
+        method_summaries = self.selector_occurrence_summaries(
+            method_name,
+            'implementors',
+        )
+        implementors = self.implementor_entries_from_method_summaries(
+            method_summaries
+        )
+        total_count = len(implementors)
+        limited_implementors = (
+            []
+            if count_only
+            else self.limited_entries(
+                implementors,
+                max_results,
+            )
+        )
+        return {
+            'implementors': limited_implementors,
+            'total_count': total_count,
+            'returned_count': len(limited_implementors),
+        }
+
+    def find_senders(
+        self,
+        method_name,
+        max_results=None,
+        count_only=False,
+    ):
+        method_summaries = self.selector_occurrence_summaries(
+            method_name,
+            'senders',
+        )
+        total_count = len(method_summaries)
+        limited_senders = (
+            []
+            if count_only
+            else self.limited_entries(method_summaries, max_results)
+        )
+        return {
+            'senders': limited_senders,
+            'total_count': total_count,
+            'returned_count': len(limited_senders),
+        }
+
+    def selector_occurrence_summaries(
+        self,
+        method_name,
+        occurrence_type,
+    ):
+        selector_expression = self.selector_reference_expression(method_name)
+        if occurrence_type == 'implementors':
+            candidate_value = self.run_code(
+                'ClassOrganizer new implementorsOf: %s'
+                % selector_expression
+            )
+        elif occurrence_type == 'senders':
+            candidate_value = self.run_code(
+                'ClassOrganizer new sendersOf: %s'
+                % selector_expression
+            )
+        else:
+            raise DomainException(
+                'occurrence_type must be implementors or senders.'
+            )
+        compiled_methods = self.flatten_compiled_methods(candidate_value)
+        method_summaries = [
+            self.method_summary(compiled_method)
+            for compiled_method in compiled_methods
+        ]
+        return self.unique_sorted_method_summaries(method_summaries)
+
+    def implementor_entries_from_method_summaries(self, method_summaries):
         implementors = []
-        class_names = self.all_class_names()
-        for class_name in class_names:
-            instance_side_selectors = self.selectors_for_class_side(
-                class_name,
-                True,
+        seen_implementor_keys = set()
+        for method_summary in method_summaries:
+            implementor_key = (
+                method_summary['class_name'],
+                method_summary['show_instance_side'],
             )
-            if method_name in instance_side_selectors:
+            has_seen_implementor = implementor_key in seen_implementor_keys
+            if not has_seen_implementor:
                 implementors.append(
                     {
-                        'class_name': class_name,
-                        'show_instance_side': True,
+                        'class_name': method_summary['class_name'],
+                        'show_instance_side': method_summary[
+                            'show_instance_side'
+                        ],
                     }
                 )
-            class_side_selectors = self.selectors_for_class_side(
-                class_name,
-                False,
-            )
-            if method_name in class_side_selectors:
-                implementors.append(
-                    {
-                        'class_name': class_name,
-                        'show_instance_side': False,
-                    }
-                )
+                seen_implementor_keys.add(implementor_key)
         return sorted(
             implementors,
             key=lambda implementor: (
@@ -900,6 +974,49 @@ class GemstoneBrowserSession:
                 implementor['show_instance_side'],
             ),
         )
+
+    def unique_sorted_method_summaries(self, method_summaries):
+        unique_summaries = []
+        seen_keys = set()
+        for method_summary in method_summaries:
+            method_key = (
+                method_summary['class_name'],
+                method_summary['show_instance_side'],
+                method_summary['method_selector'],
+            )
+            has_seen_summary = method_key in seen_keys
+            if not has_seen_summary:
+                unique_summaries.append(method_summary)
+                seen_keys.add(method_key)
+        return sorted(
+            unique_summaries,
+            key=lambda method_summary: (
+                method_summary['class_name'],
+                method_summary['show_instance_side'],
+                method_summary['method_selector'],
+            ),
+        )
+
+    def method_summary(self, compiled_method):
+        selector = compiled_method.selector().to_py
+        in_class = compiled_method.inClass()
+        show_instance_side = not in_class.isMeta().to_py
+        in_class_name = in_class.name().to_py
+        class_name = (
+            in_class_name[:-6]
+            if not show_instance_side and in_class_name.endswith(' class')
+            else in_class_name
+        )
+        return {
+            'class_name': class_name,
+            'show_instance_side': show_instance_side,
+            'method_selector': selector,
+        }
+
+    def limited_entries(self, entries, max_results):
+        if max_results is None:
+            return entries
+        return entries[:max_results]
 
     def class_to_query(self, class_name, show_instance_side):
         gemstone_class = self.gemstone_session.resolve_symbol(class_name)
@@ -1013,3 +1130,7 @@ def find_selectors(gemstone_session, search_input):
 
 def find_implementors(gemstone_session, method_name):
     return GemstoneBrowserSession(gemstone_session).find_implementors(method_name)
+
+
+def find_senders(gemstone_session, method_name):
+    return GemstoneBrowserSession(gemstone_session).find_senders(method_name)

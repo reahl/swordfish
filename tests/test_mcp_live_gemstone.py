@@ -166,6 +166,9 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_find_implementors(self):
         return self.registered_mcp_tools['gs_find_implementors']
 
+    def new_gs_find_senders(self):
+        return self.registered_mcp_tools['gs_find_senders']
+
     def new_gs_compile_method(self):
         return self.registered_mcp_tools['gs_compile_method']
 
@@ -647,6 +650,91 @@ def test_live_gs_list_packages_returns_non_empty_result(live_connection):
     package_result = live_connection.gs_list_packages(live_connection.connection_id)
     assert package_result['ok'], package_result
     assert package_result['packages']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_find_implementors_and_senders_support_limits_and_counts(
+    live_connection,
+):
+    class_name = 'McpFindSendersClass%s' % uuid.uuid4().hex[:8]
+    target_selector = 'trackedSelector%s:' % uuid.uuid4().hex[:8]
+    sender_selector = 'callsTracked%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    implementor_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s value ^value' % target_selector,
+    )
+    assert implementor_compile_result['ok'], implementor_compile_result
+    sender_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s ^self %s 1' % (sender_selector, target_selector),
+    )
+    assert sender_compile_result['ok'], sender_compile_result
+    implementors_result = live_connection.gs_find_implementors(
+        live_connection.connection_id,
+        target_selector,
+    )
+    assert implementors_result['ok'], implementors_result
+    assert implementors_result['total_count'] >= 1
+    assert implementors_result['returned_count'] == len(
+        implementors_result['implementors']
+    )
+    assert implementors_result['elapsed_ms'] >= 0
+    assert {
+        'class_name': class_name,
+        'show_instance_side': True,
+    } in implementors_result['implementors']
+    limited_implementors_result = live_connection.gs_find_implementors(
+        live_connection.connection_id,
+        target_selector,
+        max_results=1,
+    )
+    assert limited_implementors_result['ok'], limited_implementors_result
+    assert limited_implementors_result['returned_count'] <= 1
+    count_only_implementors_result = live_connection.gs_find_implementors(
+        live_connection.connection_id,
+        target_selector,
+        count_only=True,
+    )
+    assert count_only_implementors_result['ok'], count_only_implementors_result
+    assert count_only_implementors_result['returned_count'] == 0
+    assert count_only_implementors_result['implementors'] == []
+    senders_result = live_connection.gs_find_senders(
+        live_connection.connection_id,
+        target_selector,
+    )
+    assert senders_result['ok'], senders_result
+    assert senders_result['total_count'] >= 1
+    assert senders_result['returned_count'] == len(senders_result['senders'])
+    assert senders_result['elapsed_ms'] >= 0
+    assert {
+        'class_name': class_name,
+        'show_instance_side': True,
+        'method_selector': sender_selector,
+    } in senders_result['senders']
+    limited_senders_result = live_connection.gs_find_senders(
+        live_connection.connection_id,
+        target_selector,
+        max_results=1,
+    )
+    assert limited_senders_result['ok'], limited_senders_result
+    assert limited_senders_result['returned_count'] <= 1
+    count_only_senders_result = live_connection.gs_find_senders(
+        live_connection.connection_id,
+        target_selector,
+        count_only=True,
+    )
+    assert count_only_senders_result['ok'], count_only_senders_result
+    assert count_only_senders_result['returned_count'] == 0
+    assert count_only_senders_result['senders'] == []
 
 
 @with_fixtures(LiveMcpConnectionFixture)
@@ -1234,6 +1322,33 @@ def test_live_browser_finds_implementors_with_class_side_information(browser_fix
         'class_name': 'Object',
         'show_instance_side': True,
     } in implementors
+
+
+@with_fixtures(LiveBrowserSessionFixture)
+def test_live_browser_finds_senders_with_method_selector(browser_fixture):
+    class_name = 'BrowserFindSendersClass%s' % uuid.uuid4().hex[:8]
+    target_selector = 'targetSelector%s:' % uuid.uuid4().hex[:8]
+    sender_selector = 'callsTarget%s' % uuid.uuid4().hex[:8]
+    browser_fixture.browser_session.create_class(
+        class_name=class_name,
+        superclass_name='Object',
+    )
+    browser_fixture.browser_session.compile_method(
+        class_name,
+        True,
+        '%s value ^value' % target_selector,
+    )
+    browser_fixture.browser_session.compile_method(
+        class_name,
+        True,
+        '%s ^self %s 1' % (sender_selector, target_selector),
+    )
+    senders = browser_fixture.browser_session.find_senders(target_selector)
+    assert {
+        'class_name': class_name,
+        'show_instance_side': True,
+        'method_selector': sender_selector,
+    } in senders['senders']
 
 
 @with_fixtures(LiveBrowserSessionFixture)
