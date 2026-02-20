@@ -147,8 +147,12 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - `gs_commit` is now gated by `--allow-commit`.
 - default MCP startup runs without commit permission for safer sessions.
 
+4. Selector rename rewrite safety:
+- selector rewrite now uses token-aware, statement-scoped matching.
+- keyword selector renames avoid rewriting unrelated sends and skip strings/comments.
+
 ## Next Implementation Step
 
 Phase 4 hardening:
-- improve selector-rename precision for keyword selectors and edge-case source rewrites
-- broaden live integration coverage for end-to-end workflows used by AI agents
+- extend selector rewrite coverage for cascades and multiline selector layouts
+- broaden live integration coverage for longer AI-like edit/test sessions
