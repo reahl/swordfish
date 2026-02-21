@@ -101,12 +101,12 @@ PROJECT_DIR="$(pwd)"
 
 # Claude Code
 claude mcp remove -s project swordfish 2>/dev/null || true
-claude mcp add -s project swordfish -- "$PROJECT_DIR/docker-run-over-ssh.sh" swordfish-mcp --allow-compile
+claude mcp add -s project swordfish -- "$PROJECT_DIR/docker-run-over-ssh.sh" swordfish-mcp --allow-compile --allow-tracing
 claude mcp list
 
 # Codex
 codex mcp remove swordfish 2>/dev/null || true
-codex mcp add swordfish -- "$PROJECT_DIR/docker-run-over-ssh.sh" swordfish-mcp --allow-compile
+codex mcp add swordfish -- "$PROJECT_DIR/docker-run-over-ssh.sh" swordfish-mcp --allow-compile --allow-tracing
 codex mcp list --json
 ```
 
@@ -119,6 +119,11 @@ For selector exploration, use `gs_find_implementors` and `gs_find_senders`
 instead of free-form evaluation. Both support `max_results` and `count_only`.
 For optional tracer installation, use `gs_tracer_install` and verify with
 `gs_tracer_status` before enabling via `gs_tracer_enable`.
+For runtime caller evidence, use `gs_tracer_trace_selector`, run your tests,
+then query `gs_tracer_find_observed_senders`.
+Tracer and evidence tools require MCP startup with `--allow-tracing`.
+Use `gs_plan_evidence_tests` to build a static candidate test superset and
+`gs_collect_sender_evidence` to run that plan and collect observed callers.
 When you do use `gs_eval`, pass `unsafe=True` (and optionally a `reason`).
 Write tools require an explicit transaction: call `gs_begin` before writes,
 then `gs_commit` (or `gs_abort`) when done. With default policy,
@@ -148,6 +153,12 @@ The server identifies itself as `SwordfishMCP` and currently supports:
 - `gs_tracer_enable`
 - `gs_tracer_disable`
 - `gs_tracer_uninstall`
+- `gs_tracer_trace_selector`
+- `gs_tracer_untrace_selector`
+- `gs_tracer_clear_observed_senders`
+- `gs_tracer_find_observed_senders`
+- `gs_plan_evidence_tests`
+- `gs_collect_sender_evidence`
 - `gs_create_class`
 - `gs_create_test_case_class`
 - `gs_get_class_definition`

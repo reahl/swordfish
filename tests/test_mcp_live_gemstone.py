@@ -101,6 +101,7 @@ class LiveMcpConnectionFixture(Fixture):
             allow_eval=True,
             allow_compile=True,
             allow_commit=True,
+            allow_tracing=True,
         )
         return registrar.registered_tools_by_name
 
@@ -183,6 +184,24 @@ class LiveMcpConnectionFixture(Fixture):
 
     def new_gs_tracer_uninstall(self):
         return self.registered_mcp_tools['gs_tracer_uninstall']
+
+    def new_gs_tracer_trace_selector(self):
+        return self.registered_mcp_tools['gs_tracer_trace_selector']
+
+    def new_gs_tracer_untrace_selector(self):
+        return self.registered_mcp_tools['gs_tracer_untrace_selector']
+
+    def new_gs_tracer_clear_observed_senders(self):
+        return self.registered_mcp_tools['gs_tracer_clear_observed_senders']
+
+    def new_gs_tracer_find_observed_senders(self):
+        return self.registered_mcp_tools['gs_tracer_find_observed_senders']
+
+    def new_gs_plan_evidence_tests(self):
+        return self.registered_mcp_tools['gs_plan_evidence_tests']
+
+    def new_gs_collect_sender_evidence(self):
+        return self.registered_mcp_tools['gs_collect_sender_evidence']
 
     def new_gs_compile_method(self):
         return self.registered_mcp_tools['gs_compile_method']
@@ -315,6 +334,7 @@ class LiveMcpConnectionWithoutCommitPermissionFixture(Fixture):
             allow_eval=True,
             allow_compile=True,
             allow_commit=False,
+            allow_tracing=True,
         )
         return registrar.registered_tools_by_name
 
@@ -705,6 +725,191 @@ def test_live_gs_tracer_lifecycle_tracks_manifest_and_hash(live_connection):
     assert uninstall_result['ok'], uninstall_result
     assert not uninstall_result['tracer_installed']
     assert not uninstall_result['manifest_matches']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_tracer_observed_senders_report_runtime_callers(
+    live_connection,
+):
+    class_name = 'McpTraceCallChainTest%s' % uuid.uuid4().hex[:8]
+    target_selector = 'traceRuntimeDefault%s:' % uuid.uuid4().hex[:8]
+    caller_selector = 'traceRuntimeCaller%s' % uuid.uuid4().hex[:8]
+    test_method_selector = 'testTraceRuntimeCaller%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    uninstall_result = live_connection.gs_tracer_uninstall(
+        live_connection.connection_id
+    )
+    assert uninstall_result['ok'], uninstall_result
+    install_result = live_connection.gs_tracer_install(
+        live_connection.connection_id
+    )
+    assert install_result['ok'], install_result
+    enable_result = live_connection.gs_tracer_enable(
+        live_connection.connection_id
+    )
+    assert enable_result['ok'], enable_result
+    create_test_case_result = live_connection.gs_create_test_case_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_test_case_result['ok'], create_test_case_result
+    target_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s value ^value + 1' % target_selector,
+    )
+    assert target_compile_result['ok'], target_compile_result
+    caller_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s ^self %s 41' % (caller_selector, target_selector),
+    )
+    assert caller_compile_result['ok'], caller_compile_result
+    test_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        (
+            '%s\n'
+            '    self assert: (self %s) equals: 42'
+        )
+        % (
+            test_method_selector,
+            caller_selector,
+        ),
+    )
+    assert test_compile_result['ok'], test_compile_result
+    trace_selector_result = live_connection.gs_tracer_trace_selector(
+        live_connection.connection_id,
+        target_selector,
+    )
+    assert trace_selector_result['ok'], trace_selector_result
+    clear_observed_senders_result = (
+        live_connection.gs_tracer_clear_observed_senders(
+            live_connection.connection_id
+        )
+    )
+    assert clear_observed_senders_result['ok'], clear_observed_senders_result
+    run_test_result = live_connection.gs_run_test_method(
+        live_connection.connection_id,
+        class_name,
+        test_method_selector,
+    )
+    assert run_test_result['ok'], run_test_result
+    assert run_test_result['tests_passed']
+    assert run_test_result['result']['run_count'] == 1
+    assert run_test_result['result']['failure_count'] == 0
+    assert run_test_result['result']['error_count'] == 0
+    observed_senders_result = live_connection.gs_tracer_find_observed_senders(
+        live_connection.connection_id,
+        target_selector,
+    )
+    assert observed_senders_result['ok'], observed_senders_result
+    assert observed_senders_result['total_count'] >= 1
+    matching_observed_senders = [
+        observed_sender
+        for observed_sender in observed_senders_result['observed_senders']
+        if observed_sender['caller_class_name'] == class_name
+        and observed_sender['caller_show_instance_side']
+        and observed_sender['caller_method_selector'] == caller_selector
+    ]
+    assert matching_observed_senders
+    assert matching_observed_senders[0]['observed_count'] >= 1
+    count_only_observed_senders_result = (
+        live_connection.gs_tracer_find_observed_senders(
+            live_connection.connection_id,
+            target_selector,
+            count_only=True,
+        )
+    )
+    assert count_only_observed_senders_result['ok']
+    assert count_only_observed_senders_result['returned_count'] == 0
+    assert count_only_observed_senders_result['observed_senders'] == []
+    assert count_only_observed_senders_result['total_count'] >= 1
+    untrace_selector_result = live_connection.gs_tracer_untrace_selector(
+        live_connection.connection_id,
+        target_selector,
+    )
+    assert untrace_selector_result['ok'], untrace_selector_result
+    assert untrace_selector_result['restored_sender_count'] >= 1
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_plan_evidence_tests_can_feed_collect_sender_evidence(
+    live_connection,
+):
+    class_name = 'McpEvidencePlanTest%s' % uuid.uuid4().hex[:8]
+    target_selector = 'evidenceTarget%s:' % uuid.uuid4().hex[:8]
+    caller_selector = 'evidenceCaller%s' % uuid.uuid4().hex[:8]
+    test_method_selector = 'testEvidenceCaller%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    uninstall_result = live_connection.gs_tracer_uninstall(
+        live_connection.connection_id
+    )
+    assert uninstall_result['ok'], uninstall_result
+    install_result = live_connection.gs_tracer_install(
+        live_connection.connection_id
+    )
+    assert install_result['ok'], install_result
+    enable_result = live_connection.gs_tracer_enable(
+        live_connection.connection_id
+    )
+    assert enable_result['ok'], enable_result
+    create_test_case_result = live_connection.gs_create_test_case_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_test_case_result['ok'], create_test_case_result
+    target_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s value ^value + 1' % target_selector,
+    )
+    assert target_compile_result['ok'], target_compile_result
+    caller_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s ^self %s 41' % (caller_selector, target_selector),
+    )
+    assert caller_compile_result['ok'], caller_compile_result
+    test_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        (
+            '%s\n'
+            '    self assert: (self %s) equals: 42'
+        )
+        % (
+            test_method_selector,
+            caller_selector,
+        ),
+    )
+    assert test_compile_result['ok'], test_compile_result
+    plan_result = live_connection.gs_plan_evidence_tests(
+        live_connection.connection_id,
+        target_selector,
+        max_depth=2,
+        max_nodes=200,
+        max_senders_per_selector=200,
+        max_test_methods=50,
+    )
+    assert plan_result['ok'], plan_result
+    assert plan_result['test_plan_id']
+    assert plan_result['plan']['candidate_test_count'] >= 1
+    collect_result = live_connection.gs_collect_sender_evidence(
+        live_connection.connection_id,
+        target_selector,
+        test_plan_id=plan_result['test_plan_id'],
+        max_planned_tests=10,
+        stop_on_first_observed=True,
+        count_only=True,
+    )
+    assert collect_result['ok'], collect_result
+    assert collect_result['planned_test_count'] >= 1
+    assert collect_result['observed']['total_count'] >= 1
+    assert collect_result['evidence_run_id']
+    assert collect_result['test_runs']
 
 
 @with_fixtures(LiveMcpConnectionFixture)

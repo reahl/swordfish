@@ -99,6 +99,12 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - `gs_tracer_enable`
 - `gs_tracer_disable`
 - `gs_tracer_uninstall`
+- `gs_tracer_trace_selector`
+- `gs_tracer_untrace_selector`
+- `gs_tracer_clear_observed_senders`
+- `gs_tracer_find_observed_senders`
+- `gs_plan_evidence_tests`
+- `gs_collect_sender_evidence`
 
 ## Phased Delivery
 
@@ -164,6 +170,15 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 6. Tracer version safety:
 - tracer Smalltalk source is shipped in-project and installed via explicit MCP tools.
 - image manifest stores tracer version/hash and `gs_tracer_status` verifies it against local source.
+
+7. Runtime caller evidence:
+- tracer can instrument selector senders and record observed caller edges while tests run.
+- observed callers are queryable via `gs_tracer_find_observed_senders`.
+- static recursive sender expansion can suggest candidate tests via `gs_plan_evidence_tests`.
+- `gs_collect_sender_evidence` can run planned tests and collect evidence in one workflow.
+
+8. Tracing policy gate:
+- tracer and evidence tools are now controlled by `--allow-tracing` (disabled by default).
 
 ## Next Implementation Step
 

@@ -28,11 +28,17 @@ def run_application():
         action='store_true',
         help='Enable gs_commit tool (disabled by default).',
     )
+    parser.add_argument(
+        '--allow-tracing',
+        action='store_true',
+        help='Enable gs_tracer_* and evidence tools (disabled by default).',
+    )
     arguments = parser.parse_args()
     mcp_server = create_server(
         allow_eval=arguments.allow_eval,
         allow_compile=arguments.allow_compile,
         allow_commit=arguments.allow_commit,
+        allow_tracing=arguments.allow_tracing,
     )
     mcp_server.run(transport=arguments.transport)
 
