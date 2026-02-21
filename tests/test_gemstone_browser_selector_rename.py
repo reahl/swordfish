@@ -64,3 +64,45 @@ def test_keyword_selector_rename_does_not_change_strings_or_comments(
     assert 'self newSelector: 1 and: 2' in updated_source
     assert "'oldSelector: 3 with: 4'" in updated_source
     assert '"oldSelector: 5 with: 6"' in updated_source
+
+
+@with_fixtures(SelectorRenameFixture)
+def test_keyword_selector_rename_handles_multiline_send_layout(
+    selector_rename_fixture,
+):
+    """AI: Keyword selector rewrites should preserve multiline message layouts while changing selector tokens."""
+    source = (
+        'exercise\n'
+        '    ^self\n'
+        '        oldSelector: 1\n'
+        '        with: 2'
+    )
+    updated_source = selector_rename_fixture.browser_session.renamed_selector_source(
+        source,
+        'oldSelector:with:',
+        'newSelector:and:',
+    )
+    assert 'newSelector: 1' in updated_source
+    assert 'and: 2' in updated_source
+    assert 'oldSelector:' not in updated_source
+    assert 'with: 2' not in updated_source
+
+
+@with_fixtures(SelectorRenameFixture)
+def test_keyword_selector_rename_keeps_other_cascade_messages_unchanged(
+    selector_rename_fixture,
+):
+    """AI: Rewriting one keyword send in a cascade should not alter subsequent cascade messages."""
+    source = (
+        'exercise\n'
+        '    ^self\n'
+        '        oldSelector: 1 with: 2;\n'
+        '        yourself'
+    )
+    updated_source = selector_rename_fixture.browser_session.renamed_selector_source(
+        source,
+        'oldSelector:with:',
+        'newSelector:and:',
+    )
+    assert 'newSelector: 1 and: 2;' in updated_source
+    assert 'yourself' in updated_source
