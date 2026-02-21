@@ -106,6 +106,24 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - `gs_plan_evidence_tests`
 - `gs_collect_sender_evidence`
 
+## MCP Tool Set (Planned Semantic + Refactoring Additions)
+
+Semantic/AST access tools:
+- `gs_method_ast` (structured AST for one method)
+- `gs_method_structure_summary` (node counts, sends, blocks, returns, temporaries)
+- `gs_method_sends` (message sends with source ranges and receiver shape hints)
+- `gs_query_methods_by_ast_pattern` (find methods matching structural constraints)
+- `gs_method_control_flow_summary` (basic branch/block nesting summary for AI reasoning)
+
+Common refactoring tools:
+- `gs_preview_rename_class` / `gs_apply_rename_class`
+- `gs_preview_rename_method` / `gs_apply_rename_method`
+- `gs_preview_extract_method` / `gs_apply_extract_method`
+- `gs_preview_inline_method` / `gs_apply_inline_method`
+- `gs_preview_add_parameter` / `gs_apply_add_parameter`
+- `gs_preview_remove_parameter` / `gs_apply_remove_parameter`
+- `gs_preview_move_method` / `gs_apply_move_method`
+
 ## Phased Delivery
 
 1. Phase 0 (spike)
@@ -126,12 +144,23 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - targeted refactor tools (selector rename workflow)
 - debugger-oriented MCP operations
 
+5. Phase 4 (hardening)
+- extend selector rewrite coverage for cascades and multiline selector layouts
+- broaden live integration coverage for longer AI-like edit/test sessions
+
+6. Phase 5 (semantic analysis + refactoring suite)
+- add AST/semantic introspection APIs suitable for AI planning and navigation
+- add preview/apply workflows for common refactorings
+- add safety checks that combine static structure and runtime evidence where available
+
 ## Current Status
 
 - Phase 0: completed
 - Phase 1: completed
 - Phase 2: completed
 - Phase 3: completed for targeted selector rename + debugger operations
+- Phase 4: in progress
+- Phase 5: not started
 
 ## Testing Approach
 
@@ -185,3 +214,9 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 Phase 4 hardening:
 - extend selector rewrite coverage for cascades and multiline selector layouts
 - broaden live integration coverage for longer AI-like edit/test sessions
+
+After Phase 4, start Phase 5 with this order:
+1. Deliver `gs_method_sends` and `gs_method_structure_summary` as minimal semantic APIs.
+2. Deliver `gs_method_ast` with stable JSON schema and source ranges.
+3. Deliver first refactoring pair: `gs_preview_rename_method` / `gs_apply_rename_method`.
+4. Expand to extract/inline/parameter and move-method workflows.
