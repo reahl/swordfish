@@ -1719,6 +1719,17 @@ class GemstoneBrowserSession:
         )
         return self.summarized_test_result(test_result)
 
+    def debug_test_method(self, test_case_class_name, test_method_selector):
+        selector_literal = self.smalltalk_string_literal(test_method_selector)
+        self.run_code(
+            (
+                '| testCase |\n'
+                'testCase := %s selector: (%s asSymbol).\n'
+                'testCase runCase'
+            )
+            % (test_case_class_name, selector_literal)
+        )
+
     def summarized_test_result(self, test_result):
         failure_entries = [
             failure.printString().to_py
