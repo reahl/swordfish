@@ -112,6 +112,9 @@ codex mcp list --json
 
 Add `--allow-eval` only when you explicitly want free-form evaluation.
 Add `--allow-commit` only when you explicitly want transactions to persist.
+For new AI sessions, call `gs_capabilities` first to discover active policy
+switches and available workflows, then call `gs_guidance` for task-specific
+tool selection and sequencing.
 For normal browse/edit/test workflows, prefer explicit tools like:
 `gs_create_class`, `gs_create_test_case_class`, `gs_compile_method`, and
 `gs_run_gemstone_tests`.
@@ -139,6 +142,8 @@ The server identifies itself as `SwordfishMCP` and currently supports:
 - `gs_commit`
 - `gs_abort`
 - `gs_transaction_status`
+- `gs_capabilities`
+- `gs_guidance`
 - `gs_list_packages`
 - `gs_list_classes`
 - `gs_list_method_categories`
