@@ -275,6 +275,7 @@ def register_tools(
                         'gs_method_sends',
                         'gs_method_structure_summary',
                         'gs_method_control_flow_summary',
+                        'gs_query_methods_by_ast_pattern',
                     ],
                 },
             ]
@@ -1333,6 +1334,115 @@ def register_tools(
                 validated_indexes.append(index_value)
         return sorted(validated_indexes)
 
+    def validated_ast_pattern(input_value, argument_name):
+        if not isinstance(input_value, dict):
+            raise DomainException('%s must be a dictionary.' % argument_name)
+        supported_integer_fields = [
+            'min_send_count',
+            'max_send_count',
+            'min_keyword_send_count',
+            'max_keyword_send_count',
+            'min_unary_send_count',
+            'max_unary_send_count',
+            'min_binary_send_count',
+            'max_binary_send_count',
+            'min_block_count',
+            'max_block_count',
+            'min_return_count',
+            'max_return_count',
+            'min_cascade_count',
+            'max_cascade_count',
+            'min_statement_count',
+            'max_statement_count',
+            'min_temporary_count',
+            'max_temporary_count',
+            'min_branch_selector_count',
+            'max_branch_selector_count',
+            'min_loop_selector_count',
+            'max_loop_selector_count',
+            'min_max_block_nesting_depth',
+            'max_max_block_nesting_depth',
+        ]
+        supported_list_fields = [
+            'required_selectors',
+            'excluded_selectors',
+        ]
+        supported_fields = set(supported_integer_fields + supported_list_fields)
+        for pattern_key in input_value.keys():
+            if pattern_key not in supported_fields:
+                raise DomainException(
+                    'Unsupported ast_pattern field: %s.' % pattern_key
+                )
+        validated_pattern = {}
+        for field_name in supported_integer_fields:
+            if field_name in input_value:
+                field_value = input_value[field_name]
+                if not isinstance(field_value, int) or field_value < 0:
+                    raise DomainException(
+                        '%s.%s must be a non-negative integer.'
+                        % (
+                            argument_name,
+                            field_name,
+                        )
+                    )
+                validated_pattern[field_name] = field_value
+        for field_name in supported_list_fields:
+            if field_name in input_value:
+                field_values = input_value[field_name]
+                if not isinstance(field_values, list):
+                    raise DomainException(
+                        '%s.%s must be a list of selectors.'
+                        % (
+                            argument_name,
+                            field_name,
+                        )
+                    )
+                validated_pattern[field_name] = [
+                    validated_selector(
+                        field_value,
+                        '%s.%s' % (argument_name, field_name),
+                    )
+                    for field_value in field_values
+                ]
+        range_field_pairs = [
+            ('min_send_count', 'max_send_count'),
+            ('min_keyword_send_count', 'max_keyword_send_count'),
+            ('min_unary_send_count', 'max_unary_send_count'),
+            ('min_binary_send_count', 'max_binary_send_count'),
+            ('min_block_count', 'max_block_count'),
+            ('min_return_count', 'max_return_count'),
+            ('min_cascade_count', 'max_cascade_count'),
+            ('min_statement_count', 'max_statement_count'),
+            ('min_temporary_count', 'max_temporary_count'),
+            ('min_branch_selector_count', 'max_branch_selector_count'),
+            ('min_loop_selector_count', 'max_loop_selector_count'),
+            (
+                'min_max_block_nesting_depth',
+                'max_max_block_nesting_depth',
+            ),
+        ]
+        for min_field_name, max_field_name in range_field_pairs:
+            has_range = (
+                min_field_name in validated_pattern
+                and max_field_name in validated_pattern
+            )
+            if has_range:
+                min_field_value = validated_pattern[min_field_name]
+                max_field_value = validated_pattern[max_field_name]
+                if min_field_value > max_field_value:
+                    raise DomainException(
+                        (
+                            '%s.%s cannot be greater than %s.%s.'
+                        )
+                        % (
+                            argument_name,
+                            min_field_name,
+                            argument_name,
+                            max_field_name,
+                        )
+                    )
+        return validated_pattern
+
     def serialized_debug_frames(debug_session):
         stack_frames = debug_session.call_stack()
         return [
@@ -1589,6 +1699,7 @@ def register_tools(
                     'gs_method_sends',
                     'gs_method_structure_summary',
                     'gs_method_control_flow_summary',
+                    'gs_query_methods_by_ast_pattern',
                 ],
                 'safe_write': [
                     'gs_begin',
@@ -2075,6 +2186,90 @@ def register_tools(
                 'show_instance_side': show_instance_side,
                 'elapsed_ms': elapsed_ms,
                 'summary': summary,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_query_methods_by_ast_pattern(
+        connection_id,
+        ast_pattern,
+        package_name=None,
+        class_name=None,
+        show_instance_side=True,
+        method_category='all',
+        max_results=None,
+    ):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            ast_pattern = validated_ast_pattern(
+                ast_pattern,
+                'ast_pattern',
+            )
+            if package_name is not None:
+                package_name = validated_non_empty_string(
+                    package_name,
+                    'package_name',
+                )
+            if class_name is not None:
+                class_name = validated_identifier(
+                    class_name,
+                    'class_name',
+                )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
+            method_category = validated_non_empty_string(
+                method_category,
+                'method_category',
+            )
+            max_results = validated_non_negative_integer_or_none(
+                max_results,
+                'max_results',
+            )
+            started_at = time.perf_counter()
+            query_result = browser_session.query_methods_by_ast_pattern(
+                ast_pattern,
+                package_name=package_name,
+                class_name=class_name,
+                show_instance_side=show_instance_side,
+                method_category=method_category,
+                max_results=max_results,
+            )
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'ast_pattern': ast_pattern,
+                'package_name': package_name,
+                'class_name': class_name,
+                'show_instance_side': show_instance_side,
+                'method_category': method_category,
+                'max_results': max_results,
+                'elapsed_ms': elapsed_ms,
+                'match_count': query_result['match_count'],
+                'scanned_method_count': query_result['scanned_method_count'],
+                'truncated': query_result['truncated'],
+                'matches': query_result['matches'],
             }
         except GemstoneError as error:
             return {

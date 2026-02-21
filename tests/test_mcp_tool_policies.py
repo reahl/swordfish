@@ -140,6 +140,9 @@ class RestrictedToolsFixture(Fixture):
     def new_gs_method_control_flow_summary(self):
         return self.registered_mcp_tools['gs_method_control_flow_summary']
 
+    def new_gs_query_methods_by_ast_pattern(self):
+        return self.registered_mcp_tools['gs_query_methods_by_ast_pattern']
+
     def new_gs_tracer_status(self):
         return self.registered_mcp_tools['gs_tracer_status']
 
@@ -306,6 +309,9 @@ class AllowedToolsFixture(Fixture):
     def new_gs_method_control_flow_summary(self):
         return self.registered_mcp_tools['gs_method_control_flow_summary']
 
+    def new_gs_query_methods_by_ast_pattern(self):
+        return self.registered_mcp_tools['gs_query_methods_by_ast_pattern']
+
     def new_gs_tracer_status(self):
         return self.registered_mcp_tools['gs_tracer_status']
 
@@ -437,6 +443,9 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
 
     def new_gs_method_control_flow_summary(self):
         return self.registered_mcp_tools['gs_method_control_flow_summary']
+
+    def new_gs_query_methods_by_ast_pattern(self):
+        return self.registered_mcp_tools['gs_query_methods_by_ast_pattern']
 
     def new_gs_tracer_install(self):
         return self.registered_mcp_tools['gs_tracer_install']
@@ -619,6 +628,7 @@ def test_gs_capabilities_navigation_includes_method_semantic_tools(
     assert 'gs_method_sends' in navigation_tools
     assert 'gs_method_structure_summary' in navigation_tools
     assert 'gs_method_control_flow_summary' in navigation_tools
+    assert 'gs_query_methods_by_ast_pattern' in navigation_tools
 
 
 @with_fixtures(AllowedToolsFixture)
@@ -671,6 +681,7 @@ def test_gs_guidance_navigation_recommends_method_ast(tools_fixture):
     assert guidance_result['ok'], guidance_result
     workflow = guidance_result['guidance']['workflow']
     assert 'gs_method_ast' in workflow[2]['tools']
+    assert 'gs_query_methods_by_ast_pattern' in workflow[2]['tools']
 
 
 @with_fixtures(AllowedToolsFixture)
@@ -1441,6 +1452,16 @@ def test_gs_method_control_flow_summary_checks_connection(tools_fixture):
 
 
 @with_fixtures(AllowedToolsFixture)
+def test_gs_query_methods_by_ast_pattern_checks_connection(tools_fixture):
+    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
+        'missing-connection-id',
+        {'min_send_count': 1},
+    )
+    assert not query_result['ok']
+    assert query_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
 def test_gs_tracer_status_checks_connection(tools_fixture):
     tracer_status_result = tools_fixture.gs_tracer_status(
         'missing-connection-id'
@@ -1809,6 +1830,55 @@ def test_gs_method_control_flow_summary_validates_show_instance_side_flag(
     assert not summary_result['ok']
     assert summary_result['error']['message'] == (
         'show_instance_side must be a boolean.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_query_methods_by_ast_pattern_validates_pattern_and_filters(
+    tools_fixture,
+):
+    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
+        tools_fixture.connection_id,
+        'not-a-dictionary',
+    )
+    assert not query_result['ok']
+    assert query_result['error']['message'] == (
+        'ast_pattern must be a dictionary.'
+    )
+    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
+        tools_fixture.connection_id,
+        {'unknown_field': 1},
+    )
+    assert not query_result['ok']
+    assert query_result['error']['message'] == (
+        'Unsupported ast_pattern field: unknown_field.'
+    )
+    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
+        tools_fixture.connection_id,
+        {'min_send_count': 2, 'max_send_count': 1},
+    )
+    assert not query_result['ok']
+    assert query_result['error']['message'] == (
+        'ast_pattern.min_send_count cannot be greater than '
+        'ast_pattern.max_send_count.'
+    )
+    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
+        tools_fixture.connection_id,
+        {'min_send_count': 1},
+        show_instance_side='neither',
+    )
+    assert not query_result['ok']
+    assert query_result['error']['message'] == (
+        'show_instance_side must be a boolean.'
+    )
+    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
+        tools_fixture.connection_id,
+        {'min_send_count': 1},
+        max_results=-1,
+    )
+    assert not query_result['ok']
+    assert query_result['error']['message'] == (
+        'max_results cannot be negative.'
     )
 
 

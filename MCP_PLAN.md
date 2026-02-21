@@ -111,6 +111,7 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - `gs_method_sends`
 - `gs_method_structure_summary`
 - `gs_method_control_flow_summary`
+- `gs_query_methods_by_ast_pattern`
 - `gs_preview_rename_method`
 - `gs_apply_rename_method`
 - `gs_preview_move_method`
@@ -248,9 +249,10 @@ Common refactoring tools:
 - delivered first class-scoped extract-method pair: `gs_preview_extract_method` / `gs_apply_extract_method` (statement-range extraction with same-class call replacement).
 - delivered first class-scoped inline-method pair: `gs_preview_inline_method` / `gs_apply_inline_method` (conservative unary `self`-send inline in one caller method).
 - added `gs_method_control_flow_summary` for selector-based branch/loop signals and block-nesting heuristics.
+- added `gs_query_methods_by_ast_pattern` for scope-constrained structural method search using semantic predicates.
 
 ## Next Implementation Step
 
 Phase 5 semantic analysis kickoff:
 1. Add remove-parameter caller rewrites as an optional follow-up mode.
-2. Add richer AST query tools (`gs_query_methods_by_ast_pattern`).
+2. Expand AST-pattern matcher vocabulary and add result ranking controls.
