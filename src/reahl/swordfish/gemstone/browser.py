@@ -1322,6 +1322,812 @@ class GemstoneBrowserSession:
             ]
         )
 
+    def method_move_preview(
+        self,
+        source_class_name,
+        source_show_instance_side,
+        target_class_name,
+        target_show_instance_side,
+        method_selector,
+    ):
+        source_show_instance_side = self.validated_show_instance_side(
+            source_show_instance_side
+        )
+        target_show_instance_side = self.validated_show_instance_side(
+            target_show_instance_side
+        )
+        move_plan = self.method_move_plan(
+            source_class_name,
+            source_show_instance_side,
+            target_class_name,
+            target_show_instance_side,
+            method_selector,
+        )
+        return self.method_move_summary(move_plan)
+
+    def apply_method_move(
+        self,
+        source_class_name,
+        source_show_instance_side,
+        target_class_name,
+        target_show_instance_side,
+        method_selector,
+        overwrite_target_method=False,
+        delete_source_method=True,
+    ):
+        source_show_instance_side = self.validated_show_instance_side(
+            source_show_instance_side
+        )
+        target_show_instance_side = self.validated_show_instance_side(
+            target_show_instance_side
+        )
+        overwrite_target_method = self.validated_boolean_flag(
+            overwrite_target_method,
+            'overwrite_target_method',
+        )
+        delete_source_method = self.validated_boolean_flag(
+            delete_source_method,
+            'delete_source_method',
+        )
+        move_plan = self.method_move_plan(
+            source_class_name,
+            source_show_instance_side,
+            target_class_name,
+            target_show_instance_side,
+            method_selector,
+        )
+        if move_plan['target_has_method'] and not overwrite_target_method:
+            raise DomainException(
+                (
+                    'Target %s (%s side) already defines %s. '
+                    'Pass overwrite_target_method=true to replace it.'
+                )
+                % (
+                    target_class_name,
+                    'instance'
+                    if target_show_instance_side
+                    else 'class',
+                    method_selector,
+                )
+            )
+        self.compile_method(
+            class_name=target_class_name,
+            show_instance_side=target_show_instance_side,
+            source=move_plan['source_method_source'],
+            method_category=move_plan['source_method_category'],
+        )
+        source_deleted = False
+        if delete_source_method:
+            self.delete_method(
+                class_name=source_class_name,
+                method_selector=method_selector,
+                show_instance_side=source_show_instance_side,
+            )
+            source_deleted = True
+        summary = self.method_move_summary(move_plan)
+        summary['applied'] = True
+        summary['overwrite_target_method'] = overwrite_target_method
+        summary['delete_source_method'] = delete_source_method
+        summary['source_deleted'] = source_deleted
+        return summary
+
+    def method_move_plan(
+        self,
+        source_class_name,
+        source_show_instance_side,
+        target_class_name,
+        target_show_instance_side,
+        method_selector,
+    ):
+        source_show_instance_side = self.validated_show_instance_side(
+            source_show_instance_side
+        )
+        target_show_instance_side = self.validated_show_instance_side(
+            target_show_instance_side
+        )
+        is_same_source_and_target = (
+            source_class_name == target_class_name
+            and source_show_instance_side == target_show_instance_side
+        )
+        if is_same_source_and_target:
+            raise DomainException(
+                (
+                    'source_class_name/source_show_instance_side and '
+                    'target_class_name/target_show_instance_side '
+                    'must identify different method dictionaries.'
+                )
+            )
+        source_method_source = self.get_method_source(
+            source_class_name,
+            method_selector,
+            source_show_instance_side,
+        )
+        source_method_category = self.get_method_category(
+            source_class_name,
+            method_selector,
+            source_show_instance_side,
+        )
+        target_class_to_query = self.class_to_query(
+            target_class_name,
+            target_show_instance_side,
+        )
+        target_selector_names = self.sorted_selectors(target_class_to_query)
+        target_has_method = method_selector in target_selector_names
+        sender_summaries = self.selector_occurrence_summaries(
+            method_selector,
+            'senders',
+        )
+        source_sender_summaries = [
+            sender_summary
+            for sender_summary in sender_summaries
+            if (
+                sender_summary['class_name'] == source_class_name
+                and sender_summary['show_instance_side']
+                == source_show_instance_side
+            )
+        ]
+        return {
+            'source_class_name': source_class_name,
+            'source_show_instance_side': source_show_instance_side,
+            'target_class_name': target_class_name,
+            'target_show_instance_side': target_show_instance_side,
+            'method_selector': method_selector,
+            'source_method_category': source_method_category,
+            'source_method_source': source_method_source,
+            'source_method_character_count': len(source_method_source),
+            'target_has_method': target_has_method,
+            'total_sender_count': len(sender_summaries),
+            'source_sender_count': len(source_sender_summaries),
+            'sender_examples': self.limited_entries(sender_summaries, 20),
+        }
+
+    def method_move_summary(self, move_plan):
+        warnings = []
+        if move_plan['target_has_method']:
+            warnings.append(
+                (
+                    'Target %s (%s side) already defines %s.'
+                )
+                % (
+                    move_plan['target_class_name'],
+                    'instance'
+                    if move_plan['target_show_instance_side']
+                    else 'class',
+                    move_plan['method_selector'],
+                )
+            )
+        if move_plan['source_sender_count'] > 0:
+            warnings.append(
+                (
+                    '%s methods in source class/side send %s and may break '
+                    'if source method is deleted.'
+                )
+                % (
+                    move_plan['source_sender_count'],
+                    move_plan['method_selector'],
+                )
+            )
+        cross_class_sender_count = (
+            move_plan['total_sender_count'] - move_plan['source_sender_count']
+        )
+        if cross_class_sender_count > 0:
+            warnings.append(
+                (
+                    '%s additional static senders outside source class/side '
+                    'also send %s; receiver type is dynamic.'
+                )
+                % (
+                    cross_class_sender_count,
+                    move_plan['method_selector'],
+                )
+            )
+        return {
+            'source_class_name': move_plan['source_class_name'],
+            'source_show_instance_side': (
+                move_plan['source_show_instance_side']
+            ),
+            'target_class_name': move_plan['target_class_name'],
+            'target_show_instance_side': (
+                move_plan['target_show_instance_side']
+            ),
+            'method_selector': move_plan['method_selector'],
+            'source_method_category': move_plan['source_method_category'],
+            'source_method_character_count': (
+                move_plan['source_method_character_count']
+            ),
+            'target_has_method': move_plan['target_has_method'],
+            'total_sender_count': move_plan['total_sender_count'],
+            'source_sender_count': move_plan['source_sender_count'],
+            'sender_examples': move_plan['sender_examples'],
+            'warnings': warnings,
+        }
+
+    def method_add_parameter_preview(
+        self,
+        class_name,
+        show_instance_side,
+        method_selector,
+        parameter_keyword,
+        parameter_name,
+        default_argument_source,
+    ):
+        show_instance_side = self.validated_show_instance_side(
+            show_instance_side
+        )
+        add_parameter_plan = self.method_add_parameter_plan(
+            class_name,
+            show_instance_side,
+            method_selector,
+            parameter_keyword,
+            parameter_name,
+            default_argument_source,
+        )
+        return self.method_add_parameter_summary(add_parameter_plan)
+
+    def apply_method_add_parameter(
+        self,
+        class_name,
+        show_instance_side,
+        method_selector,
+        parameter_keyword,
+        parameter_name,
+        default_argument_source,
+    ):
+        show_instance_side = self.validated_show_instance_side(
+            show_instance_side
+        )
+        add_parameter_plan = self.method_add_parameter_plan(
+            class_name,
+            show_instance_side,
+            method_selector,
+            parameter_keyword,
+            parameter_name,
+            default_argument_source,
+        )
+        self.compile_method(
+            class_name=class_name,
+            show_instance_side=show_instance_side,
+            source=add_parameter_plan['new_method_source'],
+            method_category=add_parameter_plan['method_category'],
+        )
+        self.compile_method(
+            class_name=class_name,
+            show_instance_side=show_instance_side,
+            source=add_parameter_plan['compatibility_wrapper_source'],
+            method_category=add_parameter_plan['method_category'],
+        )
+        summary = self.method_add_parameter_summary(add_parameter_plan)
+        summary['applied'] = True
+        return summary
+
+    def method_add_parameter_plan(
+        self,
+        class_name,
+        show_instance_side,
+        method_selector,
+        parameter_keyword,
+        parameter_name,
+        default_argument_source,
+    ):
+        selector_tokens = self.selector_keyword_tokens(method_selector)
+        if not selector_tokens:
+            raise DomainException(
+                'method_selector must be a keyword selector.'
+            )
+        method_source = self.get_method_source(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        method_category = self.get_method_category(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        method_header, method_body, old_arguments = (
+            self.keyword_method_header_body_and_arguments(
+                method_source,
+                selector_tokens,
+                method_selector,
+            )
+        )
+        new_selector = method_selector + parameter_keyword
+        new_method_header = (
+            method_header
+            + ' '
+            + parameter_keyword
+            + ' '
+            + parameter_name
+        )
+        new_method_source = self.method_source_from_header_and_body(
+            new_method_header,
+            method_body,
+        )
+        new_selector_exists = self.method_exists(
+            class_name,
+            new_selector,
+            show_instance_side,
+        )
+        forward_segments = []
+        for token_index in range(len(selector_tokens)):
+            forward_segments.append(
+                '%s %s'
+                % (
+                    selector_tokens[token_index],
+                    old_arguments[token_index],
+                )
+            )
+        forward_segments.append(
+            '%s %s'
+            % (
+                parameter_keyword,
+                default_argument_source,
+            )
+        )
+        compatibility_wrapper_header = method_header
+        compatibility_wrapper_body = '    ^self %s' % ' '.join(forward_segments)
+        compatibility_wrapper_source = self.method_source_from_header_and_body(
+            compatibility_wrapper_header,
+            compatibility_wrapper_body,
+        )
+        sender_summaries = self.selector_occurrence_summaries(
+            method_selector,
+            'senders',
+        )
+        source_sender_summaries = [
+            sender_summary
+            for sender_summary in sender_summaries
+            if (
+                sender_summary['class_name'] == class_name
+                and sender_summary['show_instance_side'] == show_instance_side
+            )
+        ]
+        return {
+            'class_name': class_name,
+            'show_instance_side': show_instance_side,
+            'old_selector': method_selector,
+            'new_selector': new_selector,
+            'parameter_keyword': parameter_keyword,
+            'parameter_name': parameter_name,
+            'default_argument_source': default_argument_source,
+            'method_category': method_category,
+            'new_selector_exists': new_selector_exists,
+            'new_method_source': new_method_source,
+            'compatibility_wrapper_source': compatibility_wrapper_source,
+            'total_sender_count': len(sender_summaries),
+            'source_sender_count': len(source_sender_summaries),
+            'sender_examples': self.limited_entries(sender_summaries, 20),
+        }
+
+    def method_add_parameter_summary(self, add_parameter_plan):
+        warnings = []
+        if add_parameter_plan['new_selector_exists']:
+            warnings.append(
+                (
+                    '%s already exists on %s (%s side) and will be replaced.'
+                )
+                % (
+                    add_parameter_plan['new_selector'],
+                    add_parameter_plan['class_name'],
+                    'instance'
+                    if add_parameter_plan['show_instance_side']
+                    else 'class',
+                )
+            )
+        if add_parameter_plan['total_sender_count'] > 0:
+            warnings.append(
+                (
+                    '%s static senders still target %s and will route through '
+                    'the compatibility wrapper.'
+                )
+                % (
+                    add_parameter_plan['total_sender_count'],
+                    add_parameter_plan['old_selector'],
+                )
+            )
+        return {
+            'class_name': add_parameter_plan['class_name'],
+            'show_instance_side': add_parameter_plan['show_instance_side'],
+            'old_selector': add_parameter_plan['old_selector'],
+            'new_selector': add_parameter_plan['new_selector'],
+            'parameter_keyword': add_parameter_plan['parameter_keyword'],
+            'parameter_name': add_parameter_plan['parameter_name'],
+            'default_argument_source': (
+                add_parameter_plan['default_argument_source']
+            ),
+            'method_category': add_parameter_plan['method_category'],
+            'new_selector_exists': add_parameter_plan['new_selector_exists'],
+            'compatibility_wrapper': True,
+            'total_sender_count': add_parameter_plan['total_sender_count'],
+            'source_sender_count': add_parameter_plan['source_sender_count'],
+            'sender_examples': add_parameter_plan['sender_examples'],
+            'warnings': warnings,
+        }
+
+    def method_remove_parameter_preview(
+        self,
+        class_name,
+        show_instance_side,
+        method_selector,
+        parameter_keyword,
+    ):
+        show_instance_side = self.validated_show_instance_side(
+            show_instance_side
+        )
+        remove_parameter_plan = self.method_remove_parameter_plan(
+            class_name,
+            show_instance_side,
+            method_selector,
+            parameter_keyword,
+        )
+        return self.method_remove_parameter_summary(remove_parameter_plan)
+
+    def apply_method_remove_parameter(
+        self,
+        class_name,
+        show_instance_side,
+        method_selector,
+        parameter_keyword,
+        overwrite_new_method=False,
+    ):
+        show_instance_side = self.validated_show_instance_side(
+            show_instance_side
+        )
+        overwrite_new_method = self.validated_boolean_flag(
+            overwrite_new_method,
+            'overwrite_new_method',
+        )
+        remove_parameter_plan = self.method_remove_parameter_plan(
+            class_name,
+            show_instance_side,
+            method_selector,
+            parameter_keyword,
+        )
+        if (
+            remove_parameter_plan['new_selector_exists']
+            and not overwrite_new_method
+        ):
+            raise DomainException(
+                (
+                    '%s already exists on %s (%s side). '
+                    'Pass overwrite_new_method=true to replace it.'
+                )
+                % (
+                    remove_parameter_plan['new_selector'],
+                    class_name,
+                    'instance' if show_instance_side else 'class',
+                )
+            )
+        self.compile_method(
+            class_name=class_name,
+            show_instance_side=show_instance_side,
+            source=remove_parameter_plan['new_method_source'],
+            method_category=remove_parameter_plan['method_category'],
+        )
+        self.compile_method(
+            class_name=class_name,
+            show_instance_side=show_instance_side,
+            source=remove_parameter_plan['compatibility_wrapper_source'],
+            method_category=remove_parameter_plan['method_category'],
+        )
+        summary = self.method_remove_parameter_summary(remove_parameter_plan)
+        summary['applied'] = True
+        summary['overwrite_new_method'] = overwrite_new_method
+        return summary
+
+    def method_remove_parameter_plan(
+        self,
+        class_name,
+        show_instance_side,
+        method_selector,
+        parameter_keyword,
+    ):
+        selector_tokens = self.selector_keyword_tokens(method_selector)
+        if not selector_tokens:
+            raise DomainException(
+                'method_selector must be a keyword selector.'
+            )
+        if parameter_keyword not in selector_tokens:
+            raise DomainException(
+                '%s is not part of %s.'
+                % (
+                    parameter_keyword,
+                    method_selector,
+                )
+            )
+        parameter_index = selector_tokens.index(parameter_keyword)
+        method_source = self.get_method_source(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        method_category = self.get_method_category(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        method_header, method_body, old_arguments = (
+            self.keyword_method_header_body_and_arguments(
+                method_source,
+                selector_tokens,
+                method_selector,
+            )
+        )
+        removed_argument_name = old_arguments[parameter_index]
+        if self.method_body_references_argument_name(
+            method_body,
+            removed_argument_name,
+        ):
+            raise DomainException(
+                (
+                    'Cannot remove %s from %s because argument %s is '
+                    'referenced in the method body.'
+                )
+                % (
+                    parameter_keyword,
+                    method_selector,
+                    removed_argument_name,
+                )
+            )
+        new_selector_tokens = [
+            selector_tokens[token_index]
+            for token_index in range(len(selector_tokens))
+            if token_index != parameter_index
+        ]
+        new_argument_names = [
+            old_arguments[token_index]
+            for token_index in range(len(old_arguments))
+            if token_index != parameter_index
+        ]
+        new_selector = ''.join(new_selector_tokens)
+        creates_unary_selector = not new_selector
+        if creates_unary_selector:
+            new_selector = parameter_keyword[:-1]
+        new_method_header = self.keyword_header_for_selector_tokens_and_arguments(
+            new_selector_tokens,
+            new_argument_names,
+            unary_selector=new_selector,
+        )
+        new_method_source = self.method_source_from_header_and_body(
+            new_method_header,
+            method_body,
+        )
+        new_selector_exists = self.method_exists(
+            class_name,
+            new_selector,
+            show_instance_side,
+        )
+        forward_segments = []
+        for token_index in range(len(new_selector_tokens)):
+            forward_segments.append(
+                '%s %s'
+                % (
+                    new_selector_tokens[token_index],
+                    new_argument_names[token_index],
+                )
+            )
+        if forward_segments:
+            compatibility_wrapper_body = (
+                '    ^self %s' % ' '.join(forward_segments)
+            )
+        else:
+            compatibility_wrapper_body = '    ^self %s' % new_selector
+        compatibility_wrapper_source = self.method_source_from_header_and_body(
+            method_header,
+            compatibility_wrapper_body,
+        )
+        sender_summaries = self.selector_occurrence_summaries(
+            method_selector,
+            'senders',
+        )
+        source_sender_summaries = [
+            sender_summary
+            for sender_summary in sender_summaries
+            if (
+                sender_summary['class_name'] == class_name
+                and sender_summary['show_instance_side'] == show_instance_side
+            )
+        ]
+        return {
+            'class_name': class_name,
+            'show_instance_side': show_instance_side,
+            'old_selector': method_selector,
+            'new_selector': new_selector,
+            'parameter_keyword': parameter_keyword,
+            'removed_argument_name': removed_argument_name,
+            'creates_unary_selector': creates_unary_selector,
+            'method_category': method_category,
+            'new_selector_exists': new_selector_exists,
+            'new_method_source': new_method_source,
+            'compatibility_wrapper_source': compatibility_wrapper_source,
+            'total_sender_count': len(sender_summaries),
+            'source_sender_count': len(source_sender_summaries),
+            'sender_examples': self.limited_entries(sender_summaries, 20),
+        }
+
+    def method_remove_parameter_summary(self, remove_parameter_plan):
+        warnings = []
+        if remove_parameter_plan['new_selector_exists']:
+            warnings.append(
+                (
+                    '%s already exists on %s (%s side) and will be replaced.'
+                )
+                % (
+                    remove_parameter_plan['new_selector'],
+                    remove_parameter_plan['class_name'],
+                    'instance'
+                    if remove_parameter_plan['show_instance_side']
+                    else 'class',
+                )
+            )
+        if remove_parameter_plan['total_sender_count'] > 0:
+            warnings.append(
+                (
+                    '%s static senders still target %s and will route '
+                    'through the compatibility wrapper.'
+                )
+                % (
+                    remove_parameter_plan['total_sender_count'],
+                    remove_parameter_plan['old_selector'],
+                )
+            )
+        return {
+            'class_name': remove_parameter_plan['class_name'],
+            'show_instance_side': remove_parameter_plan['show_instance_side'],
+            'old_selector': remove_parameter_plan['old_selector'],
+            'new_selector': remove_parameter_plan['new_selector'],
+            'parameter_keyword': remove_parameter_plan['parameter_keyword'],
+            'removed_argument_name': remove_parameter_plan[
+                'removed_argument_name'
+            ],
+            'creates_unary_selector': remove_parameter_plan[
+                'creates_unary_selector'
+            ],
+            'method_category': remove_parameter_plan['method_category'],
+            'new_selector_exists': remove_parameter_plan[
+                'new_selector_exists'
+            ],
+            'compatibility_wrapper': True,
+            'total_sender_count': remove_parameter_plan[
+                'total_sender_count'
+            ],
+            'source_sender_count': remove_parameter_plan[
+                'source_sender_count'
+            ],
+            'sender_examples': remove_parameter_plan['sender_examples'],
+            'warnings': warnings,
+        }
+
+    def method_header_and_body(self, method_source):
+        header_separator_offset = method_source.find('\n')
+        if header_separator_offset == -1:
+            return method_source, ''
+        return (
+            method_source[:header_separator_offset],
+            method_source[header_separator_offset + 1:],
+        )
+
+    def method_source_from_header_and_body(self, method_header, method_body):
+        if method_body:
+            return '%s\n%s' % (method_header, method_body)
+        return method_header
+
+    def keyword_method_header_body_and_arguments(
+        self,
+        method_source,
+        selector_tokens,
+        method_selector,
+    ):
+        header_end_offset, argument_names = (
+            self.keyword_header_end_and_argument_names(
+                method_source,
+                selector_tokens,
+            )
+        )
+        method_header = method_source[:header_end_offset].strip()
+        method_body = method_source[header_end_offset:]
+        if method_body.startswith('\n'):
+            method_body = method_body[1:]
+        else:
+            method_body = method_body.lstrip()
+        if method_body and not method_body.startswith('    '):
+            method_body = '    ' + method_body
+        expected_argument_count = len(selector_tokens)
+        actual_argument_count = len(argument_names)
+        if actual_argument_count != expected_argument_count:
+            raise DomainException(
+                (
+                    'Could not parse keyword header for %s. '
+                    'Expected %s arguments, found %s.'
+                )
+                % (
+                    method_selector,
+                    expected_argument_count,
+                    actual_argument_count,
+                )
+            )
+        return method_header, method_body, argument_names
+
+    def keyword_header_end_and_argument_names(
+        self,
+        method_source,
+        selector_tokens,
+    ):
+        argument_names = []
+        cursor = 0
+        for selector_token in selector_tokens:
+            while cursor < len(method_source) and method_source[cursor].isspace():
+                cursor = cursor + 1
+            if not method_source.startswith(selector_token, cursor):
+                raise DomainException(
+                    'Could not parse keyword method header.'
+                )
+            cursor = cursor + len(selector_token)
+            while cursor < len(method_source) and method_source[cursor].isspace():
+                cursor = cursor + 1
+            argument_match = re.match(
+                '[A-Za-z][A-Za-z0-9_]*',
+                method_source[cursor:],
+            )
+            if argument_match is None:
+                raise DomainException(
+                    'Could not parse keyword method header argument.'
+                )
+            argument_name = argument_match.group(0)
+            argument_names.append(argument_name)
+            cursor = cursor + len(argument_name)
+        return cursor, argument_names
+
+    def keyword_header_for_selector_tokens_and_arguments(
+        self,
+        selector_tokens,
+        argument_names,
+        unary_selector=None,
+    ):
+        if selector_tokens:
+            if len(selector_tokens) != len(argument_names):
+                raise DomainException(
+                    (
+                        'Cannot build keyword method header: '
+                        '%s selector tokens but %s arguments.'
+                    )
+                    % (
+                        len(selector_tokens),
+                        len(argument_names),
+                    )
+                )
+            segments = []
+            for token_index in range(len(selector_tokens)):
+                segments.append(
+                    '%s %s'
+                    % (
+                        selector_tokens[token_index],
+                        argument_names[token_index],
+                    )
+                )
+            return ' '.join(segments)
+        if unary_selector is None:
+            raise DomainException(
+                'Cannot build method header without selector tokens.'
+            )
+        return unary_selector
+
+    def method_body_references_argument_name(
+        self,
+        method_body,
+        argument_name,
+    ):
+        argument_pattern = re.compile(
+            r'(^|[^A-Za-z0-9_])%s([^A-Za-z0-9_]|$)'
+            % re.escape(argument_name)
+        )
+        return argument_pattern.search(method_body) is not None
+
+    def method_exists(self, class_name, method_selector, show_instance_side):
+        class_to_query = self.class_to_query(class_name, show_instance_side)
+        selector_names = self.sorted_selectors(class_to_query)
+        return method_selector in selector_names
+
     def selector_rename_preview(self, old_selector, new_selector):
         planned_changes = self.selector_rename_plan(
             old_selector,
@@ -2197,6 +3003,17 @@ class GemstoneBrowserSession:
             if normalized_show_instance_side == 'false':
                 return False
         raise DomainException('show_instance_side must be a boolean.')
+
+    def validated_boolean_flag(self, flag_value, argument_name):
+        if isinstance(flag_value, bool):
+            return flag_value
+        if isinstance(flag_value, str):
+            normalized_flag_value = flag_value.strip().lower()
+            if normalized_flag_value == 'true':
+                return True
+            if normalized_flag_value == 'false':
+                return False
+        raise DomainException('%s must be a boolean.' % argument_name)
 
     def class_to_query(self, class_name, show_instance_side):
         show_instance_side = self.validated_show_instance_side(

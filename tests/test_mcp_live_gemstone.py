@@ -260,6 +260,24 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_apply_rename_method(self):
         return self.registered_mcp_tools['gs_apply_rename_method']
 
+    def new_gs_preview_move_method(self):
+        return self.registered_mcp_tools['gs_preview_move_method']
+
+    def new_gs_apply_move_method(self):
+        return self.registered_mcp_tools['gs_apply_move_method']
+
+    def new_gs_preview_add_parameter(self):
+        return self.registered_mcp_tools['gs_preview_add_parameter']
+
+    def new_gs_apply_add_parameter(self):
+        return self.registered_mcp_tools['gs_apply_add_parameter']
+
+    def new_gs_preview_remove_parameter(self):
+        return self.registered_mcp_tools['gs_preview_remove_parameter']
+
+    def new_gs_apply_remove_parameter(self):
+        return self.registered_mcp_tools['gs_apply_remove_parameter']
+
     def new_gs_global_set(self):
         return self.registered_mcp_tools['gs_global_set']
 
@@ -1802,6 +1820,362 @@ def test_live_gs_apply_rename_method_updates_target_class_only(
     assert other_sender_source_result['ok'], other_sender_source_result
     assert old_selector in other_sender_source_result['source']
     assert new_selector not in other_sender_source_result['source']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_preview_move_method_reports_sender_risk(
+    live_connection,
+):
+    source_class_name = 'McpMovePreviewSource%s' % uuid.uuid4().hex[:8]
+    target_class_name = 'McpMovePreviewTarget%s' % uuid.uuid4().hex[:8]
+    method_selector = 'moveMe%s' % uuid.uuid4().hex[:8]
+    sender_selector = 'callsMoveMe%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    source_create_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        source_class_name,
+    )
+    assert source_create_result['ok'], source_create_result
+    target_create_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        target_class_name,
+    )
+    assert target_create_result['ok'], target_create_result
+    implementor_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        source_class_name,
+        '%s ^77' % method_selector,
+        True,
+    )
+    assert implementor_compile_result['ok'], implementor_compile_result
+    sender_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        source_class_name,
+        '%s ^self %s' % (sender_selector, method_selector),
+        True,
+    )
+    assert sender_compile_result['ok'], sender_compile_result
+    preview_result = live_connection.gs_preview_move_method(
+        live_connection.connection_id,
+        source_class_name,
+        method_selector,
+        target_class_name,
+        True,
+        True,
+    )
+    assert preview_result['ok'], preview_result
+    preview = preview_result['preview']
+    assert preview['source_class_name'] == source_class_name
+    assert preview['target_class_name'] == target_class_name
+    assert preview['method_selector'] == method_selector
+    assert not preview['target_has_method']
+    assert preview['source_sender_count'] >= 1
+    assert preview['total_sender_count'] >= 1
+    assert preview['warnings']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_apply_move_method_moves_selector_between_classes(
+    live_connection,
+):
+    source_class_name = 'McpMoveApplySource%s' % uuid.uuid4().hex[:8]
+    target_class_name = 'McpMoveApplyTarget%s' % uuid.uuid4().hex[:8]
+    method_selector = 'moveMe%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    source_create_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        source_class_name,
+    )
+    assert source_create_result['ok'], source_create_result
+    target_create_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        target_class_name,
+    )
+    assert target_create_result['ok'], target_create_result
+    source_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        source_class_name,
+        '%s ^88' % method_selector,
+        True,
+    )
+    assert source_compile_result['ok'], source_compile_result
+    apply_result = live_connection.gs_apply_move_method(
+        live_connection.connection_id,
+        source_class_name,
+        method_selector,
+        target_class_name,
+        True,
+        True,
+        False,
+        True,
+    )
+    assert apply_result['ok'], apply_result
+    assert apply_result['result']['source_deleted']
+    source_selectors_result = live_connection.gs_list_methods(
+        live_connection.connection_id,
+        source_class_name,
+        'all',
+        True,
+    )
+    assert source_selectors_result['ok'], source_selectors_result
+    assert method_selector not in source_selectors_result['selectors']
+    target_selectors_result = live_connection.gs_list_methods(
+        live_connection.connection_id,
+        target_class_name,
+        'all',
+        True,
+    )
+    assert target_selectors_result['ok'], target_selectors_result
+    assert method_selector in target_selectors_result['selectors']
+    moved_source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        target_class_name,
+        method_selector,
+        True,
+    )
+    assert moved_source_result['ok'], moved_source_result
+    assert '^88' in moved_source_result['source']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_preview_add_parameter_reports_compatibility_wrapper(
+    live_connection,
+):
+    class_name = 'McpAddParamPreview%s' % uuid.uuid4().hex[:8]
+    method_selector = 'oldSelector:with:'
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'oldSelector: a with: b ^a + b',
+        True,
+    )
+    assert compile_result['ok'], compile_result
+    preview_result = live_connection.gs_preview_add_parameter(
+        live_connection.connection_id,
+        class_name,
+        method_selector,
+        'timeout:',
+        'timeout',
+        '30',
+        True,
+    )
+    assert preview_result['ok'], preview_result
+    preview = preview_result['preview']
+    assert preview['old_selector'] == method_selector
+    assert preview['new_selector'] == 'oldSelector:with:timeout:'
+    assert preview['parameter_keyword'] == 'timeout:'
+    assert preview['parameter_name'] == 'timeout'
+    assert preview['compatibility_wrapper']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_apply_add_parameter_keeps_old_selector_via_wrapper(
+    live_connection,
+):
+    class_name = 'McpAddParamApply%s' % uuid.uuid4().hex[:8]
+    sender_selector = 'callsOld%s' % uuid.uuid4().hex[:8]
+    method_selector = 'oldSelector:with:'
+    new_selector = 'oldSelector:with:timeout:'
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_implementor_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'oldSelector: a with: b ^a + b',
+        True,
+    )
+    assert compile_implementor_result['ok'], compile_implementor_result
+    compile_sender_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s ^self oldSelector: 1 with: 2' % sender_selector,
+        True,
+    )
+    assert compile_sender_result['ok'], compile_sender_result
+    apply_result = live_connection.gs_apply_add_parameter(
+        live_connection.connection_id,
+        class_name,
+        method_selector,
+        'timeout:',
+        'timeout',
+        '30',
+        True,
+    )
+    assert apply_result['ok'], apply_result
+    selectors_result = live_connection.gs_list_methods(
+        live_connection.connection_id,
+        class_name,
+        'all',
+        True,
+    )
+    assert selectors_result['ok'], selectors_result
+    assert method_selector in selectors_result['selectors']
+    assert new_selector in selectors_result['selectors']
+    sender_source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        class_name,
+        sender_selector,
+        True,
+    )
+    assert sender_source_result['ok'], sender_source_result
+    assert 'oldSelector: 1 with: 2' in sender_source_result['source']
+    new_source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        class_name,
+        new_selector,
+        True,
+    )
+    assert new_source_result['ok'], new_source_result
+    assert 'timeout: timeout' in new_source_result['source']
+    old_source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        class_name,
+        method_selector,
+        True,
+    )
+    assert old_source_result['ok'], old_source_result
+    assert 'timeout: 30' in old_source_result['source']
+    sender_eval_result = live_connection.gs_eval(
+        live_connection.connection_id,
+        '%s new %s' % (class_name, sender_selector),
+        unsafe=True,
+        reason='verify-add-parameter-wrapper',
+    )
+    assert sender_eval_result['ok'], sender_eval_result
+    assert sender_eval_result['output']['result']['python_value'] == 3
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_preview_remove_parameter_reports_compatibility_wrapper(
+    live_connection,
+):
+    class_name = 'McpRemoveParamPreview%s' % uuid.uuid4().hex[:8]
+    method_selector = 'oldSelector:with:timeout:'
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'oldSelector: a with: b timeout: c ^a + b',
+        True,
+    )
+    assert compile_result['ok'], compile_result
+    preview_result = live_connection.gs_preview_remove_parameter(
+        live_connection.connection_id,
+        class_name,
+        method_selector,
+        'timeout:',
+        True,
+    )
+    assert preview_result['ok'], preview_result
+    preview = preview_result['preview']
+    assert preview['old_selector'] == method_selector
+    assert preview['new_selector'] == 'oldSelector:with:'
+    assert preview['parameter_keyword'] == 'timeout:'
+    assert preview['removed_argument_name'] == 'c'
+    assert preview['compatibility_wrapper']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_apply_remove_parameter_keeps_old_selector_via_wrapper(
+    live_connection,
+):
+    class_name = 'McpRemoveParamApply%s' % uuid.uuid4().hex[:8]
+    sender_selector = 'callsOldWithTimeout%s' % uuid.uuid4().hex[:8]
+    method_selector = 'oldSelector:with:timeout:'
+    new_selector = 'oldSelector:with:'
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_implementor_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'oldSelector: a with: b timeout: c ^a + b',
+        True,
+    )
+    assert compile_implementor_result['ok'], compile_implementor_result
+    compile_sender_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s ^self oldSelector: 1 with: 2 timeout: 99' % sender_selector,
+        True,
+    )
+    assert compile_sender_result['ok'], compile_sender_result
+    apply_result = live_connection.gs_apply_remove_parameter(
+        live_connection.connection_id,
+        class_name,
+        method_selector,
+        'timeout:',
+        True,
+        False,
+    )
+    assert apply_result['ok'], apply_result
+    selectors_result = live_connection.gs_list_methods(
+        live_connection.connection_id,
+        class_name,
+        'all',
+        True,
+    )
+    assert selectors_result['ok'], selectors_result
+    assert method_selector in selectors_result['selectors']
+    assert new_selector in selectors_result['selectors']
+    new_source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        class_name,
+        new_selector,
+        True,
+    )
+    assert new_source_result['ok'], new_source_result
+    assert 'oldSelector: a with: b' in new_source_result['source']
+    assert 'timeout:' not in new_source_result['source']
+    old_source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        class_name,
+        method_selector,
+        True,
+    )
+    assert old_source_result['ok'], old_source_result
+    assert 'oldSelector: a with: b' in old_source_result['source']
+    assert '^self oldSelector: a with: b' in old_source_result['source']
+    sender_eval_result = live_connection.gs_eval(
+        live_connection.connection_id,
+        '%s new %s' % (class_name, sender_selector),
+        unsafe=True,
+        reason='verify-remove-parameter-wrapper',
+    )
+    assert sender_eval_result['ok'], sender_eval_result
+    assert sender_eval_result['output']['result']['python_value'] == 3
+    direct_eval_result = live_connection.gs_eval(
+        live_connection.connection_id,
+        '%s new oldSelector: 1 with: 2' % class_name,
+        unsafe=True,
+        reason='verify-remove-parameter-new-selector',
+    )
+    assert direct_eval_result['ok'], direct_eval_result
+    assert direct_eval_result['output']['result']['python_value'] == 3
 
 
 @with_fixtures(LiveMcpConnectionFixture)

@@ -42,6 +42,7 @@ def register_tools(
     identifier_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*$')
     unary_selector_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*$')
     keyword_selector_pattern = re.compile('^([A-Za-z][A-Za-z0-9_]*:)+$')
+    keyword_token_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*:$')
     tracer_alias_selector_prefix = 'swordfishMcpTracerOriginal__'
     collected_sender_evidence = {}
     planned_sender_tests = {}
@@ -300,14 +301,29 @@ def register_tools(
             if change_kind == 'rename_method':
                 preview_tools = ['gs_preview_rename_method']
                 apply_tools = ['gs_apply_rename_method']
+            if change_kind == 'move_method':
+                preview_tools = ['gs_preview_move_method']
+                apply_tools = ['gs_apply_move_method']
+            if change_kind == 'add_parameter':
+                preview_tools = ['gs_preview_add_parameter']
+                apply_tools = ['gs_apply_add_parameter']
+            if change_kind == 'remove_parameter':
+                preview_tools = ['gs_preview_remove_parameter']
+                apply_tools = ['gs_apply_remove_parameter']
             if change_kind is None:
                 preview_tools = [
                     'gs_preview_selector_rename',
                     'gs_preview_rename_method',
+                    'gs_preview_move_method',
+                    'gs_preview_add_parameter',
+                    'gs_preview_remove_parameter',
                 ]
                 apply_tools = [
                     'gs_apply_selector_rename',
                     'gs_apply_rename_method',
+                    'gs_apply_move_method',
+                    'gs_apply_add_parameter',
+                    'gs_apply_remove_parameter',
                 ]
             workflow = [
                 {
@@ -1277,6 +1293,18 @@ def register_tools(
             )
         return old_selector, new_selector
 
+    def validated_keyword_parameter_token(input_value, argument_name):
+        input_value = validated_non_empty_string(input_value, argument_name)
+        if not keyword_token_pattern.match(input_value):
+            raise DomainException(
+                (
+                    '%s must be a keyword token ending in : '
+                    '(example: timeout:).'
+                )
+                % argument_name
+            )
+        return input_value
+
     def serialized_debug_frames(debug_session):
         stack_frames = debug_session.call_stack()
         return [
@@ -1540,6 +1568,9 @@ def register_tools(
                     'gs_create_test_case_class',
                     'gs_apply_selector_rename',
                     'gs_apply_rename_method',
+                    'gs_apply_move_method',
+                    'gs_apply_add_parameter',
+                    'gs_apply_remove_parameter',
                     'gs_commit',
                     'gs_abort',
                 ],
@@ -1548,6 +1579,12 @@ def register_tools(
                     'gs_apply_selector_rename',
                     'gs_preview_rename_method',
                     'gs_apply_rename_method',
+                    'gs_preview_move_method',
+                    'gs_apply_move_method',
+                    'gs_preview_add_parameter',
+                    'gs_apply_add_parameter',
+                    'gs_preview_remove_parameter',
+                    'gs_apply_remove_parameter',
                 ],
                 'evidence': [
                     'gs_plan_evidence_tests',
@@ -3546,6 +3583,493 @@ def register_tools(
                 'show_instance_side': show_instance_side,
                 'old_selector': old_selector,
                 'new_selector': new_selector,
+                'result': result,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_preview_move_method(
+        connection_id,
+        source_class_name,
+        method_selector,
+        target_class_name,
+        source_show_instance_side=True,
+        target_show_instance_side=True,
+    ):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            source_class_name = validated_identifier(
+                source_class_name,
+                'source_class_name',
+            )
+            target_class_name = validated_identifier(
+                target_class_name,
+                'target_class_name',
+            )
+            method_selector = validated_selector(
+                method_selector,
+                'method_selector',
+            )
+            source_show_instance_side = validated_boolean_like(
+                source_show_instance_side,
+                'source_show_instance_side',
+            )
+            target_show_instance_side = validated_boolean_like(
+                target_show_instance_side,
+                'target_show_instance_side',
+            )
+            preview = browser_session.method_move_preview(
+                source_class_name,
+                source_show_instance_side,
+                target_class_name,
+                target_show_instance_side,
+                method_selector,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'source_class_name': source_class_name,
+                'source_show_instance_side': source_show_instance_side,
+                'target_class_name': target_class_name,
+                'target_show_instance_side': target_show_instance_side,
+                'method_selector': method_selector,
+                'preview': preview,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_apply_move_method(
+        connection_id,
+        source_class_name,
+        method_selector,
+        target_class_name,
+        source_show_instance_side=True,
+        target_show_instance_side=True,
+        overwrite_target_method=False,
+        delete_source_method=True,
+    ):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_apply_move_method is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
+        try:
+            source_class_name = validated_identifier(
+                source_class_name,
+                'source_class_name',
+            )
+            target_class_name = validated_identifier(
+                target_class_name,
+                'target_class_name',
+            )
+            method_selector = validated_selector(
+                method_selector,
+                'method_selector',
+            )
+            source_show_instance_side = validated_boolean_like(
+                source_show_instance_side,
+                'source_show_instance_side',
+            )
+            target_show_instance_side = validated_boolean_like(
+                target_show_instance_side,
+                'target_show_instance_side',
+            )
+            overwrite_target_method = validated_boolean_like(
+                overwrite_target_method,
+                'overwrite_target_method',
+            )
+            delete_source_method = validated_boolean_like(
+                delete_source_method,
+                'delete_source_method',
+            )
+            result = browser_session.apply_method_move(
+                source_class_name,
+                source_show_instance_side,
+                target_class_name,
+                target_show_instance_side,
+                method_selector,
+                overwrite_target_method=overwrite_target_method,
+                delete_source_method=delete_source_method,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'source_class_name': source_class_name,
+                'source_show_instance_side': source_show_instance_side,
+                'target_class_name': target_class_name,
+                'target_show_instance_side': target_show_instance_side,
+                'method_selector': method_selector,
+                'overwrite_target_method': overwrite_target_method,
+                'delete_source_method': delete_source_method,
+                'result': result,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_preview_add_parameter(
+        connection_id,
+        class_name,
+        method_selector,
+        parameter_keyword,
+        parameter_name,
+        default_argument_source,
+        show_instance_side=True,
+    ):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            class_name = validated_identifier(
+                class_name,
+                'class_name',
+            )
+            method_selector = validated_selector(
+                method_selector,
+                'method_selector',
+            )
+            if ':' not in method_selector:
+                raise DomainException(
+                    'method_selector must be a keyword selector.'
+                )
+            parameter_keyword = validated_keyword_parameter_token(
+                parameter_keyword,
+                'parameter_keyword',
+            )
+            parameter_name = validated_identifier(
+                parameter_name,
+                'parameter_name',
+            )
+            default_argument_source = validated_non_empty_string(
+                default_argument_source,
+                'default_argument_source',
+            )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
+            preview = browser_session.method_add_parameter_preview(
+                class_name,
+                show_instance_side,
+                method_selector,
+                parameter_keyword,
+                parameter_name,
+                default_argument_source,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'show_instance_side': show_instance_side,
+                'method_selector': method_selector,
+                'parameter_keyword': parameter_keyword,
+                'parameter_name': parameter_name,
+                'default_argument_source': default_argument_source,
+                'preview': preview,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_apply_add_parameter(
+        connection_id,
+        class_name,
+        method_selector,
+        parameter_keyword,
+        parameter_name,
+        default_argument_source,
+        show_instance_side=True,
+    ):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_apply_add_parameter is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
+        try:
+            class_name = validated_identifier(
+                class_name,
+                'class_name',
+            )
+            method_selector = validated_selector(
+                method_selector,
+                'method_selector',
+            )
+            if ':' not in method_selector:
+                raise DomainException(
+                    'method_selector must be a keyword selector.'
+                )
+            parameter_keyword = validated_keyword_parameter_token(
+                parameter_keyword,
+                'parameter_keyword',
+            )
+            parameter_name = validated_identifier(
+                parameter_name,
+                'parameter_name',
+            )
+            default_argument_source = validated_non_empty_string(
+                default_argument_source,
+                'default_argument_source',
+            )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
+            result = browser_session.apply_method_add_parameter(
+                class_name,
+                show_instance_side,
+                method_selector,
+                parameter_keyword,
+                parameter_name,
+                default_argument_source,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'show_instance_side': show_instance_side,
+                'method_selector': method_selector,
+                'parameter_keyword': parameter_keyword,
+                'parameter_name': parameter_name,
+                'default_argument_source': default_argument_source,
+                'result': result,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_preview_remove_parameter(
+        connection_id,
+        class_name,
+        method_selector,
+        parameter_keyword,
+        show_instance_side=True,
+    ):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            class_name = validated_identifier(
+                class_name,
+                'class_name',
+            )
+            method_selector = validated_selector(
+                method_selector,
+                'method_selector',
+            )
+            if ':' not in method_selector:
+                raise DomainException(
+                    'method_selector must be a keyword selector.'
+                )
+            parameter_keyword = validated_keyword_parameter_token(
+                parameter_keyword,
+                'parameter_keyword',
+            )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
+            preview = browser_session.method_remove_parameter_preview(
+                class_name,
+                show_instance_side,
+                method_selector,
+                parameter_keyword,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'show_instance_side': show_instance_side,
+                'method_selector': method_selector,
+                'parameter_keyword': parameter_keyword,
+                'preview': preview,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_apply_remove_parameter(
+        connection_id,
+        class_name,
+        method_selector,
+        parameter_keyword,
+        show_instance_side=True,
+        overwrite_new_method=False,
+    ):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_apply_remove_parameter is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
+        try:
+            class_name = validated_identifier(
+                class_name,
+                'class_name',
+            )
+            method_selector = validated_selector(
+                method_selector,
+                'method_selector',
+            )
+            if ':' not in method_selector:
+                raise DomainException(
+                    'method_selector must be a keyword selector.'
+                )
+            parameter_keyword = validated_keyword_parameter_token(
+                parameter_keyword,
+                'parameter_keyword',
+            )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
+            overwrite_new_method = validated_boolean_like(
+                overwrite_new_method,
+                'overwrite_new_method',
+            )
+            result = browser_session.apply_method_remove_parameter(
+                class_name,
+                show_instance_side,
+                method_selector,
+                parameter_keyword,
+                overwrite_new_method=overwrite_new_method,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'show_instance_side': show_instance_side,
+                'method_selector': method_selector,
+                'parameter_keyword': parameter_keyword,
+                'overwrite_new_method': overwrite_new_method,
                 'result': result,
             }
         except GemstoneError as error:
