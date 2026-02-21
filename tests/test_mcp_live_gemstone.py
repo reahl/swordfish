@@ -370,6 +370,9 @@ class LiveMcpConnectionWithoutCommitPermissionFixture(Fixture):
     def new_gs_transaction_status(self):
         return self.registered_mcp_tools['gs_transaction_status']
 
+    def new_gs_capabilities(self):
+        return self.registered_mcp_tools['gs_capabilities']
+
     def new_gs_create_class(self):
         return self.registered_mcp_tools['gs_create_class']
 
@@ -509,6 +512,9 @@ def test_live_gs_begin_if_needed_is_idempotent(live_connection):
 def test_live_workflow_without_commit_permission_requires_abort(
     live_connection,
 ):
+    capabilities_result = live_connection.gs_capabilities()
+    assert capabilities_result['ok'], capabilities_result
+    assert not capabilities_result['policy']['allow_commit']
     begin_result = live_connection.gs_begin_if_needed(
         live_connection.connection_id
     )
@@ -1600,6 +1606,118 @@ def test_live_guided_refactor_workflow_runs_end_to_end(live_connection):
     assert run_test_result['result']['run_count'] == 1
     assert run_test_result['result']['failure_count'] == 0
     assert run_test_result['result']['error_count'] == 0
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_evidence_guarded_selector_rename_workflow_runs_end_to_end(
+    live_connection,
+):
+    class_name = 'McpEvidenceGuardClass%s' % uuid.uuid4().hex[:8]
+    old_selector = 'oldEvidenceSelector%s:' % uuid.uuid4().hex[:8]
+    new_selector = 'newEvidenceSelector%s:' % uuid.uuid4().hex[:8]
+    caller_selector = 'callsEvidence%s' % uuid.uuid4().hex[:8]
+    test_selector = 'testEvidenceGuardedRename%s' % uuid.uuid4().hex[:8]
+    capabilities_result = live_connection.gs_capabilities()
+    assert capabilities_result['ok'], capabilities_result
+    assert capabilities_result['policy']['allow_tracing']
+    guidance_result = live_connection.gs_guidance(
+        'sender_analysis',
+        selector=old_selector,
+        change_kind='rename_selector',
+    )
+    assert guidance_result['ok'], guidance_result
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_test_case_result = live_connection.gs_create_test_case_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_test_case_result['ok'], create_test_case_result
+    implementor_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s value ^value + 1' % old_selector,
+        True,
+    )
+    assert implementor_compile_result['ok'], implementor_compile_result
+    caller_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s ^self %s 1' % (caller_selector, old_selector),
+        True,
+    )
+    assert caller_compile_result['ok'], caller_compile_result
+    test_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        (
+            '%s\n'
+            '    self assert: (self %s) equals: 2'
+        )
+        % (
+            test_selector,
+            caller_selector,
+        ),
+        True,
+    )
+    assert test_compile_result['ok'], test_compile_result
+    plan_result = live_connection.gs_plan_evidence_tests(
+        live_connection.connection_id,
+        old_selector,
+        max_depth=2,
+        max_nodes=300,
+        max_senders_per_selector=300,
+        max_test_methods=100,
+    )
+    assert plan_result['ok'], plan_result
+    assert plan_result['test_plan_id']
+    collect_result = live_connection.gs_collect_sender_evidence(
+        live_connection.connection_id,
+        old_selector,
+        test_plan_id=plan_result['test_plan_id'],
+        max_planned_tests=20,
+        stop_on_first_observed=True,
+    )
+    assert collect_result['ok'], collect_result
+    assert collect_result['evidence_run_id']
+    assert collect_result['observed']['total_count'] >= 1
+    preview_result = live_connection.gs_preview_selector_rename(
+        live_connection.connection_id,
+        old_selector,
+        new_selector,
+    )
+    assert preview_result['ok'], preview_result
+    guarded_apply_result = live_connection.gs_apply_selector_rename(
+        live_connection.connection_id,
+        old_selector,
+        new_selector,
+        require_observed_sender_evidence=True,
+        evidence_run_id=collect_result['evidence_run_id'],
+    )
+    assert guarded_apply_result['ok'], guarded_apply_result
+    caller_source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        class_name,
+        caller_selector,
+        True,
+    )
+    assert caller_source_result['ok'], caller_source_result
+    assert new_selector in caller_source_result['source']
+    assert old_selector not in caller_source_result['source']
+    run_test_result = live_connection.gs_run_test_method(
+        live_connection.connection_id,
+        class_name,
+        test_selector,
+    )
+    assert run_test_result['ok'], run_test_result
+    assert run_test_result['tests_passed']
+    commit_result = live_connection.gs_commit(live_connection.connection_id)
+    assert commit_result['ok'], commit_result
+    status_result = live_connection.gs_transaction_status(
+        live_connection.connection_id
+    )
+    assert status_result['ok'], status_result
+    assert not status_result['transaction_active']
 
 
 @with_fixtures(LiveMcpConnectionFixture)

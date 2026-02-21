@@ -161,7 +161,7 @@ Common refactoring tools:
 - Phase 1: completed
 - Phase 2: completed
 - Phase 3: completed for targeted selector rename + debugger operations
-- Phase 4: in progress
+- Phase 4: completed
 - Phase 5: not started
 
 ## Testing Approach
@@ -218,14 +218,12 @@ Common refactoring tools:
 10. Phase 4 hardening progress:
 - added selector rename coverage for multiline keyword send layouts and cascaded sends.
 - added a longer live guided refactor workflow test that bootstraps via `gs_capabilities`/`gs_guidance`, performs preview/apply rename, and validates via test execution.
+- added a full live evidence-guarded rename workflow test (`gs_plan_evidence_tests` + `gs_collect_sender_evidence` + guarded `gs_apply_selector_rename`).
+- added live no-commit mode policy visibility checks via `gs_capabilities`.
 
 ## Next Implementation Step
 
-Phase 4 hardening:
-- extend selector rewrite coverage for cascades and multiline selector layouts
-- broaden live integration coverage for longer AI-like edit/test sessions
-
-After Phase 4, start Phase 5 with this order:
+Phase 5 semantic analysis kickoff:
 1. Deliver `gs_method_sends` and `gs_method_structure_summary` as minimal semantic APIs.
 2. Deliver `gs_method_ast` with stable JSON schema and source ranges.
 3. Deliver first refactoring pair: `gs_preview_rename_method` / `gs_apply_rename_method`.
