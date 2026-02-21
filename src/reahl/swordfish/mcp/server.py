@@ -22,6 +22,7 @@ def create_server(
     allow_eval=False,
     allow_compile=False,
     allow_commit=False,
+    allow_tracing=False,
 ):
     fast_mcp = import_fast_mcp()
     register_tools = import_tool_registration()
@@ -52,6 +53,7 @@ def create_server(
         allow_eval=allow_eval,
         allow_compile=allow_compile,
         allow_commit=allow_commit,
+        allow_tracing=allow_tracing,
     )
     return mcp_server
 

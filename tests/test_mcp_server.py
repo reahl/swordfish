@@ -38,11 +38,13 @@ def test_create_server_passes_policy_flags_to_tool_registration():
         allow_eval=False,
         allow_compile=False,
         allow_commit=False,
+        allow_tracing=False,
     ):
         captured['mcp_server'] = mcp_server
         captured['allow_eval'] = allow_eval
         captured['allow_compile'] = allow_compile
         captured['allow_commit'] = allow_commit
+        captured['allow_tracing'] = allow_tracing
 
     with patch(
         'reahl.swordfish.mcp.server.import_fast_mcp',
@@ -56,12 +58,14 @@ def test_create_server_passes_policy_flags_to_tool_registration():
                 allow_eval=True,
                 allow_compile=True,
                 allow_commit=True,
+                allow_tracing=True,
             )
 
     assert mcp_server is captured['mcp_server']
     assert captured['allow_eval']
     assert captured['allow_compile']
     assert captured['allow_commit']
+    assert captured['allow_tracing']
 
 
 def test_create_server_supports_fast_mcp_without_version_argument():
@@ -81,11 +85,13 @@ def test_create_server_supports_fast_mcp_without_version_argument():
         allow_eval=False,
         allow_compile=False,
         allow_commit=False,
+        allow_tracing=False,
     ):
         captured['mcp_server'] = mcp_server
         captured['allow_eval'] = allow_eval
         captured['allow_compile'] = allow_compile
         captured['allow_commit'] = allow_commit
+        captured['allow_tracing'] = allow_tracing
 
     with patch(
         'reahl.swordfish.mcp.server.import_fast_mcp',
@@ -99,8 +105,10 @@ def test_create_server_supports_fast_mcp_without_version_argument():
                 allow_eval=False,
                 allow_compile=False,
                 allow_commit=False,
+                allow_tracing=False,
             )
 
     assert mcp_server is captured['mcp_server']
     assert mcp_server.name == 'SwordfishMCP'
     assert not captured['allow_commit']
+    assert not captured['allow_tracing']
