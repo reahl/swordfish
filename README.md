@@ -125,7 +125,8 @@ For method-level semantic navigation, use `gs_method_ast`,
 `gs_method_control_flow_summary` to inspect statement structure, send sites,
 structural counts, and control-flow signals.
 For pattern-based method discovery across a scope, use
-`gs_query_methods_by_ast_pattern`.
+`gs_query_methods_by_ast_pattern` and tune ranking with `sort_by` /
+`sort_descending`.
 For class-scoped method renames, use `gs_preview_rename_method` and
 `gs_apply_rename_method` instead of a global selector rename.
 For class-scoped method moves, use `gs_preview_move_method` before
@@ -133,7 +134,8 @@ For class-scoped method moves, use `gs_preview_move_method` before
 For class-scoped parameter addition with compatibility forwarding, use
 `gs_preview_add_parameter` then `gs_apply_add_parameter`.
 For class-scoped parameter removal with compatibility forwarding, use
-`gs_preview_remove_parameter` then `gs_apply_remove_parameter`.
+`gs_preview_remove_parameter` then `gs_apply_remove_parameter`; when you want
+to update same-class callers immediately, set `rewrite_source_senders=true`.
 For statement-level method extraction in one class/side, use
 `gs_preview_extract_method` then `gs_apply_extract_method`.
 For conservative unary self-send inline in one caller method, use

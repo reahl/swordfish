@@ -362,6 +362,23 @@ def register_tools(
                     ],
                 },
             ]
+            if change_kind == 'remove_parameter':
+                decision_rules.append(
+                    {
+                        'when': 'You remove a parameter and want to reduce wrapper reliance.',
+                        'prefer_tools': [
+                            'gs_preview_remove_parameter(rewrite_source_senders=true)',
+                            'gs_apply_remove_parameter(rewrite_source_senders=true)',
+                        ],
+                        'avoid_tools': [
+                            'leaving all local callers on compatibility wrapper',
+                        ],
+                        'reason': (
+                            'Optional same-class caller rewrites move local senders '
+                            'to the new selector while preserving old entrypoint compatibility.'
+                        ),
+                    }
+                )
         if intent == 'runtime_evidence':
             workflow = [
                 {
@@ -1334,6 +1351,43 @@ def register_tools(
                 validated_indexes.append(index_value)
         return sorted(validated_indexes)
 
+    def supported_ast_query_sort_fields():
+        return [
+            'scan_order',
+            'class_name',
+            'method_selector',
+            'send_count',
+            'keyword_send_count',
+            'unary_send_count',
+            'binary_send_count',
+            'block_count',
+            'return_count',
+            'cascade_count',
+            'assignment_count',
+            'statement_terminator_count',
+            'explicit_self_send_count',
+            'explicit_super_send_count',
+            'body_line_count',
+            'statement_count',
+            'temporary_count',
+            'branch_selector_count',
+            'loop_selector_count',
+            'max_block_nesting_depth',
+        ]
+
+    def validated_ast_query_sort_by(input_value, argument_name):
+        input_value = validated_non_empty_string(input_value, argument_name)
+        supported_fields = supported_ast_query_sort_fields()
+        if input_value not in supported_fields:
+            raise DomainException(
+                '%s must be one of: %s.'
+                % (
+                    argument_name,
+                    ', '.join(supported_fields),
+                )
+            )
+        return input_value
+
     def validated_ast_pattern(input_value, argument_name):
         if not isinstance(input_value, dict):
             raise DomainException('%s must be a dictionary.' % argument_name)
@@ -1352,6 +1406,16 @@ def register_tools(
             'max_return_count',
             'min_cascade_count',
             'max_cascade_count',
+            'min_assignment_count',
+            'max_assignment_count',
+            'min_statement_terminator_count',
+            'max_statement_terminator_count',
+            'min_explicit_self_send_count',
+            'max_explicit_self_send_count',
+            'min_explicit_super_send_count',
+            'max_explicit_super_send_count',
+            'min_body_line_count',
+            'max_body_line_count',
             'min_statement_count',
             'max_statement_count',
             'min_temporary_count',
@@ -1365,15 +1429,42 @@ def register_tools(
         ]
         supported_list_fields = [
             'required_selectors',
+            'any_required_selectors',
             'excluded_selectors',
+            'required_send_types',
+            'excluded_send_types',
+            'required_receiver_hints',
+            'excluded_receiver_hints',
         ]
-        supported_fields = set(supported_integer_fields + supported_list_fields)
+        supported_string_fields = [
+            'method_selector_regex',
+        ]
+        supported_fields = set(
+            supported_integer_fields
+            + supported_list_fields
+            + supported_string_fields
+        )
         for pattern_key in input_value.keys():
             if pattern_key not in supported_fields:
                 raise DomainException(
                     'Unsupported ast_pattern field: %s.' % pattern_key
                 )
         validated_pattern = {}
+        selector_list_fields = {
+            'required_selectors',
+            'any_required_selectors',
+            'excluded_selectors',
+        }
+        send_type_list_fields = {
+            'required_send_types',
+            'excluded_send_types',
+        }
+        receiver_hint_list_fields = {
+            'required_receiver_hints',
+            'excluded_receiver_hints',
+        }
+        supported_send_types = {'keyword', 'unary', 'binary'}
+        supported_receiver_hints = {'self', 'super', 'unknown'}
         for field_name in supported_integer_fields:
             if field_name in input_value:
                 field_value = input_value[field_name]
@@ -1391,19 +1482,80 @@ def register_tools(
                 field_values = input_value[field_name]
                 if not isinstance(field_values, list):
                     raise DomainException(
-                        '%s.%s must be a list of selectors.'
+                        '%s.%s must be a list.'
                         % (
                             argument_name,
                             field_name,
                         )
                     )
-                validated_pattern[field_name] = [
-                    validated_selector(
-                        field_value,
-                        '%s.%s' % (argument_name, field_name),
+                if field_name in selector_list_fields:
+                    validated_pattern[field_name] = [
+                        validated_selector(
+                            field_value,
+                            '%s.%s' % (argument_name, field_name),
+                        )
+                        for field_value in field_values
+                    ]
+                if field_name in send_type_list_fields:
+                    validated_values = []
+                    for field_value in field_values:
+                        field_value = validated_non_empty_string(
+                            field_value,
+                            '%s.%s' % (argument_name, field_name),
+                        )
+                        if field_value not in supported_send_types:
+                            raise DomainException(
+                                (
+                                    '%s.%s entries must be one of: %s.'
+                                )
+                                % (
+                                    argument_name,
+                                    field_name,
+                                    ', '.join(sorted(supported_send_types)),
+                                )
+                            )
+                        if field_value not in validated_values:
+                            validated_values.append(field_value)
+                    validated_pattern[field_name] = validated_values
+                if field_name in receiver_hint_list_fields:
+                    validated_values = []
+                    for field_value in field_values:
+                        field_value = validated_non_empty_string(
+                            field_value,
+                            '%s.%s' % (argument_name, field_name),
+                        )
+                        if field_value not in supported_receiver_hints:
+                            raise DomainException(
+                                (
+                                    '%s.%s entries must be one of: %s.'
+                                )
+                                % (
+                                    argument_name,
+                                    field_name,
+                                    ', '.join(
+                                        sorted(supported_receiver_hints)
+                                    ),
+                                )
+                            )
+                        if field_value not in validated_values:
+                            validated_values.append(field_value)
+                    validated_pattern[field_name] = validated_values
+        if 'method_selector_regex' in input_value:
+            method_selector_regex = validated_non_empty_string(
+                input_value['method_selector_regex'],
+                '%s.method_selector_regex' % argument_name,
+            )
+            try:
+                re.compile(method_selector_regex)
+            except re.error as error:
+                raise DomainException(
+                    '%s.method_selector_regex is not valid regex: %s.'
+                    % (
+                        argument_name,
+                        error,
                     )
-                    for field_value in field_values
-                ]
+                )
+            validated_pattern['method_selector_regex'] = method_selector_regex
         range_field_pairs = [
             ('min_send_count', 'max_send_count'),
             ('min_keyword_send_count', 'max_keyword_send_count'),
@@ -1412,6 +1564,20 @@ def register_tools(
             ('min_block_count', 'max_block_count'),
             ('min_return_count', 'max_return_count'),
             ('min_cascade_count', 'max_cascade_count'),
+            ('min_assignment_count', 'max_assignment_count'),
+            (
+                'min_statement_terminator_count',
+                'max_statement_terminator_count',
+            ),
+            (
+                'min_explicit_self_send_count',
+                'max_explicit_self_send_count',
+            ),
+            (
+                'min_explicit_super_send_count',
+                'max_explicit_super_send_count',
+            ),
+            ('min_body_line_count', 'max_body_line_count'),
             ('min_statement_count', 'max_statement_count'),
             ('min_temporary_count', 'max_temporary_count'),
             ('min_branch_selector_count', 'max_branch_selector_count'),
@@ -2215,6 +2381,8 @@ def register_tools(
         show_instance_side=True,
         method_category='all',
         max_results=None,
+        sort_by='scan_order',
+        sort_descending=False,
     ):
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
@@ -2246,6 +2414,14 @@ def register_tools(
                 max_results,
                 'max_results',
             )
+            sort_by = validated_ast_query_sort_by(
+                sort_by,
+                'sort_by',
+            )
+            sort_descending = validated_boolean_like(
+                sort_descending,
+                'sort_descending',
+            )
             started_at = time.perf_counter()
             query_result = browser_session.query_methods_by_ast_pattern(
                 ast_pattern,
@@ -2254,6 +2430,8 @@ def register_tools(
                 show_instance_side=show_instance_side,
                 method_category=method_category,
                 max_results=max_results,
+                sort_by=sort_by,
+                sort_descending=sort_descending,
             )
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             return {
@@ -2265,10 +2443,16 @@ def register_tools(
                 'show_instance_side': show_instance_side,
                 'method_category': method_category,
                 'max_results': max_results,
+                'sort_by': sort_by,
+                'sort_descending': sort_descending,
                 'elapsed_ms': elapsed_ms,
                 'match_count': query_result['match_count'],
                 'scanned_method_count': query_result['scanned_method_count'],
                 'truncated': query_result['truncated'],
+                'result_sort_by': query_result['sort_by'],
+                'result_sort_descending': query_result[
+                    'sort_descending'
+                ],
                 'matches': query_result['matches'],
             }
         except GemstoneError as error:
@@ -4232,6 +4416,7 @@ def register_tools(
         method_selector,
         parameter_keyword,
         show_instance_side=True,
+        rewrite_source_senders=False,
     ):
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
@@ -4257,11 +4442,16 @@ def register_tools(
                 show_instance_side,
                 'show_instance_side',
             )
+            rewrite_source_senders = validated_boolean_like(
+                rewrite_source_senders,
+                'rewrite_source_senders',
+            )
             preview = browser_session.method_remove_parameter_preview(
                 class_name,
                 show_instance_side,
                 method_selector,
                 parameter_keyword,
+                rewrite_source_senders=rewrite_source_senders,
             )
             return {
                 'ok': True,
@@ -4270,6 +4460,7 @@ def register_tools(
                 'show_instance_side': show_instance_side,
                 'method_selector': method_selector,
                 'parameter_keyword': parameter_keyword,
+                'rewrite_source_senders': rewrite_source_senders,
                 'preview': preview,
             }
         except GemstoneError as error:
@@ -4299,6 +4490,7 @@ def register_tools(
         parameter_keyword,
         show_instance_side=True,
         overwrite_new_method=False,
+        rewrite_source_senders=False,
     ):
         if not allow_compile:
             return disabled_tool_response(
@@ -4340,12 +4532,17 @@ def register_tools(
                 overwrite_new_method,
                 'overwrite_new_method',
             )
+            rewrite_source_senders = validated_boolean_like(
+                rewrite_source_senders,
+                'rewrite_source_senders',
+            )
             result = browser_session.apply_method_remove_parameter(
                 class_name,
                 show_instance_side,
                 method_selector,
                 parameter_keyword,
                 overwrite_new_method=overwrite_new_method,
+                rewrite_source_senders=rewrite_source_senders,
             )
             return {
                 'ok': True,
@@ -4355,6 +4552,7 @@ def register_tools(
                 'method_selector': method_selector,
                 'parameter_keyword': parameter_keyword,
                 'overwrite_new_method': overwrite_new_method,
+                'rewrite_source_senders': rewrite_source_senders,
                 'result': result,
             }
         except GemstoneError as error:
