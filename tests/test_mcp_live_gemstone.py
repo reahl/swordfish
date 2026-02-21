@@ -173,6 +173,9 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_method_structure_summary(self):
         return self.registered_mcp_tools['gs_method_structure_summary']
 
+    def new_gs_method_control_flow_summary(self):
+        return self.registered_mcp_tools['gs_method_control_flow_summary']
+
     def new_gs_find_classes(self):
         return self.registered_mcp_tools['gs_find_classes']
 
@@ -277,6 +280,18 @@ class LiveMcpConnectionFixture(Fixture):
 
     def new_gs_apply_remove_parameter(self):
         return self.registered_mcp_tools['gs_apply_remove_parameter']
+
+    def new_gs_preview_extract_method(self):
+        return self.registered_mcp_tools['gs_preview_extract_method']
+
+    def new_gs_apply_extract_method(self):
+        return self.registered_mcp_tools['gs_apply_extract_method']
+
+    def new_gs_preview_inline_method(self):
+        return self.registered_mcp_tools['gs_preview_inline_method']
+
+    def new_gs_apply_inline_method(self):
+        return self.registered_mcp_tools['gs_apply_inline_method']
 
     def new_gs_global_set(self):
         return self.registered_mcp_tools['gs_global_set']
@@ -1205,6 +1220,51 @@ def test_live_gs_method_structure_summary_reports_basic_structure_counts(
     assert summary['block_open_count'] == 1
     assert summary['block_close_count'] == 1
     assert summary['cascade_count'] == 1
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_method_control_flow_summary_reports_branch_and_loop_signals(
+    live_connection,
+):
+    """AI: Control-flow summary should expose selector-based branch/loop counts and block nesting depth."""
+    class_name = 'McpControlSummaryClass%s' % uuid.uuid4().hex[:8]
+    analyzed_selector = 'controlMethod%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_analyzed_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        (
+            '%s: flag\n'
+            '    | value |\n'
+            '    value := 0.\n'
+            '    flag\n'
+            '        ifTrue: [ value := value + 1 ]\n'
+            '        ifFalse: [ value := value + 2 ].\n'
+            '    [ value < 3 ] whileTrue: [ value := value + 1 ].\n'
+            '    ^value'
+        )
+        % analyzed_selector,
+    )
+    assert compile_analyzed_result['ok'], compile_analyzed_result
+    summary_result = live_connection.gs_method_control_flow_summary(
+        live_connection.connection_id,
+        class_name,
+        analyzed_selector + ':',
+        True,
+    )
+    assert summary_result['ok'], summary_result
+    summary = summary_result['summary']
+    assert summary['branch_selector_count'] >= 1
+    assert summary['loop_selector_count'] >= 1
+    assert summary['max_block_nesting_depth'] >= 1
+    assert summary['control_selector_counts']['ifTrue:ifFalse:'] >= 1
+    assert summary['control_selector_counts']['whileTrue:'] >= 1
 
 
 @with_fixtures(LiveMcpConnectionFixture)
@@ -2176,6 +2236,204 @@ def test_live_gs_apply_remove_parameter_keeps_old_selector_via_wrapper(
     )
     assert direct_eval_result['ok'], direct_eval_result
     assert direct_eval_result['output']['result']['python_value'] == 3
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_preview_extract_method_reports_selected_statements(
+    live_connection,
+):
+    class_name = 'McpExtractPreview%s' % uuid.uuid4().hex[:8]
+    method_selector = 'exampleMethod'
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        (
+            'exampleMethod\n'
+            '    self yourself.\n'
+            '    self class.\n'
+            '    ^7'
+        ),
+        True,
+    )
+    assert compile_result['ok'], compile_result
+    preview_result = live_connection.gs_preview_extract_method(
+        live_connection.connection_id,
+        class_name,
+        method_selector,
+        'extractedFirstStep',
+        [1],
+        True,
+    )
+    assert preview_result['ok'], preview_result
+    preview = preview_result['preview']
+    assert preview['method_selector'] == method_selector
+    assert preview['new_selector'] == 'extractedFirstStep'
+    assert preview['statement_indexes'] == [1]
+    assert preview['extracted_statement_count'] == 1
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_apply_extract_method_adds_new_method_and_updates_caller(
+    live_connection,
+):
+    class_name = 'McpExtractApply%s' % uuid.uuid4().hex[:8]
+    method_selector = 'exampleMethod'
+    new_selector = 'extractedFirstStep'
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        (
+            'exampleMethod\n'
+            '    self yourself.\n'
+            '    self class.\n'
+            '    ^7'
+        ),
+        True,
+    )
+    assert compile_result['ok'], compile_result
+    apply_result = live_connection.gs_apply_extract_method(
+        live_connection.connection_id,
+        class_name,
+        method_selector,
+        new_selector,
+        [1],
+        True,
+        False,
+    )
+    assert apply_result['ok'], apply_result
+    selectors_result = live_connection.gs_list_methods(
+        live_connection.connection_id,
+        class_name,
+        'all',
+        True,
+    )
+    assert selectors_result['ok'], selectors_result
+    assert method_selector in selectors_result['selectors']
+    assert new_selector in selectors_result['selectors']
+    source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        class_name,
+        method_selector,
+        True,
+    )
+    assert source_result['ok'], source_result
+    assert 'self extractedFirstStep' in source_result['source']
+    eval_result = live_connection.gs_eval(
+        live_connection.connection_id,
+        '%s new %s' % (class_name, method_selector),
+        unsafe=True,
+        reason='verify-extract-method',
+    )
+    assert eval_result['ok'], eval_result
+    assert eval_result['output']['result']['python_value'] == 7
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_preview_inline_method_reports_replacement_count(
+    live_connection,
+):
+    class_name = 'McpInlinePreview%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    inline_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'inlineValue ^1 + 2',
+        True,
+    )
+    assert inline_compile_result['ok'], inline_compile_result
+    caller_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'caller ^self inlineValue + 4',
+        True,
+    )
+    assert caller_compile_result['ok'], caller_compile_result
+    preview_result = live_connection.gs_preview_inline_method(
+        live_connection.connection_id,
+        class_name,
+        'caller',
+        'inlineValue',
+        True,
+    )
+    assert preview_result['ok'], preview_result
+    preview = preview_result['preview']
+    assert preview['caller_selector'] == 'caller'
+    assert preview['inline_selector'] == 'inlineValue'
+    assert preview['replacement_count'] == 1
+    assert preview['inline_expression'] == '1 + 2'
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_apply_inline_method_updates_caller_source(
+    live_connection,
+):
+    class_name = 'McpInlineApply%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    inline_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'inlineValue ^1 + 2',
+        True,
+    )
+    assert inline_compile_result['ok'], inline_compile_result
+    caller_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'caller ^self inlineValue + 4',
+        True,
+    )
+    assert caller_compile_result['ok'], caller_compile_result
+    apply_result = live_connection.gs_apply_inline_method(
+        live_connection.connection_id,
+        class_name,
+        'caller',
+        'inlineValue',
+        True,
+        False,
+    )
+    assert apply_result['ok'], apply_result
+    source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        class_name,
+        'caller',
+        True,
+    )
+    assert source_result['ok'], source_result
+    assert '(1 + 2) + 4' in source_result['source']
+    eval_result = live_connection.gs_eval(
+        live_connection.connection_id,
+        '%s new caller' % class_name,
+        unsafe=True,
+        reason='verify-inline-method',
+    )
+    assert eval_result['ok'], eval_result
+    assert eval_result['output']['result']['python_value'] == 7
 
 
 @with_fixtures(LiveMcpConnectionFixture)

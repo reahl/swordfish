@@ -104,6 +104,19 @@ class GemstoneBrowserSession:
         )
         return self.source_method_structure_summary(source)
 
+    def method_control_flow_summary(
+        self,
+        class_name,
+        method_selector,
+        show_instance_side,
+    ):
+        source = self.get_method_source(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        return self.source_method_control_flow_summary(source)
+
     def method_ast(
         self,
         class_name,
@@ -274,6 +287,69 @@ class GemstoneBrowserSession:
             'explicit_self_send_count': explicit_self_send_count,
             'explicit_super_send_count': explicit_super_send_count,
             'analysis_limitations': method_sends['analysis_limitations'],
+        }
+
+    def source_method_control_flow_summary(self, source):
+        structure_summary = self.source_method_structure_summary(source)
+        method_sends = self.source_method_sends(source)
+        control_selector_counts = {
+            'ifTrue:': 0,
+            'ifFalse:': 0,
+            'ifTrue:ifFalse:': 0,
+            'ifNil:': 0,
+            'ifNotNil:': 0,
+            'whileTrue:': 0,
+            'whileFalse:': 0,
+            'to:do:': 0,
+        }
+        for send_entry in method_sends['sends']:
+            send_selector = send_entry['selector']
+            if send_selector in control_selector_counts:
+                control_selector_counts[send_selector] = (
+                    control_selector_counts[send_selector] + 1
+                )
+        body_start_offset = self.body_start_offset_for_method_source(source)
+        code_character_map = self.source_code_character_map(source)
+        block_nesting_depth = 0
+        max_block_nesting_depth = 0
+        index = body_start_offset
+        while index < len(source):
+            if code_character_map[index]:
+                if source[index] == '[':
+                    block_nesting_depth = block_nesting_depth + 1
+                    if block_nesting_depth > max_block_nesting_depth:
+                        max_block_nesting_depth = block_nesting_depth
+                if source[index] == ']' and block_nesting_depth > 0:
+                    block_nesting_depth = block_nesting_depth - 1
+            index = index + 1
+        branch_selector_count = (
+            control_selector_counts['ifTrue:']
+            + control_selector_counts['ifFalse:']
+            + control_selector_counts['ifTrue:ifFalse:']
+            + control_selector_counts['ifNil:']
+            + control_selector_counts['ifNotNil:']
+        )
+        loop_selector_count = (
+            control_selector_counts['whileTrue:']
+            + control_selector_counts['whileFalse:']
+            + control_selector_counts['to:do:']
+        )
+        return {
+            'control_selector_counts': control_selector_counts,
+            'branch_selector_count': branch_selector_count,
+            'loop_selector_count': loop_selector_count,
+            'max_block_nesting_depth': max_block_nesting_depth,
+            'statement_terminator_count': structure_summary[
+                'statement_terminator_count'
+            ],
+            'return_count': structure_summary['return_count'],
+            'analysis_limitations': [
+                (
+                    'Control-flow summary is heuristic and selector-based; '
+                    'dynamic dispatch and non-standard control abstractions '
+                    'are not resolved.'
+                ),
+            ],
         }
 
     def source_method_ast(self, source, method_selector=None):
@@ -1998,6 +2074,350 @@ class GemstoneBrowserSession:
             'warnings': warnings,
         }
 
+    def method_extract_preview(
+        self,
+        class_name,
+        show_instance_side,
+        method_selector,
+        new_selector,
+        statement_indexes,
+    ):
+        show_instance_side = self.validated_show_instance_side(
+            show_instance_side
+        )
+        extract_plan = self.method_extract_plan(
+            class_name,
+            show_instance_side,
+            method_selector,
+            new_selector,
+            statement_indexes,
+        )
+        return self.method_extract_summary(extract_plan)
+
+    def apply_method_extract(
+        self,
+        class_name,
+        show_instance_side,
+        method_selector,
+        new_selector,
+        statement_indexes,
+        overwrite_new_method=False,
+    ):
+        show_instance_side = self.validated_show_instance_side(
+            show_instance_side
+        )
+        overwrite_new_method = self.validated_boolean_flag(
+            overwrite_new_method,
+            'overwrite_new_method',
+        )
+        extract_plan = self.method_extract_plan(
+            class_name,
+            show_instance_side,
+            method_selector,
+            new_selector,
+            statement_indexes,
+        )
+        if extract_plan['new_selector_exists'] and not overwrite_new_method:
+            raise DomainException(
+                (
+                    '%s already exists on %s (%s side). '
+                    'Pass overwrite_new_method=true to replace it.'
+                )
+                % (
+                    new_selector,
+                    class_name,
+                    'instance' if show_instance_side else 'class',
+                )
+            )
+        self.compile_method(
+            class_name=class_name,
+            show_instance_side=show_instance_side,
+            source=extract_plan['new_method_source'],
+            method_category=extract_plan['method_category'],
+        )
+        self.compile_method(
+            class_name=class_name,
+            show_instance_side=show_instance_side,
+            source=extract_plan['updated_method_source'],
+            method_category=extract_plan['method_category'],
+        )
+        summary = self.method_extract_summary(extract_plan)
+        summary['applied'] = True
+        summary['overwrite_new_method'] = overwrite_new_method
+        return summary
+
+    def method_extract_plan(
+        self,
+        class_name,
+        show_instance_side,
+        method_selector,
+        new_selector,
+        statement_indexes,
+    ):
+        if ':' in new_selector:
+            raise DomainException('new_selector must be a unary selector.')
+        source_method_source = self.get_method_source(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        method_category = self.get_method_category(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        source_method_ast = self.source_method_ast(
+            source_method_source,
+            method_selector,
+        )
+        selected_statement_entries = self.selected_statement_entries(
+            source_method_ast['statements'],
+            statement_indexes,
+        )
+        selected_statement_indexes = [
+            statement_entry['statement_index']
+            for statement_entry in selected_statement_entries
+        ]
+        expected_statement_indexes = list(
+            range(
+                selected_statement_indexes[0],
+                selected_statement_indexes[0]
+                + len(selected_statement_indexes),
+            )
+        )
+        if selected_statement_indexes != expected_statement_indexes:
+            raise DomainException(
+                'statement_indexes must be contiguous.'
+            )
+        return_statement_entries = [
+            statement_entry
+            for statement_entry in selected_statement_entries
+            if statement_entry['statement_kind'] == 'return'
+        ]
+        if return_statement_entries:
+            raise DomainException(
+                'Extract cannot include return statements.'
+            )
+        extraction_start_offset = selected_statement_entries[0][
+            'start_offset'
+        ]
+        extraction_end_offset = selected_statement_entries[-1]['end_offset']
+        extracted_body = self.extracted_method_body_from_statement_entries(
+            selected_statement_entries
+        )
+        new_method_source = self.method_source_from_header_and_body(
+            new_selector,
+            extracted_body,
+        )
+        call_source = 'self %s' % new_selector
+        updated_method_source = self.source_with_single_replacement(
+            source_method_source,
+            extraction_start_offset,
+            extraction_end_offset,
+            call_source,
+        )
+        new_selector_exists = self.method_exists(
+            class_name,
+            new_selector,
+            show_instance_side,
+        )
+        return {
+            'class_name': class_name,
+            'show_instance_side': show_instance_side,
+            'method_selector': method_selector,
+            'new_selector': new_selector,
+            'statement_indexes': selected_statement_indexes,
+            'method_category': method_category,
+            'new_selector_exists': new_selector_exists,
+            'new_method_source': new_method_source,
+            'updated_method_source': updated_method_source,
+            'extracted_statement_count': len(selected_statement_entries),
+            'extracted_source_character_count': (
+                extraction_end_offset - extraction_start_offset
+            ),
+        }
+
+    def method_extract_summary(self, extract_plan):
+        warnings = []
+        if extract_plan['new_selector_exists']:
+            warnings.append(
+                (
+                    '%s already exists on %s (%s side) and will be replaced.'
+                )
+                % (
+                    extract_plan['new_selector'],
+                    extract_plan['class_name'],
+                    'instance'
+                    if extract_plan['show_instance_side']
+                    else 'class',
+                )
+            )
+        return {
+            'class_name': extract_plan['class_name'],
+            'show_instance_side': extract_plan['show_instance_side'],
+            'method_selector': extract_plan['method_selector'],
+            'new_selector': extract_plan['new_selector'],
+            'statement_indexes': extract_plan['statement_indexes'],
+            'method_category': extract_plan['method_category'],
+            'new_selector_exists': extract_plan['new_selector_exists'],
+            'extracted_statement_count': extract_plan[
+                'extracted_statement_count'
+            ],
+            'extracted_source_character_count': extract_plan[
+                'extracted_source_character_count'
+            ],
+            'warnings': warnings,
+        }
+
+    def method_inline_preview(
+        self,
+        class_name,
+        show_instance_side,
+        caller_selector,
+        inline_selector,
+    ):
+        show_instance_side = self.validated_show_instance_side(
+            show_instance_side
+        )
+        inline_plan = self.method_inline_plan(
+            class_name,
+            show_instance_side,
+            caller_selector,
+            inline_selector,
+        )
+        return self.method_inline_summary(inline_plan)
+
+    def apply_method_inline(
+        self,
+        class_name,
+        show_instance_side,
+        caller_selector,
+        inline_selector,
+        delete_inlined_method=False,
+    ):
+        show_instance_side = self.validated_show_instance_side(
+            show_instance_side
+        )
+        delete_inlined_method = self.validated_boolean_flag(
+            delete_inlined_method,
+            'delete_inlined_method',
+        )
+        inline_plan = self.method_inline_plan(
+            class_name,
+            show_instance_side,
+            caller_selector,
+            inline_selector,
+        )
+        self.compile_method(
+            class_name=class_name,
+            show_instance_side=show_instance_side,
+            source=inline_plan['updated_caller_source'],
+            method_category=inline_plan['caller_method_category'],
+        )
+        if delete_inlined_method:
+            self.delete_method(
+                class_name=class_name,
+                method_selector=inline_selector,
+                show_instance_side=show_instance_side,
+            )
+        summary = self.method_inline_summary(inline_plan)
+        summary['applied'] = True
+        summary['delete_inlined_method'] = delete_inlined_method
+        return summary
+
+    def method_inline_plan(
+        self,
+        class_name,
+        show_instance_side,
+        caller_selector,
+        inline_selector,
+    ):
+        if ':' in inline_selector:
+            raise DomainException('inline_selector must be a unary selector.')
+        inline_method_source = self.get_method_source(
+            class_name,
+            inline_selector,
+            show_instance_side,
+        )
+        inline_expression = self.method_inline_expression_from_callee(
+            inline_method_source,
+            inline_selector,
+        )
+        caller_method_source = self.get_method_source(
+            class_name,
+            caller_selector,
+            show_instance_side,
+        )
+        caller_method_category = self.get_method_category(
+            class_name,
+            caller_selector,
+            show_instance_side,
+        )
+        replacement_plan = self.self_unary_send_replacement_plan_in_source(
+            caller_method_source,
+            inline_selector,
+            '(%s)' % inline_expression,
+        )
+        if not replacement_plan:
+            raise DomainException(
+                (
+                    'Could not find self %s sends in %s for inline.'
+                )
+                % (
+                    inline_selector,
+                    caller_selector,
+                )
+            )
+        updated_caller_source = self.source_with_replaced_selector_tokens(
+            caller_method_source,
+            replacement_plan,
+        )
+        inline_sender_summaries = self.selector_occurrence_summaries(
+            inline_selector,
+            'senders',
+        )
+        return {
+            'class_name': class_name,
+            'show_instance_side': show_instance_side,
+            'caller_selector': caller_selector,
+            'inline_selector': inline_selector,
+            'caller_method_category': caller_method_category,
+            'inline_expression': inline_expression,
+            'updated_caller_source': updated_caller_source,
+            'replacement_count': len(replacement_plan),
+            'total_sender_count': len(inline_sender_summaries),
+            'sender_examples': self.limited_entries(
+                inline_sender_summaries,
+                20,
+            ),
+        }
+
+    def method_inline_summary(self, inline_plan):
+        warnings = []
+        if inline_plan['total_sender_count'] > inline_plan['replacement_count']:
+            warnings.append(
+                (
+                    '%s static senders exist for %s; only %s sends in caller '
+                    'will be inlined by this workflow.'
+                )
+                % (
+                    inline_plan['total_sender_count'],
+                    inline_plan['inline_selector'],
+                    inline_plan['replacement_count'],
+                )
+            )
+        return {
+            'class_name': inline_plan['class_name'],
+            'show_instance_side': inline_plan['show_instance_side'],
+            'caller_selector': inline_plan['caller_selector'],
+            'inline_selector': inline_plan['inline_selector'],
+            'inline_expression': inline_plan['inline_expression'],
+            'replacement_count': inline_plan['replacement_count'],
+            'total_sender_count': inline_plan['total_sender_count'],
+            'sender_examples': inline_plan['sender_examples'],
+            'warnings': warnings,
+        }
+
     def method_header_and_body(self, method_source):
         header_separator_offset = method_source.find('\n')
         if header_separator_offset == -1:
@@ -2122,6 +2542,170 @@ class GemstoneBrowserSession:
             % re.escape(argument_name)
         )
         return argument_pattern.search(method_body) is not None
+
+    def source_with_single_replacement(
+        self,
+        source,
+        replacement_start_offset,
+        replacement_end_offset,
+        replacement_source,
+    ):
+        replacement_plan = [
+            (
+                replacement_start_offset,
+                replacement_end_offset,
+                replacement_source,
+            )
+        ]
+        return self.source_with_replaced_selector_tokens(
+            source,
+            replacement_plan,
+        )
+
+    def selected_statement_entries(
+        self,
+        statement_entries,
+        statement_indexes,
+    ):
+        normalized_indexes = self.sorted_unique_positive_indexes(
+            statement_indexes
+        )
+        statement_entries_by_index = {
+            statement_entry['statement_index']: statement_entry
+            for statement_entry in statement_entries
+        }
+        selected_entries = []
+        for statement_index in normalized_indexes:
+            if statement_index not in statement_entries_by_index:
+                raise DomainException(
+                    'statement_indexes includes invalid index %s.'
+                    % statement_index
+                )
+            selected_entries.append(
+                statement_entries_by_index[statement_index]
+            )
+        return selected_entries
+
+    def extracted_method_body_from_statement_entries(
+        self,
+        statement_entries,
+    ):
+        statement_sources = [
+            statement_entry['source'].strip()
+            for statement_entry in statement_entries
+        ]
+        return '    ' + '.\n    '.join(statement_sources)
+
+    def sorted_unique_positive_indexes(self, input_indexes):
+        if not isinstance(input_indexes, list) or not input_indexes:
+            raise DomainException(
+                'statement_indexes must be a non-empty list of integers.'
+            )
+        normalized_indexes = []
+        for index_value in input_indexes:
+            if not isinstance(index_value, int) or index_value <= 0:
+                raise DomainException(
+                    'statement_indexes must contain positive integers only.'
+                )
+            if index_value not in normalized_indexes:
+                normalized_indexes.append(index_value)
+        return sorted(normalized_indexes)
+
+    def method_inline_expression_from_callee(
+        self,
+        inline_method_source,
+        inline_selector,
+    ):
+        inline_method_ast = self.source_method_ast(
+            inline_method_source,
+            inline_selector,
+        )
+        if inline_method_ast['temporaries']:
+            raise DomainException(
+                (
+                    '%s declares temporaries and cannot be inlined '
+                    'with this workflow.'
+                )
+                % inline_selector
+            )
+        has_single_line_fallback = inline_method_ast['statement_count'] == 0
+        if has_single_line_fallback:
+            inline_header, _ = self.method_header_and_body(
+                inline_method_source
+            )
+            if inline_header.startswith(inline_selector):
+                inline_expression = inline_header[
+                    len(inline_selector):
+                ].strip()
+                if inline_expression.startswith('^'):
+                    inline_expression = inline_expression[1:].strip()
+                if inline_expression:
+                    return inline_expression
+        if inline_method_ast['statement_count'] != 1:
+            raise DomainException(
+                (
+                    '%s must have exactly one statement for inline '
+                    'with this workflow.'
+                )
+                % inline_selector
+            )
+        statement_entry = inline_method_ast['statements'][0]
+        if statement_entry['statement_kind'] == 'assignment':
+            raise DomainException(
+                (
+                    '%s has an assignment statement and cannot be inlined '
+                    'with this workflow.'
+                )
+                % inline_selector
+            )
+        inline_expression = statement_entry['source'].strip()
+        if inline_expression.startswith('^'):
+            inline_expression = inline_expression[1:].strip()
+        if not inline_expression:
+            raise DomainException(
+                '%s does not have an inlineable expression.'
+                % inline_selector
+            )
+        return inline_expression
+
+    def self_unary_send_replacement_plan_in_source(
+        self,
+        source,
+        unary_selector,
+        replacement_source,
+    ):
+        code_character_map = self.source_code_character_map(source)
+        body_start_offset = self.body_start_offset_for_method_source(source)
+        search_start_offset = (
+            0
+            if body_start_offset >= len(source)
+            else body_start_offset
+        )
+        pattern = re.compile(
+            r'\bself\s+%s\b' % re.escape(unary_selector)
+        )
+        replacement_plan = []
+        for match in pattern.finditer(source, search_start_offset):
+            match_start = match.start(0)
+            match_end = match.end(0)
+            has_keyword_suffix = (
+                match_end < len(source)
+                and source[match_end] == ':'
+            )
+            token_is_code = self.token_range_is_code(
+                code_character_map,
+                match_start,
+                match_end,
+            )
+            if token_is_code and not has_keyword_suffix:
+                replacement_plan.append(
+                    (
+                        match_start,
+                        match_end,
+                        replacement_source,
+                    )
+                )
+        return replacement_plan
 
     def method_exists(self, class_name, method_selector, show_instance_side):
         class_to_query = self.class_to_query(class_name, show_instance_side)
@@ -3156,6 +3740,19 @@ def method_structure_summary(
     show_instance_side,
 ):
     return GemstoneBrowserSession(gemstone_session).method_structure_summary(
+        class_name,
+        method_selector,
+        show_instance_side,
+    )
+
+
+def method_control_flow_summary(
+    gemstone_session,
+    class_name,
+    method_selector,
+    show_instance_side,
+):
+    return GemstoneBrowserSession(gemstone_session).method_control_flow_summary(
         class_name,
         method_selector,
         show_instance_side,

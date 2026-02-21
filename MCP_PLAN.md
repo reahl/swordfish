@@ -110,6 +110,7 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - `gs_method_ast`
 - `gs_method_sends`
 - `gs_method_structure_summary`
+- `gs_method_control_flow_summary`
 - `gs_preview_rename_method`
 - `gs_apply_rename_method`
 - `gs_preview_move_method`
@@ -118,6 +119,10 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - `gs_apply_add_parameter`
 - `gs_preview_remove_parameter`
 - `gs_apply_remove_parameter`
+- `gs_preview_extract_method`
+- `gs_apply_extract_method`
+- `gs_preview_inline_method`
+- `gs_apply_inline_method`
 
 ## MCP Tool Set (Planned Semantic + Refactoring Additions)
 
@@ -240,9 +245,12 @@ Common refactoring tools:
 - delivered first class-scoped method move pair: `gs_preview_move_method` / `gs_apply_move_method`.
 - delivered first class-scoped add-parameter pair: `gs_preview_add_parameter` / `gs_apply_add_parameter` (compatibility-wrapper strategy).
 - delivered first class-scoped remove-parameter pair: `gs_preview_remove_parameter` / `gs_apply_remove_parameter` (compatibility-wrapper strategy when removed argument is unused).
+- delivered first class-scoped extract-method pair: `gs_preview_extract_method` / `gs_apply_extract_method` (statement-range extraction with same-class call replacement).
+- delivered first class-scoped inline-method pair: `gs_preview_inline_method` / `gs_apply_inline_method` (conservative unary `self`-send inline in one caller method).
+- added `gs_method_control_flow_summary` for selector-based branch/loop signals and block-nesting heuristics.
 
 ## Next Implementation Step
 
 Phase 5 semantic analysis kickoff:
-1. Expand to extract/inline workflows.
-2. Add remove-parameter caller rewrites as an optional follow-up mode.
+1. Add remove-parameter caller rewrites as an optional follow-up mode.
+2. Add richer AST query tools (`gs_query_methods_by_ast_pattern`).
