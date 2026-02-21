@@ -176,6 +176,9 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_method_control_flow_summary(self):
         return self.registered_mcp_tools['gs_method_control_flow_summary']
 
+    def new_gs_query_methods_by_ast_pattern(self):
+        return self.registered_mcp_tools['gs_query_methods_by_ast_pattern']
+
     def new_gs_find_classes(self):
         return self.registered_mcp_tools['gs_find_classes']
 
@@ -1265,6 +1268,96 @@ def test_live_gs_method_control_flow_summary_reports_branch_and_loop_signals(
     assert summary['max_block_nesting_depth'] >= 1
     assert summary['control_selector_counts']['ifTrue:ifFalse:'] >= 1
     assert summary['control_selector_counts']['whileTrue:'] >= 1
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_query_methods_by_ast_pattern_filters_by_required_selector(
+    live_connection,
+):
+    """AI: AST-pattern query should find methods that send a required selector within a class scope."""
+    class_name = 'McpQueryPatternClass%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_default_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'default ^5',
+    )
+    assert compile_default_result['ok'], compile_default_result
+    compile_sender_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'usesDefault ^self default + 1',
+    )
+    assert compile_sender_result['ok'], compile_sender_result
+    compile_no_sender_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'noSend ^42',
+    )
+    assert compile_no_sender_result['ok'], compile_no_sender_result
+    query_result = live_connection.gs_query_methods_by_ast_pattern(
+        live_connection.connection_id,
+        {'required_selectors': ['default'], 'min_send_count': 1},
+        class_name=class_name,
+        show_instance_side=True,
+        max_results=10,
+    )
+    assert query_result['ok'], query_result
+    matched_selectors = [
+        match['method_selector']
+        for match in query_result['matches']
+    ]
+    assert 'usesDefault' in matched_selectors
+    assert 'noSend' not in matched_selectors
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_query_methods_by_ast_pattern_filters_by_branch_count(
+    live_connection,
+):
+    """AI: AST-pattern query should use control-flow predicates for branch-heavy methods."""
+    class_name = 'McpQueryBranchClass%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_branch_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        (
+            'branchMethod: flag\n'
+            '    flag ifTrue: [ ^1 ] ifFalse: [ ^2 ]'
+        ),
+    )
+    assert compile_branch_result['ok'], compile_branch_result
+    compile_simple_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'simpleMethod ^99',
+    )
+    assert compile_simple_result['ok'], compile_simple_result
+    query_result = live_connection.gs_query_methods_by_ast_pattern(
+        live_connection.connection_id,
+        {'min_branch_selector_count': 1},
+        class_name=class_name,
+        show_instance_side=True,
+    )
+    assert query_result['ok'], query_result
+    matched_selectors = [
+        match['method_selector']
+        for match in query_result['matches']
+    ]
+    assert 'branchMethod:' in matched_selectors
+    assert 'simpleMethod' not in matched_selectors
 
 
 @with_fixtures(LiveMcpConnectionFixture)

@@ -117,6 +117,81 @@ class GemstoneBrowserSession:
         )
         return self.source_method_control_flow_summary(source)
 
+    def query_methods_by_ast_pattern(
+        self,
+        ast_pattern,
+        package_name=None,
+        class_name=None,
+        show_instance_side=True,
+        method_category='all',
+        max_results=None,
+    ):
+        show_instance_side = self.validated_show_instance_side(
+            show_instance_side
+        )
+        class_names = self.query_scope_class_names(
+            package_name,
+            class_name,
+        )
+        matches = []
+        scanned_method_count = 0
+        for scoped_class_name in class_names:
+            selector_names = self.selector_names_for_scope(
+                scoped_class_name,
+                show_instance_side,
+                method_category,
+            )
+            for selector_name in selector_names:
+                scanned_method_count = scanned_method_count + 1
+                method_source = self.get_method_source(
+                    scoped_class_name,
+                    selector_name,
+                    show_instance_side,
+                )
+                pattern_evaluation = self.pattern_evaluation_for_method(
+                    method_source,
+                    selector_name,
+                    ast_pattern,
+                )
+                if pattern_evaluation['matches']:
+                    matches.append(
+                        {
+                            'class_name': scoped_class_name,
+                            'show_instance_side': show_instance_side,
+                            'method_selector': selector_name,
+                            'method_category': self.get_method_category(
+                                scoped_class_name,
+                                selector_name,
+                                show_instance_side,
+                            ),
+                            'send_count': pattern_evaluation[
+                                'structure_summary'
+                            ]['send_count'],
+                            'statement_count': pattern_evaluation[
+                                'statement_count'
+                            ],
+                            'temporary_count': pattern_evaluation[
+                                'temporary_count'
+                            ],
+                        }
+                    )
+                    if (
+                        max_results is not None
+                        and len(matches) >= max_results
+                    ):
+                        return {
+                            'matches': matches,
+                            'match_count': len(matches),
+                            'scanned_method_count': scanned_method_count,
+                            'truncated': True,
+                        }
+        return {
+            'matches': matches,
+            'match_count': len(matches),
+            'scanned_method_count': scanned_method_count,
+            'truncated': False,
+        }
+
     def method_ast(
         self,
         class_name,
@@ -134,6 +209,8 @@ class GemstoneBrowserSession:
         code_character_map = self.source_code_character_map(source)
         line_column_map = self.source_line_column_map(source)
         body_start_offset = self.body_start_offset_for_method_source(source)
+        if body_start_offset >= len(source):
+            body_start_offset = 0
         _, statements_start_offset = self.source_temporaries_after_body_start(
             source,
             code_character_map,
@@ -207,6 +284,8 @@ class GemstoneBrowserSession:
     def source_method_structure_summary(self, source):
         code_character_map = self.source_code_character_map(source)
         body_start_offset = self.body_start_offset_for_method_source(source)
+        if body_start_offset >= len(source):
+            body_start_offset = 0
         body_source = source[body_start_offset:]
         method_sends = self.source_method_sends(source)
         block_open_count = 0
@@ -351,6 +430,175 @@ class GemstoneBrowserSession:
                 ),
             ],
         }
+
+    def query_scope_class_names(self, package_name, class_name):
+        if class_name is not None:
+            return [class_name]
+        if package_name is not None:
+            return sorted(self.list_classes(package_name))
+        return sorted(self.all_class_names())
+
+    def selector_names_for_scope(
+        self,
+        class_name,
+        show_instance_side,
+        method_category,
+    ):
+        class_to_query = self.class_to_query(class_name, show_instance_side)
+        if method_category == 'all':
+            return self.sorted_selectors(class_to_query)
+        selectors = class_to_query.selectorsIn(method_category).asSortedCollection()
+        return [selector.to_py for selector in selectors]
+
+    def pattern_evaluation_for_method(
+        self,
+        method_source,
+        method_selector,
+        ast_pattern,
+    ):
+        structure_summary = self.source_method_structure_summary(
+            method_source
+        )
+        sends_payload = self.source_method_sends(method_source)
+        send_selector_names = [
+            send_entry['selector']
+            for send_entry in sends_payload['sends']
+        ]
+        statement_count = None
+        temporary_count = None
+        statement_count_requested = (
+            'min_statement_count' in ast_pattern
+            or 'max_statement_count' in ast_pattern
+        )
+        temporary_count_requested = (
+            'min_temporary_count' in ast_pattern
+            or 'max_temporary_count' in ast_pattern
+        )
+        if statement_count_requested or temporary_count_requested:
+            method_ast = self.source_method_ast(
+                method_source,
+                method_selector,
+            )
+            statement_count = method_ast['statement_count']
+            temporary_count = len(method_ast['temporaries'])
+        control_flow_summary = None
+        control_flow_requested = (
+            'min_branch_selector_count' in ast_pattern
+            or 'max_branch_selector_count' in ast_pattern
+            or 'min_loop_selector_count' in ast_pattern
+            or 'max_loop_selector_count' in ast_pattern
+            or 'min_max_block_nesting_depth' in ast_pattern
+            or 'max_max_block_nesting_depth' in ast_pattern
+        )
+        if control_flow_requested:
+            control_flow_summary = self.source_method_control_flow_summary(
+                method_source
+            )
+        matches = self.method_matches_ast_pattern(
+            ast_pattern,
+            structure_summary,
+            send_selector_names,
+            statement_count,
+            temporary_count,
+            control_flow_summary,
+        )
+        return {
+            'matches': matches,
+            'structure_summary': structure_summary,
+            'statement_count': statement_count,
+            'temporary_count': temporary_count,
+        }
+
+    def method_matches_ast_pattern(
+        self,
+        ast_pattern,
+        structure_summary,
+        send_selector_names,
+        statement_count,
+        temporary_count,
+        control_flow_summary,
+    ):
+        range_checks = [
+            (
+                'min_send_count',
+                'max_send_count',
+                structure_summary['send_count'],
+            ),
+            (
+                'min_keyword_send_count',
+                'max_keyword_send_count',
+                structure_summary['keyword_send_count'],
+            ),
+            (
+                'min_unary_send_count',
+                'max_unary_send_count',
+                structure_summary['unary_send_count'],
+            ),
+            (
+                'min_binary_send_count',
+                'max_binary_send_count',
+                structure_summary['binary_send_count'],
+            ),
+            (
+                'min_block_count',
+                'max_block_count',
+                structure_summary['block_open_count'],
+            ),
+            (
+                'min_return_count',
+                'max_return_count',
+                structure_summary['return_count'],
+            ),
+            (
+                'min_cascade_count',
+                'max_cascade_count',
+                structure_summary['cascade_count'],
+            ),
+            (
+                'min_statement_count',
+                'max_statement_count',
+                statement_count,
+            ),
+            (
+                'min_temporary_count',
+                'max_temporary_count',
+                temporary_count,
+            ),
+        ]
+        if control_flow_summary is not None:
+            range_checks = range_checks + [
+                (
+                    'min_branch_selector_count',
+                    'max_branch_selector_count',
+                    control_flow_summary['branch_selector_count'],
+                ),
+                (
+                    'min_loop_selector_count',
+                    'max_loop_selector_count',
+                    control_flow_summary['loop_selector_count'],
+                ),
+                (
+                    'min_max_block_nesting_depth',
+                    'max_max_block_nesting_depth',
+                    control_flow_summary['max_block_nesting_depth'],
+                ),
+            ]
+        for min_key, max_key, value in range_checks:
+            if min_key in ast_pattern and value is not None:
+                if value < ast_pattern[min_key]:
+                    return False
+            if max_key in ast_pattern and value is not None:
+                if value > ast_pattern[max_key]:
+                    return False
+        required_selectors = ast_pattern.get('required_selectors', [])
+        for required_selector in required_selectors:
+            if required_selector not in send_selector_names:
+                return False
+        excluded_selectors = ast_pattern.get('excluded_selectors', [])
+        for excluded_selector in excluded_selectors:
+            if excluded_selector in send_selector_names:
+                return False
+        return True
 
     def source_method_ast(self, source, method_selector=None):
         code_character_map = self.source_code_character_map(source)
@@ -3756,6 +4004,25 @@ def method_control_flow_summary(
         class_name,
         method_selector,
         show_instance_side,
+    )
+
+
+def query_methods_by_ast_pattern(
+    gemstone_session,
+    ast_pattern,
+    package_name,
+    class_name,
+    show_instance_side,
+    method_category,
+    max_results,
+):
+    return GemstoneBrowserSession(gemstone_session).query_methods_by_ast_pattern(
+        ast_pattern,
+        package_name=package_name,
+        class_name=class_name,
+        show_instance_side=show_instance_side,
+        method_category=method_category,
+        max_results=max_results,
     )
 
 

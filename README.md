@@ -124,6 +124,8 @@ For method-level semantic navigation, use `gs_method_ast`,
 `gs_method_sends`, `gs_method_structure_summary`, and
 `gs_method_control_flow_summary` to inspect statement structure, send sites,
 structural counts, and control-flow signals.
+For pattern-based method discovery across a scope, use
+`gs_query_methods_by_ast_pattern`.
 For class-scoped method renames, use `gs_preview_rename_method` and
 `gs_apply_rename_method` instead of a global selector rename.
 For class-scoped method moves, use `gs_preview_move_method` before
@@ -173,6 +175,7 @@ The server identifies itself as `SwordfishMCP` and currently supports:
 - `gs_method_sends`
 - `gs_method_structure_summary`
 - `gs_method_control_flow_summary`
+- `gs_query_methods_by_ast_pattern`
 - `gs_preview_rename_method`
 - `gs_apply_rename_method`
 - `gs_preview_move_method`
