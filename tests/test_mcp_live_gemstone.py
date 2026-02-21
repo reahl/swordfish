@@ -164,6 +164,15 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_get_method_source(self):
         return self.registered_mcp_tools['gs_get_method_source']
 
+    def new_gs_method_sends(self):
+        return self.registered_mcp_tools['gs_method_sends']
+
+    def new_gs_method_ast(self):
+        return self.registered_mcp_tools['gs_method_ast']
+
+    def new_gs_method_structure_summary(self):
+        return self.registered_mcp_tools['gs_method_structure_summary']
+
     def new_gs_find_classes(self):
         return self.registered_mcp_tools['gs_find_classes']
 
@@ -1007,6 +1016,167 @@ def test_live_gs_find_implementors_and_senders_support_limits_and_counts(
     assert count_only_senders_result['ok'], count_only_senders_result
     assert count_only_senders_result['returned_count'] == 0
     assert count_only_senders_result['senders'] == []
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_method_sends_reports_keyword_and_explicit_unary_sends(
+    live_connection,
+):
+    """AI: Method send analysis should report both keyword sends and explicit self unary sends."""
+    class_name = 'McpMethodSendsClass%s' % uuid.uuid4().hex[:8]
+    analyzed_selector = 'analyzeMethod%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_default_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'default ^41',
+    )
+    assert compile_default_result['ok'], compile_default_result
+    compile_keyword_target_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'oldSelector: value with: other ^value + other',
+    )
+    assert compile_keyword_target_result['ok'], compile_keyword_target_result
+    compile_analyzed_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        (
+            '%s\n'
+            '    | value |\n'
+            '    value := self default.\n'
+            '    self oldSelector: value with: 1.\n'
+            '    ^value'
+        )
+        % analyzed_selector,
+    )
+    assert compile_analyzed_result['ok'], compile_analyzed_result
+    sends_result = live_connection.gs_method_sends(
+        live_connection.connection_id,
+        class_name,
+        analyzed_selector,
+        True,
+    )
+    assert sends_result['ok'], sends_result
+    assert sends_result['total_count'] >= 2
+    selectors = [send_entry['selector'] for send_entry in sends_result['sends']]
+    assert 'oldSelector:with:' in selectors
+    assert 'default' in selectors
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_method_structure_summary_reports_basic_structure_counts(
+    live_connection,
+):
+    """AI: Method structure summary should expose assignment, send, and block/cascade counts for navigation heuristics."""
+    class_name = 'McpMethodSummaryClass%s' % uuid.uuid4().hex[:8]
+    analyzed_selector = 'summarizeMethod%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_default_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'default ^5',
+    )
+    assert compile_default_result['ok'], compile_default_result
+    compile_analyzed_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        (
+            '%s\n'
+            '    | value |\n'
+            '    value := self default.\n'
+            '    value > 0 ifTrue: [ value := value + 1 ].\n'
+            '    ^self\n'
+            '        yourself;\n'
+            '        default'
+        )
+        % analyzed_selector,
+    )
+    assert compile_analyzed_result['ok'], compile_analyzed_result
+    summary_result = live_connection.gs_method_structure_summary(
+        live_connection.connection_id,
+        class_name,
+        analyzed_selector,
+        True,
+    )
+    assert summary_result['ok'], summary_result
+    summary = summary_result['summary']
+    assert summary['assignment_count'] >= 1
+    assert summary['send_count'] >= 2
+    assert summary['keyword_send_count'] >= 1
+    assert summary['unary_send_count'] >= 1
+    assert summary['block_open_count'] == 1
+    assert summary['block_close_count'] == 1
+    assert summary['cascade_count'] == 1
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_method_ast_reports_temporaries_statements_and_sends(
+    live_connection,
+):
+    """AI: Method AST should expose temporaries, statement nodes, and detected sends for AI navigation."""
+    class_name = 'McpMethodAstClass%s' % uuid.uuid4().hex[:8]
+    analyzed_selector = 'astMethod%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_default_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'default ^10',
+    )
+    assert compile_default_result['ok'], compile_default_result
+    compile_analyzed_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        (
+            '%s\n'
+            '    | value total |\n'
+            '    value := self default.\n'
+            '    total := value + 1.\n'
+            '    ^total'
+        )
+        % analyzed_selector,
+    )
+    assert compile_analyzed_result['ok'], compile_analyzed_result
+    ast_result = live_connection.gs_method_ast(
+        live_connection.connection_id,
+        class_name,
+        analyzed_selector,
+        True,
+    )
+    assert ast_result['ok'], ast_result
+    ast_payload = ast_result['ast']
+    assert ast_payload['schema_version'] == 1
+    assert ast_payload['node_type'] == 'method'
+    assert ast_payload['selector'] == analyzed_selector
+    assert ast_payload['temporaries'] == ['value', 'total']
+    assert ast_payload['statement_count'] == len(ast_payload['statements'])
+    assert ast_payload['statement_count'] >= 3
+    statement_kinds = [
+        statement['statement_kind']
+        for statement in ast_payload['statements']
+    ]
+    assert 'assignment' in statement_kinds
+    assert 'return' in statement_kinds
+    selectors = [send_entry['selector'] for send_entry in ast_payload['sends']]
+    assert 'default' in selectors
 
 
 @with_fixtures(LiveMcpConnectionFixture)

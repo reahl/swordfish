@@ -8,6 +8,9 @@ from reahl.swordfish.gemstone.browser import list_classes
 from reahl.swordfish.gemstone.browser import list_method_categories
 from reahl.swordfish.gemstone.browser import list_methods
 from reahl.swordfish.gemstone.browser import list_packages
+from reahl.swordfish.gemstone.browser import method_sends
+from reahl.swordfish.gemstone.browser import method_ast
+from reahl.swordfish.gemstone.browser import method_structure_summary
 from reahl.swordfish.gemstone.debugging import GemstoneCallStack
 from reahl.swordfish.gemstone.debugging import GemstoneDebugActionOutcome
 from reahl.swordfish.gemstone.debugging import GemstoneDebugSession
@@ -47,5 +50,8 @@ __all__ = [
     'list_method_categories',
     'list_methods',
     'list_packages',
+    'method_ast',
+    'method_sends',
+    'method_structure_summary',
     'session_summary',
 ]

@@ -268,7 +268,12 @@ def register_tools(
                 {
                     'step': 3,
                     'action': 'Inspect source for shortlisted methods.',
-                    'tools': ['gs_get_method_source'],
+                    'tools': [
+                        'gs_get_method_source',
+                        'gs_method_ast',
+                        'gs_method_sends',
+                        'gs_method_structure_summary',
+                    ],
                 },
             ]
         if intent == 'sender_analysis':
@@ -1511,6 +1516,9 @@ def register_tools(
                     'gs_find_implementors',
                     'gs_find_senders',
                     'gs_get_method_source',
+                    'gs_method_ast',
+                    'gs_method_sends',
+                    'gs_method_structure_summary',
                 ],
                 'safe_write': [
                     'gs_begin',
@@ -1764,6 +1772,173 @@ def register_tools(
                 'ok': False,
                 'connection_id': connection_id,
                 'error': gemstone_error_payload(error),
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_method_sends(
+        connection_id,
+        class_name,
+        method_selector,
+        show_instance_side=True,
+    ):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            class_name = validated_identifier(class_name, 'class_name')
+            method_selector = validated_non_empty_string(
+                method_selector,
+                'method_selector',
+            )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
+            started_at = time.perf_counter()
+            sends_result = browser_session.method_sends(
+                class_name,
+                method_selector,
+                show_instance_side,
+            )
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'method_selector': method_selector,
+                'show_instance_side': show_instance_side,
+                'total_count': sends_result['total_count'],
+                'elapsed_ms': elapsed_ms,
+                'sends': sends_result['sends'],
+                'analysis_limitations': sends_result['analysis_limitations'],
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_method_ast(
+        connection_id,
+        class_name,
+        method_selector,
+        show_instance_side=True,
+    ):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            class_name = validated_identifier(class_name, 'class_name')
+            method_selector = validated_non_empty_string(
+                method_selector,
+                'method_selector',
+            )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
+            started_at = time.perf_counter()
+            method_ast = browser_session.method_ast(
+                class_name,
+                method_selector,
+                show_instance_side,
+            )
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'method_selector': method_selector,
+                'show_instance_side': show_instance_side,
+                'elapsed_ms': elapsed_ms,
+                'ast': method_ast,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_method_structure_summary(
+        connection_id,
+        class_name,
+        method_selector,
+        show_instance_side=True,
+    ):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            class_name = validated_identifier(class_name, 'class_name')
+            method_selector = validated_non_empty_string(
+                method_selector,
+                'method_selector',
+            )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
+            started_at = time.perf_counter()
+            summary = browser_session.method_structure_summary(
+                class_name,
+                method_selector,
+                show_instance_side,
+            )
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'method_selector': method_selector,
+                'show_instance_side': show_instance_side,
+                'elapsed_ms': elapsed_ms,
+                'summary': summary,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
             }
         except DomainException as error:
             return {

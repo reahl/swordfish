@@ -92,6 +92,15 @@ class RestrictedToolsFixture(Fixture):
     def new_gs_find_senders(self):
         return self.registered_mcp_tools['gs_find_senders']
 
+    def new_gs_method_sends(self):
+        return self.registered_mcp_tools['gs_method_sends']
+
+    def new_gs_method_ast(self):
+        return self.registered_mcp_tools['gs_method_ast']
+
+    def new_gs_method_structure_summary(self):
+        return self.registered_mcp_tools['gs_method_structure_summary']
+
     def new_gs_tracer_status(self):
         return self.registered_mcp_tools['gs_tracer_status']
 
@@ -210,6 +219,15 @@ class AllowedToolsFixture(Fixture):
     def new_gs_find_senders(self):
         return self.registered_mcp_tools['gs_find_senders']
 
+    def new_gs_method_sends(self):
+        return self.registered_mcp_tools['gs_method_sends']
+
+    def new_gs_method_ast(self):
+        return self.registered_mcp_tools['gs_method_ast']
+
+    def new_gs_method_structure_summary(self):
+        return self.registered_mcp_tools['gs_method_structure_summary']
+
     def new_gs_tracer_status(self):
         return self.registered_mcp_tools['gs_tracer_status']
 
@@ -293,6 +311,15 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
 
     def new_gs_find_senders(self):
         return self.registered_mcp_tools['gs_find_senders']
+
+    def new_gs_method_sends(self):
+        return self.registered_mcp_tools['gs_method_sends']
+
+    def new_gs_method_ast(self):
+        return self.registered_mcp_tools['gs_method_ast']
+
+    def new_gs_method_structure_summary(self):
+        return self.registered_mcp_tools['gs_method_structure_summary']
 
     def new_gs_tracer_install(self):
         return self.registered_mcp_tools['gs_tracer_install']
@@ -447,6 +474,18 @@ def test_gs_capabilities_reports_enabled_policy_flags(tools_fixture):
 
 
 @with_fixtures(AllowedToolsFixture)
+def test_gs_capabilities_navigation_includes_method_semantic_tools(
+    tools_fixture,
+):
+    capabilities_result = tools_fixture.gs_capabilities()
+    assert capabilities_result['ok'], capabilities_result
+    navigation_tools = capabilities_result['tool_groups']['navigation']
+    assert 'gs_method_ast' in navigation_tools
+    assert 'gs_method_sends' in navigation_tools
+    assert 'gs_method_structure_summary' in navigation_tools
+
+
+@with_fixtures(AllowedToolsFixture)
 def test_gs_guidance_validates_intent(tools_fixture):
     guidance_result = tools_fixture.gs_guidance('unknown_intent')
     assert not guidance_result['ok']
@@ -469,6 +508,14 @@ def test_gs_guidance_sender_analysis_recommends_evidence_workflow(
     assert workflow[0]['tools'] == ['gs_find_senders']
     assert workflow[1]['tools'] == ['gs_plan_evidence_tests']
     assert workflow[2]['tools'] == ['gs_collect_sender_evidence']
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_guidance_navigation_recommends_method_ast(tools_fixture):
+    guidance_result = tools_fixture.gs_guidance('navigation')
+    assert guidance_result['ok'], guidance_result
+    workflow = guidance_result['guidance']['workflow']
+    assert 'gs_method_ast' in workflow[2]['tools']
 
 
 @with_fixtures(RestrictedToolsFixture)
@@ -938,6 +985,39 @@ def test_gs_find_senders_checks_connection(tools_fixture):
 
 
 @with_fixtures(AllowedToolsFixture)
+def test_gs_method_sends_checks_connection(tools_fixture):
+    sends_result = tools_fixture.gs_method_sends(
+        'missing-connection-id',
+        'ExampleClass',
+        'exampleMethod',
+    )
+    assert not sends_result['ok']
+    assert sends_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_method_structure_summary_checks_connection(tools_fixture):
+    summary_result = tools_fixture.gs_method_structure_summary(
+        'missing-connection-id',
+        'ExampleClass',
+        'exampleMethod',
+    )
+    assert not summary_result['ok']
+    assert summary_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_method_ast_checks_connection(tools_fixture):
+    ast_result = tools_fixture.gs_method_ast(
+        'missing-connection-id',
+        'ExampleClass',
+        'exampleMethod',
+    )
+    assert not ast_result['ok']
+    assert ast_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
 def test_gs_tracer_status_checks_connection(tools_fixture):
     tracer_status_result = tools_fixture.gs_tracer_status(
         'missing-connection-id'
@@ -1163,6 +1243,52 @@ def test_gs_compile_method_validates_show_instance_side_flag(tools_fixture):
     )
     assert not compile_result['ok']
     assert compile_result['error']['message'] == (
+        'show_instance_side must be a boolean.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_method_sends_validates_show_instance_side_flag(tools_fixture):
+    sends_result = tools_fixture.gs_method_sends(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'exampleMethod',
+        'neither',
+    )
+    assert not sends_result['ok']
+    assert sends_result['error']['message'] == (
+        'show_instance_side must be a boolean.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_method_structure_summary_validates_show_instance_side_flag(
+    tools_fixture,
+):
+    summary_result = tools_fixture.gs_method_structure_summary(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'exampleMethod',
+        'neither',
+    )
+    assert not summary_result['ok']
+    assert summary_result['error']['message'] == (
+        'show_instance_side must be a boolean.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_method_ast_validates_show_instance_side_flag(
+    tools_fixture,
+):
+    ast_result = tools_fixture.gs_method_ast(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'exampleMethod',
+        'neither',
+    )
+    assert not ast_result['ok']
+    assert ast_result['error']['message'] == (
         'show_instance_side must be a boolean.'
     )
 
