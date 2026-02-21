@@ -178,7 +178,7 @@ Common refactoring tools:
 - Phase 2: completed
 - Phase 3: completed for targeted selector rename + debugger operations
 - Phase 4: completed
-- Phase 5: in progress (semantic + refactoring suite in progress)
+- Phase 5: completed
 
 ## Testing Approach
 
@@ -250,9 +250,12 @@ Common refactoring tools:
 - delivered first class-scoped inline-method pair: `gs_preview_inline_method` / `gs_apply_inline_method` (conservative unary `self`-send inline in one caller method).
 - added `gs_method_control_flow_summary` for selector-based branch/loop signals and block-nesting heuristics.
 - added `gs_query_methods_by_ast_pattern` for scope-constrained structural method search using semantic predicates.
+- added optional same-class caller rewrites for remove-parameter workflows (`rewrite_source_senders` on preview/apply) to reduce reliance on compatibility wrappers.
+- expanded AST-pattern vocabulary (assignment/terminator/self/super/body-line metrics, selector-regex, send-type and receiver-hint predicates) and added explicit result ranking controls (`sort_by`, `sort_descending`).
 
 ## Next Implementation Step
 
-Phase 5 semantic analysis kickoff:
-1. Add remove-parameter caller rewrites as an optional follow-up mode.
-2. Expand AST-pattern matcher vocabulary and add result ranking controls.
+Phase 5 completion checkpoint:
+1. Semantic navigation and structural query surfaces are in place.
+2. Common class-scoped refactor previews/applies are in place.
+3. Runtime evidence tools remain optional and policy-gated (`--allow-tracing`).

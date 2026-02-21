@@ -1880,6 +1880,41 @@ def test_gs_query_methods_by_ast_pattern_validates_pattern_and_filters(
     assert query_result['error']['message'] == (
         'max_results cannot be negative.'
     )
+    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
+        tools_fixture.connection_id,
+        {'min_send_count': 1},
+        sort_by='not_supported',
+    )
+    assert not query_result['ok']
+    assert query_result['error']['message'].startswith(
+        'sort_by must be one of:'
+    )
+    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
+        tools_fixture.connection_id,
+        {'min_send_count': 1},
+        sort_descending='neither',
+    )
+    assert not query_result['ok']
+    assert query_result['error']['message'] == (
+        'sort_descending must be a boolean.'
+    )
+    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
+        tools_fixture.connection_id,
+        {'required_send_types': ['ternary']},
+    )
+    assert not query_result['ok']
+    assert query_result['error']['message'] == (
+        'ast_pattern.required_send_types entries must be one of: '
+        'binary, keyword, unary.'
+    )
+    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
+        tools_fixture.connection_id,
+        {'method_selector_regex': '['},
+    )
+    assert not query_result['ok']
+    assert query_result['error']['message'].startswith(
+        'ast_pattern.method_selector_regex is not valid regex:'
+    )
 
 
 @with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
@@ -2047,6 +2082,18 @@ def test_gs_preview_remove_parameter_validates_keyword_and_side(
     assert preview_result['error']['message'] == (
         'show_instance_side must be a boolean.'
     )
+    preview_result = tools_fixture.gs_preview_remove_parameter(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'oldSelector:with:timeout:',
+        'timeout:',
+        True,
+        'neither',
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == (
+        'rewrite_source_senders must be a boolean.'
+    )
 
 
 @with_fixtures(AllowedToolsWithActiveTransactionFixture)
@@ -2062,6 +2109,19 @@ def test_gs_apply_remove_parameter_validates_boolean_flags(tools_fixture):
     assert not remove_result['ok']
     assert remove_result['error']['message'] == (
         'overwrite_new_method must be a boolean.'
+    )
+    remove_result = tools_fixture.gs_apply_remove_parameter(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'oldSelector:with:timeout:',
+        'timeout:',
+        True,
+        False,
+        'neither',
+    )
+    assert not remove_result['ok']
+    assert remove_result['error']['message'] == (
+        'rewrite_source_senders must be a boolean.'
     )
 
 

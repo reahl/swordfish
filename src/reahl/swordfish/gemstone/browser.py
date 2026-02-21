@@ -125,9 +125,16 @@ class GemstoneBrowserSession:
         show_instance_side=True,
         method_category='all',
         max_results=None,
+        sort_by='scan_order',
+        sort_descending=False,
     ):
         show_instance_side = self.validated_show_instance_side(
             show_instance_side
+        )
+        sort_by = self.validated_ast_query_sort_by(sort_by)
+        sort_descending = self.validated_boolean_flag(
+            sort_descending,
+            'sort_descending',
         )
         class_names = self.query_scope_class_names(
             package_name,
@@ -152,8 +159,15 @@ class GemstoneBrowserSession:
                     method_source,
                     selector_name,
                     ast_pattern,
+                    sort_by,
                 )
                 if pattern_evaluation['matches']:
+                    structure_summary = pattern_evaluation[
+                        'structure_summary'
+                    ]
+                    control_flow_summary = pattern_evaluation[
+                        'control_flow_summary'
+                    ]
                     matches.append(
                         {
                             'class_name': scoped_class_name,
@@ -164,18 +178,70 @@ class GemstoneBrowserSession:
                                 selector_name,
                                 show_instance_side,
                             ),
-                            'send_count': pattern_evaluation[
-                                'structure_summary'
-                            ]['send_count'],
+                            'send_count': structure_summary['send_count'],
+                            'keyword_send_count': structure_summary[
+                                'keyword_send_count'
+                            ],
+                            'unary_send_count': structure_summary[
+                                'unary_send_count'
+                            ],
+                            'binary_send_count': structure_summary[
+                                'binary_send_count'
+                            ],
+                            'block_count': structure_summary[
+                                'block_open_count'
+                            ],
+                            'return_count': structure_summary[
+                                'return_count'
+                            ],
+                            'cascade_count': structure_summary[
+                                'cascade_count'
+                            ],
+                            'assignment_count': structure_summary[
+                                'assignment_count'
+                            ],
+                            'statement_terminator_count': structure_summary[
+                                'statement_terminator_count'
+                            ],
+                            'explicit_self_send_count': structure_summary[
+                                'explicit_self_send_count'
+                            ],
+                            'explicit_super_send_count': structure_summary[
+                                'explicit_super_send_count'
+                            ],
+                            'body_line_count': structure_summary[
+                                'body_line_count'
+                            ],
                             'statement_count': pattern_evaluation[
                                 'statement_count'
                             ],
                             'temporary_count': pattern_evaluation[
                                 'temporary_count'
                             ],
+                            'branch_selector_count': (
+                                control_flow_summary[
+                                    'branch_selector_count'
+                                ]
+                                if control_flow_summary is not None
+                                else 0
+                            ),
+                            'loop_selector_count': (
+                                control_flow_summary['loop_selector_count']
+                                if control_flow_summary is not None
+                                else 0
+                            ),
+                            'max_block_nesting_depth': (
+                                control_flow_summary[
+                                    'max_block_nesting_depth'
+                                ]
+                                if control_flow_summary is not None
+                                else 0
+                            ),
                         }
                     )
                     if (
+                        sort_by == 'scan_order'
+                        and
                         max_results is not None
                         and len(matches) >= max_results
                     ):
@@ -184,13 +250,74 @@ class GemstoneBrowserSession:
                             'match_count': len(matches),
                             'scanned_method_count': scanned_method_count,
                             'truncated': True,
+                            'sort_by': sort_by,
+                            'sort_descending': sort_descending,
                         }
+        if sort_by != 'scan_order':
+            matches = sorted(
+                matches,
+                key=lambda entry: self.ast_query_sort_key(entry, sort_by),
+                reverse=sort_descending,
+            )
+        truncated = (
+            max_results is not None
+            and len(matches) > max_results
+        )
+        if max_results is not None:
+            matches = matches[:max_results]
         return {
             'matches': matches,
             'match_count': len(matches),
             'scanned_method_count': scanned_method_count,
-            'truncated': False,
+            'truncated': truncated,
+            'sort_by': sort_by,
+            'sort_descending': sort_descending,
         }
+
+    def supported_ast_query_sort_fields(self):
+        return [
+            'scan_order',
+            'class_name',
+            'method_selector',
+            'send_count',
+            'keyword_send_count',
+            'unary_send_count',
+            'binary_send_count',
+            'block_count',
+            'return_count',
+            'cascade_count',
+            'assignment_count',
+            'statement_terminator_count',
+            'explicit_self_send_count',
+            'explicit_super_send_count',
+            'body_line_count',
+            'statement_count',
+            'temporary_count',
+            'branch_selector_count',
+            'loop_selector_count',
+            'max_block_nesting_depth',
+        ]
+
+    def validated_ast_query_sort_by(self, sort_by):
+        if not isinstance(sort_by, str) or not sort_by:
+            raise DomainException('sort_by must be a non-empty string.')
+        supported_fields = self.supported_ast_query_sort_fields()
+        if sort_by not in supported_fields:
+            raise DomainException(
+                (
+                    'sort_by must be one of: %s.'
+                )
+                % ', '.join(supported_fields)
+            )
+        return sort_by
+
+    def ast_query_sort_key(self, match_entry, sort_by):
+        if sort_by == 'scan_order':
+            return 0
+        value = match_entry.get(sort_by)
+        if value is None:
+            return -1
+        return value
 
     def method_ast(
         self,
@@ -455,6 +582,7 @@ class GemstoneBrowserSession:
         method_source,
         method_selector,
         ast_pattern,
+        sort_by='scan_order',
     ):
         structure_summary = self.source_method_structure_summary(
             method_source
@@ -464,15 +592,29 @@ class GemstoneBrowserSession:
             send_entry['selector']
             for send_entry in sends_payload['sends']
         ]
+        send_type_names = sorted(
+            {
+                send_entry['send_type']
+                for send_entry in sends_payload['sends']
+            }
+        )
+        receiver_hint_names = sorted(
+            {
+                send_entry['receiver_hint']
+                for send_entry in sends_payload['sends']
+            }
+        )
         statement_count = None
         temporary_count = None
         statement_count_requested = (
             'min_statement_count' in ast_pattern
             or 'max_statement_count' in ast_pattern
+            or sort_by == 'statement_count'
         )
         temporary_count_requested = (
             'min_temporary_count' in ast_pattern
             or 'max_temporary_count' in ast_pattern
+            or sort_by == 'temporary_count'
         )
         if statement_count_requested or temporary_count_requested:
             method_ast = self.source_method_ast(
@@ -481,6 +623,9 @@ class GemstoneBrowserSession:
             )
             statement_count = method_ast['statement_count']
             temporary_count = len(method_ast['temporaries'])
+        else:
+            statement_count = structure_summary['statement_terminator_count']
+            temporary_count = 0
         control_flow_summary = None
         control_flow_requested = (
             'min_branch_selector_count' in ast_pattern
@@ -489,6 +634,11 @@ class GemstoneBrowserSession:
             or 'max_loop_selector_count' in ast_pattern
             or 'min_max_block_nesting_depth' in ast_pattern
             or 'max_max_block_nesting_depth' in ast_pattern
+            or sort_by in (
+                'branch_selector_count',
+                'loop_selector_count',
+                'max_block_nesting_depth',
+            )
         )
         if control_flow_requested:
             control_flow_summary = self.source_method_control_flow_summary(
@@ -496,8 +646,11 @@ class GemstoneBrowserSession:
             )
         matches = self.method_matches_ast_pattern(
             ast_pattern,
+            method_selector,
             structure_summary,
             send_selector_names,
+            send_type_names,
+            receiver_hint_names,
             statement_count,
             temporary_count,
             control_flow_summary,
@@ -507,13 +660,17 @@ class GemstoneBrowserSession:
             'structure_summary': structure_summary,
             'statement_count': statement_count,
             'temporary_count': temporary_count,
+            'control_flow_summary': control_flow_summary,
         }
 
     def method_matches_ast_pattern(
         self,
         ast_pattern,
+        method_selector,
         structure_summary,
         send_selector_names,
+        send_type_names,
+        receiver_hint_names,
         statement_count,
         temporary_count,
         control_flow_summary,
@@ -555,6 +712,31 @@ class GemstoneBrowserSession:
                 structure_summary['cascade_count'],
             ),
             (
+                'min_assignment_count',
+                'max_assignment_count',
+                structure_summary['assignment_count'],
+            ),
+            (
+                'min_statement_terminator_count',
+                'max_statement_terminator_count',
+                structure_summary['statement_terminator_count'],
+            ),
+            (
+                'min_explicit_self_send_count',
+                'max_explicit_self_send_count',
+                structure_summary['explicit_self_send_count'],
+            ),
+            (
+                'min_explicit_super_send_count',
+                'max_explicit_super_send_count',
+                structure_summary['explicit_super_send_count'],
+            ),
+            (
+                'min_body_line_count',
+                'max_body_line_count',
+                structure_summary['body_line_count'],
+            ),
+            (
                 'min_statement_count',
                 'max_statement_count',
                 statement_count,
@@ -594,9 +776,41 @@ class GemstoneBrowserSession:
         for required_selector in required_selectors:
             if required_selector not in send_selector_names:
                 return False
+        any_required_selectors = ast_pattern.get('any_required_selectors', [])
+        if any_required_selectors and not any(
+            selector_name in send_selector_names
+            for selector_name in any_required_selectors
+        ):
+            return False
         excluded_selectors = ast_pattern.get('excluded_selectors', [])
         for excluded_selector in excluded_selectors:
             if excluded_selector in send_selector_names:
+                return False
+        required_send_types = ast_pattern.get('required_send_types', [])
+        for required_send_type in required_send_types:
+            if required_send_type not in send_type_names:
+                return False
+        excluded_send_types = ast_pattern.get('excluded_send_types', [])
+        for excluded_send_type in excluded_send_types:
+            if excluded_send_type in send_type_names:
+                return False
+        required_receiver_hints = ast_pattern.get(
+            'required_receiver_hints',
+            [],
+        )
+        for required_receiver_hint in required_receiver_hints:
+            if required_receiver_hint not in receiver_hint_names:
+                return False
+        excluded_receiver_hints = ast_pattern.get(
+            'excluded_receiver_hints',
+            [],
+        )
+        for excluded_receiver_hint in excluded_receiver_hints:
+            if excluded_receiver_hint in receiver_hint_names:
+                return False
+        method_selector_regex = ast_pattern.get('method_selector_regex')
+        if method_selector_regex is not None:
+            if re.search(method_selector_regex, method_selector) is None:
                 return False
         return True
 
@@ -2074,15 +2288,21 @@ class GemstoneBrowserSession:
         show_instance_side,
         method_selector,
         parameter_keyword,
+        rewrite_source_senders=False,
     ):
         show_instance_side = self.validated_show_instance_side(
             show_instance_side
+        )
+        rewrite_source_senders = self.validated_boolean_flag(
+            rewrite_source_senders,
+            'rewrite_source_senders',
         )
         remove_parameter_plan = self.method_remove_parameter_plan(
             class_name,
             show_instance_side,
             method_selector,
             parameter_keyword,
+            rewrite_source_senders=rewrite_source_senders,
         )
         return self.method_remove_parameter_summary(remove_parameter_plan)
 
@@ -2093,6 +2313,7 @@ class GemstoneBrowserSession:
         method_selector,
         parameter_keyword,
         overwrite_new_method=False,
+        rewrite_source_senders=False,
     ):
         show_instance_side = self.validated_show_instance_side(
             show_instance_side
@@ -2101,11 +2322,16 @@ class GemstoneBrowserSession:
             overwrite_new_method,
             'overwrite_new_method',
         )
+        rewrite_source_senders = self.validated_boolean_flag(
+            rewrite_source_senders,
+            'rewrite_source_senders',
+        )
         remove_parameter_plan = self.method_remove_parameter_plan(
             class_name,
             show_instance_side,
             method_selector,
             parameter_keyword,
+            rewrite_source_senders=rewrite_source_senders,
         )
         if (
             remove_parameter_plan['new_selector_exists']
@@ -2134,9 +2360,23 @@ class GemstoneBrowserSession:
             source=remove_parameter_plan['compatibility_wrapper_source'],
             method_category=remove_parameter_plan['method_category'],
         )
+        if rewrite_source_senders:
+            for caller_rewrite_plan in remove_parameter_plan[
+                'source_sender_rewrite_plans'
+            ]:
+                self.compile_method(
+                    class_name=class_name,
+                    show_instance_side=show_instance_side,
+                    source=caller_rewrite_plan['updated_source'],
+                    method_category=caller_rewrite_plan['method_category'],
+                )
         summary = self.method_remove_parameter_summary(remove_parameter_plan)
         summary['applied'] = True
         summary['overwrite_new_method'] = overwrite_new_method
+        summary['rewrite_source_senders'] = rewrite_source_senders
+        summary['rewritten_source_sender_count'] = len(
+            remove_parameter_plan['source_sender_rewrite_plans']
+        )
         return summary
 
     def method_remove_parameter_plan(
@@ -2145,7 +2385,12 @@ class GemstoneBrowserSession:
         show_instance_side,
         method_selector,
         parameter_keyword,
+        rewrite_source_senders=False,
     ):
+        rewrite_source_senders = self.validated_boolean_flag(
+            rewrite_source_senders,
+            'rewrite_source_senders',
+        )
         selector_tokens = self.selector_keyword_tokens(method_selector)
         if not selector_tokens:
             raise DomainException(
@@ -2252,6 +2497,19 @@ class GemstoneBrowserSession:
                 and sender_summary['show_instance_side'] == show_instance_side
             )
         ]
+        source_sender_rewrite_plans = []
+        if rewrite_source_senders:
+            source_sender_rewrite_plans = (
+                self.method_remove_parameter_caller_rewrite_plans(
+                    class_name,
+                    show_instance_side,
+                    source_sender_summaries,
+                    method_selector,
+                    selector_tokens,
+                    parameter_index,
+                    new_selector,
+                )
+            )
         return {
             'class_name': class_name,
             'show_instance_side': show_instance_side,
@@ -2266,6 +2524,25 @@ class GemstoneBrowserSession:
             'compatibility_wrapper_source': compatibility_wrapper_source,
             'total_sender_count': len(sender_summaries),
             'source_sender_count': len(source_sender_summaries),
+            'rewrite_source_senders': rewrite_source_senders,
+            'source_sender_rewrite_plan_count': len(
+                source_sender_rewrite_plans
+            ),
+            'source_sender_rewrite_plans': source_sender_rewrite_plans,
+            'source_sender_rewrite_examples': self.limited_entries(
+                [
+                    {
+                        'method_selector': caller_rewrite_plan[
+                            'method_selector'
+                        ],
+                        'rewritten_send_count': caller_rewrite_plan[
+                            'rewritten_send_count'
+                        ],
+                    }
+                    for caller_rewrite_plan in source_sender_rewrite_plans
+                ],
+                20,
+            ),
             'sender_examples': self.limited_entries(sender_summaries, 20),
         }
 
@@ -2284,14 +2561,34 @@ class GemstoneBrowserSession:
                     else 'class',
                 )
             )
-        if remove_parameter_plan['total_sender_count'] > 0:
+        rewritten_source_sender_count = remove_parameter_plan[
+            'source_sender_rewrite_plan_count'
+        ]
+        remaining_sender_count = (
+            remove_parameter_plan['total_sender_count']
+            - rewritten_source_sender_count
+        )
+        if (
+            remove_parameter_plan['rewrite_source_senders']
+            and rewritten_source_sender_count > 0
+        ):
+            warnings.append(
+                (
+                    '%s same-class sender methods will be rewritten to %s.'
+                )
+                % (
+                    rewritten_source_sender_count,
+                    remove_parameter_plan['new_selector'],
+                )
+            )
+        if remaining_sender_count > 0:
             warnings.append(
                 (
                     '%s static senders still target %s and will route '
                     'through the compatibility wrapper.'
                 )
                 % (
-                    remove_parameter_plan['total_sender_count'],
+                    remaining_sender_count,
                     remove_parameter_plan['old_selector'],
                 )
             )
@@ -2318,9 +2615,161 @@ class GemstoneBrowserSession:
             'source_sender_count': remove_parameter_plan[
                 'source_sender_count'
             ],
+            'rewrite_source_senders': remove_parameter_plan[
+                'rewrite_source_senders'
+            ],
+            'source_sender_rewrite_plan_count': remove_parameter_plan[
+                'source_sender_rewrite_plan_count'
+            ],
+            'source_sender_rewrite_examples': remove_parameter_plan[
+                'source_sender_rewrite_examples'
+            ],
             'sender_examples': remove_parameter_plan['sender_examples'],
             'warnings': warnings,
         }
+
+    def method_remove_parameter_caller_rewrite_plans(
+        self,
+        class_name,
+        show_instance_side,
+        source_sender_summaries,
+        old_selector,
+        old_selector_tokens,
+        parameter_index,
+        new_selector,
+    ):
+        rewrite_plans = []
+        seen_selectors = set()
+        for sender_summary in source_sender_summaries:
+            method_selector = sender_summary['method_selector']
+            if method_selector == old_selector:
+                continue
+            if method_selector in seen_selectors:
+                continue
+            seen_selectors.add(method_selector)
+            caller_source = self.get_method_source(
+                class_name,
+                method_selector,
+                show_instance_side,
+            )
+            replacement_plan = (
+                self.remove_keyword_send_parameter_replacement_plan_in_source(
+                    caller_source,
+                    old_selector_tokens,
+                    parameter_index,
+                )
+            )
+            if not replacement_plan:
+                continue
+            updated_source = self.source_with_replaced_selector_tokens(
+                caller_source,
+                replacement_plan,
+            )
+            if updated_source == caller_source:
+                continue
+            rewrite_plans.append(
+                {
+                    'class_name': class_name,
+                    'show_instance_side': show_instance_side,
+                    'method_selector': method_selector,
+                    'method_category': self.get_method_category(
+                        class_name,
+                        method_selector,
+                        show_instance_side,
+                    ),
+                    'new_selector': new_selector,
+                    'rewritten_send_count': len(replacement_plan),
+                    'updated_source': updated_source,
+                }
+            )
+        return sorted(
+            rewrite_plans,
+            key=lambda rewrite_plan: rewrite_plan['method_selector'],
+        )
+
+    def remove_keyword_send_parameter_replacement_plan_in_source(
+        self,
+        source,
+        selector_tokens,
+        parameter_index,
+    ):
+        code_character_map = self.source_code_character_map(source)
+        token_ranges_by_send = self.selector_token_ranges_in_source(
+            source,
+            selector_tokens,
+        )
+        replacement_plan = []
+        for token_ranges in token_ranges_by_send:
+            if parameter_index >= len(token_ranges):
+                continue
+            removed_token_start = token_ranges[parameter_index][0]
+            if parameter_index + 1 < len(token_ranges):
+                removed_token_end = token_ranges[parameter_index + 1][0]
+            else:
+                removed_token_end = self.keyword_argument_end_offset_in_source(
+                    source,
+                    code_character_map,
+                    token_ranges[parameter_index][1],
+                )
+            if removed_token_end > removed_token_start:
+                replacement_plan.append(
+                    (
+                        removed_token_start,
+                        removed_token_end,
+                        '',
+                    )
+                )
+        return sorted(
+            replacement_plan,
+            key=lambda replacement: replacement[0],
+        )
+
+    def keyword_argument_end_offset_in_source(
+        self,
+        source,
+        code_character_map,
+        argument_start_offset,
+    ):
+        cursor = argument_start_offset
+        while cursor < len(source) and source[cursor].isspace():
+            cursor = cursor + 1
+        index = cursor
+        parenthesis_depth = 0
+        bracket_depth = 0
+        brace_depth = 0
+        while index < len(source):
+            if code_character_map[index]:
+                character = source[index]
+                if character == '(':
+                    parenthesis_depth = parenthesis_depth + 1
+                elif character == ')':
+                    if parenthesis_depth > 0:
+                        parenthesis_depth = parenthesis_depth - 1
+                    else:
+                        return index
+                elif character == '[':
+                    bracket_depth = bracket_depth + 1
+                elif character == ']':
+                    if bracket_depth > 0:
+                        bracket_depth = bracket_depth - 1
+                    else:
+                        return index
+                elif character == '{':
+                    brace_depth = brace_depth + 1
+                elif character == '}':
+                    if brace_depth > 0:
+                        brace_depth = brace_depth - 1
+                    else:
+                        return index
+                at_argument_level = (
+                    parenthesis_depth == 0
+                    and bracket_depth == 0
+                    and brace_depth == 0
+                )
+                if at_argument_level and character in '.;':
+                    return index
+            index = index + 1
+        return len(source)
 
     def method_extract_preview(
         self,
@@ -4015,6 +4464,8 @@ def query_methods_by_ast_pattern(
     show_instance_side,
     method_category,
     max_results,
+    sort_by='scan_order',
+    sort_descending=False,
 ):
     return GemstoneBrowserSession(gemstone_session).query_methods_by_ast_pattern(
         ast_pattern,
@@ -4023,6 +4474,8 @@ def query_methods_by_ast_pattern(
         show_instance_side=show_instance_side,
         method_category=method_category,
         max_results=max_results,
+        sort_by=sort_by,
+        sort_descending=sort_descending,
     )
 
 

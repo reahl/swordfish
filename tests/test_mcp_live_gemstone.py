@@ -1361,6 +1361,66 @@ def test_live_gs_query_methods_by_ast_pattern_filters_by_branch_count(
 
 
 @with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_query_methods_by_ast_pattern_sorts_and_uses_extended_predicates(
+    live_connection,
+):
+    """AI: AST-pattern query should support extended predicates and ranked result ordering."""
+    class_name = 'McpQuerySortClass%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_first_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        (
+            'alphaMethod\n'
+            '    self yourself.\n'
+            '    self class.\n'
+            '    ^self'
+        ),
+    )
+    assert compile_first_result['ok'], compile_first_result
+    compile_second_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        (
+            'betaMethod\n'
+            '    | value |\n'
+            '    value := self yourself.\n'
+            '    value class.\n'
+            '    ^value'
+        ),
+    )
+    assert compile_second_result['ok'], compile_second_result
+    query_result = live_connection.gs_query_methods_by_ast_pattern(
+        live_connection.connection_id,
+        {
+            'required_send_types': ['unary'],
+            'required_receiver_hints': ['self'],
+            'method_selector_regex': 'Method$',
+            'min_assignment_count': 1,
+        },
+        class_name=class_name,
+        show_instance_side=True,
+        sort_by='statement_count',
+        sort_descending=True,
+    )
+    assert query_result['ok'], query_result
+    assert query_result['result_sort_by'] == 'statement_count'
+    assert query_result['result_sort_descending']
+    matched_selectors = [
+        match['method_selector']
+        for match in query_result['matches']
+    ]
+    assert matched_selectors[0] == 'betaMethod'
+    assert 'alphaMethod' not in matched_selectors
+
+
+@with_fixtures(LiveMcpConnectionFixture)
 def test_live_gs_method_ast_reports_temporaries_statements_and_sends(
     live_connection,
 ):
@@ -2329,6 +2389,68 @@ def test_live_gs_apply_remove_parameter_keeps_old_selector_via_wrapper(
     )
     assert direct_eval_result['ok'], direct_eval_result
     assert direct_eval_result['output']['result']['python_value'] == 3
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_apply_remove_parameter_can_rewrite_source_senders(
+    live_connection,
+):
+    """AI: Remove-parameter apply should optionally rewrite same-class callers to the new selector."""
+    class_name = 'McpRemoveParamRewrite%s' % uuid.uuid4().hex[:8]
+    sender_selector = 'callsOldSelector%s' % uuid.uuid4().hex[:8]
+    method_selector = 'oldSelector:with:timeout:'
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_implementor_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'oldSelector: a with: b timeout: c ^a + b',
+        True,
+    )
+    assert compile_implementor_result['ok'], compile_implementor_result
+    compile_sender_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s ^self oldSelector: 1 with: 2 timeout: 99' % sender_selector,
+        True,
+    )
+    assert compile_sender_result['ok'], compile_sender_result
+    apply_result = live_connection.gs_apply_remove_parameter(
+        live_connection.connection_id,
+        class_name,
+        method_selector,
+        'timeout:',
+        True,
+        False,
+        True,
+    )
+    assert apply_result['ok'], apply_result
+    result_summary = apply_result['result']
+    assert result_summary['rewrite_source_senders']
+    assert result_summary['source_sender_rewrite_plan_count'] >= 1
+    rewritten_source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        class_name,
+        sender_selector,
+        True,
+    )
+    assert rewritten_source_result['ok'], rewritten_source_result
+    rewritten_source = rewritten_source_result['source']
+    assert 'oldSelector: 1 with: 2 timeout: 99' not in rewritten_source
+    assert 'oldSelector: 1 with: 2' in rewritten_source
+    sender_eval_result = live_connection.gs_eval(
+        live_connection.connection_id,
+        '%s new %s' % (class_name, sender_selector),
+        unsafe=True,
+        reason='verify-remove-parameter-rewrite',
+    )
+    assert sender_eval_result['ok'], sender_eval_result
+    assert sender_eval_result['output']['result']['python_value'] == 3
 
 
 @with_fixtures(LiveMcpConnectionFixture)
