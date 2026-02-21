@@ -188,6 +188,201 @@ def register_tools(
                 return False
         raise DomainException('%s must be a boolean.' % argument_name)
 
+    def policy_flags():
+        return {
+            'allow_eval': allow_eval,
+            'allow_compile': allow_compile,
+            'allow_commit': allow_commit,
+            'allow_tracing': allow_tracing,
+            'eval_requires_unsafe': True,
+            'writes_require_active_transaction': True,
+        }
+
+    def guidance_intents():
+        return [
+            'general',
+            'navigation',
+            'sender_analysis',
+            'refactor',
+            'runtime_evidence',
+        ]
+
+    def guidance_for_intent(intent, selector):
+        selector_is_common_hotspot = selector in {
+            'ifTrue:',
+            'ifFalse:',
+            'ifTrue:ifFalse:',
+            'value',
+            'default',
+            'yourself',
+        }
+        decision_rules = [
+            {
+                'when': 'You can use an explicit gs_* tool.',
+                'prefer_tools': ['gs_* explicit tool'],
+                'avoid_tools': ['gs_eval'],
+                'reason': (
+                    'Explicit tools are safer, easier to validate, '
+                    'and less likely to produce ambiguous failures.'
+                ),
+            },
+            {
+                'when': 'You are changing code.',
+                'prefer_tools': ['gs_begin', 'write tool', 'gs_commit or gs_abort'],
+                'avoid_tools': ['implicit transaction assumptions'],
+                'reason': 'Write operations require explicit transaction flow.',
+            },
+        ]
+        cautions = []
+        workflow = []
+        if intent == 'general':
+            workflow = [
+                {
+                    'step': 1,
+                    'action': 'Inspect server capabilities and policy switches.',
+                    'tools': ['gs_capabilities'],
+                },
+                {
+                    'step': 2,
+                    'action': 'Load workflow guidance for your task.',
+                    'tools': ['gs_guidance'],
+                },
+                {
+                    'step': 3,
+                    'action': 'Connect and check transaction state.',
+                    'tools': ['gs_connect', 'gs_transaction_status'],
+                },
+            ]
+        if intent == 'navigation':
+            workflow = [
+                {
+                    'step': 1,
+                    'action': 'Find candidate classes/selectors.',
+                    'tools': ['gs_find_classes', 'gs_find_selectors'],
+                },
+                {
+                    'step': 2,
+                    'action': 'Find implementors and static senders.',
+                    'tools': ['gs_find_implementors', 'gs_find_senders'],
+                },
+                {
+                    'step': 3,
+                    'action': 'Inspect source for shortlisted methods.',
+                    'tools': ['gs_get_method_source'],
+                },
+            ]
+        if intent == 'sender_analysis':
+            workflow = [
+                {
+                    'step': 1,
+                    'action': 'Start with static senders.',
+                    'tools': ['gs_find_senders'],
+                },
+                {
+                    'step': 2,
+                    'action': 'If sender set is broad, build candidate tests.',
+                    'tools': ['gs_plan_evidence_tests'],
+                },
+                {
+                    'step': 3,
+                    'action': 'Collect runtime sender evidence from tests.',
+                    'tools': ['gs_collect_sender_evidence'],
+                },
+            ]
+        if intent == 'refactor':
+            workflow = [
+                {
+                    'step': 1,
+                    'action': 'Preview refactor impact before changing code.',
+                    'tools': ['gs_preview_selector_rename'],
+                },
+                {
+                    'step': 2,
+                    'action': 'Collect evidence for ambiguous selectors.',
+                    'tools': [
+                        'gs_find_senders',
+                        'gs_plan_evidence_tests',
+                        'gs_collect_sender_evidence',
+                    ],
+                },
+                {
+                    'step': 3,
+                    'action': 'Apply change, then run tests.',
+                    'tools': [
+                        'gs_apply_selector_rename',
+                        'gs_run_gemstone_tests',
+                        'gs_run_tests_in_package',
+                        'gs_run_test_method',
+                    ],
+                },
+            ]
+        if intent == 'runtime_evidence':
+            workflow = [
+                {
+                    'step': 1,
+                    'action': 'Install and enable tracer once per image/session.',
+                    'tools': [
+                        'gs_tracer_install',
+                        'gs_tracer_status',
+                        'gs_tracer_enable',
+                    ],
+                },
+                {
+                    'step': 2,
+                    'action': 'Trace a selector and run relevant tests.',
+                    'tools': [
+                        'gs_tracer_trace_selector',
+                        'gs_run_test_method or gs_run_tests_in_package',
+                    ],
+                },
+                {
+                    'step': 3,
+                    'action': 'Read observed senders and untrace when done.',
+                    'tools': [
+                        'gs_tracer_find_observed_senders',
+                        'gs_tracer_untrace_selector',
+                    ],
+                },
+            ]
+        if selector_is_common_hotspot:
+            cautions.append(
+                (
+                    'Selector %s is often high-fanout. '
+                    'Static senders may contain many unrelated call sites.'
+                )
+                % selector
+            )
+        if selector_is_common_hotspot and not allow_tracing:
+            cautions.append(
+                (
+                    'Runtime evidence tools are disabled. '
+                    'Start swordfish-mcp with --allow-tracing '
+                    'for observed caller evidence.'
+                )
+            )
+        if selector_is_common_hotspot and allow_tracing:
+            decision_rules.append(
+                {
+                    'when': 'Selector fanout is high or ambiguous.',
+                    'prefer_tools': [
+                        'gs_plan_evidence_tests',
+                        'gs_collect_sender_evidence',
+                    ],
+                    'avoid_tools': ['static sender list as sole proof'],
+                    'reason': (
+                        'Observed sender evidence narrows the static superset '
+                        'to callers actually exercised by tests.'
+                    ),
+                }
+            )
+        return {
+            'intent': intent,
+            'selector': selector,
+            'workflow': workflow,
+            'decision_rules': decision_rules,
+            'cautions': cautions,
+        }
+
     def tracer_status_for_browser_session(browser_session):
         expected_source_hash = tracer_source_hash()
         expected_version = TRACER_VERSION
@@ -1295,6 +1490,77 @@ def register_tools(
             'connection_mode': metadata['connection_mode'],
             'transaction_active': metadata.get('transaction_active', False),
         }
+
+    @mcp_server.tool()
+    def gs_capabilities():
+        return {
+            'ok': True,
+            'server_name': 'SwordfishMCP',
+            'policy': policy_flags(),
+            'guidance_intents': guidance_intents(),
+            'recommended_bootstrap': [
+                'gs_capabilities',
+                'gs_guidance',
+                'gs_connect',
+                'gs_transaction_status',
+            ],
+            'tool_groups': {
+                'navigation': [
+                    'gs_find_classes',
+                    'gs_find_selectors',
+                    'gs_find_implementors',
+                    'gs_find_senders',
+                    'gs_get_method_source',
+                ],
+                'safe_write': [
+                    'gs_begin',
+                    'gs_compile_method',
+                    'gs_create_class',
+                    'gs_create_test_case_class',
+                    'gs_commit',
+                    'gs_abort',
+                ],
+                'evidence': [
+                    'gs_plan_evidence_tests',
+                    'gs_collect_sender_evidence',
+                    'gs_tracer_*',
+                ],
+            },
+        }
+
+    @mcp_server.tool()
+    def gs_guidance(intent='general', selector=None, change_kind=None):
+        try:
+            intent = validated_non_empty_string(intent, 'intent').strip().lower()
+            if intent not in guidance_intents():
+                raise DomainException(
+                    'intent must be one of: %s.'
+                    % ', '.join(guidance_intents())
+                )
+            if selector is not None:
+                selector = validated_non_empty_string(
+                    selector,
+                    'selector',
+                ).strip()
+            if change_kind is not None:
+                change_kind = validated_non_empty_string(
+                    change_kind,
+                    'change_kind',
+                ).strip()
+            guidance = guidance_for_intent(intent, selector)
+            return {
+                'ok': True,
+                'policy': policy_flags(),
+                'intent': intent,
+                'selector': selector,
+                'change_kind': change_kind,
+                'guidance': guidance,
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'error': {'message': str(error)},
+            }
 
     @mcp_server.tool()
     def gs_abort(connection_id):

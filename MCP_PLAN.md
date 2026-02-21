@@ -105,6 +105,8 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - `gs_tracer_find_observed_senders`
 - `gs_plan_evidence_tests`
 - `gs_collect_sender_evidence`
+- `gs_capabilities`
+- `gs_guidance`
 
 ## MCP Tool Set (Planned Semantic + Refactoring Additions)
 
@@ -208,6 +210,10 @@ Common refactoring tools:
 
 8. Tracing policy gate:
 - tracer and evidence tools are now controlled by `--allow-tracing` (disabled by default).
+
+9. AI tool-usage onboarding:
+- `gs_capabilities` reports active policy flags and tool groups.
+- `gs_guidance` provides intent-based workflow and decision rules so new AI sessions can self-bootstrap safely.
 
 ## Next Implementation Step
 

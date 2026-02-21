@@ -125,6 +125,12 @@ class RestrictedToolsFixture(Fixture):
     def new_gs_collect_sender_evidence(self):
         return self.registered_mcp_tools['gs_collect_sender_evidence']
 
+    def new_gs_capabilities(self):
+        return self.registered_mcp_tools['gs_capabilities']
+
+    def new_gs_guidance(self):
+        return self.registered_mcp_tools['gs_guidance']
+
 
 class AllowedToolsFixture(Fixture):
     def new_registered_mcp_tools(self):
@@ -236,6 +242,12 @@ class AllowedToolsFixture(Fixture):
 
     def new_gs_collect_sender_evidence(self):
         return self.registered_mcp_tools['gs_collect_sender_evidence']
+
+    def new_gs_capabilities(self):
+        return self.registered_mcp_tools['gs_capabilities']
+
+    def new_gs_guidance(self):
+        return self.registered_mcp_tools['gs_guidance']
 
 
 class AllowedToolsWithNoActiveTransactionFixture(Fixture):
@@ -404,6 +416,59 @@ def test_gs_commit_is_disabled_by_default(tools_fixture):
         'gs_commit is disabled. '
         'Start swordfish-mcp with --allow-commit to enable.'
     )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_capabilities_reports_restricted_policy_flags(tools_fixture):
+    capabilities_result = tools_fixture.gs_capabilities()
+    assert capabilities_result['ok'], capabilities_result
+    policy = capabilities_result['policy']
+    assert policy['allow_eval'] is False
+    assert policy['allow_compile'] is False
+    assert policy['allow_commit'] is False
+    assert policy['allow_tracing'] is False
+    assert capabilities_result['recommended_bootstrap'] == [
+        'gs_capabilities',
+        'gs_guidance',
+        'gs_connect',
+        'gs_transaction_status',
+    ]
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_capabilities_reports_enabled_policy_flags(tools_fixture):
+    capabilities_result = tools_fixture.gs_capabilities()
+    assert capabilities_result['ok'], capabilities_result
+    policy = capabilities_result['policy']
+    assert policy['allow_eval'] is True
+    assert policy['allow_compile'] is True
+    assert policy['allow_commit'] is True
+    assert policy['allow_tracing'] is True
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_guidance_validates_intent(tools_fixture):
+    guidance_result = tools_fixture.gs_guidance('unknown_intent')
+    assert not guidance_result['ok']
+    assert guidance_result['error']['message'] == (
+        'intent must be one of: general, navigation, sender_analysis, '
+        'refactor, runtime_evidence.'
+    )
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_guidance_sender_analysis_recommends_evidence_workflow(
+    tools_fixture,
+):
+    guidance_result = tools_fixture.gs_guidance(
+        'sender_analysis',
+        selector='default',
+    )
+    assert guidance_result['ok'], guidance_result
+    workflow = guidance_result['guidance']['workflow']
+    assert workflow[0]['tools'] == ['gs_find_senders']
+    assert workflow[1]['tools'] == ['gs_plan_evidence_tests']
+    assert workflow[2]['tools'] == ['gs_collect_sender_evidence']
 
 
 @with_fixtures(RestrictedToolsFixture)
