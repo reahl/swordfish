@@ -1018,7 +1018,21 @@ class GemstoneBrowserSession:
             return entries
         return entries[:max_results]
 
+    def validated_show_instance_side(self, show_instance_side):
+        if isinstance(show_instance_side, bool):
+            return show_instance_side
+        if isinstance(show_instance_side, str):
+            normalized_show_instance_side = show_instance_side.strip().lower()
+            if normalized_show_instance_side == 'true':
+                return True
+            if normalized_show_instance_side == 'false':
+                return False
+        raise DomainException('show_instance_side must be a boolean.')
+
     def class_to_query(self, class_name, show_instance_side):
+        show_instance_side = self.validated_show_instance_side(
+            show_instance_side
+        )
         gemstone_class = self.gemstone_session.resolve_symbol(class_name)
         return gemstone_class if show_instance_side else gemstone_class.gemstone_class()
 

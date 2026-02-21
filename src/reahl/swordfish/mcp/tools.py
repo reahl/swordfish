@@ -177,6 +177,17 @@ def register_tools(
             raise DomainException('%s must be a boolean.' % argument_name)
         return input_value
 
+    def validated_boolean_like(input_value, argument_name):
+        if isinstance(input_value, bool):
+            return input_value
+        if isinstance(input_value, str):
+            normalized_input_value = input_value.strip().lower()
+            if normalized_input_value == 'true':
+                return True
+            if normalized_input_value == 'false':
+                return False
+        raise DomainException('%s must be a boolean.' % argument_name)
+
     def tracer_status_for_browser_session(browser_session):
         expected_source_hash = tracer_source_hash()
         expected_version = TRACER_VERSION
@@ -1357,6 +1368,10 @@ def register_tools(
         if error_response:
             return error_response
         try:
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
             return {
                 'ok': True,
                 'connection_id': connection_id,
@@ -1373,6 +1388,12 @@ def register_tools(
                 'connection_id': connection_id,
                 'error': gemstone_error_payload(error),
             }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
 
     @mcp_server.tool()
     def gs_list_methods(
@@ -1385,6 +1406,10 @@ def register_tools(
         if error_response:
             return error_response
         try:
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
             return {
                 'ok': True,
                 'connection_id': connection_id,
@@ -1403,6 +1428,12 @@ def register_tools(
                 'connection_id': connection_id,
                 'error': gemstone_error_payload(error),
             }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
 
     @mcp_server.tool()
     def gs_get_method_source(
@@ -1415,6 +1446,10 @@ def register_tools(
         if error_response:
             return error_response
         try:
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
             return {
                 'ok': True,
                 'connection_id': connection_id,
@@ -1434,6 +1469,12 @@ def register_tools(
                 'error': gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
             return {
                 'ok': False,
                 'connection_id': connection_id,
@@ -2407,6 +2448,10 @@ def register_tools(
         try:
             class_name = validated_identifier(class_name, 'class_name')
             source = validated_non_empty_string(source, 'source')
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
             method_category = validated_non_empty_string(
                 method_category,
                 'method_category',
@@ -2709,6 +2754,10 @@ def register_tools(
                 method_selector,
                 'method_selector',
             )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
             browser_session.delete_method(
                 class_name=class_name,
                 method_selector=method_selector,
@@ -2772,6 +2821,10 @@ def register_tools(
             method_category = validated_non_empty_string(
                 method_category,
                 'method_category',
+            )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
             )
             browser_session.set_method_category(
                 class_name=class_name,
