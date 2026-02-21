@@ -107,11 +107,13 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - `gs_collect_sender_evidence`
 - `gs_capabilities`
 - `gs_guidance`
+- `gs_method_ast`
+- `gs_method_sends`
+- `gs_method_structure_summary`
 
 ## MCP Tool Set (Planned Semantic + Refactoring Additions)
 
 Semantic/AST access tools:
-- `gs_method_ast` (structured AST for one method)
 - `gs_method_structure_summary` (node counts, sends, blocks, returns, temporaries)
 - `gs_method_sends` (message sends with source ranges and receiver shape hints)
 - `gs_query_methods_by_ast_pattern` (find methods matching structural constraints)
@@ -162,7 +164,7 @@ Common refactoring tools:
 - Phase 2: completed
 - Phase 3: completed for targeted selector rename + debugger operations
 - Phase 4: completed
-- Phase 5: not started
+- Phase 5: in progress (semantic kickoff + method AST added)
 
 ## Testing Approach
 
@@ -221,10 +223,14 @@ Common refactoring tools:
 - added a full live evidence-guarded rename workflow test (`gs_plan_evidence_tests` + `gs_collect_sender_evidence` + guarded `gs_apply_selector_rename`).
 - added live no-commit mode policy visibility checks via `gs_capabilities`.
 
+11. Phase 5 kickoff progress:
+- added `gs_method_ast` with stable JSON schema (method node, temporaries, statement nodes, source ranges).
+- added `gs_method_sends` for method-level send-site summaries with source coordinates.
+- added `gs_method_structure_summary` for lightweight structural counts (blocks, assignments, sends, cascades, returns).
+
 ## Next Implementation Step
 
 Phase 5 semantic analysis kickoff:
-1. Deliver `gs_method_sends` and `gs_method_structure_summary` as minimal semantic APIs.
-2. Deliver `gs_method_ast` with stable JSON schema and source ranges.
-3. Deliver first refactoring pair: `gs_preview_rename_method` / `gs_apply_rename_method`.
-4. Expand to extract/inline/parameter and move-method workflows.
+1. Expand semantic send analysis beyond explicit receiver unary/binary heuristics.
+2. Deliver first refactoring pair: `gs_preview_rename_method` / `gs_apply_rename_method`.
+3. Expand to extract/inline/parameter and move-method workflows.
