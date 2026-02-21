@@ -207,7 +207,7 @@ def register_tools(
             'runtime_evidence',
         ]
 
-    def guidance_for_intent(intent, selector):
+    def guidance_for_intent(intent, selector, change_kind=None):
         selector_is_common_hotspot = selector in {
             'ifTrue:',
             'ifFalse:',
@@ -295,11 +295,25 @@ def register_tools(
                 },
             ]
         if intent == 'refactor':
+            preview_tools = ['gs_preview_selector_rename']
+            apply_tools = ['gs_apply_selector_rename']
+            if change_kind == 'rename_method':
+                preview_tools = ['gs_preview_rename_method']
+                apply_tools = ['gs_apply_rename_method']
+            if change_kind is None:
+                preview_tools = [
+                    'gs_preview_selector_rename',
+                    'gs_preview_rename_method',
+                ]
+                apply_tools = [
+                    'gs_apply_selector_rename',
+                    'gs_apply_rename_method',
+                ]
             workflow = [
                 {
                     'step': 1,
                     'action': 'Preview refactor impact before changing code.',
-                    'tools': ['gs_preview_selector_rename'],
+                    'tools': preview_tools,
                 },
                 {
                     'step': 2,
@@ -313,8 +327,7 @@ def register_tools(
                 {
                     'step': 3,
                     'action': 'Apply change, then run tests.',
-                    'tools': [
-                        'gs_apply_selector_rename',
+                    'tools': apply_tools + [
                         'gs_run_gemstone_tests',
                         'gs_run_tests_in_package',
                         'gs_run_test_method',
@@ -1525,8 +1538,16 @@ def register_tools(
                     'gs_compile_method',
                     'gs_create_class',
                     'gs_create_test_case_class',
+                    'gs_apply_selector_rename',
+                    'gs_apply_rename_method',
                     'gs_commit',
                     'gs_abort',
+                ],
+                'refactor': [
+                    'gs_preview_selector_rename',
+                    'gs_apply_selector_rename',
+                    'gs_preview_rename_method',
+                    'gs_apply_rename_method',
                 ],
                 'evidence': [
                     'gs_plan_evidence_tests',
@@ -1555,7 +1576,7 @@ def register_tools(
                     change_kind,
                     'change_kind',
                 ).strip()
-            guidance = guidance_for_intent(intent, selector)
+            guidance = guidance_for_intent(intent, selector, change_kind)
             return {
                 'ok': True,
                 'policy': policy_flags(),
@@ -3404,6 +3425,128 @@ def register_tools(
                 'test_method_selector': test_method_selector,
                 'result': test_result,
                 'tests_passed': test_result['has_passed'],
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_preview_rename_method(
+        connection_id,
+        class_name,
+        old_selector,
+        new_selector,
+        show_instance_side=True,
+    ):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            class_name = validated_identifier(class_name, 'class_name')
+            old_selector, new_selector = validated_selector_rename_pair(
+                old_selector,
+                new_selector,
+            )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
+            preview = browser_session.method_rename_preview(
+                class_name,
+                show_instance_side,
+                old_selector,
+                new_selector,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'show_instance_side': show_instance_side,
+                'old_selector': old_selector,
+                'new_selector': new_selector,
+                'preview': preview,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_apply_rename_method(
+        connection_id,
+        class_name,
+        old_selector,
+        new_selector,
+        show_instance_side=True,
+    ):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_apply_rename_method is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
+        try:
+            class_name = validated_identifier(class_name, 'class_name')
+            old_selector, new_selector = validated_selector_rename_pair(
+                old_selector,
+                new_selector,
+            )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
+            result = browser_session.apply_method_rename(
+                class_name,
+                show_instance_side,
+                old_selector,
+                new_selector,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'show_instance_side': show_instance_side,
+                'old_selector': old_selector,
+                'new_selector': new_selector,
+                'result': result,
             }
         except GemstoneError as error:
             return {

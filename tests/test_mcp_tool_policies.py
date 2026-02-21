@@ -74,6 +74,12 @@ class RestrictedToolsFixture(Fixture):
     def new_gs_apply_selector_rename(self):
         return self.registered_mcp_tools['gs_apply_selector_rename']
 
+    def new_gs_preview_rename_method(self):
+        return self.registered_mcp_tools['gs_preview_rename_method']
+
+    def new_gs_apply_rename_method(self):
+        return self.registered_mcp_tools['gs_apply_rename_method']
+
     def new_gs_global_set(self):
         return self.registered_mcp_tools['gs_global_set']
 
@@ -201,6 +207,12 @@ class AllowedToolsFixture(Fixture):
     def new_gs_apply_selector_rename(self):
         return self.registered_mcp_tools['gs_apply_selector_rename']
 
+    def new_gs_preview_rename_method(self):
+        return self.registered_mcp_tools['gs_preview_rename_method']
+
+    def new_gs_apply_rename_method(self):
+        return self.registered_mcp_tools['gs_apply_rename_method']
+
     def new_gs_global_set(self):
         return self.registered_mcp_tools['gs_global_set']
 
@@ -306,6 +318,12 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
     def new_gs_apply_selector_rename(self):
         return self.registered_mcp_tools['gs_apply_selector_rename']
 
+    def new_gs_preview_rename_method(self):
+        return self.registered_mcp_tools['gs_preview_rename_method']
+
+    def new_gs_apply_rename_method(self):
+        return self.registered_mcp_tools['gs_apply_rename_method']
+
     def new_gs_find_implementors(self):
         return self.registered_mcp_tools['gs_find_implementors']
 
@@ -398,6 +416,9 @@ class AllowedToolsWithActiveTransactionFixture(Fixture):
 
     def new_gs_apply_selector_rename(self):
         return self.registered_mcp_tools['gs_apply_selector_rename']
+
+    def new_gs_apply_rename_method(self):
+        return self.registered_mcp_tools['gs_apply_rename_method']
 
 
 class AllowedToolsWithTracingDisabledFixture(Fixture):
@@ -516,6 +537,20 @@ def test_gs_guidance_navigation_recommends_method_ast(tools_fixture):
     assert guidance_result['ok'], guidance_result
     workflow = guidance_result['guidance']['workflow']
     assert 'gs_method_ast' in workflow[2]['tools']
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_guidance_refactor_rename_method_recommends_method_tools(
+    tools_fixture,
+):
+    guidance_result = tools_fixture.gs_guidance(
+        'refactor',
+        change_kind='rename_method',
+    )
+    assert guidance_result['ok'], guidance_result
+    workflow = guidance_result['guidance']['workflow']
+    assert workflow[0]['tools'] == ['gs_preview_rename_method']
+    assert workflow[2]['tools'][0] == 'gs_apply_rename_method'
 
 
 @with_fixtures(RestrictedToolsFixture)
@@ -792,6 +827,21 @@ def test_gs_apply_selector_rename_is_disabled_by_default(tools_fixture):
 
 
 @with_fixtures(RestrictedToolsFixture)
+def test_gs_apply_rename_method_is_disabled_by_default(tools_fixture):
+    rename_result = tools_fixture.gs_apply_rename_method(
+        'missing-connection-id',
+        'ExampleClass',
+        'oldSelector',
+        'newSelector',
+    )
+    assert not rename_result['ok']
+    assert rename_result['error']['message'] == (
+        'gs_apply_rename_method is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
 def test_gs_debug_eval_is_disabled_by_default(tools_fixture):
     debug_eval_result = tools_fixture.gs_debug_eval(
         'missing-connection-id',
@@ -959,6 +1009,19 @@ def test_gs_preview_selector_rename_checks_connection(tools_fixture):
         'missing-connection-id',
         'oldSelector',
         'newSelector',
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_preview_rename_method_checks_connection(tools_fixture):
+    preview_result = tools_fixture.gs_preview_rename_method(
+        'missing-connection-id',
+        'ExampleClass',
+        'oldSelector',
+        'newSelector',
+        True,
     )
     assert not preview_result['ok']
     assert preview_result['error']['message'] == 'Unknown connection_id.'
@@ -1145,6 +1208,19 @@ def test_gs_apply_selector_rename_checks_connection(tools_fixture):
 
 
 @with_fixtures(AllowedToolsFixture)
+def test_gs_apply_rename_method_checks_connection(tools_fixture):
+    rename_result = tools_fixture.gs_apply_rename_method(
+        'missing-connection-id',
+        'ExampleClass',
+        'oldSelector',
+        'newSelector',
+        True,
+    )
+    assert not rename_result['ok']
+    assert rename_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
 def test_gs_global_set_checks_connection(tools_fixture):
     set_result = tools_fixture.gs_global_set(
         'missing-connection-id',
@@ -1289,6 +1365,23 @@ def test_gs_method_ast_validates_show_instance_side_flag(
     )
     assert not ast_result['ok']
     assert ast_result['error']['message'] == (
+        'show_instance_side must be a boolean.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_preview_rename_method_validates_show_instance_side_flag(
+    tools_fixture,
+):
+    preview_result = tools_fixture.gs_preview_rename_method(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'oldSelector',
+        'newSelector',
+        'neither',
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == (
         'show_instance_side must be a boolean.'
     )
 
@@ -1529,6 +1622,24 @@ def test_write_tools_require_active_transaction_for_selector_rename(
         tools_fixture.connection_id,
         'oldSelector',
         'newSelector',
+    )
+    assert not rename_result['ok']
+    assert rename_result['error']['message'] == (
+        'No active transaction. '
+        'Call gs_begin before write operations.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_write_tools_require_active_transaction_for_method_rename(
+    tools_fixture,
+):
+    rename_result = tools_fixture.gs_apply_rename_method(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'oldSelector',
+        'newSelector',
+        True,
     )
     assert not rename_result['ok']
     assert rename_result['error']['message'] == (

@@ -110,6 +110,8 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - `gs_method_ast`
 - `gs_method_sends`
 - `gs_method_structure_summary`
+- `gs_preview_rename_method`
+- `gs_apply_rename_method`
 
 ## MCP Tool Set (Planned Semantic + Refactoring Additions)
 
@@ -227,10 +229,10 @@ Common refactoring tools:
 - added `gs_method_ast` with stable JSON schema (method node, temporaries, statement nodes, source ranges).
 - added `gs_method_sends` for method-level send-site summaries with source coordinates.
 - added `gs_method_structure_summary` for lightweight structural counts (blocks, assignments, sends, cascades, returns).
+- expanded unary/binary send analysis beyond explicit `self`/`super` to include common expression receivers and cascade sends (heuristic).
+- delivered first class-scoped method rename pair: `gs_preview_rename_method` / `gs_apply_rename_method`.
 
 ## Next Implementation Step
 
 Phase 5 semantic analysis kickoff:
-1. Expand semantic send analysis beyond explicit receiver unary/binary heuristics.
-2. Deliver first refactoring pair: `gs_preview_rename_method` / `gs_apply_rename_method`.
-3. Expand to extract/inline/parameter and move-method workflows.
+1. Expand to extract/inline/parameter and move-method workflows.

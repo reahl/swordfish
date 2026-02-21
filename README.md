@@ -123,6 +123,8 @@ instead of free-form evaluation. Both support `max_results` and `count_only`.
 For method-level semantic navigation, use `gs_method_ast`,
 `gs_method_sends`, and `gs_method_structure_summary` to inspect statement
 structure, send sites, and structural counts.
+For class-scoped method renames, use `gs_preview_rename_method` and
+`gs_apply_rename_method` instead of a global selector rename.
 For optional tracer installation, use `gs_tracer_install` and verify with
 `gs_tracer_status` before enabling via `gs_tracer_enable`.
 For runtime caller evidence, use `gs_tracer_trace_selector`, run your tests,
@@ -159,6 +161,8 @@ The server identifies itself as `SwordfishMCP` and currently supports:
 - `gs_method_ast`
 - `gs_method_sends`
 - `gs_method_structure_summary`
+- `gs_preview_rename_method`
+- `gs_apply_rename_method`
 - `gs_tracer_status`
 - `gs_tracer_install`
 - `gs_tracer_enable`
