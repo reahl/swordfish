@@ -121,21 +121,43 @@ class GemstoneBrowserSession:
         code_character_map = self.source_code_character_map(source)
         line_column_map = self.source_line_column_map(source)
         body_start_offset = self.body_start_offset_for_method_source(source)
+        _, statements_start_offset = self.source_temporaries_after_body_start(
+            source,
+            code_character_map,
+            body_start_offset,
+        )
         keyword_entries = self.keyword_send_entries_in_source(
             source,
             code_character_map,
             line_column_map,
-            body_start_offset,
+            statements_start_offset,
         )
         explicit_receiver_entries = self.explicit_receiver_send_entries_in_source(
             source,
             code_character_map,
             line_column_map,
-            body_start_offset,
+            statements_start_offset,
+        )
+        expression_receiver_entries = self.expression_receiver_send_entries_in_source(
+            source,
+            code_character_map,
+            line_column_map,
+            statements_start_offset,
+        )
+        cascade_entries = self.cascade_send_entries_in_source(
+            source,
+            code_character_map,
+            line_column_map,
+            statements_start_offset,
         )
         send_entries = []
         seen_send_keys = set()
-        for send_entry in keyword_entries + explicit_receiver_entries:
+        for send_entry in (
+            keyword_entries
+            + explicit_receiver_entries
+            + expression_receiver_entries
+            + cascade_entries
+        ):
             send_key = (
                 send_entry['start_offset'],
                 send_entry['end_offset'],
@@ -158,8 +180,13 @@ class GemstoneBrowserSession:
             ),
             'analysis_limitations': [
                 (
-                    'Unary and binary send detection currently focuses on '
-                    'explicit self/super receiver patterns.'
+                    'Send detection is source-based and heuristic; '
+                    'runtime dispatch targets still depend on dynamic receiver classes.'
+                ),
+                (
+                    'Unary and binary sends are inferred for explicit receivers, '
+                    'common expression receivers, and cascades; uncommon layouts '
+                    'may still be missed.'
                 ),
             ],
         }
@@ -835,6 +862,202 @@ class GemstoneBrowserSession:
                 )
         return send_entries
 
+    def expression_receiver_send_entries_in_source(
+        self,
+        source,
+        code_character_map,
+        line_column_map,
+        search_start_offset,
+    ):
+        unary_pattern = re.compile(
+            '([A-Za-z][A-Za-z0-9_]*|[)\\]\\}]|[0-9]+(?:\\.[0-9]+)?)'
+            '\\s+'
+            '([A-Za-z][A-Za-z0-9_]*)\\b'
+        )
+        binary_pattern = re.compile(
+            '([A-Za-z][A-Za-z0-9_]*|[)\\]\\}]|[0-9]+(?:\\.[0-9]+)?)'
+            '\\s*'
+            '([+\\-*/\\\\~<>=@%|&?,]{1,3})'
+            '\\s*'
+        )
+        send_entries = []
+        for match in unary_pattern.finditer(source, search_start_offset):
+            receiver_name = match.group(1)
+            selector_name = match.group(2)
+            selector_start = match.start(2)
+            selector_end = match.end(2)
+            next_character = (
+                source[selector_end]
+                if selector_end < len(source)
+                else ''
+            )
+            has_keyword_suffix = next_character == ':'
+            is_symbol_literal = (
+                selector_start > 0
+                and source[selector_start - 1] == '#'
+            )
+            token_is_code = self.token_range_is_code(
+                code_character_map,
+                match.start(1),
+                selector_end,
+            )
+            has_entry = (
+                token_is_code
+                and not has_keyword_suffix
+                and not is_symbol_literal
+            )
+            if has_entry:
+                coordinates = self.source_range_coordinates(
+                    source,
+                    line_column_map,
+                    selector_start,
+                    selector_end,
+                )
+                receiver_hint = (
+                    receiver_name
+                    if receiver_name in ('self', 'super')
+                    else 'unknown'
+                )
+                send_entries.append(
+                    {
+                        'selector': selector_name,
+                        'send_type': 'unary',
+                        'receiver_hint': receiver_hint,
+                        'start_offset': selector_start,
+                        'end_offset': selector_end,
+                        'token_count': 1,
+                        **coordinates,
+                    }
+                )
+        for match in binary_pattern.finditer(source, search_start_offset):
+            receiver_name = match.group(1)
+            selector_name = match.group(2)
+            selector_start = match.start(2)
+            selector_end = match.end(2)
+            token_is_code = self.token_range_is_code(
+                code_character_map,
+                match.start(1),
+                selector_end,
+            )
+            if token_is_code:
+                coordinates = self.source_range_coordinates(
+                    source,
+                    line_column_map,
+                    selector_start,
+                    selector_end,
+                )
+                receiver_hint = (
+                    receiver_name
+                    if receiver_name in ('self', 'super')
+                    else 'unknown'
+                )
+                send_entries.append(
+                    {
+                        'selector': selector_name,
+                        'send_type': 'binary',
+                        'receiver_hint': receiver_hint,
+                        'start_offset': selector_start,
+                        'end_offset': selector_end,
+                        'token_count': 1,
+                        **coordinates,
+                    }
+                )
+        return send_entries
+
+    def cascade_send_entries_in_source(
+        self,
+        source,
+        code_character_map,
+        line_column_map,
+        search_start_offset,
+    ):
+        send_entries = []
+        index = search_start_offset
+        while index < len(source):
+            is_cascade_separator = (
+                code_character_map[index]
+                and source[index] == ';'
+            )
+            if is_cascade_separator:
+                token_start = index + 1
+                found_token_start = False
+                while token_start < len(source) and not found_token_start:
+                    is_token_space = source[token_start].isspace()
+                    is_token_code = code_character_map[token_start]
+                    has_token_start = (
+                        not is_token_space
+                        and is_token_code
+                    )
+                    if has_token_start:
+                        found_token_start = True
+                    else:
+                        token_start = token_start + 1
+                if found_token_start:
+                    starts_identifier = source[token_start].isalpha()
+                    starts_binary_token = self.is_binary_selector_character(
+                        source[token_start]
+                    )
+                    if starts_identifier:
+                        identifier_end = self.identifier_end_index(
+                            source,
+                            token_start,
+                        )
+                        selector_name = source[token_start:identifier_end]
+                        has_keyword_suffix = (
+                            identifier_end < len(source)
+                            and source[identifier_end] == ':'
+                        )
+                        if not has_keyword_suffix:
+                            coordinates = self.source_range_coordinates(
+                                source,
+                                line_column_map,
+                                token_start,
+                                identifier_end,
+                            )
+                            send_entries.append(
+                                {
+                                    'selector': selector_name,
+                                    'send_type': 'unary',
+                                    'receiver_hint': 'cascade',
+                                    'start_offset': token_start,
+                                    'end_offset': identifier_end,
+                                    'token_count': 1,
+                                    **coordinates,
+                                }
+                            )
+                    if starts_binary_token:
+                        token_end = token_start + 1
+                        while (
+                            token_end < len(source)
+                            and self.is_binary_selector_character(
+                                source[token_end]
+                            )
+                            and token_end - token_start < 3
+                        ):
+                            token_end = token_end + 1
+                        coordinates = self.source_range_coordinates(
+                            source,
+                            line_column_map,
+                            token_start,
+                            token_end,
+                        )
+                        send_entries.append(
+                            {
+                                'selector': source[token_start:token_end],
+                                'send_type': 'binary',
+                                'receiver_hint': 'cascade',
+                                'start_offset': token_start,
+                                'end_offset': token_end,
+                                'token_count': 1,
+                                **coordinates,
+                            }
+                        )
+            index = index + 1
+        return send_entries
+
+    def is_binary_selector_character(self, character):
+        return character in '+-*/\\~<>=@%|&?,'
+
     def compile_method(
         self,
         class_name,
@@ -1170,6 +1393,195 @@ class GemstoneBrowserSession:
         preview['applied_change_count'] = len(planned_changes)
         preview['old_selector_removed'] = old_selector != new_selector
         return preview
+
+    def method_rename_preview(
+        self,
+        class_name,
+        show_instance_side,
+        old_selector,
+        new_selector,
+    ):
+        show_instance_side = self.validated_show_instance_side(
+            show_instance_side
+        )
+        planned_changes = self.method_rename_plan(
+            class_name,
+            show_instance_side,
+            old_selector,
+            new_selector,
+        )
+        return self.method_rename_summary(
+            class_name,
+            show_instance_side,
+            old_selector,
+            new_selector,
+            planned_changes,
+        )
+
+    def apply_method_rename(
+        self,
+        class_name,
+        show_instance_side,
+        old_selector,
+        new_selector,
+    ):
+        show_instance_side = self.validated_show_instance_side(
+            show_instance_side
+        )
+        planned_changes = self.method_rename_plan(
+            class_name,
+            show_instance_side,
+            old_selector,
+            new_selector,
+        )
+        for planned_change in planned_changes:
+            self.compile_method(
+                class_name=planned_change['class_name'],
+                show_instance_side=planned_change['show_instance_side'],
+                source=planned_change['updated_source'],
+                method_category=planned_change['method_category'],
+            )
+        has_implementor_change = any(
+            planned_change['change_type'] == 'implementor'
+            for planned_change in planned_changes
+        )
+        should_remove_old_selector = (
+            old_selector != new_selector
+            and has_implementor_change
+        )
+        if should_remove_old_selector:
+            self.delete_method(
+                class_name=class_name,
+                method_selector=old_selector,
+                show_instance_side=show_instance_side,
+            )
+        preview = self.method_rename_summary(
+            class_name,
+            show_instance_side,
+            old_selector,
+            new_selector,
+            planned_changes,
+        )
+        preview['applied_change_count'] = len(planned_changes)
+        preview['old_selector_removed'] = should_remove_old_selector
+        return preview
+
+    def method_rename_summary(
+        self,
+        class_name,
+        show_instance_side,
+        old_selector,
+        new_selector,
+        planned_changes,
+    ):
+        return {
+            'class_name': class_name,
+            'show_instance_side': show_instance_side,
+            'old_selector': old_selector,
+            'new_selector': new_selector,
+            'sender_scope': 'same_class_side_only',
+            'implementor_count': len(
+                [
+                    planned_change
+                    for planned_change in planned_changes
+                    if planned_change['change_type'] == 'implementor'
+                ]
+            ),
+            'sender_count': len(
+                [
+                    planned_change
+                    for planned_change in planned_changes
+                    if planned_change['change_type'] == 'sender'
+                ]
+            ),
+            'total_changes': len(planned_changes),
+            'changes': [
+                {
+                    'class_name': planned_change['class_name'],
+                    'show_instance_side': planned_change['show_instance_side'],
+                    'method_selector': planned_change['method_selector'],
+                    'method_category': planned_change['method_category'],
+                    'change_type': planned_change['change_type'],
+                }
+                for planned_change in planned_changes
+            ],
+        }
+
+    def method_rename_plan(
+        self,
+        class_name,
+        show_instance_side,
+        old_selector,
+        new_selector,
+    ):
+        show_instance_side = self.validated_show_instance_side(
+            show_instance_side
+        )
+        class_to_query = self.class_to_query(
+            class_name,
+            show_instance_side,
+        )
+        implementor_method = class_to_query.compiledMethodAt(old_selector)
+        selector_expression = self.selector_reference_expression(old_selector)
+        senders = self.run_code(
+            'ClassOrganizer new sendersOf: %s' % selector_expression
+        )
+        sender_methods = self.flatten_compiled_methods(senders)
+        planned_changes = []
+        planned_method_keys = set()
+        implementor_change = self.planned_selector_rename_change(
+            implementor_method,
+            old_selector,
+            new_selector,
+            'implementor',
+        )
+        if implementor_change is not None:
+            planned_changes.append(implementor_change)
+            planned_method_keys.add(
+                (
+                    implementor_change['class_name'],
+                    implementor_change['show_instance_side'],
+                    implementor_change['method_selector'],
+                )
+            )
+        for compiled_method in sender_methods:
+            method_summary = self.method_summary(compiled_method)
+            matches_target_class = (
+                method_summary['class_name'] == class_name
+                and method_summary['show_instance_side'] == show_instance_side
+            )
+            if matches_target_class:
+                planned_change = self.planned_selector_rename_change(
+                    compiled_method,
+                    old_selector,
+                    new_selector,
+                    'sender',
+                )
+                planned_change_key = (
+                    (
+                        planned_change['class_name'],
+                        planned_change['show_instance_side'],
+                        planned_change['method_selector'],
+                    )
+                    if planned_change is not None
+                    else None
+                )
+                has_not_seen_method = (
+                    planned_change_key not in planned_method_keys
+                    if planned_change is not None
+                    else False
+                )
+                if planned_change is not None and has_not_seen_method:
+                    planned_changes.append(planned_change)
+                    planned_method_keys.add(planned_change_key)
+        return sorted(
+            planned_changes,
+            key=lambda planned_change: (
+                planned_change['class_name'],
+                planned_change['show_instance_side'],
+                planned_change['method_selector'],
+            ),
+        )
 
     def selector_rename_plan(self, old_selector, new_selector):
         selector_expression = self.selector_reference_expression(old_selector)
