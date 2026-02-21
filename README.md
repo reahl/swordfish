@@ -121,8 +121,9 @@ For normal browse/edit/test workflows, prefer explicit tools like:
 For selector exploration, use `gs_find_implementors` and `gs_find_senders`
 instead of free-form evaluation. Both support `max_results` and `count_only`.
 For method-level semantic navigation, use `gs_method_ast`,
-`gs_method_sends`, and `gs_method_structure_summary` to inspect statement
-structure, send sites, and structural counts.
+`gs_method_sends`, `gs_method_structure_summary`, and
+`gs_method_control_flow_summary` to inspect statement structure, send sites,
+structural counts, and control-flow signals.
 For class-scoped method renames, use `gs_preview_rename_method` and
 `gs_apply_rename_method` instead of a global selector rename.
 For class-scoped method moves, use `gs_preview_move_method` before
@@ -131,6 +132,10 @@ For class-scoped parameter addition with compatibility forwarding, use
 `gs_preview_add_parameter` then `gs_apply_add_parameter`.
 For class-scoped parameter removal with compatibility forwarding, use
 `gs_preview_remove_parameter` then `gs_apply_remove_parameter`.
+For statement-level method extraction in one class/side, use
+`gs_preview_extract_method` then `gs_apply_extract_method`.
+For conservative unary self-send inline in one caller method, use
+`gs_preview_inline_method` then `gs_apply_inline_method`.
 For optional tracer installation, use `gs_tracer_install` and verify with
 `gs_tracer_status` before enabling via `gs_tracer_enable`.
 For runtime caller evidence, use `gs_tracer_trace_selector`, run your tests,
@@ -167,6 +172,7 @@ The server identifies itself as `SwordfishMCP` and currently supports:
 - `gs_method_ast`
 - `gs_method_sends`
 - `gs_method_structure_summary`
+- `gs_method_control_flow_summary`
 - `gs_preview_rename_method`
 - `gs_apply_rename_method`
 - `gs_preview_move_method`
@@ -175,6 +181,10 @@ The server identifies itself as `SwordfishMCP` and currently supports:
 - `gs_apply_add_parameter`
 - `gs_preview_remove_parameter`
 - `gs_apply_remove_parameter`
+- `gs_preview_extract_method`
+- `gs_apply_extract_method`
+- `gs_preview_inline_method`
+- `gs_apply_inline_method`
 - `gs_tracer_status`
 - `gs_tracer_install`
 - `gs_tracer_enable`

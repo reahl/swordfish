@@ -98,6 +98,18 @@ class RestrictedToolsFixture(Fixture):
     def new_gs_apply_remove_parameter(self):
         return self.registered_mcp_tools['gs_apply_remove_parameter']
 
+    def new_gs_preview_extract_method(self):
+        return self.registered_mcp_tools['gs_preview_extract_method']
+
+    def new_gs_apply_extract_method(self):
+        return self.registered_mcp_tools['gs_apply_extract_method']
+
+    def new_gs_preview_inline_method(self):
+        return self.registered_mcp_tools['gs_preview_inline_method']
+
+    def new_gs_apply_inline_method(self):
+        return self.registered_mcp_tools['gs_apply_inline_method']
+
     def new_gs_global_set(self):
         return self.registered_mcp_tools['gs_global_set']
 
@@ -124,6 +136,9 @@ class RestrictedToolsFixture(Fixture):
 
     def new_gs_method_structure_summary(self):
         return self.registered_mcp_tools['gs_method_structure_summary']
+
+    def new_gs_method_control_flow_summary(self):
+        return self.registered_mcp_tools['gs_method_control_flow_summary']
 
     def new_gs_tracer_status(self):
         return self.registered_mcp_tools['gs_tracer_status']
@@ -249,6 +264,18 @@ class AllowedToolsFixture(Fixture):
     def new_gs_apply_remove_parameter(self):
         return self.registered_mcp_tools['gs_apply_remove_parameter']
 
+    def new_gs_preview_extract_method(self):
+        return self.registered_mcp_tools['gs_preview_extract_method']
+
+    def new_gs_apply_extract_method(self):
+        return self.registered_mcp_tools['gs_apply_extract_method']
+
+    def new_gs_preview_inline_method(self):
+        return self.registered_mcp_tools['gs_preview_inline_method']
+
+    def new_gs_apply_inline_method(self):
+        return self.registered_mcp_tools['gs_apply_inline_method']
+
     def new_gs_global_set(self):
         return self.registered_mcp_tools['gs_global_set']
 
@@ -275,6 +302,9 @@ class AllowedToolsFixture(Fixture):
 
     def new_gs_method_structure_summary(self):
         return self.registered_mcp_tools['gs_method_structure_summary']
+
+    def new_gs_method_control_flow_summary(self):
+        return self.registered_mcp_tools['gs_method_control_flow_summary']
 
     def new_gs_tracer_status(self):
         return self.registered_mcp_tools['gs_tracer_status']
@@ -378,6 +408,18 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
     def new_gs_apply_remove_parameter(self):
         return self.registered_mcp_tools['gs_apply_remove_parameter']
 
+    def new_gs_preview_extract_method(self):
+        return self.registered_mcp_tools['gs_preview_extract_method']
+
+    def new_gs_apply_extract_method(self):
+        return self.registered_mcp_tools['gs_apply_extract_method']
+
+    def new_gs_preview_inline_method(self):
+        return self.registered_mcp_tools['gs_preview_inline_method']
+
+    def new_gs_apply_inline_method(self):
+        return self.registered_mcp_tools['gs_apply_inline_method']
+
     def new_gs_find_implementors(self):
         return self.registered_mcp_tools['gs_find_implementors']
 
@@ -392,6 +434,9 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
 
     def new_gs_method_structure_summary(self):
         return self.registered_mcp_tools['gs_method_structure_summary']
+
+    def new_gs_method_control_flow_summary(self):
+        return self.registered_mcp_tools['gs_method_control_flow_summary']
 
     def new_gs_tracer_install(self):
         return self.registered_mcp_tools['gs_tracer_install']
@@ -483,6 +528,12 @@ class AllowedToolsWithActiveTransactionFixture(Fixture):
     def new_gs_apply_remove_parameter(self):
         return self.registered_mcp_tools['gs_apply_remove_parameter']
 
+    def new_gs_apply_extract_method(self):
+        return self.registered_mcp_tools['gs_apply_extract_method']
+
+    def new_gs_apply_inline_method(self):
+        return self.registered_mcp_tools['gs_apply_inline_method']
+
 
 class AllowedToolsWithTracingDisabledFixture(Fixture):
     def new_registered_mcp_tools(self):
@@ -567,6 +618,7 @@ def test_gs_capabilities_navigation_includes_method_semantic_tools(
     assert 'gs_method_ast' in navigation_tools
     assert 'gs_method_sends' in navigation_tools
     assert 'gs_method_structure_summary' in navigation_tools
+    assert 'gs_method_control_flow_summary' in navigation_tools
 
 
 @with_fixtures(AllowedToolsFixture)
@@ -582,6 +634,10 @@ def test_gs_capabilities_refactor_includes_move_method_tools(
     assert 'gs_apply_add_parameter' in refactor_tools
     assert 'gs_preview_remove_parameter' in refactor_tools
     assert 'gs_apply_remove_parameter' in refactor_tools
+    assert 'gs_preview_extract_method' in refactor_tools
+    assert 'gs_apply_extract_method' in refactor_tools
+    assert 'gs_preview_inline_method' in refactor_tools
+    assert 'gs_apply_inline_method' in refactor_tools
 
 
 @with_fixtures(AllowedToolsFixture)
@@ -671,6 +727,34 @@ def test_gs_guidance_refactor_remove_parameter_recommends_parameter_tools(
     workflow = guidance_result['guidance']['workflow']
     assert workflow[0]['tools'] == ['gs_preview_remove_parameter']
     assert workflow[2]['tools'][0] == 'gs_apply_remove_parameter'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_guidance_refactor_extract_method_recommends_extract_tools(
+    tools_fixture,
+):
+    guidance_result = tools_fixture.gs_guidance(
+        'refactor',
+        change_kind='extract_method',
+    )
+    assert guidance_result['ok'], guidance_result
+    workflow = guidance_result['guidance']['workflow']
+    assert workflow[0]['tools'] == ['gs_preview_extract_method']
+    assert workflow[2]['tools'][0] == 'gs_apply_extract_method'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_guidance_refactor_inline_method_recommends_inline_tools(
+    tools_fixture,
+):
+    guidance_result = tools_fixture.gs_guidance(
+        'refactor',
+        change_kind='inline_method',
+    )
+    assert guidance_result['ok'], guidance_result
+    workflow = guidance_result['guidance']['workflow']
+    assert workflow[0]['tools'] == ['gs_preview_inline_method']
+    assert workflow[2]['tools'][0] == 'gs_apply_inline_method'
 
 
 @with_fixtures(RestrictedToolsFixture)
@@ -1009,6 +1093,37 @@ def test_gs_apply_remove_parameter_is_disabled_by_default(tools_fixture):
 
 
 @with_fixtures(RestrictedToolsFixture)
+def test_gs_apply_extract_method_is_disabled_by_default(tools_fixture):
+    extract_result = tools_fixture.gs_apply_extract_method(
+        'missing-connection-id',
+        'ExampleClass',
+        'exampleMethod',
+        'extractedLogic',
+        [1],
+    )
+    assert not extract_result['ok']
+    assert extract_result['error']['message'] == (
+        'gs_apply_extract_method is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_apply_inline_method_is_disabled_by_default(tools_fixture):
+    inline_result = tools_fixture.gs_apply_inline_method(
+        'missing-connection-id',
+        'ExampleClass',
+        'callerSelector',
+        'inlineSelector',
+    )
+    assert not inline_result['ok']
+    assert inline_result['error']['message'] == (
+        'gs_apply_inline_method is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
 def test_gs_debug_eval_is_disabled_by_default(tools_fixture):
     debug_eval_result = tools_fixture.gs_debug_eval(
         'missing-connection-id',
@@ -1235,6 +1350,33 @@ def test_gs_preview_remove_parameter_checks_connection(tools_fixture):
 
 
 @with_fixtures(AllowedToolsFixture)
+def test_gs_preview_extract_method_checks_connection(tools_fixture):
+    preview_result = tools_fixture.gs_preview_extract_method(
+        'missing-connection-id',
+        'ExampleClass',
+        'exampleMethod',
+        'extractedLogic',
+        [1],
+        True,
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_preview_inline_method_checks_connection(tools_fixture):
+    preview_result = tools_fixture.gs_preview_inline_method(
+        'missing-connection-id',
+        'ExampleClass',
+        'callerSelector',
+        'inlineSelector',
+        True,
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
 def test_gs_find_implementors_checks_connection(tools_fixture):
     implementors_result = tools_fixture.gs_find_implementors(
         'missing-connection-id',
@@ -1285,6 +1427,17 @@ def test_gs_method_ast_checks_connection(tools_fixture):
     )
     assert not ast_result['ok']
     assert ast_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_method_control_flow_summary_checks_connection(tools_fixture):
+    summary_result = tools_fixture.gs_method_control_flow_summary(
+        'missing-connection-id',
+        'ExampleClass',
+        'exampleMethod',
+    )
+    assert not summary_result['ok']
+    assert summary_result['error']['message'] == 'Unknown connection_id.'
 
 
 @with_fixtures(AllowedToolsFixture)
@@ -1468,6 +1621,33 @@ def test_gs_apply_remove_parameter_checks_connection(tools_fixture):
 
 
 @with_fixtures(AllowedToolsFixture)
+def test_gs_apply_extract_method_checks_connection(tools_fixture):
+    extract_result = tools_fixture.gs_apply_extract_method(
+        'missing-connection-id',
+        'ExampleClass',
+        'exampleMethod',
+        'extractedLogic',
+        [1],
+        True,
+    )
+    assert not extract_result['ok']
+    assert extract_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_apply_inline_method_checks_connection(tools_fixture):
+    inline_result = tools_fixture.gs_apply_inline_method(
+        'missing-connection-id',
+        'ExampleClass',
+        'callerSelector',
+        'inlineSelector',
+        True,
+    )
+    assert not inline_result['ok']
+    assert inline_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
 def test_gs_global_set_checks_connection(tools_fixture):
     set_result = tools_fixture.gs_global_set(
         'missing-connection-id',
@@ -1612,6 +1792,22 @@ def test_gs_method_ast_validates_show_instance_side_flag(
     )
     assert not ast_result['ok']
     assert ast_result['error']['message'] == (
+        'show_instance_side must be a boolean.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_method_control_flow_summary_validates_show_instance_side_flag(
+    tools_fixture,
+):
+    summary_result = tools_fixture.gs_method_control_flow_summary(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'exampleMethod',
+        'neither',
+    )
+    assert not summary_result['ok']
+    assert summary_result['error']['message'] == (
         'show_instance_side must be a boolean.'
     )
 
@@ -1796,6 +1992,119 @@ def test_gs_apply_remove_parameter_validates_boolean_flags(tools_fixture):
     assert not remove_result['ok']
     assert remove_result['error']['message'] == (
         'overwrite_new_method must be a boolean.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_preview_extract_method_validates_statement_indexes_and_selector(
+    tools_fixture,
+):
+    preview_result = tools_fixture.gs_preview_extract_method(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'exampleMethod',
+        'newSelector:',
+        [1],
+        True,
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == (
+        'new_selector must be a unary selector.'
+    )
+    preview_result = tools_fixture.gs_preview_extract_method(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'exampleMethod',
+        'newSelector',
+        'not-a-list',
+        True,
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == (
+        'statement_indexes must be a non-empty list of integers.'
+    )
+    preview_result = tools_fixture.gs_preview_extract_method(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'exampleMethod',
+        'newSelector',
+        [0],
+        True,
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == (
+        'statement_indexes must contain positive integers only.'
+    )
+    preview_result = tools_fixture.gs_preview_extract_method(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'exampleMethod',
+        'newSelector',
+        [1],
+        'neither',
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == (
+        'show_instance_side must be a boolean.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_preview_inline_method_validates_selector_and_side(
+    tools_fixture,
+):
+    preview_result = tools_fixture.gs_preview_inline_method(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'callerSelector',
+        'inlineSelector:',
+        True,
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == (
+        'inline_selector must be a unary selector.'
+    )
+    preview_result = tools_fixture.gs_preview_inline_method(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'callerSelector',
+        'inlineSelector',
+        'neither',
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == (
+        'show_instance_side must be a boolean.'
+    )
+
+
+@with_fixtures(AllowedToolsWithActiveTransactionFixture)
+def test_gs_apply_extract_and_inline_validate_boolean_flags(
+    tools_fixture,
+):
+    extract_result = tools_fixture.gs_apply_extract_method(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'exampleMethod',
+        'extractedLogic',
+        [1],
+        True,
+        'neither',
+    )
+    assert not extract_result['ok']
+    assert extract_result['error']['message'] == (
+        'overwrite_new_method must be a boolean.'
+    )
+    inline_result = tools_fixture.gs_apply_inline_method(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'callerSelector',
+        'inlineSelector',
+        True,
+        'neither',
+    )
+    assert not inline_result['ok']
+    assert inline_result['error']['message'] == (
+        'delete_inlined_method must be a boolean.'
     )
 
 
@@ -2111,6 +2420,43 @@ def test_write_tools_require_active_transaction_for_remove_parameter(
     )
     assert not remove_result['ok']
     assert remove_result['error']['message'] == (
+        'No active transaction. '
+        'Call gs_begin before write operations.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_write_tools_require_active_transaction_for_extract_method(
+    tools_fixture,
+):
+    extract_result = tools_fixture.gs_apply_extract_method(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'exampleMethod',
+        'extractedLogic',
+        [1],
+        True,
+    )
+    assert not extract_result['ok']
+    assert extract_result['error']['message'] == (
+        'No active transaction. '
+        'Call gs_begin before write operations.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_write_tools_require_active_transaction_for_inline_method(
+    tools_fixture,
+):
+    inline_result = tools_fixture.gs_apply_inline_method(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'callerSelector',
+        'inlineSelector',
+        True,
+    )
+    assert not inline_result['ok']
+    assert inline_result['error']['message'] == (
         'No active transaction. '
         'Call gs_begin before write operations.'
     )

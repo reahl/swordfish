@@ -274,6 +274,7 @@ def register_tools(
                         'gs_method_ast',
                         'gs_method_sends',
                         'gs_method_structure_summary',
+                        'gs_method_control_flow_summary',
                     ],
                 },
             ]
@@ -310,6 +311,12 @@ def register_tools(
             if change_kind == 'remove_parameter':
                 preview_tools = ['gs_preview_remove_parameter']
                 apply_tools = ['gs_apply_remove_parameter']
+            if change_kind == 'extract_method':
+                preview_tools = ['gs_preview_extract_method']
+                apply_tools = ['gs_apply_extract_method']
+            if change_kind == 'inline_method':
+                preview_tools = ['gs_preview_inline_method']
+                apply_tools = ['gs_apply_inline_method']
             if change_kind is None:
                 preview_tools = [
                     'gs_preview_selector_rename',
@@ -317,6 +324,8 @@ def register_tools(
                     'gs_preview_move_method',
                     'gs_preview_add_parameter',
                     'gs_preview_remove_parameter',
+                    'gs_preview_extract_method',
+                    'gs_preview_inline_method',
                 ]
                 apply_tools = [
                     'gs_apply_selector_rename',
@@ -324,6 +333,8 @@ def register_tools(
                     'gs_apply_move_method',
                     'gs_apply_add_parameter',
                     'gs_apply_remove_parameter',
+                    'gs_apply_extract_method',
+                    'gs_apply_inline_method',
                 ]
             workflow = [
                 {
@@ -1305,6 +1316,23 @@ def register_tools(
             )
         return input_value
 
+    def validated_statement_indexes(input_value, argument_name):
+        if not isinstance(input_value, list) or not input_value:
+            raise DomainException(
+                '%s must be a non-empty list of integers.'
+                % argument_name
+            )
+        validated_indexes = []
+        for index_value in input_value:
+            if not isinstance(index_value, int) or index_value <= 0:
+                raise DomainException(
+                    '%s must contain positive integers only.'
+                    % argument_name
+                )
+            if index_value not in validated_indexes:
+                validated_indexes.append(index_value)
+        return sorted(validated_indexes)
+
     def serialized_debug_frames(debug_session):
         stack_frames = debug_session.call_stack()
         return [
@@ -1560,6 +1588,7 @@ def register_tools(
                     'gs_method_ast',
                     'gs_method_sends',
                     'gs_method_structure_summary',
+                    'gs_method_control_flow_summary',
                 ],
                 'safe_write': [
                     'gs_begin',
@@ -1571,6 +1600,8 @@ def register_tools(
                     'gs_apply_move_method',
                     'gs_apply_add_parameter',
                     'gs_apply_remove_parameter',
+                    'gs_apply_extract_method',
+                    'gs_apply_inline_method',
                     'gs_commit',
                     'gs_abort',
                 ],
@@ -1585,6 +1616,10 @@ def register_tools(
                     'gs_apply_add_parameter',
                     'gs_preview_remove_parameter',
                     'gs_apply_remove_parameter',
+                    'gs_preview_extract_method',
+                    'gs_apply_extract_method',
+                    'gs_preview_inline_method',
+                    'gs_apply_inline_method',
                 ],
                 'evidence': [
                     'gs_plan_evidence_tests',
@@ -1972,6 +2007,61 @@ def register_tools(
             )
             started_at = time.perf_counter()
             summary = browser_session.method_structure_summary(
+                class_name,
+                method_selector,
+                show_instance_side,
+            )
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'method_selector': method_selector,
+                'show_instance_side': show_instance_side,
+                'elapsed_ms': elapsed_ms,
+                'summary': summary,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_method_control_flow_summary(
+        connection_id,
+        class_name,
+        method_selector,
+        show_instance_side=True,
+    ):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            class_name = validated_identifier(class_name, 'class_name')
+            method_selector = validated_non_empty_string(
+                method_selector,
+                'method_selector',
+            )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
+            started_at = time.perf_counter()
+            summary = browser_session.method_control_flow_summary(
                 class_name,
                 method_selector,
                 show_instance_side,
@@ -4070,6 +4160,322 @@ def register_tools(
                 'method_selector': method_selector,
                 'parameter_keyword': parameter_keyword,
                 'overwrite_new_method': overwrite_new_method,
+                'result': result,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_preview_extract_method(
+        connection_id,
+        class_name,
+        method_selector,
+        new_selector,
+        statement_indexes,
+        show_instance_side=True,
+    ):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            class_name = validated_identifier(
+                class_name,
+                'class_name',
+            )
+            method_selector = validated_selector(
+                method_selector,
+                'method_selector',
+            )
+            new_selector = validated_selector(
+                new_selector,
+                'new_selector',
+            )
+            if ':' in new_selector:
+                raise DomainException(
+                    'new_selector must be a unary selector.'
+                )
+            statement_indexes = validated_statement_indexes(
+                statement_indexes,
+                'statement_indexes',
+            )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
+            preview = browser_session.method_extract_preview(
+                class_name,
+                show_instance_side,
+                method_selector,
+                new_selector,
+                statement_indexes,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'show_instance_side': show_instance_side,
+                'method_selector': method_selector,
+                'new_selector': new_selector,
+                'statement_indexes': statement_indexes,
+                'preview': preview,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_apply_extract_method(
+        connection_id,
+        class_name,
+        method_selector,
+        new_selector,
+        statement_indexes,
+        show_instance_side=True,
+        overwrite_new_method=False,
+    ):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_apply_extract_method is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
+        try:
+            class_name = validated_identifier(
+                class_name,
+                'class_name',
+            )
+            method_selector = validated_selector(
+                method_selector,
+                'method_selector',
+            )
+            new_selector = validated_selector(
+                new_selector,
+                'new_selector',
+            )
+            if ':' in new_selector:
+                raise DomainException(
+                    'new_selector must be a unary selector.'
+                )
+            statement_indexes = validated_statement_indexes(
+                statement_indexes,
+                'statement_indexes',
+            )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
+            overwrite_new_method = validated_boolean_like(
+                overwrite_new_method,
+                'overwrite_new_method',
+            )
+            result = browser_session.apply_method_extract(
+                class_name,
+                show_instance_side,
+                method_selector,
+                new_selector,
+                statement_indexes,
+                overwrite_new_method=overwrite_new_method,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'show_instance_side': show_instance_side,
+                'method_selector': method_selector,
+                'new_selector': new_selector,
+                'statement_indexes': statement_indexes,
+                'overwrite_new_method': overwrite_new_method,
+                'result': result,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_preview_inline_method(
+        connection_id,
+        class_name,
+        caller_selector,
+        inline_selector,
+        show_instance_side=True,
+    ):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            class_name = validated_identifier(
+                class_name,
+                'class_name',
+            )
+            caller_selector = validated_selector(
+                caller_selector,
+                'caller_selector',
+            )
+            inline_selector = validated_selector(
+                inline_selector,
+                'inline_selector',
+            )
+            if ':' in inline_selector:
+                raise DomainException(
+                    'inline_selector must be a unary selector.'
+                )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
+            preview = browser_session.method_inline_preview(
+                class_name,
+                show_instance_side,
+                caller_selector,
+                inline_selector,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'show_instance_side': show_instance_side,
+                'caller_selector': caller_selector,
+                'inline_selector': inline_selector,
+                'preview': preview,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_apply_inline_method(
+        connection_id,
+        class_name,
+        caller_selector,
+        inline_selector,
+        show_instance_side=True,
+        delete_inlined_method=False,
+    ):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_apply_inline_method is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = GemstoneBrowserSession(gemstone_session)
+        try:
+            class_name = validated_identifier(
+                class_name,
+                'class_name',
+            )
+            caller_selector = validated_selector(
+                caller_selector,
+                'caller_selector',
+            )
+            inline_selector = validated_selector(
+                inline_selector,
+                'inline_selector',
+            )
+            if ':' in inline_selector:
+                raise DomainException(
+                    'inline_selector must be a unary selector.'
+                )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
+            delete_inlined_method = validated_boolean_like(
+                delete_inlined_method,
+                'delete_inlined_method',
+            )
+            result = browser_session.apply_method_inline(
+                class_name,
+                show_instance_side,
+                caller_selector,
+                inline_selector,
+                delete_inlined_method=delete_inlined_method,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'show_instance_side': show_instance_side,
+                'caller_selector': caller_selector,
+                'inline_selector': inline_selector,
+                'delete_inlined_method': delete_inlined_method,
                 'result': result,
             }
         except GemstoneError as error:
