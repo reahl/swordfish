@@ -1042,6 +1042,39 @@ def test_live_gs_compile_method_returns_ok(live_connection):
 
 
 @with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_compile_method_accepts_false_string_for_class_side(
+    live_connection,
+):
+    class_name = 'McpCompileClassSide%s' % uuid.uuid4().hex[:8]
+    selector = 'mcpClassSide%s' % uuid.uuid4().hex[:8]
+    source = '%s ^123' % selector
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+        superclass_name='Object',
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        source,
+        'false',
+    )
+    assert compile_result['ok'], compile_result
+    assert compile_result['show_instance_side'] is False
+    class_source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        class_name,
+        selector,
+        'false',
+    )
+    assert class_source_result['ok'], class_source_result
+    assert selector in class_source_result['source']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
 def test_live_gs_get_class_definition_reports_expected_values(live_connection):
     class_name = 'McpDefinitionClass%s' % uuid.uuid4().hex[:8]
     begin_result = live_connection.gs_begin(live_connection.connection_id)

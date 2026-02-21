@@ -351,6 +351,12 @@ class AllowedToolsWithActiveTransactionFixture(Fixture):
     def new_gs_collect_sender_evidence(self):
         return self.registered_mcp_tools['gs_collect_sender_evidence']
 
+    def new_gs_list_methods(self):
+        return self.registered_mcp_tools['gs_list_methods']
+
+    def new_gs_compile_method(self):
+        return self.registered_mcp_tools['gs_compile_method']
+
     def new_gs_apply_selector_rename(self):
         return self.registered_mcp_tools['gs_apply_selector_rename']
 
@@ -1066,6 +1072,34 @@ def test_gs_find_senders_validates_count_only_flag(tools_fixture):
     )
     assert not senders_result['ok']
     assert senders_result['error']['message'] == 'count_only must be a boolean.'
+
+
+@with_fixtures(AllowedToolsWithActiveTransactionFixture)
+def test_gs_list_methods_validates_show_instance_side_flag(tools_fixture):
+    methods_result = tools_fixture.gs_list_methods(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'all',
+        'neither',
+    )
+    assert not methods_result['ok']
+    assert methods_result['error']['message'] == (
+        'show_instance_side must be a boolean.'
+    )
+
+
+@with_fixtures(AllowedToolsWithActiveTransactionFixture)
+def test_gs_compile_method_validates_show_instance_side_flag(tools_fixture):
+    compile_result = tools_fixture.gs_compile_method(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'exampleSelector ^1',
+        'neither',
+    )
+    assert not compile_result['ok']
+    assert compile_result['error']['message'] == (
+        'show_instance_side must be a boolean.'
+    )
 
 
 @with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
