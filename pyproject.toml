@@ -44,6 +44,7 @@ mcp = [
 test = [
     "reahl-tofu",
     "setuptools<81",
+    "pytest-xvfb",
 ]
 
 [tool.setuptools.packages.find]

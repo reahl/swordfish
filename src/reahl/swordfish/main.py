@@ -31,6 +31,7 @@ class GemstoneSessionRecord:
         
     def select_instance_side(self, show_instance_side):
         self.show_instance_side = show_instance_side
+        self.select_method_category(None)
 
     def select_class(self, selected_class):
         self.selected_class = selected_class
@@ -178,6 +179,15 @@ class GemstoneSessionRecord:
 
     def run_code(self, source):
         return self.gemstone_browser_session.run_code(source)
+
+    def run_gemstone_tests(self, class_name):
+        return self.gemstone_browser_session.run_gemstone_tests(class_name)
+
+    def run_test_method(self, class_name, method_selector):
+        return self.gemstone_browser_session.run_test_method(class_name, method_selector)
+
+    def debug_test_method(self, class_name, method_selector):
+        return self.gemstone_browser_session.debug_test_method(class_name, method_selector)
     # except GemstoneError as e:
     #     try:
     #         e.context.gciStepOverFromLevel(1)
@@ -527,7 +537,7 @@ class Swordfish(tk.Tk):
         self.notebook.add(self.debugger_tab, text="Debugger")
 
     def select_debugger_tab(self):
-        pass
+        self.notebook.select(self.debugger_tab)
         # if self.debugger_tab:
         #     self.notebook.select(self.debugger_tab)
         #     self.debugger_tab.top_frame.lift()
@@ -630,6 +640,15 @@ class FramedWidget(ttk.Frame):
     def destroy(self):
         super().destroy()
         self.event_queue.clear_subscribers(self)
+
+    def show_test_result(self, result):
+        if result['has_passed']:
+            messagebox.showinfo('Test Result', f"Passed ({result['run_count']} run)")
+        else:
+            lines = [f"Failures: {result['failure_count']}, Errors: {result['error_count']}"]
+            lines.extend(result['failures'])
+            lines.extend(result['errors'])
+            messagebox.showerror('Test Result', '\n'.join(lines))
 
 class InteractiveSelectionList(ttk.Frame):
     def __init__(self, parent, get_all_entries, get_selected_entry, set_selected_to):
@@ -780,6 +799,8 @@ class ClassSelection(FramedWidget):
         self.event_queue.subscribe('Aborted', self.repopulate)
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
 
+        self.selection_list.selection_listbox.bind('<Button-3>', self.show_context_menu)
+
     def switch_side(self):
         self.gemstone_session_record.select_instance_side(self.show_instance_side)
         self.event_queue.publish('SelectedClassChanged')
@@ -830,6 +851,26 @@ class ClassSelection(FramedWidget):
     def select_class(self, selected_class):
         self.gemstone_session_record.select_class(selected_class)
         self.event_queue.publish('SelectedClassChanged', origin=self)
+
+    def show_context_menu(self, event):
+        idx = self.selection_list.selection_listbox.nearest(event.y)
+        self.selection_list.selection_listbox.selection_clear(0, 'end')
+        self.selection_list.selection_listbox.selection_set(idx)
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label='Run All Tests', command=self.run_all_tests)
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def run_all_tests(self):
+        listbox = self.selection_list.selection_listbox
+        selection = listbox.curselection()
+        if not selection:
+            return
+        class_name = listbox.get(selection[0])
+        try:
+            result = self.gemstone_session_record.run_gemstone_tests(class_name)
+            self.show_test_result(result)
+        except GemstoneError as e:
+            self.browser_window.application.open_debugger(e)
 
                     
 class CategorySelection(FramedWidget):        
@@ -901,6 +942,8 @@ class MethodSelection(FramedWidget):
         self.event_queue.subscribe('MethodSelected', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
 
+        self.selection_list.selection_listbox.bind('<Button-3>', self.show_context_menu)
+
     def populate_text_editor(self, event):
         selected_listbox = event.widget
         try:
@@ -927,6 +970,40 @@ class MethodSelection(FramedWidget):
     def select_method(self, selected_method):
         self.gemstone_session_record.select_method_symbol(selected_method)
         self.event_queue.publish('MethodSelected', origin=self)
+
+    def show_context_menu(self, event):
+        idx = self.selection_list.selection_listbox.nearest(event.y)
+        self.selection_list.selection_listbox.selection_clear(0, 'end')
+        self.selection_list.selection_listbox.selection_set(idx)
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label='Run Test', command=self.run_test)
+        menu.add_command(label='Debug Test', command=self.debug_test)
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def run_test(self):
+        listbox = self.selection_list.selection_listbox
+        selection = listbox.curselection()
+        if not selection:
+            return
+        class_name = self.gemstone_session_record.selected_class
+        method_selector = listbox.get(selection[0])
+        try:
+            result = self.gemstone_session_record.run_test_method(class_name, method_selector)
+            self.show_test_result(result)
+        except GemstoneError as e:
+            self.browser_window.application.open_debugger(e)
+
+    def debug_test(self):
+        listbox = self.selection_list.selection_listbox
+        selection = listbox.curselection()
+        if not selection:
+            return
+        class_name = self.gemstone_session_record.selected_class
+        method_selector = listbox.get(selection[0])
+        try:
+            self.gemstone_session_record.debug_test_method(class_name, method_selector)
+        except GemstoneError as e:
+            self.browser_window.application.open_debugger(e)
 
         
 class MethodEditor(FramedWidget):
@@ -1203,10 +1280,8 @@ class ObjectInspector(ttk.Frame):
         super().__init__(parent)
 
         if not values:
-            values = {}
-            for instvar_name in an_object.gemstone_class().allInstVarNames():
-                values[instvar_name.to_py] = an_object.instVarNamed(instvar_name)
-        
+            values = self.inspect_object(an_object)
+
         # Keep a list of actual value objects
         self.actual_values = []
 
@@ -1229,14 +1304,67 @@ class ObjectInspector(ttk.Frame):
         # Bind double-click event to add new tab
         self.treeview.bind("<Double-1>", self.on_item_double_click)
 
+    def inspect_object(self, an_object):
+        try:
+            is_class = an_object.isBehavior().to_py
+        except GemstoneError:
+            is_class = False
+        if is_class:
+            return self.inspect_class(an_object)
+        return self.inspect_instance(an_object)
+
+    def inspect_instance(self, an_object):
+        # AI: Regular instances expose their instance variables via instVarNamed:.
+        values = {}
+        for i, instvar_name in enumerate(an_object.gemstone_class().allInstVarNames(), start=1):
+            try:
+                values[instvar_name.to_py] = an_object.instVarNamed(instvar_name)
+            except GemstoneError:
+                try:
+                    # AI: Fall back to indexed access for objects that understand instVarAt:
+                    # but not instVarNamed: (e.g. VariableContext, some built-in types).
+                    values[instvar_name.to_py] = an_object.instVarAt(i)
+                except GemstoneError:
+                    pass
+        return values
+
+    def inspect_class(self, an_object):
+        # AI: For class objects, show class variables (shared among all instances)
+        # and any class-side instance variables.
+        values = {}
+        try:
+            class_pool = an_object.classPool()
+            for key in class_pool.keys():
+                try:
+                    values[key.to_py] = class_pool.at(key)
+                except GemstoneError:
+                    pass
+        except GemstoneError:
+            pass
+        for i, instvar_name in enumerate(an_object.gemstone_class().allInstVarNames(), start=1):
+            try:
+                values[instvar_name.to_py] = an_object.instVarAt(i)
+            except GemstoneError:
+                pass
+        return values
+
     def on_item_double_click(self, event):
         selected_item = self.treeview.focus()
         if selected_item:
             index = self.treeview.index(selected_item)
-            value = self.actual_values[index]  # Fetch the actual value from the list
-            if hasattr(value, 'gemstone_class') and hasattr(value, 'allInstVarNames'):
+            value = self.actual_values[index]
+            tab_label = f"Inspector: {self.treeview.item(selected_item, 'values')[0]}"
+            for tab_id in self.master.tabs():
+                if self.master.tab(tab_id, 'text') == tab_label:
+                    self.master.select(tab_id)
+                    return
+            try:
                 new_tab = ObjectInspector(self.master, an_object=value)
-                self.master.add(new_tab, text=f"Inspector: {self.treeview.item(selected_item, 'values')[0]}")                
+            except GemstoneError as e:
+                messagebox.showerror('Inspector', f'Cannot inspect this object:\n{e}')
+                return
+            self.master.add(new_tab, text=tab_label)
+            self.master.select(new_tab)                
 
 
 
