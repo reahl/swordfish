@@ -80,6 +80,24 @@ class RestrictedToolsFixture(Fixture):
     def new_gs_apply_rename_method(self):
         return self.registered_mcp_tools['gs_apply_rename_method']
 
+    def new_gs_preview_move_method(self):
+        return self.registered_mcp_tools['gs_preview_move_method']
+
+    def new_gs_apply_move_method(self):
+        return self.registered_mcp_tools['gs_apply_move_method']
+
+    def new_gs_preview_add_parameter(self):
+        return self.registered_mcp_tools['gs_preview_add_parameter']
+
+    def new_gs_apply_add_parameter(self):
+        return self.registered_mcp_tools['gs_apply_add_parameter']
+
+    def new_gs_preview_remove_parameter(self):
+        return self.registered_mcp_tools['gs_preview_remove_parameter']
+
+    def new_gs_apply_remove_parameter(self):
+        return self.registered_mcp_tools['gs_apply_remove_parameter']
+
     def new_gs_global_set(self):
         return self.registered_mcp_tools['gs_global_set']
 
@@ -213,6 +231,24 @@ class AllowedToolsFixture(Fixture):
     def new_gs_apply_rename_method(self):
         return self.registered_mcp_tools['gs_apply_rename_method']
 
+    def new_gs_preview_move_method(self):
+        return self.registered_mcp_tools['gs_preview_move_method']
+
+    def new_gs_apply_move_method(self):
+        return self.registered_mcp_tools['gs_apply_move_method']
+
+    def new_gs_preview_add_parameter(self):
+        return self.registered_mcp_tools['gs_preview_add_parameter']
+
+    def new_gs_apply_add_parameter(self):
+        return self.registered_mcp_tools['gs_apply_add_parameter']
+
+    def new_gs_preview_remove_parameter(self):
+        return self.registered_mcp_tools['gs_preview_remove_parameter']
+
+    def new_gs_apply_remove_parameter(self):
+        return self.registered_mcp_tools['gs_apply_remove_parameter']
+
     def new_gs_global_set(self):
         return self.registered_mcp_tools['gs_global_set']
 
@@ -324,6 +360,24 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
     def new_gs_apply_rename_method(self):
         return self.registered_mcp_tools['gs_apply_rename_method']
 
+    def new_gs_preview_move_method(self):
+        return self.registered_mcp_tools['gs_preview_move_method']
+
+    def new_gs_apply_move_method(self):
+        return self.registered_mcp_tools['gs_apply_move_method']
+
+    def new_gs_preview_add_parameter(self):
+        return self.registered_mcp_tools['gs_preview_add_parameter']
+
+    def new_gs_apply_add_parameter(self):
+        return self.registered_mcp_tools['gs_apply_add_parameter']
+
+    def new_gs_preview_remove_parameter(self):
+        return self.registered_mcp_tools['gs_preview_remove_parameter']
+
+    def new_gs_apply_remove_parameter(self):
+        return self.registered_mcp_tools['gs_apply_remove_parameter']
+
     def new_gs_find_implementors(self):
         return self.registered_mcp_tools['gs_find_implementors']
 
@@ -420,6 +474,15 @@ class AllowedToolsWithActiveTransactionFixture(Fixture):
     def new_gs_apply_rename_method(self):
         return self.registered_mcp_tools['gs_apply_rename_method']
 
+    def new_gs_apply_move_method(self):
+        return self.registered_mcp_tools['gs_apply_move_method']
+
+    def new_gs_apply_add_parameter(self):
+        return self.registered_mcp_tools['gs_apply_add_parameter']
+
+    def new_gs_apply_remove_parameter(self):
+        return self.registered_mcp_tools['gs_apply_remove_parameter']
+
 
 class AllowedToolsWithTracingDisabledFixture(Fixture):
     def new_registered_mcp_tools(self):
@@ -507,6 +570,21 @@ def test_gs_capabilities_navigation_includes_method_semantic_tools(
 
 
 @with_fixtures(AllowedToolsFixture)
+def test_gs_capabilities_refactor_includes_move_method_tools(
+    tools_fixture,
+):
+    capabilities_result = tools_fixture.gs_capabilities()
+    assert capabilities_result['ok'], capabilities_result
+    refactor_tools = capabilities_result['tool_groups']['refactor']
+    assert 'gs_preview_move_method' in refactor_tools
+    assert 'gs_apply_move_method' in refactor_tools
+    assert 'gs_preview_add_parameter' in refactor_tools
+    assert 'gs_apply_add_parameter' in refactor_tools
+    assert 'gs_preview_remove_parameter' in refactor_tools
+    assert 'gs_apply_remove_parameter' in refactor_tools
+
+
+@with_fixtures(AllowedToolsFixture)
 def test_gs_guidance_validates_intent(tools_fixture):
     guidance_result = tools_fixture.gs_guidance('unknown_intent')
     assert not guidance_result['ok']
@@ -551,6 +629,48 @@ def test_gs_guidance_refactor_rename_method_recommends_method_tools(
     workflow = guidance_result['guidance']['workflow']
     assert workflow[0]['tools'] == ['gs_preview_rename_method']
     assert workflow[2]['tools'][0] == 'gs_apply_rename_method'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_guidance_refactor_move_method_recommends_move_tools(
+    tools_fixture,
+):
+    guidance_result = tools_fixture.gs_guidance(
+        'refactor',
+        change_kind='move_method',
+    )
+    assert guidance_result['ok'], guidance_result
+    workflow = guidance_result['guidance']['workflow']
+    assert workflow[0]['tools'] == ['gs_preview_move_method']
+    assert workflow[2]['tools'][0] == 'gs_apply_move_method'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_guidance_refactor_add_parameter_recommends_parameter_tools(
+    tools_fixture,
+):
+    guidance_result = tools_fixture.gs_guidance(
+        'refactor',
+        change_kind='add_parameter',
+    )
+    assert guidance_result['ok'], guidance_result
+    workflow = guidance_result['guidance']['workflow']
+    assert workflow[0]['tools'] == ['gs_preview_add_parameter']
+    assert workflow[2]['tools'][0] == 'gs_apply_add_parameter'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_guidance_refactor_remove_parameter_recommends_parameter_tools(
+    tools_fixture,
+):
+    guidance_result = tools_fixture.gs_guidance(
+        'refactor',
+        change_kind='remove_parameter',
+    )
+    assert guidance_result['ok'], guidance_result
+    workflow = guidance_result['guidance']['workflow']
+    assert workflow[0]['tools'] == ['gs_preview_remove_parameter']
+    assert workflow[2]['tools'][0] == 'gs_apply_remove_parameter'
 
 
 @with_fixtures(RestrictedToolsFixture)
@@ -842,6 +962,53 @@ def test_gs_apply_rename_method_is_disabled_by_default(tools_fixture):
 
 
 @with_fixtures(RestrictedToolsFixture)
+def test_gs_apply_move_method_is_disabled_by_default(tools_fixture):
+    move_result = tools_fixture.gs_apply_move_method(
+        'missing-connection-id',
+        'SourceClass',
+        'someSelector',
+        'TargetClass',
+    )
+    assert not move_result['ok']
+    assert move_result['error']['message'] == (
+        'gs_apply_move_method is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_apply_add_parameter_is_disabled_by_default(tools_fixture):
+    add_result = tools_fixture.gs_apply_add_parameter(
+        'missing-connection-id',
+        'ExampleClass',
+        'oldSelector:with:',
+        'timeout:',
+        'timeout',
+        '30',
+    )
+    assert not add_result['ok']
+    assert add_result['error']['message'] == (
+        'gs_apply_add_parameter is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_apply_remove_parameter_is_disabled_by_default(tools_fixture):
+    remove_result = tools_fixture.gs_apply_remove_parameter(
+        'missing-connection-id',
+        'ExampleClass',
+        'oldSelector:with:timeout:',
+        'timeout:',
+    )
+    assert not remove_result['ok']
+    assert remove_result['error']['message'] == (
+        'gs_apply_remove_parameter is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
 def test_gs_debug_eval_is_disabled_by_default(tools_fixture):
     debug_eval_result = tools_fixture.gs_debug_eval(
         'missing-connection-id',
@@ -1021,6 +1188,46 @@ def test_gs_preview_rename_method_checks_connection(tools_fixture):
         'ExampleClass',
         'oldSelector',
         'newSelector',
+        True,
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_preview_move_method_checks_connection(tools_fixture):
+    preview_result = tools_fixture.gs_preview_move_method(
+        'missing-connection-id',
+        'SourceClass',
+        'someSelector',
+        'TargetClass',
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_preview_add_parameter_checks_connection(tools_fixture):
+    preview_result = tools_fixture.gs_preview_add_parameter(
+        'missing-connection-id',
+        'ExampleClass',
+        'oldSelector:with:',
+        'timeout:',
+        'timeout',
+        '30',
+        True,
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_preview_remove_parameter_checks_connection(tools_fixture):
+    preview_result = tools_fixture.gs_preview_remove_parameter(
+        'missing-connection-id',
+        'ExampleClass',
+        'oldSelector:with:timeout:',
+        'timeout:',
         True,
     )
     assert not preview_result['ok']
@@ -1221,6 +1428,46 @@ def test_gs_apply_rename_method_checks_connection(tools_fixture):
 
 
 @with_fixtures(AllowedToolsFixture)
+def test_gs_apply_move_method_checks_connection(tools_fixture):
+    move_result = tools_fixture.gs_apply_move_method(
+        'missing-connection-id',
+        'SourceClass',
+        'someSelector',
+        'TargetClass',
+    )
+    assert not move_result['ok']
+    assert move_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_apply_add_parameter_checks_connection(tools_fixture):
+    add_result = tools_fixture.gs_apply_add_parameter(
+        'missing-connection-id',
+        'ExampleClass',
+        'oldSelector:with:',
+        'timeout:',
+        'timeout',
+        '30',
+        True,
+    )
+    assert not add_result['ok']
+    assert add_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_apply_remove_parameter_checks_connection(tools_fixture):
+    remove_result = tools_fixture.gs_apply_remove_parameter(
+        'missing-connection-id',
+        'ExampleClass',
+        'oldSelector:with:timeout:',
+        'timeout:',
+        True,
+    )
+    assert not remove_result['ok']
+    assert remove_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
 def test_gs_global_set_checks_connection(tools_fixture):
     set_result = tools_fixture.gs_global_set(
         'missing-connection-id',
@@ -1383,6 +1630,172 @@ def test_gs_preview_rename_method_validates_show_instance_side_flag(
     assert not preview_result['ok']
     assert preview_result['error']['message'] == (
         'show_instance_side must be a boolean.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_preview_move_method_validates_show_instance_side_flags(
+    tools_fixture,
+):
+    preview_result = tools_fixture.gs_preview_move_method(
+        tools_fixture.connection_id,
+        'SourceClass',
+        'someSelector',
+        'TargetClass',
+        'neither',
+        True,
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == (
+        'source_show_instance_side must be a boolean.'
+    )
+    preview_result = tools_fixture.gs_preview_move_method(
+        tools_fixture.connection_id,
+        'SourceClass',
+        'someSelector',
+        'TargetClass',
+        True,
+        'neither',
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == (
+        'target_show_instance_side must be a boolean.'
+    )
+
+
+@with_fixtures(AllowedToolsWithActiveTransactionFixture)
+def test_gs_apply_move_method_validates_boolean_flags(
+    tools_fixture,
+):
+    move_result = tools_fixture.gs_apply_move_method(
+        tools_fixture.connection_id,
+        'SourceClass',
+        'someSelector',
+        'TargetClass',
+        True,
+        True,
+        'neither',
+        True,
+    )
+    assert not move_result['ok']
+    assert move_result['error']['message'] == (
+        'overwrite_target_method must be a boolean.'
+    )
+    move_result = tools_fixture.gs_apply_move_method(
+        tools_fixture.connection_id,
+        'SourceClass',
+        'someSelector',
+        'TargetClass',
+        True,
+        True,
+        True,
+        'neither',
+    )
+    assert not move_result['ok']
+    assert move_result['error']['message'] == (
+        'delete_source_method must be a boolean.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_preview_add_parameter_validates_keyword_and_side(
+    tools_fixture,
+):
+    preview_result = tools_fixture.gs_preview_add_parameter(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'oldSelector',
+        'timeout:',
+        'timeout',
+        '30',
+        True,
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == (
+        'method_selector must be a keyword selector.'
+    )
+    preview_result = tools_fixture.gs_preview_add_parameter(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'oldSelector:with:',
+        'timeout',
+        'timeout',
+        '30',
+        True,
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == (
+        'parameter_keyword must be a keyword token ending in : '
+        '(example: timeout:).'
+    )
+    preview_result = tools_fixture.gs_preview_add_parameter(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'oldSelector:with:',
+        'timeout:',
+        'timeout',
+        '30',
+        'neither',
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == (
+        'show_instance_side must be a boolean.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_preview_remove_parameter_validates_keyword_and_side(
+    tools_fixture,
+):
+    preview_result = tools_fixture.gs_preview_remove_parameter(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'oldSelector',
+        'timeout:',
+        True,
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == (
+        'method_selector must be a keyword selector.'
+    )
+    preview_result = tools_fixture.gs_preview_remove_parameter(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'oldSelector:with:timeout:',
+        'timeout',
+        True,
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == (
+        'parameter_keyword must be a keyword token ending in : '
+        '(example: timeout:).'
+    )
+    preview_result = tools_fixture.gs_preview_remove_parameter(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'oldSelector:with:timeout:',
+        'timeout:',
+        'neither',
+    )
+    assert not preview_result['ok']
+    assert preview_result['error']['message'] == (
+        'show_instance_side must be a boolean.'
+    )
+
+
+@with_fixtures(AllowedToolsWithActiveTransactionFixture)
+def test_gs_apply_remove_parameter_validates_boolean_flags(tools_fixture):
+    remove_result = tools_fixture.gs_apply_remove_parameter(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'oldSelector:with:timeout:',
+        'timeout:',
+        True,
+        'neither',
+    )
+    assert not remove_result['ok']
+    assert remove_result['error']['message'] == (
+        'overwrite_new_method must be a boolean.'
     )
 
 
@@ -1643,6 +2056,61 @@ def test_write_tools_require_active_transaction_for_method_rename(
     )
     assert not rename_result['ok']
     assert rename_result['error']['message'] == (
+        'No active transaction. '
+        'Call gs_begin before write operations.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_write_tools_require_active_transaction_for_method_move(
+    tools_fixture,
+):
+    move_result = tools_fixture.gs_apply_move_method(
+        tools_fixture.connection_id,
+        'SourceClass',
+        'someSelector',
+        'TargetClass',
+    )
+    assert not move_result['ok']
+    assert move_result['error']['message'] == (
+        'No active transaction. '
+        'Call gs_begin before write operations.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_write_tools_require_active_transaction_for_add_parameter(
+    tools_fixture,
+):
+    add_result = tools_fixture.gs_apply_add_parameter(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'oldSelector:with:',
+        'timeout:',
+        'timeout',
+        '30',
+        True,
+    )
+    assert not add_result['ok']
+    assert add_result['error']['message'] == (
+        'No active transaction. '
+        'Call gs_begin before write operations.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_write_tools_require_active_transaction_for_remove_parameter(
+    tools_fixture,
+):
+    remove_result = tools_fixture.gs_apply_remove_parameter(
+        tools_fixture.connection_id,
+        'ExampleClass',
+        'oldSelector:with:timeout:',
+        'timeout:',
+        True,
+    )
+    assert not remove_result['ok']
+    assert remove_result['error']['message'] == (
         'No active transaction. '
         'Call gs_begin before write operations.'
     )

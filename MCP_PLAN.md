@@ -112,6 +112,12 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - `gs_method_structure_summary`
 - `gs_preview_rename_method`
 - `gs_apply_rename_method`
+- `gs_preview_move_method`
+- `gs_apply_move_method`
+- `gs_preview_add_parameter`
+- `gs_apply_add_parameter`
+- `gs_preview_remove_parameter`
+- `gs_apply_remove_parameter`
 
 ## MCP Tool Set (Planned Semantic + Refactoring Additions)
 
@@ -166,7 +172,7 @@ Common refactoring tools:
 - Phase 2: completed
 - Phase 3: completed for targeted selector rename + debugger operations
 - Phase 4: completed
-- Phase 5: in progress (semantic kickoff + method AST added)
+- Phase 5: in progress (semantic + refactoring suite in progress)
 
 ## Testing Approach
 
@@ -231,8 +237,12 @@ Common refactoring tools:
 - added `gs_method_structure_summary` for lightweight structural counts (blocks, assignments, sends, cascades, returns).
 - expanded unary/binary send analysis beyond explicit `self`/`super` to include common expression receivers and cascade sends (heuristic).
 - delivered first class-scoped method rename pair: `gs_preview_rename_method` / `gs_apply_rename_method`.
+- delivered first class-scoped method move pair: `gs_preview_move_method` / `gs_apply_move_method`.
+- delivered first class-scoped add-parameter pair: `gs_preview_add_parameter` / `gs_apply_add_parameter` (compatibility-wrapper strategy).
+- delivered first class-scoped remove-parameter pair: `gs_preview_remove_parameter` / `gs_apply_remove_parameter` (compatibility-wrapper strategy when removed argument is unused).
 
 ## Next Implementation Step
 
 Phase 5 semantic analysis kickoff:
-1. Expand to extract/inline/parameter and move-method workflows.
+1. Expand to extract/inline workflows.
+2. Add remove-parameter caller rewrites as an optional follow-up mode.

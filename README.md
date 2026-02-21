@@ -125,6 +125,12 @@ For method-level semantic navigation, use `gs_method_ast`,
 structure, send sites, and structural counts.
 For class-scoped method renames, use `gs_preview_rename_method` and
 `gs_apply_rename_method` instead of a global selector rename.
+For class-scoped method moves, use `gs_preview_move_method` before
+`gs_apply_move_method`, and review sender warnings before deleting the source.
+For class-scoped parameter addition with compatibility forwarding, use
+`gs_preview_add_parameter` then `gs_apply_add_parameter`.
+For class-scoped parameter removal with compatibility forwarding, use
+`gs_preview_remove_parameter` then `gs_apply_remove_parameter`.
 For optional tracer installation, use `gs_tracer_install` and verify with
 `gs_tracer_status` before enabling via `gs_tracer_enable`.
 For runtime caller evidence, use `gs_tracer_trace_selector`, run your tests,
@@ -163,6 +169,12 @@ The server identifies itself as `SwordfishMCP` and currently supports:
 - `gs_method_structure_summary`
 - `gs_preview_rename_method`
 - `gs_apply_rename_method`
+- `gs_preview_move_method`
+- `gs_apply_move_method`
+- `gs_preview_add_parameter`
+- `gs_apply_add_parameter`
+- `gs_preview_remove_parameter`
+- `gs_apply_remove_parameter`
 - `gs_tracer_status`
 - `gs_tracer_install`
 - `gs_tracer_enable`
