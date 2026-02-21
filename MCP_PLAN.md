@@ -215,6 +215,10 @@ Common refactoring tools:
 - `gs_capabilities` reports active policy flags and tool groups.
 - `gs_guidance` provides intent-based workflow and decision rules so new AI sessions can self-bootstrap safely.
 
+10. Phase 4 hardening progress:
+- added selector rename coverage for multiline keyword send layouts and cascaded sends.
+- added a longer live guided refactor workflow test that bootstraps via `gs_capabilities`/`gs_guidance`, performs preview/apply rename, and validates via test execution.
+
 ## Next Implementation Step
 
 Phase 4 hardening:

@@ -131,6 +131,12 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_transaction_status(self):
         return self.registered_mcp_tools['gs_transaction_status']
 
+    def new_gs_capabilities(self):
+        return self.registered_mcp_tools['gs_capabilities']
+
+    def new_gs_guidance(self):
+        return self.registered_mcp_tools['gs_guidance']
+
     def new_gs_begin_if_needed(self):
         return self.registered_mcp_tools['gs_begin_if_needed']
 
@@ -1452,6 +1458,148 @@ def test_live_gs_apply_selector_rename_for_keyword_selector(
     assert sender_source_result['ok'], sender_source_result
     assert 'newSelector:' in sender_source_result['source']
     assert 'oldSelector:' not in sender_source_result['source']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_apply_selector_rename_for_multiline_keyword_send_in_cascade(
+    live_connection,
+):
+    class_name = 'McpRenameCascadeClass%s' % uuid.uuid4().hex[:8]
+    old_selector = 'oldSelector:with:'
+    new_selector = 'newSelector:and:'
+    sender_selector = 'callsOldCascade%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    implementor_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'oldSelector: a with: b ^a + b',
+        True,
+    )
+    assert implementor_compile_result['ok'], implementor_compile_result
+    sender_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        (
+            '%s\n'
+            '    | value |\n'
+            '    value := self\n'
+            '        oldSelector: 1\n'
+            '        with: 2;\n'
+            '        yourself.\n'
+            '    ^value'
+        )
+        % sender_selector,
+        True,
+    )
+    assert sender_compile_result['ok'], sender_compile_result
+    apply_result = live_connection.gs_apply_selector_rename(
+        live_connection.connection_id,
+        old_selector,
+        new_selector,
+    )
+    assert apply_result['ok'], apply_result
+    sender_source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        class_name,
+        sender_selector,
+        True,
+    )
+    assert sender_source_result['ok'], sender_source_result
+    assert 'newSelector: 1' in sender_source_result['source']
+    assert 'and: 2;' in sender_source_result['source']
+    assert 'oldSelector:' not in sender_source_result['source']
+    assert 'yourself' in sender_source_result['source']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_guided_refactor_workflow_runs_end_to_end(live_connection):
+    class_name = 'McpGuidedWorkflowClass%s' % uuid.uuid4().hex[:8]
+    old_selector = 'oldSelector:with:'
+    new_selector = 'newSelector:and:'
+    caller_selector = 'calculateTotal%s' % uuid.uuid4().hex[:8]
+    test_selector = 'testGuidedRename%s' % uuid.uuid4().hex[:8]
+    capabilities_result = live_connection.gs_capabilities()
+    assert capabilities_result['ok'], capabilities_result
+    assert capabilities_result['policy']['allow_compile']
+    guidance_result = live_connection.gs_guidance(
+        'refactor',
+        selector=old_selector,
+        change_kind='rename_selector',
+    )
+    assert guidance_result['ok'], guidance_result
+    assert guidance_result['guidance']['intent'] == 'refactor'
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_test_case_result = live_connection.gs_create_test_case_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_test_case_result['ok'], create_test_case_result
+    implementor_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        'oldSelector: left with: right ^left + right',
+        True,
+    )
+    assert implementor_compile_result['ok'], implementor_compile_result
+    caller_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s ^self oldSelector: 1 with: 2' % caller_selector,
+        True,
+    )
+    assert caller_compile_result['ok'], caller_compile_result
+    test_compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        (
+            '%s\n'
+            '    self assert: (self %s) equals: 3'
+        )
+        % (
+            test_selector,
+            caller_selector,
+        ),
+        True,
+    )
+    assert test_compile_result['ok'], test_compile_result
+    preview_result = live_connection.gs_preview_selector_rename(
+        live_connection.connection_id,
+        old_selector,
+        new_selector,
+    )
+    assert preview_result['ok'], preview_result
+    assert preview_result['preview']['total_changes'] >= 2
+    apply_result = live_connection.gs_apply_selector_rename(
+        live_connection.connection_id,
+        old_selector,
+        new_selector,
+    )
+    assert apply_result['ok'], apply_result
+    caller_source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        class_name,
+        caller_selector,
+        True,
+    )
+    assert caller_source_result['ok'], caller_source_result
+    assert 'newSelector: 1 and: 2' in caller_source_result['source']
+    run_test_result = live_connection.gs_run_test_method(
+        live_connection.connection_id,
+        class_name,
+        test_selector,
+    )
+    assert run_test_result['ok'], run_test_result
+    assert run_test_result['tests_passed']
+    assert run_test_result['result']['run_count'] == 1
+    assert run_test_result['result']['failure_count'] == 0
+    assert run_test_result['result']['error_count'] == 0
 
 
 @with_fixtures(LiveMcpConnectionFixture)
