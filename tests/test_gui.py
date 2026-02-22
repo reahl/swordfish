@@ -107,6 +107,28 @@ class SwordfishGuiFixture(Fixture):
             method,
         )
 
+    def open_text_context_menu_for_tab(self, tab):
+        menu_event = types.SimpleNamespace(
+            x=1,
+            y=1,
+            x_root=1,
+            y_root=1,
+        )
+        tab.code_panel.open_text_menu(menu_event)
+        self.root.update()
+        return tab.code_panel.current_context_menu
+
+    def invoke_menu_command(self, menu, label):
+        entry_count = int(menu.index('end')) + 1
+        for entry_index in range(entry_count):
+            if menu.type(entry_index) != 'command':
+                continue
+            if menu.entrycget(entry_index, 'label') == label:
+                menu.invoke(entry_index)
+                self.root.update()
+                return
+        raise AssertionError(f'Menu command not found: {label}')
+
 
 @with_fixtures(SwordfishGuiFixture)
 def test_selecting_package_fetches_and_shows_classes(fixture):
@@ -159,6 +181,55 @@ def test_saving_method_compiles_to_gemstone(fixture):
     tab.save()
 
     fixture.mock_browser.compile_method.assert_called_with('OrderLine', True, 'total\n    ^42')
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_text_context_menu_includes_save_and_close_for_open_tab(fixture):
+    """AI: Right-clicking in an editor text area exposes Save and Close actions for the current tab."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    command_labels = []
+    entry_count = int(menu.index('end')) + 1
+    for entry_index in range(entry_count):
+        if menu.type(entry_index) == 'command':
+            command_labels.append(menu.entrycget(entry_index, 'label'))
+
+    assert 'Save' in command_labels
+    assert 'Close' in command_labels
+    assert 'Preview Rename Method' not in command_labels
+    assert 'Preview Move Method' not in command_labels
+    assert 'Preview Add Parameter' not in command_labels
+    assert 'Preview Remove Parameter' not in command_labels
+    assert 'Preview Extract Method' not in command_labels
+    assert 'Preview Inline Method' not in command_labels
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_save_command_from_text_context_menu_compiles_to_gemstone(fixture):
+    """AI: Choosing Save from text context menu compiles the current editor contents."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+    tab.code_panel.text_editor.delete('1.0', 'end')
+    tab.code_panel.text_editor.insert('1.0', 'total\n    ^99')
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    fixture.invoke_menu_command(menu, 'Save')
+
+    fixture.mock_browser.compile_method.assert_called_with('OrderLine', True, 'total\n    ^99')
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_close_command_from_text_context_menu_closes_the_tab(fixture):
+    """AI: Choosing Close from text context menu removes the current method tab."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    fixture.invoke_menu_command(menu, 'Close')
+
+    assert ('OrderLine', True, 'total') not in fixture.browser_window.editor_area_widget.open_tabs
 
 
 @with_fixtures(SwordfishGuiFixture)

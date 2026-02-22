@@ -1414,8 +1414,6 @@ class MethodEditor(FramedWidget):
         self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=1)
 
-        # Bind right-click event to the notebook for context menu
-        self.editor_notebook.bind('<Button-3>', self.open_tab_menu_handler)
         # Bind hover event to change label bar text when the mouse moves over tabs
         self.editor_notebook.bind('<Motion>', self.on_tab_motion)
         self.editor_notebook.bind('<Leave>', self.on_tab_leave)
@@ -1436,10 +1434,7 @@ class MethodEditor(FramedWidget):
         return self.editor_notebook.nametowidget(tab_id)
 
     def open_tab_menu_handler(self, event):
-        # Identify which tab was clicked
-        tab_index = self.editor_notebook.index("@%d,%d" % (event.x, event.y))
-        tab = self.get_tab(tab_index)
-        tab.open_tab_menu(event)
+        return None
 
     def close_tab(self, tab):
         tab_id = self.open_tabs[tab.tab_key]
@@ -1631,6 +1626,17 @@ class CodePanel(tk.Frame):
             self.current_context_menu.unpost()
 
         self.current_context_menu = tk.Menu(self, tearoff=0)
+        active_editor_tab = self.active_editor_tab()
+        if active_editor_tab is not None:
+            self.current_context_menu.add_command(
+                label='Save',
+                command=self.save_current_tab,
+            )
+            self.current_context_menu.add_command(
+                label='Close',
+                command=self.close_current_tab,
+            )
+            self.current_context_menu.add_separator()
         selected_text = self.selected_text()
         if selected_text:
             self.current_context_menu.add_command(
@@ -1665,54 +1671,53 @@ class CodePanel(tk.Frame):
         )
         self.current_context_menu.add_separator()
         self.current_context_menu.add_command(
-            label='Preview Rename Method',
-            command=self.preview_method_rename,
-        )
-        self.current_context_menu.add_command(
             label='Apply Rename Method',
             command=self.apply_method_rename,
-        )
-        self.current_context_menu.add_command(
-            label='Preview Move Method',
-            command=self.preview_method_move,
         )
         self.current_context_menu.add_command(
             label='Apply Move Method',
             command=self.apply_method_move,
         )
         self.current_context_menu.add_command(
-            label='Preview Add Parameter',
-            command=self.preview_method_add_parameter,
-        )
-        self.current_context_menu.add_command(
             label='Apply Add Parameter',
             command=self.apply_method_add_parameter,
-        )
-        self.current_context_menu.add_command(
-            label='Preview Remove Parameter',
-            command=self.preview_method_remove_parameter,
         )
         self.current_context_menu.add_command(
             label='Apply Remove Parameter',
             command=self.apply_method_remove_parameter,
         )
         self.current_context_menu.add_command(
-            label='Preview Extract Method',
-            command=self.preview_method_extract,
-        )
-        self.current_context_menu.add_command(
             label='Apply Extract Method',
             command=self.apply_method_extract,
-        )
-        self.current_context_menu.add_command(
-            label='Preview Inline Method',
-            command=self.preview_method_inline,
         )
         self.current_context_menu.add_command(
             label='Apply Inline Method',
             command=self.apply_method_inline,
         )
         self.current_context_menu.post(event.x_root, event.y_root)
+
+    def active_editor_tab(self):
+        parent_widget = self.master
+        has_editor_tab_shape = (
+            parent_widget is not None
+            and hasattr(parent_widget, 'save')
+            and hasattr(parent_widget, 'method_editor')
+        )
+        if not has_editor_tab_shape:
+            return None
+        return parent_widget
+
+    def save_current_tab(self):
+        active_editor_tab = self.active_editor_tab()
+        if active_editor_tab is None:
+            return
+        active_editor_tab.save()
+
+    def close_current_tab(self):
+        active_editor_tab = self.active_editor_tab()
+        if active_editor_tab is None:
+            return
+        active_editor_tab.method_editor.close_tab(active_editor_tab)
 
     def close_context_menu(self, event):
         if self.current_context_menu:
@@ -2591,16 +2596,7 @@ class EditorTab(tk.Frame):
         self.repopulate()
 
     def open_tab_menu(self, event):
-        # If a menu is already open, unpost it first
-        if self.method_editor.current_menu:
-            self.method_editor.current_menu.unpost()
-
-        # Create a context menu for the tab
-        self.method_editor.current_menu = tk.Menu(self.browser_window, tearoff=0)
-        self.method_editor.current_menu.add_command(label="Close", command=lambda: self.method_editor.close_tab(self))
-        self.method_editor.current_menu.add_command(label="Save", command=lambda: self.save())
-
-        self.method_editor.current_menu.post(event.x_root, event.y_root)
+        return None
 
     def save(self):
         (selected_class, show_instance_side, method_symbol) = self.tab_key
