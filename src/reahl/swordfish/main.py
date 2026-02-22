@@ -1166,15 +1166,24 @@ class ClassSelection(FramedWidget):
         self.hierarchy_frame = ttk.Frame(self.classes_notebook)
         self.hierarchy_frame.grid(row=0, column=0, sticky="nsew")
         self.classes_notebook.add(self.hierarchy_frame, text='Hierarchy')
-        self.hierarchy_tree = ttk.Treeview(self.hierarchy_frame)
+        self.hierarchy_tree = ttk.Treeview(
+            self.hierarchy_frame,
+            columns=('class_category',),
+            show='tree headings',
+        )
         self.hierarchy_tree.grid(row=0, column=0, sticky='nsew')
         self.hierarchy_frame.rowconfigure(0, weight=1)
         self.hierarchy_frame.columnconfigure(0, weight=1)
-        self.hierarchy_tree.insert('', 'end', text='Root Node')
-        parent_node = self.hierarchy_tree.insert('', 'end', text='Parent Node 1')
-        self.hierarchy_tree.insert(parent_node, 'end', text='Child Node 1.1')
-        self.hierarchy_tree.insert(parent_node, 'end', text='Child Node 1.2')
+        self.hierarchy_tree.heading('#0', text='Class')
+        self.hierarchy_tree.heading('class_category', text='Class Category')
+        self.hierarchy_tree.column('#0', width=260, anchor='w')
+        self.hierarchy_tree.column('class_category', width=180, anchor='w')
+        self.hierarchy_item_by_class_name = {}
         self.hierarchy_tree.bind('<<TreeviewSelect>>', self.repopulate_categories)
+        self.classes_notebook.bind(
+            '<<NotebookTabChanged>>',
+            self.handle_classes_notebook_changed,
+        )
 
         # Add Radiobuttons for Class or Instance selection
         self.selection_var = tk.StringVar(value='instance' if self.gemstone_session_record.show_instance_side else 'class')
@@ -1223,7 +1232,6 @@ class ClassSelection(FramedWidget):
 
     def repopulate(self, origin=None):
         if origin is not self:
-            selected_package = self.gemstone_session_record.selected_package
             expected_side = (
                 'instance'
                 if self.gemstone_session_record.show_instance_side
@@ -1233,17 +1241,121 @@ class ClassSelection(FramedWidget):
                 self.syncing_side_selection = True
                 self.selection_var.set(expected_side)
                 self.syncing_side_selection = False
-            # Repopulate hierarchy_tree with new options based on the selected package
-            self.hierarchy_tree.delete(*self.hierarchy_tree.get_children())
-            # parent_node = self.hierarchy_tree.insert('', 'end', text=f'{selected_package} Parent Node 1')
-            # self.hierarchy_tree.insert(parent_node, 'end', text=f'{selected_package} Child Node 1.1')
-            # self.hierarchy_tree.insert(parent_node, 'end', text=f'{selected_package} Child Node 1.2')
-
-            # Repopulate InteractiveSelectionList with new options based on the selected package
             self.selection_list.repopulate()
+            if self.selected_tab_is_hierarchy():
+                self.refresh_hierarchy_tree()
 
-            # Always select the 'List' tab in the classes_notebook after repopulating
-            self.classes_notebook.select(self.selection_list)
+    def selected_tab_is_hierarchy(self):
+        selected_tab = self.classes_notebook.select()
+        return selected_tab == str(self.hierarchy_frame)
+
+    def handle_classes_notebook_changed(self, event):
+        if event.widget.select() == str(self.hierarchy_frame):
+            self.refresh_hierarchy_tree()
+
+    def refresh_hierarchy_tree(self):
+        self.hierarchy_tree.delete(*self.hierarchy_tree.get_children())
+        self.hierarchy_item_by_class_name = {}
+        class_names = self.get_all_classes()
+        if not class_names:
+            return
+        class_definition_by_class_name = self.class_definition_map_for_classes(
+            class_names,
+        )
+        superclass_by_class_name = {
+            class_name: class_definition.get('superclass_name')
+            for class_name, class_definition in class_definition_by_class_name.items()
+        }
+        children_by_parent_name = {}
+        for class_name, superclass_name in superclass_by_class_name.items():
+            parent_name = superclass_name
+            if superclass_name not in superclass_by_class_name:
+                parent_name = None
+            if parent_name not in children_by_parent_name:
+                children_by_parent_name[parent_name] = []
+            children_by_parent_name[parent_name].append(class_name)
+        for child_names in children_by_parent_name.values():
+            child_names.sort()
+        self.add_hierarchy_children(
+            '',
+            None,
+            children_by_parent_name,
+            class_definition_by_class_name,
+        )
+        self.reveal_selected_class_in_hierarchy()
+
+    def class_definition_map_for_classes(self, class_names):
+        class_definition_by_class_name = {}
+        classes_to_query = list(class_names)
+        while classes_to_query:
+            class_name = classes_to_query.pop()
+            if class_name not in class_definition_by_class_name:
+                class_definition = {
+                    'class_name': class_name,
+                    'superclass_name': None,
+                    'package_name': '',
+                }
+                try:
+                    fetched_class_definition = (
+                        self.gemstone_session_record.gemstone_browser_session.get_class_definition(
+                            class_name,
+                        )
+                    )
+                    class_definition.update(fetched_class_definition)
+                except GemstoneDomainException:
+                    pass
+                superclass_name = class_definition.get('superclass_name')
+                class_definition_by_class_name[class_name] = class_definition
+                if (
+                    superclass_name is not None
+                    and superclass_name not in class_definition_by_class_name
+                ):
+                    classes_to_query.append(superclass_name)
+        return class_definition_by_class_name
+
+    def add_hierarchy_children(
+        self,
+        parent_item_id,
+        parent_class_name,
+        children_by_parent_name,
+        class_definition_by_class_name,
+    ):
+        child_class_names = children_by_parent_name.get(parent_class_name, [])
+        for child_class_name in child_class_names:
+            class_definition = class_definition_by_class_name.get(
+                child_class_name,
+                {},
+            )
+            class_category = class_definition.get('package_name') or ''
+            child_item_id = self.hierarchy_tree.insert(
+                parent_item_id,
+                'end',
+                text=child_class_name,
+                values=(class_category,),
+            )
+            self.hierarchy_item_by_class_name[child_class_name] = child_item_id
+            self.add_hierarchy_children(
+                child_item_id,
+                child_class_name,
+                children_by_parent_name,
+                class_definition_by_class_name,
+            )
+
+    def reveal_selected_class_in_hierarchy(self):
+        selected_class_name = self.gemstone_session_record.selected_class
+        if not selected_class_name:
+            return
+        selected_item_id = self.hierarchy_item_by_class_name.get(selected_class_name)
+        if selected_item_id is None:
+            return
+        parent_item_id = self.hierarchy_tree.parent(selected_item_id)
+        while parent_item_id:
+            self.hierarchy_tree.item(parent_item_id, open=True)
+            parent_item_id = self.hierarchy_tree.parent(parent_item_id)
+        self.hierarchy_tree.item(selected_item_id, open=True)
+        self.hierarchy_tree.selection_set(selected_item_id)
+        self.hierarchy_tree.focus(selected_item_id)
+        self.hierarchy_tree.see(selected_item_id)
 
     def get_all_classes(self):
         selected_package = self.gemstone_session_record.selected_package
