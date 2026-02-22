@@ -395,6 +395,33 @@ def test_opening_hierarchy_tab_builds_and_expands_tree_for_selected_class(fixtur
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_method_inheritance_checkbox_shows_chain_with_class_column(fixture):
+    """AI: Enabling method inheritance view should show the selected method across its superclass chain with each class listed."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    methods_widget = fixture.browser_window.methods_widget
+    methods_widget.show_method_hierarchy_var.set(True)
+    methods_widget.toggle_method_hierarchy()
+    fixture.root.update()
+
+    tree = methods_widget.method_hierarchy_tree
+    root_item_ids = tree.get_children('')
+    assert len(root_item_ids) == 1
+    object_item = root_item_ids[0]
+    order_item_ids = tree.get_children(object_item)
+    assert len(order_item_ids) == 1
+    order_item = order_item_ids[0]
+    order_line_item_ids = tree.get_children(order_item)
+    assert len(order_line_item_ids) == 1
+    order_line_item = order_line_item_ids[0]
+
+    assert tree.item(object_item, 'text') == 'total'
+    assert tree.set(object_item, 'class_name') == 'Object'
+    assert tree.set(order_item, 'class_name') == 'Order'
+    assert tree.set(order_line_item, 'class_name') == 'OrderLine'
+    assert tree.selection() == (order_line_item,)
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_browser_window_has_four_selection_columns(fixture):
     """The browser window contains exactly four selection column widgets:
     packages, classes, categories, and methods."""

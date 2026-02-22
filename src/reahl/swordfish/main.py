@@ -1446,9 +1446,34 @@ class MethodSelection(FramedWidget):
         # Create InteractiveSelectionList for methods
         self.selection_list = InteractiveSelectionList(self, self.get_all_methods, self.get_selected_method, self.select_method)
         self.selection_list.grid(row=0, column=0, sticky="nsew")
+        self.show_method_hierarchy_var = tk.BooleanVar(value=False)
+        self.show_method_hierarchy_checkbox = tk.Checkbutton(
+            self,
+            text='Show Method Inheritance',
+            variable=self.show_method_hierarchy_var,
+            command=self.toggle_method_hierarchy,
+        )
+        self.show_method_hierarchy_checkbox.grid(row=1, column=0, sticky='w')
+        self.method_hierarchy_tree = ttk.Treeview(
+            self,
+            columns=('class_name',),
+            show='tree headings',
+        )
+        self.method_hierarchy_tree.heading('#0', text='Method')
+        self.method_hierarchy_tree.heading('class_name', text='Class')
+        self.method_hierarchy_tree.column('#0', width=220, anchor='w')
+        self.method_hierarchy_tree.column('class_name', width=180, anchor='w')
+        self.method_hierarchy_tree.grid(row=2, column=0, sticky='nsew')
+        self.method_hierarchy_tree.grid_remove()
+        self.method_hierarchy_tree.bind(
+            '<<TreeviewSelect>>',
+            self.method_hierarchy_selected,
+        )
+        self.syncing_method_hierarchy_selection = False
 
         # Configure the grid layout to expand properly
         self.rowconfigure(0, weight=1)
+        self.rowconfigure(2, weight=1)
         self.columnconfigure(0, weight=1)
 
         # Subscribe to event_queue events
@@ -1476,6 +1501,8 @@ class MethodSelection(FramedWidget):
     def repopulate(self, origin=None):
         if origin is not self:
             self.selection_list.repopulate()
+            if self.show_method_hierarchy_var.get():
+                self.refresh_method_hierarchy()
 
     def get_all_methods(self):
         return self.gemstone_session_record.get_current_methods()
@@ -1485,6 +1512,121 @@ class MethodSelection(FramedWidget):
 
     def select_method(self, selected_method):
         self.gemstone_session_record.select_method_symbol(selected_method)
+        self.event_queue.publish('MethodSelected', origin=self)
+
+    def toggle_method_hierarchy(self):
+        if self.show_method_hierarchy_var.get():
+            self.method_hierarchy_tree.grid()
+            self.refresh_method_hierarchy()
+        else:
+            self.method_hierarchy_tree.delete(
+                *self.method_hierarchy_tree.get_children(),
+            )
+            self.method_hierarchy_tree.grid_remove()
+
+    def refresh_method_hierarchy(self):
+        self.method_hierarchy_tree.delete(
+            *self.method_hierarchy_tree.get_children(),
+        )
+        inheritance_entries = self.method_inheritance_entries()
+        parent_item_id = ''
+        selected_item_id = None
+        selected_class = self.gemstone_session_record.selected_class
+        for inheritance_entry in inheritance_entries:
+            item_id = self.method_hierarchy_tree.insert(
+                parent_item_id,
+                'end',
+                text=inheritance_entry['method_selector'],
+                values=(inheritance_entry['class_name'],),
+            )
+            if inheritance_entry['class_name'] == selected_class:
+                selected_item_id = item_id
+            parent_item_id = item_id
+        if selected_item_id is None and parent_item_id:
+            selected_item_id = parent_item_id
+        if selected_item_id:
+            self.syncing_method_hierarchy_selection = True
+            self.method_hierarchy_tree.selection_set(selected_item_id)
+            self.method_hierarchy_tree.focus(selected_item_id)
+            self.method_hierarchy_tree.see(selected_item_id)
+            self.syncing_method_hierarchy_selection = False
+
+    def method_inheritance_entries(self):
+        selected_class = self.gemstone_session_record.selected_class
+        method_selector = self.gemstone_session_record.selected_method_symbol
+        show_instance_side = self.gemstone_session_record.show_instance_side
+        if not selected_class or not method_selector:
+            return []
+        superclass_chain = self.superclass_chain_for_method_inheritance(
+            selected_class,
+        )
+        inheritance_entries = []
+        for class_name in superclass_chain:
+            compiled_method = self.gemstone_session_record.get_method(
+                class_name,
+                show_instance_side,
+                method_selector,
+            )
+            if compiled_method is not None:
+                inheritance_entries.append(
+                    {
+                        'class_name': class_name,
+                        'method_selector': method_selector,
+                    },
+                )
+        return inheritance_entries
+
+    def superclass_chain_for_method_inheritance(self, class_name):
+        superclass_chain = []
+        current_class_name = class_name
+        while current_class_name:
+            superclass_chain.append(current_class_name)
+            try:
+                class_definition = (
+                    self.gemstone_session_record.gemstone_browser_session.get_class_definition(
+                        current_class_name,
+                    )
+                )
+            except GemstoneDomainException:
+                class_definition = {}
+            current_class_name = class_definition.get('superclass_name')
+        superclass_chain.reverse()
+        return superclass_chain
+
+    def method_hierarchy_selected(self, event):
+        if self.syncing_method_hierarchy_selection:
+            return
+        try:
+            selected_item_id = event.widget.selection()[0]
+        except IndexError:
+            return
+        selected_class = event.widget.set(selected_item_id, 'class_name')
+        selected_method = event.widget.item(selected_item_id, 'text')
+        if not selected_class or not selected_method:
+            return
+        show_instance_side = self.gemstone_session_record.show_instance_side
+        if self.gemstone_session_record.gemstone_session is not None:
+            self.gemstone_session_record.jump_to_method(
+                selected_class,
+                show_instance_side,
+                selected_method,
+            )
+        else:
+            selected_method_category = (
+                self.gemstone_session_record.gemstone_browser_session.get_method_category(
+                    selected_class,
+                    selected_method,
+                    show_instance_side,
+                )
+            )
+            self.gemstone_session_record.select_instance_side(show_instance_side)
+            self.gemstone_session_record.select_class(selected_class)
+            self.gemstone_session_record.select_method_category(
+                selected_method_category,
+            )
+            self.gemstone_session_record.select_method_symbol(selected_method)
+        self.event_queue.publish('SelectedClassChanged', origin=self)
+        self.event_queue.publish('SelectedCategoryChanged', origin=self)
         self.event_queue.publish('MethodSelected', origin=self)
 
     def show_context_menu(self, event):
