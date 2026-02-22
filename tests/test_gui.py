@@ -71,6 +71,31 @@ class SwordfishGuiFixture(Fixture):
         self.mock_browser.list_method_categories.return_value = ['accessing', 'testing']
         self.mock_browser.list_methods.return_value = ['total', 'description']
         self.mock_browser.get_method_category.return_value = 'accessing'
+        class_definitions = {
+            'OrderLine': {
+                'class_name': 'OrderLine',
+                'superclass_name': 'Order',
+                'package_name': 'Kernel',
+            },
+            'Order': {
+                'class_name': 'Order',
+                'superclass_name': 'Object',
+                'package_name': 'Kernel',
+            },
+            'Object': {
+                'class_name': 'Object',
+                'superclass_name': None,
+                'package_name': 'Kernel',
+            },
+        }
+
+        def get_class_definition(class_name):
+            class_definition = class_definitions.get(class_name)
+            if class_definition is None:
+                raise GemstoneDomainException('Unknown class_name.')
+            return class_definition
+
+        self.mock_browser.get_class_definition.side_effect = get_class_definition
 
         # AI: get_compiled_method returns an object whose sourceString() method
         # returns an object with a .to_py attribute (the raw Smalltalk source string).
@@ -330,6 +355,43 @@ def test_selector_for_navigation_uses_full_keyword_selector_from_selected_send_f
     resolved_selector = tab.code_panel.selector_for_navigation()
 
     assert resolved_selector == '_twoArgInstPrim:with:with:'
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_opening_hierarchy_tab_builds_and_expands_tree_for_selected_class(fixture):
+    """AI: Switching to hierarchy view should show superclass/child structure and expand to the selected class."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        'Kernel',
+    )
+    fixture.select_in_listbox(
+        fixture.browser_window.classes_widget.selection_list.selection_listbox,
+        'OrderLine',
+    )
+
+    classes_widget = fixture.browser_window.classes_widget
+    classes_widget.classes_notebook.select(classes_widget.hierarchy_frame)
+    fixture.root.update()
+
+    tree = classes_widget.hierarchy_tree
+
+    def child_with_text(parent_item, expected_text):
+        child_item_ids = tree.get_children(parent_item)
+        for child_item_id in child_item_ids:
+            if tree.item(child_item_id, 'text') == expected_text:
+                return child_item_id
+        raise AssertionError(
+            f'Could not find {expected_text} under {parent_item}.',
+        )
+
+    object_item = child_with_text('', 'Object')
+    order_item = child_with_text(object_item, 'Order')
+    order_line_item = child_with_text(order_item, 'OrderLine')
+
+    assert tree.selection() == (order_line_item,)
+    assert tree.item(object_item, 'open')
+    assert tree.item(order_item, 'open')
+    assert tree.set(order_line_item, 'class_category') == 'Kernel'
 
 
 @with_fixtures(SwordfishGuiFixture)
