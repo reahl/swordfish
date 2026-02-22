@@ -633,6 +633,35 @@ def test_debug_button_selects_debugger_tab_as_visible(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_completed_debugger_can_be_dismissed_with_close_button(fixture):
+    """AI: Once debugger execution completes, the UI should expose a close action that exits debugger mode."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+
+    dialog = RunDialog(fixture.app, source='1/0')
+    fixture.app.update()
+    dialog.debug_button.invoke()
+    fixture.app.update()
+
+    debugger_tab = fixture.app.debugger_tab
+    completed_result = Mock()
+    completed_result.asString.return_value.to_py = '42'
+    debugger_tab.finish(completed_result)
+    fixture.app.update()
+
+    assert debugger_tab.close_button.winfo_exists()
+    debugger_tab.close_button.invoke()
+    fixture.app.update()
+
+    assert fixture.app.debugger_tab is None
+    tab_labels = [
+        fixture.app.notebook.tab(tab_id, 'text')
+        for tab_id in fixture.app.notebook.tabs()
+    ]
+    assert 'Debugger' not in tab_labels
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_find_dialog_class_search_populates_result_list(fixture):
     """Searching for a class name in the FindDialog calls GemStone and
     populates the results listbox with the matching class names."""
