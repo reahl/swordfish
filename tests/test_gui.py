@@ -33,6 +33,31 @@ class FakeApplication:
         self.event_queue = event_queue
         self.gemstone_session_record = gemstone_session_record
 
+    def handle_sender_selection(self, class_name, show_instance_side, method_symbol):
+        if self.gemstone_session_record.gemstone_session is not None:
+            self.gemstone_session_record.jump_to_method(
+                class_name,
+                show_instance_side,
+                method_symbol,
+            )
+        else:
+            selected_method_category = (
+                self.gemstone_session_record.gemstone_browser_session.get_method_category(
+                    class_name,
+                    method_symbol,
+                    show_instance_side,
+                )
+            )
+            self.gemstone_session_record.select_instance_side(show_instance_side)
+            self.gemstone_session_record.select_class(class_name)
+            self.gemstone_session_record.select_method_category(
+                selected_method_category
+            )
+            self.gemstone_session_record.select_method_symbol(method_symbol)
+        self.event_queue.publish('SelectedClassChanged')
+        self.event_queue.publish('SelectedCategoryChanged')
+        self.event_queue.publish('MethodSelected')
+
 
 class SwordfishGuiFixture(Fixture):
     @set_up
@@ -45,6 +70,7 @@ class SwordfishGuiFixture(Fixture):
         self.mock_browser.list_classes.return_value = ['OrderLine', 'Order']
         self.mock_browser.list_method_categories.return_value = ['accessing', 'testing']
         self.mock_browser.list_methods.return_value = ['total', 'description']
+        self.mock_browser.get_method_category.return_value = 'accessing'
 
         # AI: get_compiled_method returns an object whose sourceString() method
         # returns an object with a .to_py attribute (the raw Smalltalk source string).
@@ -129,6 +155,10 @@ class SwordfishGuiFixture(Fixture):
                 return
         raise AssertionError(f'Menu command not found: {label}')
 
+    def selected_listbox_entry(self, listbox):
+        selected_index = listbox.curselection()[0]
+        return listbox.get(selected_index)
+
 
 @with_fixtures(SwordfishGuiFixture)
 def test_selecting_package_fetches_and_shows_classes(fixture):
@@ -196,6 +226,7 @@ def test_text_context_menu_includes_save_and_close_for_open_tab(fixture):
         if menu.type(entry_index) == 'command':
             command_labels.append(menu.entrycget(entry_index, 'label'))
 
+    assert 'Jump to Class' in command_labels
     assert 'Save' in command_labels
     assert 'Close' in command_labels
     assert 'Preview Rename Method' not in command_labels
@@ -230,6 +261,75 @@ def test_close_command_from_text_context_menu_closes_the_tab(fixture):
     fixture.invoke_menu_command(menu, 'Close')
 
     assert ('OrderLine', True, 'total') not in fixture.browser_window.editor_area_widget.open_tabs
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_jump_to_class_command_from_text_context_menu_syncs_browser_selection(
+    fixture,
+):
+    """AI: Choosing Jump to Class from a method tab synchronizes package/class/side/category/method browser selections to that method context."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+
+    fixture.browser_window.classes_widget.selection_var.set('class')
+    fixture.root.update()
+    assert fixture.browser_window.classes_widget.selection_var.get() == 'class'
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    fixture.invoke_menu_command(menu, 'Jump to Class')
+
+    assert fixture.session_record.selected_package == 'Kernel'
+    assert fixture.session_record.selected_class == 'OrderLine'
+    assert fixture.session_record.show_instance_side is True
+    assert fixture.session_record.selected_method_category == 'accessing'
+    assert fixture.session_record.selected_method_symbol == 'total'
+    assert fixture.browser_window.classes_widget.selection_var.get() == 'instance'
+    assert fixture.selected_listbox_entry(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox
+    ) == 'Kernel'
+    assert fixture.selected_listbox_entry(
+        fixture.browser_window.classes_widget.selection_list.selection_listbox
+    ) == 'OrderLine'
+    assert fixture.selected_listbox_entry(
+        fixture.browser_window.categories_widget.selection_list.selection_listbox
+    ) == 'accessing'
+    assert fixture.selected_listbox_entry(
+        fixture.browser_window.methods_widget.selection_list.selection_listbox
+    ) == 'total'
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_selector_for_navigation_uses_full_keyword_selector_from_selected_send_fragment(
+    fixture,
+):
+    """AI: Selecting a keyword send fragment with arguments should resolve to the full keyword selector token sequence."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+    tab.code_panel.text_editor.delete('1.0', 'end')
+    tab.code_panel.text_editor.insert(
+        '1.0',
+        'total\n'
+        '    ^self _twoArgInstPrim: 4 with: srcByteObj with: destByteObj',
+    )
+    selection_start = tab.code_panel.text_editor.search(
+        '_twoArgInstPrim:',
+        '1.0',
+        stopindex='end',
+    )
+    selection_end = tab.code_panel.text_editor.search(
+        'destByteObj',
+        '1.0',
+        stopindex='end',
+    )
+    tab.code_panel.text_editor.tag_add(
+        tk.SEL,
+        selection_start,
+        selection_end,
+    )
+
+    resolved_selector = tab.code_panel.selector_for_navigation()
+
+    assert resolved_selector == '_twoArgInstPrim:with:with:'
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -278,6 +378,7 @@ class SwordfishAppFixture(Fixture):
         self.mock_browser.list_classes.return_value = ['OrderLine', 'Order']
         self.mock_browser.list_method_categories.return_value = ['accessing']
         self.mock_browser.list_methods.return_value = ['total']
+        self.mock_browser.get_method_category.return_value = 'accessing'
 
         # AI: Chained mock for EditorTab.repopulate() which calls
         # get_compiled_method().sourceString().to_py

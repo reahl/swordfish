@@ -1178,6 +1178,7 @@ class ClassSelection(FramedWidget):
 
         # Add Radiobuttons for Class or Instance selection
         self.selection_var = tk.StringVar(value='instance' if self.gemstone_session_record.show_instance_side else 'class')
+        self.syncing_side_selection = False
         self.selection_var.trace_add('write', lambda name, index, operation: self.switch_side())
         self.class_radiobutton = tk.Radiobutton(self, text='Class', variable=self.selection_var, value='class')
         self.instance_radiobutton = tk.Radiobutton(self, text='Instance', variable=self.selection_var, value='instance')
@@ -1194,6 +1195,8 @@ class ClassSelection(FramedWidget):
         self.selection_list.selection_listbox.bind('<Button-3>', self.show_context_menu)
 
     def switch_side(self):
+        if self.syncing_side_selection:
+            return
         self.gemstone_session_record.select_instance_side(self.show_instance_side)
         self.event_queue.publish('SelectedClassChanged')
 
@@ -1221,6 +1224,15 @@ class ClassSelection(FramedWidget):
     def repopulate(self, origin=None):
         if origin is not self:
             selected_package = self.gemstone_session_record.selected_package
+            expected_side = (
+                'instance'
+                if self.gemstone_session_record.show_instance_side
+                else 'class'
+            )
+            if self.selection_var.get() != expected_side:
+                self.syncing_side_selection = True
+                self.selection_var.set(expected_side)
+                self.syncing_side_selection = False
             # Repopulate hierarchy_tree with new options based on the selected package
             self.hierarchy_tree.delete(*self.hierarchy_tree.get_children())
             # parent_node = self.hierarchy_tree.insert('', 'end', text=f'{selected_package} Parent Node 1')
@@ -1555,6 +1567,12 @@ class CodePanel(tk.Frame):
         )
         if is_identifier_selector:
             return candidate
+        keyword_tokens = re.findall(
+            r'[A-Za-z_]\w*:',
+            candidate,
+        )
+        if keyword_tokens:
+            return ''.join(keyword_tokens)
         is_binary_selector = re.fullmatch(r'[-+*/\\~<>=@%,|&?!]+', candidate)
         if is_binary_selector:
             return candidate
@@ -1628,6 +1646,11 @@ class CodePanel(tk.Frame):
         self.current_context_menu = tk.Menu(self, tearoff=0)
         active_editor_tab = self.active_editor_tab()
         if active_editor_tab is not None:
+            self.current_context_menu.add_command(
+                label='Jump to Class',
+                command=self.jump_to_method_context,
+            )
+            self.current_context_menu.add_separator()
             self.current_context_menu.add_command(
                 label='Save',
                 command=self.save_current_tab,
@@ -1718,6 +1741,21 @@ class CodePanel(tk.Frame):
         if active_editor_tab is None:
             return
         active_editor_tab.method_editor.close_tab(active_editor_tab)
+
+    def jump_to_method_context(self):
+        method_context = self.method_context()
+        if method_context is None:
+            messagebox.showwarning(
+                'No Method Context',
+                'Select or open a method before running this operation.',
+            )
+            return
+        class_name, show_instance_side, method_selector = method_context
+        self.application.handle_sender_selection(
+            class_name,
+            show_instance_side,
+            method_selector,
+        )
 
     def close_context_menu(self, event):
         if self.current_context_menu:
