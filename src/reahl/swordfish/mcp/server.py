@@ -20,10 +20,14 @@ def import_fast_mcp():
 
 def create_server(
     allow_eval=False,
+    allow_eval_write=False,
     allow_compile=False,
     allow_commit=False,
     allow_tracing=False,
+    require_gemstone_ast=False,
 ):
+    if allow_eval_write and not allow_commit:
+        raise ValueError('allow_eval_write requires allow_commit.')
     fast_mcp = import_fast_mcp()
     register_tools = import_tool_registration()
     try:
@@ -51,9 +55,11 @@ def create_server(
     register_tools(
         mcp_server,
         allow_eval=allow_eval,
+        allow_eval_write=allow_eval_write,
         allow_compile=allow_compile,
         allow_commit=allow_commit,
         allow_tracing=allow_tracing,
+        require_gemstone_ast=require_gemstone_ast,
     )
     return mcp_server
 

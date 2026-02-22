@@ -1,4 +1,5 @@
 from reahl.tofu import Fixture
+from reahl.tofu import expected
 from reahl.tofu import set_up
 from reahl.tofu import tear_down
 from reahl.tofu import with_fixtures
@@ -352,6 +353,26 @@ class AllowedToolsFixture(Fixture):
         return self.registered_mcp_tools['gs_guidance']
 
 
+class AllowedToolsWithEvalWriteFixture(Fixture):
+    def new_registered_mcp_tools(self):
+        registrar = McpToolRegistrar()
+        register_tools(
+            registrar,
+            allow_eval=True,
+            allow_eval_write=True,
+            allow_compile=True,
+            allow_commit=True,
+            allow_tracing=True,
+        )
+        return registrar.registered_tools_by_name
+
+    def new_gs_eval(self):
+        return self.registered_mcp_tools['gs_eval']
+
+    def new_gs_capabilities(self):
+        return self.registered_mcp_tools['gs_capabilities']
+
+
 class AllowedToolsWithNoActiveTransactionFixture(Fixture):
     @set_up
     def prepare_registry(self):
@@ -380,6 +401,12 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
                 'transaction_active': False,
             },
         )
+
+    def new_gs_eval(self):
+        return self.registered_mcp_tools['gs_eval']
+
+    def new_gs_debug_eval(self):
+        return self.registered_mcp_tools['gs_debug_eval']
 
     def new_gs_create_class(self):
         return self.registered_mcp_tools['gs_create_class']
@@ -476,6 +503,43 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
 
     def new_gs_collect_sender_evidence(self):
         return self.registered_mcp_tools['gs_collect_sender_evidence']
+
+
+class AllowedToolsWithNoActiveTransactionAndStrictAstFixture(Fixture):
+    @set_up
+    def prepare_registry(self):
+        clear_connections()
+
+    @tear_down
+    def clear_registry(self):
+        clear_connections()
+
+    def new_registered_mcp_tools(self):
+        registrar = McpToolRegistrar()
+        register_tools(
+            registrar,
+            allow_eval=True,
+            allow_compile=True,
+            allow_commit=True,
+            allow_tracing=True,
+            require_gemstone_ast=True,
+        )
+        return registrar.registered_tools_by_name
+
+    def new_connection_id(self):
+        return add_connection(
+            object(),
+            {
+                'connection_mode': 'linked',
+                'transaction_active': False,
+            },
+        )
+
+    def new_gs_capabilities(self):
+        return self.registered_mcp_tools['gs_capabilities']
+
+    def new_gs_preview_extract_method(self):
+        return self.registered_mcp_tools['gs_preview_extract_method']
 
 
 class AllowedToolsWithActiveTransactionFixture(Fixture):
@@ -595,9 +659,20 @@ def test_gs_capabilities_reports_restricted_policy_flags(tools_fixture):
     assert capabilities_result['ok'], capabilities_result
     policy = capabilities_result['policy']
     assert policy['allow_eval'] is False
+    assert policy['allow_eval_write'] is False
+    assert policy['eval_mode'] == 'disabled'
     assert policy['allow_compile'] is False
     assert policy['allow_commit'] is False
     assert policy['allow_tracing'] is False
+    assert policy['require_gemstone_ast'] is False
+    assert capabilities_result['ast_backend']['active_backend'] == 'source_heuristic'
+    assert not capabilities_result['ast_backend']['real_gemstone_ast_available']
+    assert capabilities_result['ast_support']['expected_version']
+    assert capabilities_result['ast_support']['expected_source_hash']
+    assert capabilities_result['ast_support']['tools'] == [
+        'gs_ast_status',
+        'gs_ast_install',
+    ]
     assert capabilities_result['recommended_bootstrap'] == [
         'gs_capabilities',
         'gs_guidance',
@@ -612,9 +687,12 @@ def test_gs_capabilities_reports_enabled_policy_flags(tools_fixture):
     assert capabilities_result['ok'], capabilities_result
     policy = capabilities_result['policy']
     assert policy['allow_eval'] is True
+    assert policy['allow_eval_write'] is False
+    assert policy['eval_mode'] == 'read_only'
     assert policy['allow_compile'] is True
     assert policy['allow_commit'] is True
     assert policy['allow_tracing'] is True
+    assert policy['require_gemstone_ast'] is False
 
 
 @with_fixtures(AllowedToolsFixture)
@@ -624,6 +702,7 @@ def test_gs_capabilities_navigation_includes_method_semantic_tools(
     capabilities_result = tools_fixture.gs_capabilities()
     assert capabilities_result['ok'], capabilities_result
     navigation_tools = capabilities_result['tool_groups']['navigation']
+    assert 'gs_ast_status' in navigation_tools
     assert 'gs_method_ast' in navigation_tools
     assert 'gs_method_sends' in navigation_tools
     assert 'gs_method_structure_summary' in navigation_tools
@@ -648,6 +727,14 @@ def test_gs_capabilities_refactor_includes_move_method_tools(
     assert 'gs_apply_extract_method' in refactor_tools
     assert 'gs_preview_inline_method' in refactor_tools
     assert 'gs_apply_inline_method' in refactor_tools
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_capabilities_exposes_ast_support_tool_group(tools_fixture):
+    capabilities_result = tools_fixture.gs_capabilities()
+    assert capabilities_result['ok'], capabilities_result
+    ast_support_tools = capabilities_result['tool_groups']['ast_support']
+    assert ast_support_tools == ['gs_ast_status', 'gs_ast_install']
 
 
 @with_fixtures(AllowedToolsFixture)
@@ -776,6 +863,17 @@ def test_gs_tracer_install_is_disabled_by_default(tools_fixture):
     assert not tracer_install_result['ok']
     assert tracer_install_result['error']['message'] == (
         'gs_tracer_install is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_ast_install_is_disabled_by_default(tools_fixture):
+    ast_install = tools_fixture.registered_mcp_tools['gs_ast_install']
+    ast_install_result = ast_install('missing-connection-id')
+    assert not ast_install_result['ok']
+    assert ast_install_result['error']['message'] == (
+        'gs_ast_install is disabled. '
         'Start swordfish-mcp with --allow-compile to enable.'
     )
 
@@ -1147,6 +1245,19 @@ def test_gs_debug_eval_is_disabled_by_default(tools_fixture):
     )
 
 
+def test_register_tools_rejects_eval_write_without_commit_permission():
+    registrar = McpToolRegistrar()
+    with expected(ValueError):
+        register_tools(
+            registrar,
+            allow_eval=True,
+            allow_eval_write=True,
+            allow_compile=True,
+            allow_commit=False,
+            allow_tracing=False,
+        )
+
+
 @with_fixtures(AllowedToolsFixture)
 def test_gs_eval_requires_unsafe_flag_when_allowed(tools_fixture):
     eval_result = tools_fixture.gs_eval('missing-connection-id', '3 + 4')
@@ -1166,6 +1277,73 @@ def test_gs_eval_checks_connection_when_allowed(tools_fixture):
     )
     assert not eval_result['ok']
     assert eval_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsWithEvalWriteFixture)
+def test_gs_capabilities_reports_eval_write_mode(tools_fixture):
+    capabilities_result = tools_fixture.gs_capabilities()
+    assert capabilities_result['ok'], capabilities_result
+    policy = capabilities_result['policy']
+    assert policy['allow_eval']
+    assert policy['allow_eval_write']
+    assert policy['eval_mode'] == 'write_enabled'
+    assert policy['require_gemstone_ast'] is False
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionAndStrictAstFixture)
+def test_strict_ast_mode_blocks_heuristic_extract_preview(tools_fixture):
+    preview_result = tools_fixture.gs_preview_extract_method(
+        tools_fixture.connection_id,
+        'SomeClass',
+        'someMethod',
+        'newMethod',
+        [1],
+        True,
+    )
+    assert not preview_result['ok']
+    assert 'requires real GemStone AST' in preview_result['error']['message']
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionAndStrictAstFixture)
+def test_gs_capabilities_reports_strict_ast_mode_policy(tools_fixture):
+    capabilities_result = tools_fixture.gs_capabilities()
+    assert capabilities_result['ok'], capabilities_result
+    assert capabilities_result['policy']['require_gemstone_ast']
+    assert capabilities_result['ast_backend']['active_backend'] == 'source_heuristic'
+    assert not capabilities_result['ast_backend']['real_gemstone_ast_available']
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_eval_blocks_write_like_source_in_read_only_eval_mode(
+    tools_fixture,
+):
+    eval_result = tools_fixture.gs_eval(
+        tools_fixture.connection_id,
+        'System commit',
+        unsafe=True,
+    )
+    assert not eval_result['ok']
+    assert eval_result['error']['message'] == (
+        'gs_eval is running in read-only eval mode and blocked potential '
+        'write operation (transaction_control). Start swordfish-mcp with '
+        '--allow-commit --allow-eval-write to enable write eval.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_debug_eval_blocks_write_like_source_in_read_only_eval_mode(
+    tools_fixture,
+):
+    eval_result = tools_fixture.gs_debug_eval(
+        tools_fixture.connection_id,
+        'System commit',
+    )
+    assert not eval_result['ok']
+    assert eval_result['error']['message'] == (
+        'gs_debug_eval is running in read-only eval mode and blocked potential '
+        'write operation (transaction_control). Start swordfish-mcp with '
+        '--allow-commit --allow-eval-write to enable write eval.'
+    )
 
 
 @with_fixtures(AllowedToolsFixture)
@@ -1438,6 +1616,22 @@ def test_gs_method_ast_checks_connection(tools_fixture):
     )
     assert not ast_result['ok']
     assert ast_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_ast_status_checks_connection(tools_fixture):
+    ast_status = tools_fixture.registered_mcp_tools['gs_ast_status']
+    ast_status_result = ast_status('missing-connection-id')
+    assert not ast_status_result['ok']
+    assert ast_status_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_ast_install_checks_connection(tools_fixture):
+    ast_install = tools_fixture.registered_mcp_tools['gs_ast_install']
+    ast_install_result = ast_install('missing-connection-id')
+    assert not ast_install_result['ok']
+    assert ast_install_result['error']['message'] == 'Unknown connection_id.'
 
 
 @with_fixtures(AllowedToolsFixture)

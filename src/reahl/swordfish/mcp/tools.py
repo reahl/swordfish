@@ -27,6 +27,9 @@ from reahl.swordfish.mcp.session_registry import get_metadata
 from reahl.swordfish.mcp.session_registry import get_session
 from reahl.swordfish.mcp.session_registry import has_connection
 from reahl.swordfish.mcp.session_registry import remove_connection
+from reahl.swordfish.mcp.ast_assets import ast_support_source
+from reahl.swordfish.mcp.ast_assets import ast_support_source_hash
+from reahl.swordfish.mcp.ast_assets import AST_SUPPORT_VERSION
 from reahl.swordfish.mcp.tracer_assets import tracer_source
 from reahl.swordfish.mcp.tracer_assets import tracer_source_hash
 from reahl.swordfish.mcp.tracer_assets import TRACER_VERSION
@@ -35,10 +38,17 @@ from reahl.swordfish.mcp.tracer_assets import TRACER_VERSION
 def register_tools(
     mcp_server,
     allow_eval=False,
+    allow_eval_write=False,
     allow_compile=False,
     allow_commit=False,
     allow_tracing=False,
+    require_gemstone_ast=False,
 ):
+    if allow_eval_write and not allow_eval:
+        allow_eval = True
+    if allow_eval_write and not allow_commit:
+        raise ValueError('allow_eval_write requires allow_commit.')
+
     identifier_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*$')
     unary_selector_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*$')
     keyword_selector_pattern = re.compile('^([A-Za-z][A-Za-z0-9_]*:)+$')
@@ -76,7 +86,13 @@ def register_tools(
         gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
             return None, error_response
-        return GemstoneBrowserSession(gemstone_session), None
+        return browser_session_for_policy(gemstone_session), None
+
+    def browser_session_for_policy(gemstone_session):
+        return GemstoneBrowserSession(
+            gemstone_session,
+            require_gemstone_ast=require_gemstone_ast,
+        )
 
     def get_active_debug_session(connection_id, debug_id):
         if not has_debug_session(debug_id):
@@ -189,15 +205,126 @@ def register_tools(
                 return False
         raise DomainException('%s must be a boolean.' % argument_name)
 
+    def current_eval_mode():
+        if not allow_eval:
+            return 'disabled'
+        if allow_eval_write:
+            return 'write_enabled'
+        return 'read_only'
+
     def policy_flags():
         return {
             'allow_eval': allow_eval,
+            'allow_eval_write': allow_eval_write,
             'allow_compile': allow_compile,
             'allow_commit': allow_commit,
             'allow_tracing': allow_tracing,
+            'require_gemstone_ast': require_gemstone_ast,
+            'eval_mode': current_eval_mode(),
             'eval_requires_unsafe': True,
             'writes_require_active_transaction': True,
         }
+
+    def source_code_character_map_for_eval(source):
+        code_character_map = [True for _ in source]
+        index = 0
+        state = 'code'
+        while index < len(source):
+            character = source[index]
+            if state == 'code':
+                if character == "'":
+                    code_character_map[index] = False
+                    state = 'string'
+                elif character == '"':
+                    code_character_map[index] = False
+                    state = 'comment'
+            elif state == 'string':
+                code_character_map[index] = False
+                if character == "'":
+                    has_escaped_quote = (
+                        index + 1 < len(source)
+                        and source[index + 1] == "'"
+                    )
+                    if has_escaped_quote:
+                        code_character_map[index + 1] = False
+                        index = index + 1
+                    else:
+                        state = 'code'
+            elif state == 'comment':
+                code_character_map[index] = False
+                if character == '"':
+                    state = 'code'
+            index = index + 1
+        return code_character_map
+
+    def code_only_source_for_eval(source):
+        code_character_map = source_code_character_map_for_eval(source)
+        fragments = []
+        for index in range(len(source)):
+            fragments.append(source[index] if code_character_map[index] else ' ')
+        return ''.join(fragments)
+
+    def write_reason_for_eval_source(source):
+        code_only_source = code_only_source_for_eval(source)
+        if re.search(
+            r'\bSystem\s+(commit|abort|abortTransaction|begin|beginTransaction)\b',
+            code_only_source,
+        ):
+            return 'transaction_control'
+        if re.search(
+            r'\b(commit|abort|abortTransaction|begin|beginTransaction)\b',
+            code_only_source,
+        ):
+            return 'transaction_control'
+        if re.search(
+            r'\b(compileMethod:|compile:|subclass:)\b',
+            code_only_source,
+        ):
+            return 'code_definition'
+        if re.search(
+            r'\b(removeSelector:|removeClass:|deleteClass)\b',
+            code_only_source,
+        ):
+            return 'code_removal'
+        if re.search(
+            r'\bat:\s*[^.;\n]*\bput:',
+            code_only_source,
+        ):
+            return 'global_mutation'
+        if re.search(
+            r'\b(category:|classify:)\b',
+            code_only_source,
+        ):
+            return 'method_category_mutation'
+        return None
+
+    def transaction_state_effect_for_eval_source(source):
+        code_only_source = code_only_source_for_eval(source)
+        if re.search(
+            r'\b(System\s+)?(commit|abort|abortTransaction)\b',
+            code_only_source,
+        ):
+            return 'inactive'
+        if re.search(
+            r'\b(System\s+)?(begin|beginTransaction)\b',
+            code_only_source,
+        ):
+            return 'active'
+        return 'unknown'
+
+    def read_only_eval_disabled_response(connection_id, tool_name, write_reason):
+        return disabled_tool_response(
+            connection_id,
+            (
+                '%s is running in read-only eval mode and blocked potential '
+                'write operation (%s). Start swordfish-mcp with '
+                '--allow-commit --allow-eval-write to enable write eval.'
+            )
+            % (
+                tool_name,
+                write_reason,
+            ),
+        )
 
     def guidance_intents():
         return [
@@ -236,6 +363,24 @@ def register_tools(
         ]
         cautions = []
         workflow = []
+        if current_eval_mode() == 'read_only':
+            decision_rules.append(
+                {
+                    'when': 'You are using gs_eval or gs_debug_eval.',
+                    'prefer_tools': ['read-only evaluation only'],
+                    'avoid_tools': ['commit/write/compile via eval'],
+                    'reason': (
+                        'Current policy is read-only eval mode; write-like eval '
+                        'operations are blocked by design.'
+                    ),
+                }
+            )
+            cautions.append(
+                (
+                    'Eval mode is read-only. Write-capable eval requires '
+                    '--allow-commit and --allow-eval-write at MCP startup.'
+                )
+            )
         if intent == 'general':
             workflow = [
                 {
@@ -250,6 +395,11 @@ def register_tools(
                 },
                 {
                     'step': 3,
+                    'action': 'Verify AST support status when strict AST mode is on.',
+                    'tools': ['gs_ast_status', 'gs_ast_install'],
+                },
+                {
+                    'step': 4,
                     'action': 'Connect and check transaction state.',
                     'tools': ['gs_connect', 'gs_transaction_status'],
                 },
@@ -438,6 +588,13 @@ def register_tools(
                     ),
                 }
             )
+        if require_gemstone_ast:
+            cautions.append(
+                (
+                    'Strict AST mode is active. Install AST support with '
+                    'gs_ast_install and verify with gs_ast_status.'
+                )
+            )
         return {
             'intent': intent,
             'selector': selector,
@@ -445,6 +602,90 @@ def register_tools(
             'decision_rules': decision_rules,
             'cautions': cautions,
         }
+
+    def ast_status_for_browser_session(browser_session):
+        expected_source_hash = ast_support_source_hash()
+        expected_version = AST_SUPPORT_VERSION
+        support_class_exists = browser_session.run_code(
+            'UserGlobals includesKey: #SwordfishMcpAstSupport'
+        ).to_py
+        manifest_exists = browser_session.run_code(
+            'UserGlobals includesKey: #SwordfishMcpAstManifest'
+        ).to_py
+        installed_source_hash = ''
+        installed_version = ''
+        installed_at = ''
+        if manifest_exists:
+            installed_source_hash = browser_session.run_code(
+                (
+                    '(UserGlobals at: #SwordfishMcpAstManifest) '
+                    "at: #sourceHash ifAbsent: ['']"
+                )
+            ).to_py
+            installed_version = browser_session.run_code(
+                (
+                    '(UserGlobals at: #SwordfishMcpAstManifest) '
+                    "at: #version ifAbsent: ['']"
+                )
+            ).to_py
+            installed_at = browser_session.run_code(
+                (
+                    '(UserGlobals at: #SwordfishMcpAstManifest) '
+                    "at: #installedAt ifAbsent: ['']"
+                )
+            ).to_py
+        hashes_match = manifest_exists and (
+            installed_source_hash == expected_source_hash
+        )
+        versions_match = manifest_exists and (
+            installed_version == expected_version
+        )
+        manifest_matches = hashes_match and versions_match
+        return {
+            'ast_support_installed': support_class_exists,
+            'ast_manifest_installed': manifest_exists,
+            'expected_version': expected_version,
+            'installed_version': installed_version,
+            'versions_match': versions_match,
+            'expected_source_hash': expected_source_hash,
+            'installed_source_hash': installed_source_hash,
+            'hashes_match': hashes_match,
+            'manifest_matches': manifest_matches,
+            'installed_at': installed_at,
+        }
+
+    def ast_manifest_install_script(browser_session):
+        expected_source_hash = ast_support_source_hash()
+        expected_version = AST_SUPPORT_VERSION
+        expected_version_literal = browser_session.smalltalk_string_literal(
+            expected_version
+        )
+        expected_hash_literal = browser_session.smalltalk_string_literal(
+            expected_source_hash
+        )
+        installed_by_literal = browser_session.smalltalk_string_literal(
+            'swordfish-mcp'
+        )
+        return (
+            '| manifest |\n'
+            'manifest := Dictionary new.\n'
+            'manifest at: #version put: %s.\n'
+            'manifest at: #sourceHash put: %s.\n'
+            'manifest at: #installedBy put: %s.\n'
+            'manifest at: #installedAt put: DateAndTime now printString.\n'
+            'UserGlobals at: #SwordfishMcpAstManifest put: manifest.\n'
+            'true'
+        ) % (
+            expected_version_literal,
+            expected_hash_literal,
+            installed_by_literal,
+        )
+
+    def install_ast_support_in_browser_session(browser_session):
+        browser_session.run_code(ast_support_source())
+        browser_session.run_code(
+            ast_manifest_install_script(browser_session)
+        )
 
     def tracer_status_for_browser_session(browser_session):
         expected_source_hash = tracer_source_hash()
@@ -1843,10 +2084,20 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_capabilities():
+        ast_backend = browser_session_for_policy(None).ast_backend_status()
         return {
             'ok': True,
             'server_name': 'SwordfishMCP',
             'policy': policy_flags(),
+            'ast_backend': ast_backend,
+            'ast_support': {
+                'expected_version': AST_SUPPORT_VERSION,
+                'expected_source_hash': ast_support_source_hash(),
+                'tools': [
+                    'gs_ast_status',
+                    'gs_ast_install',
+                ],
+            },
             'guidance_intents': guidance_intents(),
             'recommended_bootstrap': [
                 'gs_capabilities',
@@ -1860,6 +2111,7 @@ def register_tools(
                     'gs_find_selectors',
                     'gs_find_implementors',
                     'gs_find_senders',
+                    'gs_ast_status',
                     'gs_get_method_source',
                     'gs_method_ast',
                     'gs_method_sends',
@@ -1902,6 +2154,10 @@ def register_tools(
                     'gs_plan_evidence_tests',
                     'gs_collect_sender_evidence',
                     'gs_tracer_*',
+                ],
+                'ast_support': [
+                    'gs_ast_status',
+                    'gs_ast_install',
                 ],
             },
         }
@@ -2602,6 +2858,69 @@ def register_tools(
             }
 
     @mcp_server.tool()
+    def gs_ast_status(connection_id):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            ast_status = ast_status_for_browser_session(browser_session)
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'require_gemstone_ast': require_gemstone_ast,
+                **ast_status,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_ast_install(connection_id):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_ast_install is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = browser_session_for_policy(gemstone_session)
+        try:
+            install_ast_support_in_browser_session(browser_session)
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                **ast_status_for_browser_session(browser_session),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
     def gs_tracer_status(connection_id):
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
@@ -2649,7 +2968,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             install_tracer_in_browser_session(browser_session)
             return {
@@ -2692,7 +3011,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             force = validated_boolean(force, 'force')
             tracer_status = tracer_status_for_browser_session(browser_session)
@@ -2745,7 +3064,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             browser_session.run_code(
                 'UserGlobals at: #SwordfishMcpTracerEnabled put: false. true'
@@ -2790,7 +3109,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             browser_session.run_code(
                 (
@@ -2848,7 +3167,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             method_name = validated_selector(method_name, 'method_name')
             max_results = validated_non_negative_integer_or_none(
@@ -2912,7 +3231,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             method_name = validated_selector(method_name, 'method_name')
             untrace_result = untrace_selector_in_browser_session(
@@ -2965,7 +3284,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             if method_name is None:
                 browser_session.run_code('SwordfishMcpTracer clearEdgeCounts')
@@ -3185,7 +3504,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             method_name = validated_selector(method_name, 'method_name')
             max_results = validated_non_negative_integer_or_none(
@@ -3412,7 +3731,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             class_name = validated_identifier(class_name, 'class_name')
             source = validated_non_empty_string(source, 'source')
@@ -3481,7 +3800,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             class_name = validated_identifier(class_name, 'class_name')
             superclass_name = validated_identifier(
@@ -3567,7 +3886,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             class_name = validated_identifier(class_name, 'class_name')
             in_dictionary = validated_identifier(
@@ -3658,7 +3977,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             class_name = validated_identifier(class_name, 'class_name')
             in_dictionary = validated_identifier(
@@ -3715,7 +4034,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             class_name = validated_identifier(class_name, 'class_name')
             method_selector = validated_non_empty_string(
@@ -3779,7 +4098,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             class_name = validated_identifier(class_name, 'class_name')
             method_selector = validated_non_empty_string(
@@ -4028,7 +4347,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             class_name = validated_identifier(class_name, 'class_name')
             old_selector, new_selector = validated_selector_rename_pair(
@@ -4167,7 +4486,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             source_class_name = validated_identifier(
                 source_class_name,
@@ -4341,7 +4660,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             class_name = validated_identifier(
                 class_name,
@@ -4506,7 +4825,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             class_name = validated_identifier(
                 class_name,
@@ -4671,7 +4990,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             class_name = validated_identifier(
                 class_name,
@@ -4828,7 +5147,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             class_name = validated_identifier(
                 class_name,
@@ -4957,7 +5276,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             old_selector, new_selector = validated_selector_rename_pair(
                 old_selector,
@@ -5042,7 +5361,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             symbol_name = validated_identifier(symbol_name, 'symbol_name')
             literal_value = validated_literal_value(
@@ -5107,7 +5426,7 @@ def register_tools(
         transaction_error_response = require_active_transaction(connection_id)
         if transaction_error_response:
             return transaction_error_response
-        browser_session = GemstoneBrowserSession(gemstone_session)
+        browser_session = browser_session_for_policy(gemstone_session)
         try:
             symbol_name = validated_identifier(symbol_name, 'symbol_name')
             in_dictionary = validated_identifier(
@@ -5228,15 +5547,41 @@ def register_tools(
                     'Start swordfish-mcp with --allow-eval to enable.'
                 ),
             )
+        try:
+            source = validated_non_empty_string(source, 'source')
+            if current_eval_mode() == 'read_only':
+                write_reason = write_reason_for_eval_source(source)
+                if write_reason is not None:
+                    return read_only_eval_disabled_response(
+                        connection_id,
+                        'gs_debug_eval',
+                        write_reason,
+                    )
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
+        metadata = get_metadata(connection_id)
         try:
             output = browser_session.evaluate_source(source)
+            if current_eval_mode() == 'write_enabled':
+                transaction_state_effect = (
+                    transaction_state_effect_for_eval_source(source)
+                )
+                if transaction_state_effect == 'active':
+                    metadata['transaction_active'] = True
+                if transaction_state_effect == 'inactive':
+                    metadata['transaction_active'] = False
             return {
                 'ok': True,
                 'connection_id': connection_id,
                 'completed': True,
+                'eval_mode': current_eval_mode(),
                 'output': output,
             }
         except GemstoneError as error:
@@ -5396,13 +5741,30 @@ def register_tools(
             if reason is not None:
                 if not isinstance(reason, str):
                     raise DomainException('reason must be a string.')
+            if current_eval_mode() == 'read_only':
+                write_reason = write_reason_for_eval_source(source)
+                if write_reason is not None:
+                    return read_only_eval_disabled_response(
+                        connection_id,
+                        'gs_eval',
+                        write_reason,
+                    )
             output = browser_session.evaluate_source(source)
+            if current_eval_mode() == 'write_enabled':
+                transaction_state_effect = (
+                    transaction_state_effect_for_eval_source(source)
+                )
+                if transaction_state_effect == 'active':
+                    metadata['transaction_active'] = True
+                if transaction_state_effect == 'inactive':
+                    metadata['transaction_active'] = False
             return {
                 'ok': True,
                 'connection_id': connection_id,
                 'connection_mode': metadata['connection_mode'],
                 'unsafe': unsafe,
                 'reason': reason,
+                'eval_mode': current_eval_mode(),
                 'output': output,
             }
         except GemstoneError as error:

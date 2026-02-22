@@ -110,8 +110,14 @@ codex mcp add swordfish -- "$PROJECT_DIR/docker-run-over-ssh.sh" swordfish-mcp -
 codex mcp list --json
 ```
 
-Add `--allow-eval` only when you explicitly want free-form evaluation.
+Add `--allow-eval` to enable read-only evaluation.
+Add `--allow-eval-write` only when you explicitly want write-capable eval
+(requires `--allow-commit`).
 Add `--allow-commit` only when you explicitly want transactions to persist.
+Add `--require-gemstone-ast` to enforce AST-strict refactoring mode; when
+enabled, heuristic refactoring tools are blocked unless real GemStone AST
+adapter support is available. In strict mode, refactoring actions attempt an
+automatic AST support install/refresh when possible.
 For new AI sessions, call `gs_capabilities` first to discover active policy
 switches and available workflows, then call `gs_guidance` for task-specific
 tool selection and sequencing.
@@ -124,6 +130,9 @@ For method-level semantic navigation, use `gs_method_ast`,
 `gs_method_sends`, `gs_method_structure_summary`, and
 `gs_method_control_flow_summary` to inspect statement structure, send sites,
 structural counts, and control-flow signals.
+For versioned image support of AST helpers, use `gs_ast_status` to inspect
+manifest/hash status and `gs_ast_install` to install or refresh AST support
+code in the connected GemStone image.
 For pattern-based method discovery across a scope, use
 `gs_query_methods_by_ast_pattern` and tune ranking with `sort_by` /
 `sort_descending`.
@@ -148,6 +157,7 @@ Tracer and evidence tools require MCP startup with `--allow-tracing`.
 Use `gs_plan_evidence_tests` to build a static candidate test superset and
 `gs_collect_sender_evidence` to run that plan and collect observed callers.
 When you do use `gs_eval`, pass `unsafe=True` (and optionally a `reason`).
+In read-only eval mode, write-like eval sources are blocked by policy.
 Write tools require an explicit transaction: call `gs_begin` before writes,
 then `gs_commit` (or `gs_abort`) when done. With default policy,
 `gs_commit` is disabled unless the MCP server is started with
@@ -173,6 +183,8 @@ The server identifies itself as `SwordfishMCP` and currently supports:
 - `gs_find_selectors`
 - `gs_find_implementors`
 - `gs_find_senders`
+- `gs_ast_status`
+- `gs_ast_install`
 - `gs_method_ast`
 - `gs_method_sends`
 - `gs_method_structure_summary`
