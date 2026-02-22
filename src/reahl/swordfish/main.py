@@ -813,6 +813,7 @@ class Swordfish(tk.Tk):
         self.notebook = None
         self.browser_tab = None
         self.debugger_tab = None
+        self.run_tab = None
         
         self.gemstone_session_record = None
 
@@ -849,6 +850,7 @@ class Swordfish(tk.Tk):
                 widget.destroy()
         self.browser_tab = None
         self.debugger_tab = None
+        self.run_tab = None
 
     def show_login_screen(self):
         self.clear_widgets()
@@ -924,7 +926,12 @@ class Swordfish(tk.Tk):
         self.event_queue.publish('MethodSelected')
 
     def run_code(self, source=""):
-        RunDialog(self, source=source)
+        if self.run_tab is None or not self.run_tab.winfo_exists():
+            self.run_tab = RunTab(self.notebook, self)
+            self.notebook.add(self.run_tab, text='Run')
+        self.notebook.select(self.run_tab)
+        run_immediately = bool(source and source.strip())
+        self.run_tab.present_source(source, run_immediately=run_immediately)
         
     def open_find_dialog(self):
         FindDialog(self)
@@ -936,62 +943,106 @@ class Swordfish(tk.Tk):
         SendersDialog(self, method_name=method_symbol)
         
         
-class RunDialog(tk.Toplevel):
-    def __init__(self, parent, source=""):
+class RunTab(ttk.Frame):
+    def __init__(self, parent, application):
         super().__init__(parent)
-        self.title("Run Code")
-        self.geometry("600x500")
-        self.transient(parent)  # Set to be on top of the parent window
-        self.grab_set()  # Prevent interaction with the main window
-        self.focus_force()  # Force focus to the dialog
+        self.application = application
+        self.last_exception = None
 
-        self.source_label = tk.Label(self, text="Source Code:")
-        self.source_label.pack(anchor="w", padx=10, pady=(10, 0))
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+        self.rowconfigure(5, weight=1)
+
+        self.source_label = ttk.Label(self, text='Source Code:')
+        self.source_label.grid(row=0, column=0, sticky='w', padx=10, pady=(10, 0))
 
         self.source_text = tk.Text(self, height=10)
-        self.source_text.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        self.source_text.insert(tk.END, source)
+        self.source_text.grid(row=1, column=0, sticky='nsew', padx=10, pady=(0, 10))
 
-        self.run_button = tk.Button(self, text="Run", command=self.run_code_from_editor)
-        self.run_button.pack(pady=(0, 10))
+        self.button_frame = ttk.Frame(self)
+        self.button_frame.grid(row=2, column=0, sticky='ew', padx=10, pady=(0, 10))
+        self.button_frame.columnconfigure(2, weight=1)
 
-        self.status_label = tk.Label(self, text="Running...")
-        self.status_label.pack(anchor="w", padx=10)
+        self.run_button = ttk.Button(
+            self.button_frame,
+            text='Run',
+            command=self.run_code_from_editor,
+        )
+        self.run_button.grid(row=0, column=0, padx=(0, 5))
 
-        self.result_label = tk.Label(self, text="Result:")
-        self.result_label.pack(anchor="w", padx=10, pady=(10, 0))
+        self.close_button = ttk.Button(
+            self.button_frame,
+            text='Close Tab',
+            command=self.close_tab,
+        )
+        self.close_button.grid(row=0, column=1, padx=(0, 5))
 
-        self.result_text = tk.Text(self, height=5, state="disabled")
-        self.result_text.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.status_label = ttk.Label(self, text='Ready')
+        self.status_label.grid(row=3, column=0, sticky='w', padx=10)
 
-        self.close_button = tk.Button(self, text="Close", command=self.destroy)
-        self.close_button.pack(pady=(0, 10))
+        self.result_label = ttk.Label(self, text='Result:')
+        self.result_label.grid(row=4, column=0, sticky='nw', padx=10, pady=(10, 0))
 
-        # Run the code immediately if there is any in the source area
-        if source.strip():
+        self.result_text = tk.Text(self, height=7, state='disabled')
+        self.result_text.grid(row=5, column=0, sticky='nsew', padx=10, pady=(0, 10))
+
+    @property
+    def gemstone_session_record(self):
+        return self.application.gemstone_session_record
+
+    def present_source(self, source, run_immediately=False):
+        if source and source.strip():
+            self.source_text.delete('1.0', tk.END)
+            self.source_text.insert(tk.END, source)
+        if run_immediately:
             self.run_code_from_editor()
 
     def run_code_from_editor(self):
-        self.status_label.config(text="Running...")
+        self.status_label.config(text='Running...')
+        self.clear_debug_button()
+        self.last_exception = None
         try:
-            code_to_run = self.source_text.get("1.0", tk.END).strip()
-            result = self.master.gemstone_session_record.run_code(code_to_run)
+            code_to_run = self.source_text.get('1.0', tk.END).strip()
+            result = self.gemstone_session_record.run_code(code_to_run)
             self.on_run_complete(result)
-        except GemstoneError as e:
-            self.status_label.config(text=f"Error: {str(e)}")
-            self.debug_button = tk.Button(self, text="Debug", command=lambda exc=e: self.open_debugger(exc))
-            self.debug_button.pack(pady=(0, 10))
-            
-    def on_run_complete(self, result):
-        self.status_label.config(text="Completed successfully")
-        self.result_text.config(state="normal")
-        self.result_text.delete("1.0", tk.END)
-        self.result_text.insert(tk.END, result.asString().to_py)
-        self.result_text.config(state="disabled")
+        except GemstoneError as gemstone_exception:
+            self.on_run_error(gemstone_exception)
 
-    def open_debugger(self, exception):
-        self.destroy()        
-        self.master.open_debugger(exception)
+    def on_run_complete(self, result):
+        self.status_label.config(text='Completed successfully')
+        self.result_text.config(state='normal')
+        self.result_text.delete('1.0', tk.END)
+        self.result_text.insert(tk.END, result.asString().to_py)
+        self.result_text.config(state='disabled')
+
+    def on_run_error(self, exception):
+        self.last_exception = exception
+        self.status_label.config(text=f'Error: {str(exception)}')
+        self.debug_button = ttk.Button(
+            self.button_frame,
+            text='Debug',
+            command=self.open_debugger,
+        )
+        self.debug_button.grid(row=0, column=2, sticky='w')
+
+    def clear_debug_button(self):
+        if hasattr(self, 'debug_button') and self.debug_button is not None:
+            self.debug_button.destroy()
+            self.debug_button = None
+
+    def open_debugger(self):
+        if self.last_exception is None:
+            return
+        self.application.open_debugger(self.last_exception)
+
+    def close_tab(self):
+        if self.application.run_tab is self:
+            self.application.run_tab = None
+        try:
+            self.application.notebook.forget(self)
+        except tk.TclError:
+            pass
+        self.destroy()
 
 
 class JsonResultDialog(tk.Toplevel):

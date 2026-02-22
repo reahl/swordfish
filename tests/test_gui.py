@@ -21,7 +21,6 @@ from reahl.swordfish.main import Explorer
 from reahl.swordfish.main import FindDialog
 from reahl.swordfish.main import GemstoneSessionRecord
 from reahl.swordfish.main import ObjectInspector
-from reahl.swordfish.main import RunDialog
 from reahl.swordfish.main import SendersDialog
 from reahl.swordfish.main import Swordfish
 
@@ -566,8 +565,7 @@ def test_abort_sends_abort_to_gemstone(fixture):
 
 @with_fixtures(SwordfishAppFixture)
 def test_run_dialog_shows_result_on_successful_eval(fixture):
-    """Running code that completes without error populates the result area
-    of the RunDialog with the printString of the returned object."""
+    """Running code in the Run tab should populate the result area with the evaluated object's printString."""
     fixture.simulate_login()
 
     # AI: on_run_complete calls result.asString().to_py to render the result.
@@ -575,40 +573,39 @@ def test_run_dialog_shows_result_on_successful_eval(fixture):
     mock_result.asString.return_value.to_py = '7'
     fixture.mock_browser.run_code.return_value = mock_result
 
-    dialog = RunDialog(fixture.app, source='3 + 4')
+    fixture.app.run_code('3 + 4')
     fixture.app.update()
+    run_tab = fixture.app.run_tab
 
-    result_content = dialog.result_text.get('1.0', 'end').strip()
+    result_content = run_tab.result_text.get('1.0', 'end').strip()
     assert result_content == '7'
-    dialog.destroy()
 
 
 @with_fixtures(SwordfishAppFixture)
 def test_run_dialog_shows_debug_button_when_code_raises_error(fixture):
-    """If the evaluated code raises a GemstoneError, the RunDialog adds a
-    Debug button so the user can open the debugger for that exception."""
+    """If run code raises a GemstoneError, the Run tab should expose a Debug button for opening the debugger."""
     fixture.simulate_login()
     fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
 
-    dialog = RunDialog(fixture.app, source='1/0')
+    fixture.app.run_code('1/0')
     fixture.app.update()
+    run_tab = fixture.app.run_tab
 
-    assert hasattr(dialog, 'debug_button')
-    assert dialog.debug_button.winfo_exists()
-    dialog.destroy()
+    assert hasattr(run_tab, 'debug_button')
+    assert run_tab.debug_button.winfo_exists()
 
 
 @with_fixtures(SwordfishAppFixture)
 def test_debug_button_opens_debugger_tab_in_notebook(fixture):
-    """Clicking the Debug button after a runtime error opens a Debugger tab
-    in the main application notebook."""
+    """Clicking Debug from the Run tab after a runtime error should open a Debugger tab."""
     fixture.simulate_login()
     fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
 
-    dialog = RunDialog(fixture.app, source='1/0')
+    fixture.app.run_code('1/0')
     fixture.app.update()
+    run_tab = fixture.app.run_tab
 
-    dialog.debug_button.invoke()
+    run_tab.debug_button.invoke()
     fixture.app.update()
 
     tab_labels = [fixture.app.notebook.tab(t, 'text') for t in fixture.app.notebook.tabs()]
@@ -617,15 +614,15 @@ def test_debug_button_opens_debugger_tab_in_notebook(fixture):
 
 @with_fixtures(SwordfishAppFixture)
 def test_debug_button_selects_debugger_tab_as_visible(fixture):
-    """After the Debugger tab is opened it becomes the currently visible tab,
-    so the user sees the debug view without having to click the tab manually."""
+    """After Debug is clicked from the Run tab, the Debugger tab should become the selected notebook tab."""
     fixture.simulate_login()
     fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
 
-    dialog = RunDialog(fixture.app, source='1/0')
+    fixture.app.run_code('1/0')
     fixture.app.update()
+    run_tab = fixture.app.run_tab
 
-    dialog.debug_button.invoke()
+    run_tab.debug_button.invoke()
     fixture.app.update()
 
     selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
@@ -638,9 +635,10 @@ def test_completed_debugger_can_be_dismissed_with_close_button(fixture):
     fixture.simulate_login()
     fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
 
-    dialog = RunDialog(fixture.app, source='1/0')
+    fixture.app.run_code('1/0')
     fixture.app.update()
-    dialog.debug_button.invoke()
+    run_tab = fixture.app.run_tab
+    run_tab.debug_button.invoke()
     fixture.app.update()
 
     debugger_tab = fixture.app.debugger_tab
@@ -659,6 +657,20 @@ def test_completed_debugger_can_be_dismissed_with_close_button(fixture):
         for tab_id in fixture.app.notebook.tabs()
     ]
     assert 'Debugger' not in tab_labels
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_file_run_command_opens_run_tab_in_notebook(fixture):
+    """Choosing File > Run should open and select a Run tab in the main notebook."""
+    fixture.simulate_login()
+
+    fixture.app.run_code()
+    fixture.app.update()
+
+    tab_labels = [fixture.app.notebook.tab(tab_id, 'text') for tab_id in fixture.app.notebook.tabs()]
+    assert 'Run' in tab_labels
+    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+    assert selected_tab_text == 'Run'
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -1094,7 +1106,7 @@ def test_right_click_on_class_runs_all_tests_and_shows_result(fixture):
 @with_fixtures(SwordfishAppFixture)
 def test_run_test_method_opens_debugger_on_gemstone_error(fixture):
     """If running a test method raises a GemstoneError (e.g. an unhandled
-    runtime exception), the debugger tab opens — the same flow as the RunDialog."""
+    runtime exception), the debugger tab opens — the same flow as the Run tab."""
     fixture.simulate_login()
 
     # AI: Pre-load the method listbox and set selected_class directly;
