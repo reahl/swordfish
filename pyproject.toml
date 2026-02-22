@@ -56,6 +56,7 @@ include = ["reahl*"]
 
 [tool.setuptools.package-data]
 "reahl.swordfish.mcp.tracing" = ["*.st"]
+"reahl.swordfish.mcp.ast" = ["*.st"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

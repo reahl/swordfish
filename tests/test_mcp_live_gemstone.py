@@ -191,6 +191,12 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_find_senders(self):
         return self.registered_mcp_tools['gs_find_senders']
 
+    def new_gs_ast_status(self):
+        return self.registered_mcp_tools['gs_ast_status']
+
+    def new_gs_ast_install(self):
+        return self.registered_mcp_tools['gs_ast_install']
+
     def new_gs_tracer_status(self):
         return self.registered_mcp_tools['gs_tracer_status']
 
@@ -418,6 +424,9 @@ class LiveMcpConnectionWithoutCommitPermissionFixture(Fixture):
     def new_gs_begin_if_needed(self):
         return self.registered_mcp_tools['gs_begin_if_needed']
 
+    def new_gs_eval(self):
+        return self.registered_mcp_tools['gs_eval']
+
     def new_gs_transaction_status(self):
         return self.registered_mcp_tools['gs_transaction_status']
 
@@ -566,6 +575,9 @@ def test_live_workflow_without_commit_permission_requires_abort(
     capabilities_result = live_connection.gs_capabilities()
     assert capabilities_result['ok'], capabilities_result
     assert not capabilities_result['policy']['allow_commit']
+    assert capabilities_result['policy']['allow_eval']
+    assert not capabilities_result['policy']['allow_eval_write']
+    assert capabilities_result['policy']['eval_mode'] == 'read_only'
     begin_result = live_connection.gs_begin_if_needed(
         live_connection.connection_id
     )
@@ -601,6 +613,31 @@ def test_live_workflow_without_commit_permission_requires_abort(
     )
     assert aborted_status_result['ok'], aborted_status_result
     assert not aborted_status_result['transaction_active']
+
+
+@with_fixtures(LiveMcpConnectionWithoutCommitPermissionFixture)
+def test_live_read_only_eval_mode_blocks_commit_bypass(live_connection):
+    begin_result = live_connection.gs_begin_if_needed(
+        live_connection.connection_id
+    )
+    assert begin_result['ok'], begin_result
+    eval_result = live_connection.gs_eval(
+        live_connection.connection_id,
+        'System commit',
+        unsafe=True,
+        reason='verify-policy-hardening',
+    )
+    assert not eval_result['ok']
+    assert eval_result['error']['message'] == (
+        'gs_eval is running in read-only eval mode and blocked potential '
+        'write operation (transaction_control). Start swordfish-mcp with '
+        '--allow-commit --allow-eval-write to enable write eval.'
+    )
+    status_result = live_connection.gs_transaction_status(
+        live_connection.connection_id
+    )
+    assert status_result['ok'], status_result
+    assert status_result['transaction_active']
 
 
 @with_fixtures(LiveMcpConnectionFixture, LiveEvalScenarios)
@@ -788,6 +825,30 @@ def test_live_gs_tracer_lifecycle_tracks_manifest_and_hash(live_connection):
     assert uninstall_result['ok'], uninstall_result
     assert not uninstall_result['tracer_installed']
     assert not uninstall_result['manifest_matches']
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_ast_install_tracks_manifest_and_hash(live_connection):
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    status_before_install_result = live_connection.gs_ast_status(
+        live_connection.connection_id
+    )
+    assert status_before_install_result['ok'], status_before_install_result
+    install_result = live_connection.gs_ast_install(
+        live_connection.connection_id
+    )
+    assert install_result['ok'], install_result
+    assert install_result['ast_support_installed']
+    assert install_result['ast_manifest_installed']
+    assert install_result['hashes_match']
+    assert install_result['versions_match']
+    assert install_result['manifest_matches']
+    status_after_install_result = live_connection.gs_ast_status(
+        live_connection.connection_id
+    )
+    assert status_after_install_result['ok'], status_after_install_result
+    assert status_after_install_result['manifest_matches']
 
 
 @with_fixtures(LiveMcpConnectionFixture)
@@ -3014,17 +3075,27 @@ def test_live_gs_abort_discards_uncommitted_changes(live_connection):
     symbol_name = 'MCP_TEST_ABORT_%s' % live_connection.connection_id.split('-')[0]
     begin_result = live_connection.gs_begin(live_connection.connection_id)
     assert begin_result['ok'], begin_result
-    live_connection.evaluate_python_value(
-        "UserGlobals at: #'%s' put: 123" % symbol_name
+    set_result = live_connection.gs_global_set(
+        live_connection.connection_id,
+        symbol_name,
+        123,
     )
-    assert live_connection.evaluate_python_value(
-        "UserGlobals includesKey: #'%s'" % symbol_name
+    assert set_result['ok'], set_result
+    assert set_result['exists']
+    exists_result = live_connection.gs_global_exists(
+        live_connection.connection_id,
+        symbol_name,
     )
+    assert exists_result['ok'], exists_result
+    assert exists_result['exists']
     abort_result = live_connection.gs_abort(live_connection.connection_id)
     assert abort_result['ok'], abort_result
-    assert not live_connection.evaluate_python_value(
-        "UserGlobals includesKey: #'%s'" % symbol_name
+    exists_result = live_connection.gs_global_exists(
+        live_connection.connection_id,
+        symbol_name,
     )
+    assert exists_result['ok'], exists_result
+    assert not exists_result['exists']
 
 
 @with_fixtures(LiveMcpConnectionFixture)
@@ -3032,19 +3103,29 @@ def test_live_gs_commit_persists_changes_until_removed(live_connection):
     symbol_name = 'MCP_TEST_COMMIT_%s' % live_connection.connection_id.split('-')[0]
     begin_result = live_connection.gs_begin(live_connection.connection_id)
     assert begin_result['ok'], begin_result
-    live_connection.evaluate_python_value(
-        "UserGlobals at: #'%s' put: 321" % symbol_name
+    set_result = live_connection.gs_global_set(
+        live_connection.connection_id,
+        symbol_name,
+        321,
     )
+    assert set_result['ok'], set_result
+    assert set_result['exists']
     commit_result = live_connection.gs_commit(live_connection.connection_id)
     assert commit_result['ok'], commit_result
-    assert live_connection.evaluate_python_value(
-        "UserGlobals includesKey: #'%s'" % symbol_name
+    exists_result = live_connection.gs_global_exists(
+        live_connection.connection_id,
+        symbol_name,
     )
+    assert exists_result['ok'], exists_result
+    assert exists_result['exists']
     begin_cleanup_result = live_connection.gs_begin(live_connection.connection_id)
     assert begin_cleanup_result['ok'], begin_cleanup_result
-    live_connection.evaluate_python_value(
-        "UserGlobals removeKey: #'%s' ifAbsent: []" % symbol_name
+    remove_result = live_connection.gs_global_remove(
+        live_connection.connection_id,
+        symbol_name,
     )
+    assert remove_result['ok'], remove_result
+    assert not remove_result['exists']
     cleanup_commit_result = live_connection.gs_commit(live_connection.connection_id)
     assert cleanup_commit_result['ok'], cleanup_commit_result
 

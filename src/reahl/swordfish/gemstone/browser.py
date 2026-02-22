@@ -1,15 +1,167 @@
+import os
 import re
 
 from reahl.ptongue import GemstoneApiError
 from reahl.ptongue import GemstoneError
+from reahl.swordfish.mcp.ast_assets import ast_support_source
+from reahl.swordfish.mcp.ast_assets import ast_support_source_hash
+from reahl.swordfish.mcp.ast_assets import AST_SUPPORT_VERSION
 
 from reahl.swordfish.gemstone.session import DomainException
 from reahl.swordfish.gemstone.session import render_result
 
 
 class GemstoneBrowserSession:
-    def __init__(self, gemstone_session):
+    def __init__(
+        self,
+        gemstone_session,
+        require_gemstone_ast=None,
+    ):
         self.gemstone_session = gemstone_session
+        if require_gemstone_ast is None:
+            require_gemstone_ast = self.boolean_flag_from_environment(
+                'SWORDFISH_REQUIRE_GEMSTONE_AST'
+            )
+        self.require_gemstone_ast = require_gemstone_ast
+        self.real_gemstone_ast_backend_available = None
+
+    def boolean_flag_from_environment(self, environment_name):
+        environment_value = os.environ.get(environment_name, '')
+        normalized_environment_value = environment_value.strip().lower()
+        return normalized_environment_value in {
+            '1',
+            'true',
+            'yes',
+            'on',
+        }
+
+    def can_attempt_ast_support_auto_install(self):
+        return (
+            self.gemstone_session is not None
+            and hasattr(self.gemstone_session, 'resolve_symbol')
+            and hasattr(self.gemstone_session, 'execute')
+        )
+
+    def ast_support_manifest_matches_expected(self):
+        if not self.can_attempt_ast_support_auto_install():
+            return False
+        manifest_exists = self.gemstone_session.execute(
+            'UserGlobals includesKey: #SwordfishMcpAstManifest'
+        ).to_py
+        if not manifest_exists:
+            return False
+        installed_source_hash = self.gemstone_session.execute(
+            (
+                '(UserGlobals at: #SwordfishMcpAstManifest) '
+                "at: #sourceHash ifAbsent: ['']"
+            )
+        ).to_py
+        installed_version = self.gemstone_session.execute(
+            (
+                '(UserGlobals at: #SwordfishMcpAstManifest) '
+                "at: #version ifAbsent: ['']"
+            )
+        ).to_py
+        return (
+            installed_source_hash == ast_support_source_hash()
+            and installed_version == AST_SUPPORT_VERSION
+        )
+
+    def ast_support_manifest_install_script(self):
+        expected_source_hash_literal = self.smalltalk_string_literal(
+            ast_support_source_hash()
+        )
+        expected_version_literal = self.smalltalk_string_literal(
+            AST_SUPPORT_VERSION
+        )
+        installed_by_literal = self.smalltalk_string_literal('swordfish-ide')
+        return (
+            '| manifest |\n'
+            'manifest := Dictionary new.\n'
+            'manifest at: #version put: %s.\n'
+            'manifest at: #sourceHash put: %s.\n'
+            'manifest at: #installedBy put: %s.\n'
+            'manifest at: #installedAt put: DateAndTime now printString.\n'
+            'UserGlobals at: #SwordfishMcpAstManifest put: manifest.\n'
+            'true'
+        ) % (
+            expected_version_literal,
+            expected_source_hash_literal,
+            installed_by_literal,
+        )
+
+    def install_or_refresh_ast_support(self):
+        self.run_code(ast_support_source())
+        self.run_code(self.ast_support_manifest_install_script())
+        self.real_gemstone_ast_backend_available = None
+
+    def has_real_gemstone_ast_backend(self):
+        if self.real_gemstone_ast_backend_available is not None:
+            return self.real_gemstone_ast_backend_available
+        if not self.can_attempt_ast_support_auto_install():
+            self.real_gemstone_ast_backend_available = False
+            return False
+        try:
+            if self.require_gemstone_ast:
+                manifest_matches = (
+                    self.ast_support_manifest_matches_expected()
+                )
+                if not manifest_matches:
+                    self.real_gemstone_ast_backend_available = False
+                    return False
+                ast_support_exists = self.gemstone_session.execute(
+                    'UserGlobals includesKey: #SwordfishMcpAstSupport'
+                ).to_py
+                if not ast_support_exists:
+                    self.real_gemstone_ast_backend_available = False
+                    return False
+            probe_compiled_method = self.get_compiled_method(
+                'Object',
+                'yourself',
+                True,
+            )
+            probe_compiled_method.numArgs()
+            probe_compiled_method.argsAndTemps()
+            self.real_gemstone_ast_backend_available = True
+        except (GemstoneError, GemstoneApiError, DomainException):
+            self.real_gemstone_ast_backend_available = False
+        return self.real_gemstone_ast_backend_available
+
+    def ast_backend_status(self):
+        return {
+            'active_backend': (
+                'gemstone_compiled_method_metadata'
+                if self.has_real_gemstone_ast_backend()
+                else 'source_heuristic'
+            ),
+            'require_gemstone_ast': self.require_gemstone_ast,
+            'real_gemstone_ast_available': (
+                self.has_real_gemstone_ast_backend()
+            ),
+        }
+
+    def ensure_refactoring_uses_real_ast(self, refactoring_name):
+        if not self.require_gemstone_ast:
+            return
+        has_real_backend = self.has_real_gemstone_ast_backend()
+        if not has_real_backend and self.can_attempt_ast_support_auto_install():
+            try:
+                self.install_or_refresh_ast_support()
+            except (GemstoneError, GemstoneApiError, DomainException):
+                pass
+            has_real_backend = self.has_real_gemstone_ast_backend()
+        if not has_real_backend:
+            raise DomainException(
+                (
+                    '%s requires real GemStone AST, but only '
+                    'source-heuristic analysis is available. Disable strict '
+                    'mode (SWORDFISH_REQUIRE_GEMSTONE_AST=false or '
+                    'start without --require-gemstone-ast) or install AST '
+                    'support in the image via gs_ast_install. Swordfish '
+                    'attempted automatic installation when possible.'
+                )
+                % refactoring_name
+            )
 
     @property
     def class_organizer(self):
@@ -319,6 +471,91 @@ class GemstoneBrowserSession:
             return -1
         return value
 
+    def compiled_method_argument_and_temporary_names(
+        self,
+        class_name,
+        method_selector,
+        show_instance_side,
+    ):
+        compiled_method = self.get_compiled_method(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        all_names = []
+        args_and_temps = compiled_method.argsAndTemps()
+        num_args = compiled_method.numArgs().to_py
+        size = args_and_temps.size().to_py
+        for index in range(1, size + 1):
+            all_names.append(args_and_temps.at(index).to_py)
+        return {
+            'argument_names': all_names[:num_args],
+            'temporary_names': all_names[num_args:],
+        }
+
+    def method_header_for_selector_and_argument_names(
+        self,
+        method_selector,
+        argument_names,
+    ):
+        selector_tokens = self.selector_keyword_tokens(method_selector)
+        if selector_tokens:
+            expected_argument_count = len(selector_tokens)
+            actual_argument_count = len(argument_names)
+            if actual_argument_count != expected_argument_count:
+                raise DomainException(
+                    (
+                        'Expected %s arguments for %s, found %s.'
+                    )
+                    % (
+                        expected_argument_count,
+                        method_selector,
+                        actual_argument_count,
+                    )
+                )
+            return self.keyword_header_for_selector_tokens_and_arguments(
+                selector_tokens,
+                argument_names,
+            )
+        selector_uses_binary_syntax = (
+            bool(method_selector)
+            and all(
+                self.is_binary_selector_character(character)
+                for character in method_selector
+            )
+        )
+        if selector_uses_binary_syntax:
+            if len(argument_names) != 1:
+                raise DomainException(
+                    'Binary selector %s requires one argument.'
+                    % method_selector
+                )
+            return '%s %s' % (method_selector, argument_names[0])
+        if argument_names:
+            raise DomainException(
+                (
+                    'Unary selector %s cannot declare arguments (%s).'
+                )
+                % (
+                    method_selector,
+                    ', '.join(argument_names),
+                )
+            )
+        return method_selector
+
+    def method_argument_names_for_method(
+        self,
+        class_name,
+        show_instance_side,
+        method_selector,
+    ):
+        names = self.compiled_method_argument_and_temporary_names(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        return names['argument_names']
+
     def method_ast(
         self,
         class_name,
@@ -330,7 +567,33 @@ class GemstoneBrowserSession:
             method_selector,
             show_instance_side,
         )
-        return self.source_method_ast(source, method_selector)
+        source_ast = self.source_method_ast(source, method_selector)
+        names = self.compiled_method_argument_and_temporary_names(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        source_ast['argument_names'] = names['argument_names']
+        source_ast['temporaries'] = names['temporary_names']
+        source_ast['header_source'] = (
+            self.method_header_for_selector_and_argument_names(
+                method_selector,
+                names['argument_names'],
+            )
+        )
+        source_ast['analysis_backend'] = (
+            'gemstone_compiled_method_metadata'
+        )
+        source_ast['analysis_limitations'] = (
+            [
+                (
+                    'Arguments and temporaries are derived from GemStone '
+                    'compiled method metadata.'
+                ),
+            ]
+            + source_ast['analysis_limitations']
+        )
+        return source_ast
 
     def source_method_sends(self, source):
         code_character_map = self.source_code_character_map(source)
@@ -840,11 +1103,13 @@ class GemstoneBrowserSession:
             'selector': method_selector,
             'header_source': source[:body_start_offset].rstrip('\n'),
             'body_start_offset': body_start_offset,
+            'argument_names': [],
             'temporaries': temporaries,
             'statement_count': len(statement_entries),
             'statements': statement_entries,
             'sends': method_sends['sends'],
             'structure_summary': structure_summary,
+            'analysis_backend': 'source_heuristic',
             'analysis_limitations': [
                 (
                     'This AST is a lightweight source-based approximation; '
@@ -1879,6 +2144,7 @@ class GemstoneBrowserSession:
         target_show_instance_side,
         method_selector,
     ):
+        self.ensure_refactoring_uses_real_ast('method move preview')
         source_show_instance_side = self.validated_show_instance_side(
             source_show_instance_side
         )
@@ -1904,6 +2170,7 @@ class GemstoneBrowserSession:
         overwrite_target_method=False,
         delete_source_method=True,
     ):
+        self.ensure_refactoring_uses_real_ast('method move apply')
         source_show_instance_side = self.validated_show_instance_side(
             source_show_instance_side
         )
@@ -2100,6 +2367,7 @@ class GemstoneBrowserSession:
         parameter_name,
         default_argument_source,
     ):
+        self.ensure_refactoring_uses_real_ast('add parameter preview')
         show_instance_side = self.validated_show_instance_side(
             show_instance_side
         )
@@ -2122,6 +2390,7 @@ class GemstoneBrowserSession:
         parameter_name,
         default_argument_source,
     ):
+        self.ensure_refactoring_uses_real_ast('add parameter apply')
         show_instance_side = self.validated_show_instance_side(
             show_instance_side
         )
@@ -2173,11 +2442,17 @@ class GemstoneBrowserSession:
             method_selector,
             show_instance_side,
         )
+        old_arguments = self.method_argument_names_for_method(
+            class_name,
+            show_instance_side,
+            method_selector,
+        )
         method_header, method_body, old_arguments = (
             self.keyword_method_header_body_and_arguments(
                 method_source,
                 selector_tokens,
                 method_selector,
+                old_arguments,
             )
         )
         new_selector = method_selector + parameter_keyword
@@ -2301,6 +2576,7 @@ class GemstoneBrowserSession:
         parameter_keyword,
         rewrite_source_senders=False,
     ):
+        self.ensure_refactoring_uses_real_ast('remove parameter preview')
         show_instance_side = self.validated_show_instance_side(
             show_instance_side
         )
@@ -2326,6 +2602,7 @@ class GemstoneBrowserSession:
         overwrite_new_method=False,
         rewrite_source_senders=False,
     ):
+        self.ensure_refactoring_uses_real_ast('remove parameter apply')
         show_instance_side = self.validated_show_instance_side(
             show_instance_side
         )
@@ -2426,11 +2703,17 @@ class GemstoneBrowserSession:
             method_selector,
             show_instance_side,
         )
+        old_arguments = self.method_argument_names_for_method(
+            class_name,
+            show_instance_side,
+            method_selector,
+        )
         method_header, method_body, old_arguments = (
             self.keyword_method_header_body_and_arguments(
                 method_source,
                 selector_tokens,
                 method_selector,
+                old_arguments,
             )
         )
         removed_argument_name = old_arguments[parameter_index]
@@ -2790,6 +3073,7 @@ class GemstoneBrowserSession:
         new_selector,
         statement_indexes,
     ):
+        self.ensure_refactoring_uses_real_ast('extract method preview')
         show_instance_side = self.validated_show_instance_side(
             show_instance_side
         )
@@ -2811,6 +3095,7 @@ class GemstoneBrowserSession:
         statement_indexes,
         overwrite_new_method=False,
     ):
+        self.ensure_refactoring_uses_real_ast('extract method apply')
         show_instance_side = self.validated_show_instance_side(
             show_instance_side
         )
@@ -2862,8 +3147,13 @@ class GemstoneBrowserSession:
         new_selector,
         statement_indexes,
     ):
-        if ':' in new_selector:
-            raise DomainException('new_selector must be a unary selector.')
+        selector_tokens = self.selector_keyword_tokens(new_selector)
+        is_keyword_selector = bool(selector_tokens)
+        is_unary_selector = self.is_unary_selector(new_selector)
+        if not is_keyword_selector and not is_unary_selector:
+            raise DomainException(
+                'new_selector must be unary or keyword.'
+            )
         source_method_source = self.get_method_source(
             class_name,
             method_selector,
@@ -2874,9 +3164,10 @@ class GemstoneBrowserSession:
             method_selector,
             show_instance_side,
         )
-        source_method_ast = self.source_method_ast(
-            source_method_source,
+        source_method_ast = self.method_ast(
+            class_name,
             method_selector,
+            show_instance_side,
         )
         selected_statement_entries = self.selected_statement_entries(
             source_method_ast['statements'],
@@ -2913,11 +3204,67 @@ class GemstoneBrowserSession:
         extracted_body = self.extracted_method_body_from_statement_entries(
             selected_statement_entries
         )
+        source_method_argument_names = self.method_argument_names_for_method(
+            class_name,
+            show_instance_side,
+            method_selector,
+        )
+        extracted_argument_names = self.extraction_argument_names(
+            source_method_source,
+            selected_statement_entries,
+            source_method_argument_names,
+            source_method_ast['temporaries'],
+        )
+        extracted_argument_count = len(extracted_argument_names)
+        if is_keyword_selector:
+            expected_argument_count = len(selector_tokens)
+            if expected_argument_count != extracted_argument_count:
+                raise DomainException(
+                    (
+                        '%s has %s keyword arguments but extracted statements '
+                        'require %s arguments (%s).'
+                    )
+                    % (
+                        new_selector,
+                        expected_argument_count,
+                        extracted_argument_count,
+                        ', '.join(extracted_argument_names)
+                        if extracted_argument_names
+                        else 'none',
+                    )
+                )
+            new_method_header = self.keyword_header_for_selector_tokens_and_arguments(
+                selector_tokens,
+                extracted_argument_names,
+            )
+            call_segments = []
+            for argument_index in range(len(selector_tokens)):
+                call_segments.append(
+                    '%s %s'
+                    % (
+                        selector_tokens[argument_index],
+                        extracted_argument_names[argument_index],
+                    )
+                )
+            call_source = 'self %s' % ' '.join(call_segments)
+        else:
+            if extracted_argument_names:
+                raise DomainException(
+                    (
+                        'Extracted statements reference caller variables (%s). '
+                        'Use a keyword selector with %s arguments.'
+                    )
+                    % (
+                        ', '.join(extracted_argument_names),
+                        extracted_argument_count,
+                    )
+                )
+            new_method_header = new_selector
+            call_source = 'self %s' % new_selector
         new_method_source = self.method_source_from_header_and_body(
-            new_selector,
+            new_method_header,
             extracted_body,
         )
-        call_source = 'self %s' % new_selector
         updated_method_source = self.source_with_single_replacement(
             source_method_source,
             extraction_start_offset,
@@ -2940,6 +3287,8 @@ class GemstoneBrowserSession:
             'new_method_source': new_method_source,
             'updated_method_source': updated_method_source,
             'extracted_statement_count': len(selected_statement_entries),
+            'extracted_argument_count': extracted_argument_count,
+            'extracted_argument_names': extracted_argument_names,
             'extracted_source_character_count': (
                 extraction_end_offset - extraction_start_offset
             ),
@@ -2971,11 +3320,137 @@ class GemstoneBrowserSession:
             'extracted_statement_count': extract_plan[
                 'extracted_statement_count'
             ],
+            'extracted_argument_count': extract_plan[
+                'extracted_argument_count'
+            ],
+            'extracted_argument_names': extract_plan[
+                'extracted_argument_names'
+            ],
             'extracted_source_character_count': extract_plan[
                 'extracted_source_character_count'
             ],
             'warnings': warnings,
         }
+
+    def is_unary_selector(self, selector):
+        return re.fullmatch('[A-Za-z][A-Za-z0-9_]*', selector) is not None
+
+    def method_argument_names(self, method_source, method_selector):
+        selector_tokens = self.selector_keyword_tokens(method_selector)
+        if selector_tokens:
+            _, _, argument_names = (
+                self.keyword_method_header_body_and_arguments(
+                    method_source,
+                    selector_tokens,
+                    method_selector,
+                )
+            )
+            return argument_names
+        is_binary_selector = (
+            bool(method_selector)
+            and all(
+                self.is_binary_selector_character(character)
+                for character in method_selector
+            )
+        )
+        if is_binary_selector:
+            method_header, _ = self.method_header_and_body(method_source)
+            binary_match = re.match(
+                r'^\s*%s\s+([A-Za-z][A-Za-z0-9_]*)\s*$'
+                % re.escape(method_selector),
+                method_header,
+            )
+            if binary_match is None:
+                raise DomainException(
+                    'Could not parse binary method header.'
+                )
+            return [binary_match.group(1)]
+        return []
+
+    def extraction_argument_names(
+        self,
+        source_method_source,
+        selected_statement_entries,
+        method_argument_names,
+        temporary_names,
+    ):
+        scoped_names = []
+        for candidate_name in method_argument_names + temporary_names:
+            if candidate_name not in scoped_names:
+                scoped_names.append(candidate_name)
+        if not scoped_names:
+            return []
+        assigned_names = []
+        for statement_entry in selected_statement_entries:
+            assignment_match = re.match(
+                r'\s*([A-Za-z][A-Za-z0-9_]*)\s*:=',
+                statement_entry['source'],
+            )
+            has_assignment = assignment_match is not None
+            if has_assignment:
+                assigned_name = assignment_match.group(1)
+                if assigned_name not in assigned_names:
+                    assigned_names.append(assigned_name)
+        selected_ranges = [
+            (
+                statement_entry['start_offset'],
+                statement_entry['end_offset'],
+            )
+            for statement_entry in selected_statement_entries
+        ]
+        identifier_occurrences = self.identifier_occurrences_in_ranges(
+            source_method_source,
+            selected_ranges,
+        )
+        argument_names = []
+        for occurrence in identifier_occurrences:
+            name = occurrence['name']
+            is_scoped = name in scoped_names
+            is_assigned_name = name in assigned_names
+            is_already_added = name in argument_names
+            if is_scoped and not is_assigned_name and not is_already_added:
+                argument_names.append(name)
+        return argument_names
+
+    def identifier_occurrences_in_ranges(self, source, selected_ranges):
+        code_character_map = self.source_code_character_map(source)
+        occurrences = []
+        for selected_range in selected_ranges:
+            range_start, range_end = selected_range
+            cursor = max(0, range_start)
+            safe_end = min(len(source), range_end)
+            while cursor < safe_end:
+                character = source[cursor]
+                previous_character = source[cursor - 1] if cursor > 0 else ''
+                starts_identifier = (
+                    code_character_map[cursor]
+                    and (character.isalpha() or character == '_')
+                    and (
+                        not previous_character
+                        or not self.is_identifier_character(
+                            previous_character
+                        )
+                    )
+                )
+                if starts_identifier:
+                    token_end = cursor + 1
+                    while (
+                        token_end < safe_end
+                        and code_character_map[token_end]
+                        and self.is_identifier_character(source[token_end])
+                    ):
+                        token_end = token_end + 1
+                    occurrences.append(
+                        {
+                            'name': source[cursor:token_end],
+                            'start_offset': cursor,
+                            'end_offset': token_end,
+                        }
+                    )
+                    cursor = token_end
+                else:
+                    cursor = cursor + 1
+        return occurrences
 
     def method_inline_preview(
         self,
@@ -2984,6 +3459,7 @@ class GemstoneBrowserSession:
         caller_selector,
         inline_selector,
     ):
+        self.ensure_refactoring_uses_real_ast('inline method preview')
         show_instance_side = self.validated_show_instance_side(
             show_instance_side
         )
@@ -3003,6 +3479,7 @@ class GemstoneBrowserSession:
         inline_selector,
         delete_inlined_method=False,
     ):
+        self.ensure_refactoring_uses_real_ast('inline method apply')
         show_instance_side = self.validated_show_instance_side(
             show_instance_side
         )
@@ -3047,9 +3524,15 @@ class GemstoneBrowserSession:
             inline_selector,
             show_instance_side,
         )
+        inline_method_ast = self.method_ast(
+            class_name,
+            inline_selector,
+            show_instance_side,
+        )
         inline_expression = self.method_inline_expression_from_callee(
             inline_method_source,
             inline_selector,
+            inline_method_ast=inline_method_ast,
         )
         caller_method_source = self.get_method_source(
             class_name,
@@ -3145,13 +3628,23 @@ class GemstoneBrowserSession:
         method_source,
         selector_tokens,
         method_selector,
+        argument_names=None,
     ):
-        header_end_offset, argument_names = (
-            self.keyword_header_end_and_argument_names(
-                method_source,
-                selector_tokens,
+        if argument_names is None:
+            header_end_offset, argument_names = (
+                self.keyword_header_end_and_argument_names(
+                    method_source,
+                    selector_tokens,
+                )
             )
-        )
+        else:
+            header_end_offset = (
+                self.keyword_header_end_for_selector_tokens_and_argument_names(
+                    method_source,
+                    selector_tokens,
+                    argument_names,
+                )
+            )
         method_header = method_source[:header_end_offset].strip()
         method_body = method_source[header_end_offset:]
         if method_body.startswith('\n'):
@@ -3175,6 +3668,49 @@ class GemstoneBrowserSession:
                 )
             )
         return method_header, method_body, argument_names
+
+    def keyword_header_end_for_selector_tokens_and_argument_names(
+        self,
+        method_source,
+        selector_tokens,
+        argument_names,
+    ):
+        expected_argument_count = len(selector_tokens)
+        actual_argument_count = len(argument_names)
+        if actual_argument_count != expected_argument_count:
+            raise DomainException(
+                (
+                    'Could not parse keyword method header. '
+                    'Expected %s argument names, found %s.'
+                )
+                % (
+                    expected_argument_count,
+                    actual_argument_count,
+                )
+            )
+        cursor = 0
+        for selector_token, argument_name in zip(
+            selector_tokens,
+            argument_names,
+        ):
+            while cursor < len(method_source) and method_source[cursor].isspace():
+                cursor = cursor + 1
+            if not method_source.startswith(selector_token, cursor):
+                raise DomainException(
+                    'Could not parse keyword method header.'
+                )
+            cursor = cursor + len(selector_token)
+            while cursor < len(method_source) and method_source[cursor].isspace():
+                cursor = cursor + 1
+            if not method_source.startswith(argument_name, cursor):
+                raise DomainException(
+                    (
+                        'Could not parse keyword method header argument %s.'
+                    )
+                    % argument_name
+                )
+            cursor = cursor + len(argument_name)
+        return cursor
 
     def keyword_header_end_and_argument_names(
         self,
@@ -3323,11 +3859,13 @@ class GemstoneBrowserSession:
         self,
         inline_method_source,
         inline_selector,
+        inline_method_ast=None,
     ):
-        inline_method_ast = self.source_method_ast(
-            inline_method_source,
-            inline_selector,
-        )
+        if inline_method_ast is None:
+            inline_method_ast = self.source_method_ast(
+                inline_method_source,
+                inline_selector,
+            )
         if inline_method_ast['temporaries']:
             raise DomainException(
                 (
@@ -3421,6 +3959,7 @@ class GemstoneBrowserSession:
         return method_selector in selector_names
 
     def selector_rename_preview(self, old_selector, new_selector):
+        self.ensure_refactoring_uses_real_ast('selector rename preview')
         planned_changes = self.selector_rename_plan(
             old_selector,
             new_selector,
@@ -3456,6 +3995,7 @@ class GemstoneBrowserSession:
         }
 
     def apply_selector_rename(self, old_selector, new_selector):
+        self.ensure_refactoring_uses_real_ast('selector rename apply')
         planned_changes = self.selector_rename_plan(
             old_selector,
             new_selector,
@@ -3499,6 +4039,7 @@ class GemstoneBrowserSession:
         old_selector,
         new_selector,
     ):
+        self.ensure_refactoring_uses_real_ast('method rename preview')
         show_instance_side = self.validated_show_instance_side(
             show_instance_side
         )
@@ -3523,6 +4064,7 @@ class GemstoneBrowserSession:
         old_selector,
         new_selector,
     ):
+        self.ensure_refactoring_uses_real_ast('method rename apply')
         show_instance_side = self.validated_show_instance_side(
             show_instance_side
         )
@@ -4081,9 +4623,14 @@ class GemstoneBrowserSession:
         return re.compile(escaped_selector)
 
     def selector_keyword_tokens(self, selector):
+        if ':' not in selector:
+            return []
+        selector_parts = selector.split(':')
+        if not selector_parts or selector_parts[-1] != '':
+            return []
         return [
             keyword + ':'
-            for keyword in selector.split(':')
+            for keyword in selector_parts[:-1]
             if keyword
         ]
 

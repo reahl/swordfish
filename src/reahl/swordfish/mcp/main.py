@@ -16,7 +16,15 @@ def run_application():
     parser.add_argument(
         '--allow-eval',
         action='store_true',
-        help='Enable gs_eval tool (disabled by default).',
+        help='Enable gs_eval in read-only mode (disabled by default).',
+    )
+    parser.add_argument(
+        '--allow-eval-write',
+        action='store_true',
+        help=(
+            'Enable write-capable eval/debug-eval (requires '
+            '--allow-eval and --allow-commit).'
+        ),
     )
     parser.add_argument(
         '--allow-compile',
@@ -33,12 +41,25 @@ def run_application():
         action='store_true',
         help='Enable gs_tracer_* and evidence tools (disabled by default).',
     )
+    parser.add_argument(
+        '--require-gemstone-ast',
+        action='store_true',
+        help=(
+            'Require real GemStone AST backend for refactoring tools. '
+            'When enabled, heuristic refactorings are blocked.'
+        ),
+    )
     arguments = parser.parse_args()
+    if arguments.allow_eval_write and not arguments.allow_commit:
+        parser.error('--allow-eval-write requires --allow-commit.')
+    allow_eval = arguments.allow_eval or arguments.allow_eval_write
     mcp_server = create_server(
-        allow_eval=arguments.allow_eval,
+        allow_eval=allow_eval,
+        allow_eval_write=arguments.allow_eval_write,
         allow_compile=arguments.allow_compile,
         allow_commit=arguments.allow_commit,
         allow_tracing=arguments.allow_tracing,
+        require_gemstone_ast=arguments.require_gemstone_ast,
     )
     mcp_server.run(transport=arguments.transport)
 

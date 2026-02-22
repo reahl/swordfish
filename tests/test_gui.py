@@ -13,6 +13,7 @@ from reahl.tofu import tear_down
 from reahl.tofu import with_fixtures
 
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
+from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.main import BrowserWindow
 from reahl.swordfish.main import DomainException
 from reahl.swordfish.main import EventQueue
@@ -21,6 +22,7 @@ from reahl.swordfish.main import FindDialog
 from reahl.swordfish.main import GemstoneSessionRecord
 from reahl.swordfish.main import ObjectInspector
 from reahl.swordfish.main import RunDialog
+from reahl.swordfish.main import SendersDialog
 from reahl.swordfish.main import Swordfish
 
 
@@ -409,6 +411,66 @@ def test_find_dialog_double_click_navigates_browser_to_selected_class(fixture):
     assert fixture.session_record.selected_package == 'Kernel'
 
 
+@with_fixtures(SwordfishAppFixture)
+def test_senders_dialog_method_search_populates_result_list(fixture):
+    """Searching for senders in the SendersDialog shows sender methods with class/side labels."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_senders.return_value = {
+        'senders': [
+            {
+                'class_name': 'OrderLine',
+                'show_instance_side': True,
+                'method_selector': 'recalculateTotal',
+            },
+            {
+                'class_name': 'Order',
+                'show_instance_side': False,
+                'method_selector': 'default',
+            },
+        ],
+        'total_count': 2,
+        'returned_count': 2,
+    }
+
+    with patch.object(SendersDialog, 'wait_visibility'):
+        dialog = SendersDialog(fixture.app, method_name='total')
+
+    results = list(dialog.results_listbox.get(0, 'end'))
+    assert results == ['OrderLine>>recalculateTotal', 'Order class>>default']
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_senders_dialog_double_click_navigates_browser_to_selected_sender(fixture):
+    """Double-clicking a sender result jumps the browser to that sender method context."""
+    fixture.simulate_login()
+    fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = 'Kernel'
+    fixture.mock_browser.get_method_category.return_value = 'accessing'
+    fixture.mock_browser.find_senders.return_value = {
+        'senders': [
+            {
+                'class_name': 'OrderLine',
+                'show_instance_side': True,
+                'method_selector': 'recalculateTotal',
+            },
+        ],
+        'total_count': 1,
+        'returned_count': 1,
+    }
+
+    with patch.object(SendersDialog, 'wait_visibility'):
+        dialog = SendersDialog(fixture.app, method_name='total')
+
+    dialog.results_listbox.selection_set(0)
+    dialog.on_result_double_click(None)
+    fixture.app.update()
+
+    assert fixture.session_record.selected_class == 'OrderLine'
+    assert fixture.session_record.selected_package == 'Kernel'
+    assert fixture.session_record.show_instance_side is True
+    assert fixture.session_record.selected_method_symbol == 'recalculateTotal'
+
+
 def make_mock_gemstone_object(class_name='OrderLine', string_repr='anObject'):
     """AI: Minimal GemStone object mock satisfying ObjectInspector's full protocol.
     allInstVarNames() returns [] so sub-inspectors are created empty (no recursion needed).
@@ -504,6 +566,199 @@ def test_right_click_on_method_runs_test_and_shows_pass_result(fixture):
 
     fixture.mock_browser.run_test_method.assert_called_once_with('OrderLine', 'total')
     mock_msgbox.showinfo.assert_called_once()
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_context_menu_preview_add_parameter_calls_browser_preview(fixture):
+    """Preview Add Parameter from the method editor forwards all prompt inputs to the browser preview API."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    fixture.mock_browser.method_add_parameter_preview.return_value = {'preview': 'ok'}
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+
+    with patch('reahl.swordfish.main.simpledialog.askstring',
+               side_effect=['with:', 'extraValue', 'nil']):
+        with patch('reahl.swordfish.main.JsonResultDialog') as mock_result_dialog:
+            tab.code_panel.preview_method_add_parameter()
+
+    fixture.mock_browser.method_add_parameter_preview.assert_called_once_with(
+        'OrderLine',
+        True,
+        'total',
+        'with:',
+        'extraValue',
+        'nil',
+    )
+    mock_result_dialog.assert_called_once()
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_context_menu_preview_extract_calls_browser_preview(fixture):
+    """Preview Extract Method uses selected statements and calls browser extract preview with inferred statement indexes."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    fixture.mock_browser.method_ast.return_value = {
+        'statements': [
+            {
+                'statement_index': 1,
+                'start_offset': 6,
+                'end_offset': 24,
+                'source': '^amount * quantity',
+                'sends': [],
+            },
+        ],
+        'temporaries': [],
+        'header_source': 'total',
+    }
+    fixture.mock_browser.method_extract_preview.return_value = {'preview': 'ok'}
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+    tab.code_panel.text_editor.tag_add(tk.SEL, '2.0', '2.end')
+
+    with patch('reahl.swordfish.main.simpledialog.askstring',
+               return_value='extractedPart'):
+        with patch('reahl.swordfish.main.JsonResultDialog') as mock_result_dialog:
+            tab.code_panel.preview_method_extract()
+
+    fixture.mock_browser.method_ast.assert_called_once_with(
+        'OrderLine',
+        'total',
+        True,
+    )
+    fixture.mock_browser.method_extract_preview.assert_called_once_with(
+        'OrderLine',
+        True,
+        'total',
+        'extractedPart',
+        [1],
+    )
+    mock_result_dialog.assert_called_once()
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_context_menu_preview_extract_requires_selection(fixture):
+    """Preview Extract Method reports a user-facing error when no statement is selected."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+
+    with patch('reahl.swordfish.main.messagebox') as mock_msgbox:
+        tab.code_panel.preview_method_extract()
+
+    mock_msgbox.showerror.assert_called_once()
+    fixture.mock_browser.method_extract_preview.assert_not_called()
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_context_menu_preview_extract_partial_return_selection_reports_selection_error(
+    fixture,
+):
+    """Partially selecting a return statement should report selection coverage guidance, not a return-extraction error."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    fixture.mock_browser.method_ast.return_value = {
+        'statements': [
+            {
+                'statement_index': 1,
+                'start_offset': 10,
+                'end_offset': 27,
+                'source': '^amount * quantity',
+                'sends': [],
+            },
+        ],
+        'temporaries': [],
+        'header_source': 'total',
+    }
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+    tab.code_panel.text_editor.tag_add(tk.SEL, '2.14', '2.end')
+
+    with patch('reahl.swordfish.main.messagebox') as mock_msgbox:
+        with patch('reahl.swordfish.main.simpledialog.askstring') as mock_askstring:
+            tab.code_panel.preview_method_extract()
+
+    mock_askstring.assert_not_called()
+    mock_msgbox.showerror.assert_called_once()
+    error_message = mock_msgbox.showerror.call_args[0][1]
+    assert 'fully cover' in error_message
+    assert 'return' not in error_message.lower()
+    fixture.mock_browser.method_extract_preview.assert_not_called()
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_context_menu_preview_extract_suggests_keyword_selector_when_arguments_are_needed(
+    fixture,
+):
+    """Extract suggestion should default to a keyword selector when selected statements depend on caller-scoped variables."""
+    fixture.mock_browser.list_methods.return_value = ['buildFrom:']
+    mock_method = Mock()
+    mock_method.sourceString.return_value.to_py = (
+        'buildFrom: input\n'
+        '    | tmp |\n'
+        '    tmp := input + 1.\n'
+        '    ^tmp'
+    )
+    fixture.mock_browser.get_compiled_method.return_value = mock_method
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'buildFrom:')
+    fixture.mock_browser.method_ast.return_value = {
+        'statements': [
+            {
+                'statement_index': 1,
+                'start_offset': 33,
+                'end_offset': 49,
+                'source': 'tmp := input + 1',
+                'sends': [],
+            },
+        ],
+        'temporaries': ['tmp'],
+        'header_source': 'buildFrom: input',
+    }
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'buildFrom:')]
+    tab.code_panel.text_editor.tag_add(tk.SEL, '3.0', '3.end')
+
+    captured_initial_values = []
+
+    def fake_askstring(*args, **kwargs):
+        captured_initial_values.append(kwargs.get('initialvalue'))
+        return None
+
+    with patch('reahl.swordfish.main.simpledialog.askstring', side_effect=fake_askstring):
+        tab.code_panel.preview_method_extract()
+
+    assert captured_initial_values == ['extractedComputeTmp:']
+    fixture.mock_browser.method_extract_preview.assert_not_called()
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_context_menu_preview_add_parameter_shows_error_for_browser_domain_exception(
+    fixture,
+):
+    """Add-parameter preview failures from browser domain rules should surface as dialog errors, not Tk callback crashes."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    fixture.mock_browser.method_add_parameter_preview.side_effect = GemstoneDomainException(
+        'Could not parse keyword method header.'
+    )
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+
+    with patch('reahl.swordfish.main.simpledialog.askstring',
+               side_effect=['with:', 'extraValue', 'nil']):
+        with patch('reahl.swordfish.main.messagebox') as mock_msgbox:
+            tab.code_panel.preview_method_add_parameter()
+
+    mock_msgbox.showerror.assert_called_once()
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_context_menu_preview_inline_shows_error_for_browser_domain_exception(
+    fixture,
+):
+    """Inline preview validation failures should be caught and shown as an error dialog."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    fixture.mock_browser.method_inline_preview.side_effect = GemstoneDomainException(
+        'inline_selector must be a unary selector.'
+    )
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+
+    with patch('reahl.swordfish.main.simpledialog.askstring',
+               return_value='ifTrue:'):
+        with patch('reahl.swordfish.main.messagebox') as mock_msgbox:
+            tab.code_panel.preview_method_inline()
+
+    mock_msgbox.showerror.assert_called_once()
 
 
 @with_fixtures(SwordfishGuiFixture)
