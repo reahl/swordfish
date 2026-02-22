@@ -3195,11 +3195,20 @@ class DebuggerWindow(ttk.PanedWindow):
         if frame_level:
             action_outcome = self.debug_session.stop()
             if action_outcome.has_completed:
-                self.stack_frames = None
-                self.destroy()
+                self.dismiss()
             else:
                 self.stack_frames = self.debug_session.call_stack()
                 self.refresh()
+
+    def dismiss(self):
+        self.stack_frames = None
+        if self.application.debugger_tab is self:
+            self.application.debugger_tab = None
+        try:
+            self.application.notebook.forget(self)
+        except tk.TclError:
+            pass
+        self.destroy()
                 
     def finish(self, result):
         self.stack_frames = None
@@ -3213,6 +3222,12 @@ class DebuggerWindow(ttk.PanedWindow):
         self.result_text = tk.Text(self)
         self.result_text.insert('1.0', result.asString().to_py)
         self.result_text.pack(fill='both', expand=True)
+        self.close_button = ttk.Button(
+            self,
+            text='Close Debugger',
+            command=self.dismiss,
+        )
+        self.close_button.pack(anchor='e', padx=5, pady=5)
         
             
 class DebuggerControls(ttk.Frame):
