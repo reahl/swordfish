@@ -45,6 +45,12 @@ class RestrictedToolsFixture(Fixture):
     def new_gs_create_class(self):
         return self.registered_mcp_tools['gs_create_class']
 
+    def new_gs_create_package(self):
+        return self.registered_mcp_tools['gs_create_package']
+
+    def new_gs_install_package(self):
+        return self.registered_mcp_tools['gs_install_package']
+
     def new_gs_create_test_case_class(self):
         return self.registered_mcp_tools['gs_create_test_case_class']
 
@@ -213,6 +219,12 @@ class AllowedToolsFixture(Fixture):
 
     def new_gs_create_class(self):
         return self.registered_mcp_tools['gs_create_class']
+
+    def new_gs_create_package(self):
+        return self.registered_mcp_tools['gs_create_package']
+
+    def new_gs_install_package(self):
+        return self.registered_mcp_tools['gs_install_package']
 
     def new_gs_create_test_case_class(self):
         return self.registered_mcp_tools['gs_create_test_case_class']
@@ -410,6 +422,12 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
 
     def new_gs_create_class(self):
         return self.registered_mcp_tools['gs_create_class']
+
+    def new_gs_create_package(self):
+        return self.registered_mcp_tools['gs_create_package']
+
+    def new_gs_install_package(self):
+        return self.registered_mcp_tools['gs_install_package']
 
     def new_gs_global_set(self):
         return self.registered_mcp_tools['gs_global_set']
@@ -693,6 +711,15 @@ def test_gs_capabilities_reports_enabled_policy_flags(tools_fixture):
     assert policy['allow_commit'] is True
     assert policy['allow_tracing'] is True
     assert policy['require_gemstone_ast'] is False
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_capabilities_safe_write_includes_package_tools(tools_fixture):
+    capabilities_result = tools_fixture.gs_capabilities()
+    assert capabilities_result['ok'], capabilities_result
+    safe_write_tools = capabilities_result['tool_groups']['safe_write']
+    assert 'gs_create_package' in safe_write_tools
+    assert 'gs_install_package' in safe_write_tools
 
 
 @with_fixtures(AllowedToolsFixture)
@@ -1039,6 +1066,32 @@ def test_gs_create_class_is_disabled_by_default(tools_fixture):
     assert not create_result['ok']
     assert create_result['error']['message'] == (
         'gs_create_class is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_create_package_is_disabled_by_default(tools_fixture):
+    create_result = tools_fixture.gs_create_package(
+        'missing-connection-id',
+        'ExamplePackage',
+    )
+    assert not create_result['ok']
+    assert create_result['error']['message'] == (
+        'gs_create_package is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_install_package_is_disabled_by_default(tools_fixture):
+    install_result = tools_fixture.gs_install_package(
+        'missing-connection-id',
+        'ExamplePackage',
+    )
+    assert not install_result['ok']
+    assert install_result['error']['message'] == (
+        'gs_install_package is disabled. '
         'Start swordfish-mcp with --allow-compile to enable.'
     )
 
@@ -2641,6 +2694,36 @@ def test_write_tools_require_active_transaction_for_create_class(
     )
     assert not create_result['ok']
     assert create_result['error']['message'] == (
+        'No active transaction. '
+        'Call gs_begin before write operations.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_write_tools_require_active_transaction_for_create_package(
+    tools_fixture,
+):
+    create_result = tools_fixture.gs_create_package(
+        tools_fixture.connection_id,
+        'ExamplePackage',
+    )
+    assert not create_result['ok']
+    assert create_result['error']['message'] == (
+        'No active transaction. '
+        'Call gs_begin before write operations.'
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_write_tools_require_active_transaction_for_install_package(
+    tools_fixture,
+):
+    install_result = tools_fixture.gs_install_package(
+        tools_fixture.connection_id,
+        'ExamplePackage',
+    )
+    assert not install_result['ok']
+    assert install_result['error']['message'] == (
         'No active transaction. '
         'Call gs_begin before write operations.'
     )
