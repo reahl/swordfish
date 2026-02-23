@@ -167,16 +167,68 @@ class GemstoneBrowserSession:
     def class_organizer(self):
         return self.gemstone_session.ClassOrganizer.new()
 
+    @property
+    def package_library(self):
+        return self.gemstone_session.execute('GsPackageLibrary packageLibrary')
+
     def list_packages(self):
-        return [
-            gemstone_package.to_py
-            for gemstone_package in self.class_organizer.categories().keys().asSortedCollection()
-        ]
+        package_names_from_categories = []
+        package_names_from_library = []
+        try:
+            package_names_from_categories = [
+                gemstone_package.to_py
+                for gemstone_package in self.class_organizer.categories().keys()
+            ]
+        except GemstoneError:
+            package_names_from_categories = []
+        except GemstoneApiError:
+            package_names_from_categories = []
+
+        try:
+            package_names_from_library = [
+                gemstone_package.name().to_py
+                for gemstone_package in self.package_library
+            ]
+        except GemstoneError:
+            package_names_from_library = []
+        except GemstoneApiError:
+            package_names_from_library = []
+
+        all_package_names = (
+            set(package_names_from_categories) | set(package_names_from_library)
+        )
+        return sorted(all_package_names)
+
+    def package_exists(self, package_name):
+        return package_name in self.list_packages()
+
+    def create_package(self, package_name):
+        package_name_literal = self.smalltalk_string_literal(package_name)
+        return self.run_code(
+            'GsPackageLibrary createPackageNamed: %s' % package_name_literal
+        )
+
+    def install_package(self, package_name):
+        package_name_literal = self.smalltalk_string_literal(package_name)
+        return self.run_code(
+            'GsPackageLibrary installPackageNamed: %s' % package_name_literal
+        )
+
+    def create_and_install_package(self, package_name):
+        self.create_package(package_name)
+        return self.install_package(package_name)
 
     def list_classes(self, package_name):
         if not package_name:
             return []
-        gemstone_classes = self.class_organizer.categories().at(package_name)
+        try:
+            gemstone_classes = self.class_organizer.categories().at(package_name)
+        except GemstoneError:
+            return []
+        except GemstoneApiError:
+            return []
+        except KeyError:
+            return []
         return [gemstone_class.name().to_py for gemstone_class in gemstone_classes]
 
     def list_method_categories(self, class_name, show_instance_side):
@@ -1877,6 +1929,39 @@ class GemstoneBrowserSession:
             0,
         )
 
+    def compile_method_in_dictionary(
+        self,
+        class_name,
+        in_dictionary,
+        show_instance_side,
+        source,
+        method_category='as yet unclassified',
+    ):
+        class_literal = self.smalltalk_string_literal(class_name)
+        source_literal = self.smalltalk_string_literal(source)
+        method_category_literal = self.smalltalk_string_literal(method_category)
+        dictionary_expression = self.dictionary_reference_expression(in_dictionary)
+        class_side_suffix = '' if show_instance_side else ' class'
+        return self.run_code(
+            (
+                '| classToQuery symbolList |\n'
+                'classToQuery := (%s at: (%s asSymbol)).\n'
+                'symbolList := System myUserProfile symbolList.\n'
+                'classToQuery%s\n'
+                '    compileMethod: %s\n'
+                '    dictionaries: symbolList\n'
+                '    category: %s\n'
+                '    environmentId: 0'
+            )
+            % (
+                dictionary_expression,
+                class_literal,
+                class_side_suffix,
+                source_literal,
+                method_category_literal,
+            )
+        )
+
     def create_class(
         self,
         class_name,
@@ -1909,7 +1994,7 @@ class GemstoneBrowserSession:
             self.symbol_array_literal(class_var_names),
             self.symbol_array_literal(class_inst_var_names),
             self.symbol_array_literal(pool_dictionary_names),
-            in_dictionary,
+            self.dictionary_reference_expression(in_dictionary),
         )
         return self.run_code(source)
 
@@ -1934,6 +2019,14 @@ class GemstoneBrowserSession:
 
     def smalltalk_string_literal(self, value):
         return "'%s'" % value.replace("'", "''")
+
+    def dictionary_reference_expression(self, in_dictionary):
+        if re.match('^[A-Za-z][A-Za-z0-9_]*$', in_dictionary):
+            return in_dictionary
+        dictionary_literal = self.smalltalk_string_literal(in_dictionary)
+        return '(GsPackageLibrary packageLibrary objectNamed: %s)' % (
+            dictionary_literal,
+        )
 
     def smalltalk_literal(self, value):
         if value is None:

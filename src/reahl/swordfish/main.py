@@ -102,6 +102,9 @@ class GemstoneSessionRecord:
     @property
     def class_categories(self):
         yield from self.gemstone_browser_session.list_packages()
+
+    def create_and_install_package(self, package_name):
+        self.gemstone_browser_session.create_and_install_package(package_name)
         
     def get_classes_in_category(self, category):
         yield from self.gemstone_browser_session.list_classes(category)
@@ -1180,6 +1183,7 @@ class PackageSelection(FramedWidget):
         # Subscribe to event_queue for any "Aborted" event
         self.event_queue.subscribe('Aborted', self.repopulate)
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
+        self.selection_list.selection_listbox.bind('<Button-3>', self.show_context_menu)
 
     def select_package(self, selected_package):
         self.gemstone_session_record.select_package(selected_package)
@@ -1194,6 +1198,29 @@ class PackageSelection(FramedWidget):
     def repopulate(self, origin=None):
         if origin is not self:
             self.selection_list.repopulate()
+
+    def show_context_menu(self, event):
+        idx = self.selection_list.selection_listbox.nearest(event.y)
+        self.selection_list.selection_listbox.selection_clear(0, 'end')
+        self.selection_list.selection_listbox.selection_set(idx)
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label='Add Package', command=self.add_package)
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def add_package(self):
+        package_name = simpledialog.askstring('Add Package', 'Package name:')
+        if not package_name:
+            return
+        try:
+            package_name = package_name.strip()
+            if not package_name:
+                return
+            self.gemstone_session_record.create_and_install_package(package_name)
+            self.gemstone_session_record.select_package(package_name)
+            self.selection_list.repopulate()
+            self.event_queue.publish('SelectedPackageChanged', origin=self)
+        except (GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror('Add Package', str(error))
 
             
 class ClassSelection(FramedWidget):        
@@ -1507,13 +1534,10 @@ class MethodSelection(FramedWidget):
         self.show_method_hierarchy_checkbox.grid(row=1, column=0, sticky='w')
         self.method_hierarchy_tree = ttk.Treeview(
             self,
-            columns=('class_name',),
-            show='tree headings',
+            show='tree',
         )
-        self.method_hierarchy_tree.heading('#0', text='Method')
-        self.method_hierarchy_tree.heading('class_name', text='Class')
-        self.method_hierarchy_tree.column('#0', width=220, anchor='w')
-        self.method_hierarchy_tree.column('class_name', width=180, anchor='w')
+        self.method_hierarchy_tree.heading('#0', text='Class')
+        self.method_hierarchy_tree.column('#0', width=240, anchor='w')
         self.method_hierarchy_tree.grid(row=2, column=0, sticky='nsew')
         self.method_hierarchy_tree.grid_remove()
         self.method_hierarchy_tree.bind(
@@ -1563,6 +1587,8 @@ class MethodSelection(FramedWidget):
 
     def select_method(self, selected_method):
         self.gemstone_session_record.select_method_symbol(selected_method)
+        if self.show_method_hierarchy_var.get():
+            self.refresh_method_hierarchy()
         self.event_queue.publish('MethodSelected', origin=self)
 
     def toggle_method_hierarchy(self):
@@ -1587,8 +1613,7 @@ class MethodSelection(FramedWidget):
             item_id = self.method_hierarchy_tree.insert(
                 parent_item_id,
                 'end',
-                text=inheritance_entry['method_selector'],
-                values=(inheritance_entry['class_name'],),
+                text=inheritance_entry['class_name'],
             )
             if inheritance_entry['class_name'] == selected_class:
                 selected_item_id = item_id
@@ -1651,8 +1676,8 @@ class MethodSelection(FramedWidget):
             selected_item_id = event.widget.selection()[0]
         except IndexError:
             return
-        selected_class = event.widget.set(selected_item_id, 'class_name')
-        selected_method = event.widget.item(selected_item_id, 'text')
+        selected_class = event.widget.item(selected_item_id, 'text')
+        selected_method = self.gemstone_session_record.selected_method_symbol
         if not selected_class or not selected_method:
             return
         show_instance_side = self.gemstone_session_record.show_instance_side

@@ -173,6 +173,15 @@ def register_tools(
             raise DomainException('%s cannot be empty.' % argument_name)
         return input_value
 
+    def validated_non_empty_string_stripped(input_value, argument_name):
+        normalized_input_value = validated_non_empty_string(
+            input_value,
+            argument_name,
+        ).strip()
+        if not normalized_input_value:
+            raise DomainException('%s cannot be blank.' % argument_name)
+        return normalized_input_value
+
     def validated_non_negative_integer_or_none(input_value, argument_name):
         if input_value is None:
             return None
@@ -402,6 +411,14 @@ def register_tools(
                     'step': 4,
                     'action': 'Connect and check transaction state.',
                     'tools': ['gs_connect', 'gs_transaction_status'],
+                },
+                {
+                    'step': 5,
+                    'action': 'For new module scaffolding, use explicit package tools.',
+                    'tools': [
+                        'gs_create_package',
+                        'gs_install_package',
+                    ],
                 },
             ]
         if intent == 'navigation':
@@ -2121,6 +2138,8 @@ def register_tools(
                 ],
                 'safe_write': [
                     'gs_begin',
+                    'gs_create_package',
+                    'gs_install_package',
                     'gs_compile_method',
                     'gs_create_class',
                     'gs_create_test_case_class',
@@ -2256,6 +2275,133 @@ def register_tools(
                 'ok': False,
                 'connection_id': connection_id,
                 'error': gemstone_error_payload(error),
+            }
+
+    @mcp_server.tool()
+    def gs_package_exists(connection_id, package_name):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            package_name = validated_non_empty_string_stripped(
+                package_name,
+                'package_name',
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'package_name': package_name,
+                'exists': browser_session.package_exists(package_name),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_create_package(connection_id, package_name):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_create_package is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = browser_session_for_policy(gemstone_session)
+        try:
+            package_name = validated_non_empty_string_stripped(
+                package_name,
+                'package_name',
+            )
+            browser_session.create_and_install_package(package_name)
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'package_name': package_name,
+                'installed': True,
+                'visible_in_package_list': browser_session.package_exists(
+                    package_name
+                ),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_install_package(connection_id, package_name):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_install_package is disabled. '
+                    'Start swordfish-mcp with --allow-compile to enable.'
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = browser_session_for_policy(gemstone_session)
+        try:
+            package_name = validated_non_empty_string_stripped(
+                package_name,
+                'package_name',
+            )
+            browser_session.install_package(package_name)
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'package_name': package_name,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
             }
 
     @mcp_server.tool()
@@ -3716,6 +3862,7 @@ def register_tools(
         source,
         show_instance_side=True,
         method_category='as yet unclassified',
+        in_dictionary=None,
     ):
         if not allow_compile:
             return disabled_tool_response(
@@ -3743,18 +3890,32 @@ def register_tools(
                 method_category,
                 'method_category',
             )
-            browser_session.compile_method(
-                class_name,
-                show_instance_side,
-                source,
-                method_category,
-            )
+            if in_dictionary is not None:
+                in_dictionary = validated_non_empty_string_stripped(
+                    in_dictionary,
+                    'in_dictionary',
+                )
+                browser_session.compile_method_in_dictionary(
+                    class_name,
+                    in_dictionary,
+                    show_instance_side,
+                    source,
+                    method_category,
+                )
+            else:
+                browser_session.compile_method(
+                    class_name,
+                    show_instance_side,
+                    source,
+                    method_category,
+                )
             return {
                 'ok': True,
                 'connection_id': connection_id,
                 'class_name': class_name,
                 'show_instance_side': show_instance_side,
                 'method_category': method_category,
+                'in_dictionary': in_dictionary,
             }
         except GemstoneError as error:
             return {
@@ -3807,7 +3968,7 @@ def register_tools(
                 superclass_name,
                 'superclass_name',
             )
-            in_dictionary = validated_identifier(
+            in_dictionary = validated_non_empty_string_stripped(
                 in_dictionary,
                 'in_dictionary',
             )
@@ -3889,7 +4050,7 @@ def register_tools(
         browser_session = browser_session_for_policy(gemstone_session)
         try:
             class_name = validated_identifier(class_name, 'class_name')
-            in_dictionary = validated_identifier(
+            in_dictionary = validated_non_empty_string_stripped(
                 in_dictionary,
                 'in_dictionary',
             )

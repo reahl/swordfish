@@ -2,6 +2,7 @@ import tkinter as tk
 import types
 from tkinter import ttk
 from unittest.mock import Mock
+from unittest.mock import call
 from unittest.mock import patch
 
 from reahl.ptongue import GemstoneError
@@ -196,6 +197,26 @@ def test_selecting_package_fetches_and_shows_classes(fixture):
     fixture.mock_browser.list_classes.assert_called_with('Kernel')
     class_listbox = fixture.browser_window.classes_widget.selection_list.selection_listbox
     assert list(class_listbox.get(0, 'end')) == ['OrderLine', 'Order']
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_add_package_creates_installs_and_selects_package(fixture):
+    """AI: Adding a package from the package pane should create/install it and select it in the package list."""
+    fixture.mock_browser.list_packages.return_value = [
+        'Kernel',
+        'Collections',
+        'Stuff',
+    ]
+
+    with patch('reahl.swordfish.main.simpledialog.askstring', return_value='Stuff'):
+        fixture.browser_window.packages_widget.add_package()
+        fixture.root.update()
+
+    fixture.mock_browser.create_and_install_package.assert_called_with('Stuff')
+    assert fixture.session_record.selected_package == 'Stuff'
+    assert fixture.selected_listbox_entry(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox
+    ) == 'Stuff'
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -394,8 +415,8 @@ def test_opening_hierarchy_tab_builds_and_expands_tree_for_selected_class(fixtur
 
 
 @with_fixtures(SwordfishGuiFixture)
-def test_method_inheritance_checkbox_shows_chain_with_class_column(fixture):
-    """AI: Enabling method inheritance view should show the selected method across its superclass chain with each class listed."""
+def test_method_inheritance_checkbox_shows_class_hierarchy(fixture):
+    """AI: Enabling method inheritance view should show the selected method's superclass chain as class names only."""
     fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
     methods_widget = fixture.browser_window.methods_widget
     methods_widget.show_method_hierarchy_var.set(True)
@@ -413,11 +434,34 @@ def test_method_inheritance_checkbox_shows_chain_with_class_column(fixture):
     assert len(order_line_item_ids) == 1
     order_line_item = order_line_item_ids[0]
 
-    assert tree.item(object_item, 'text') == 'total'
-    assert tree.set(object_item, 'class_name') == 'Object'
-    assert tree.set(order_item, 'class_name') == 'Order'
-    assert tree.set(order_line_item, 'class_name') == 'OrderLine'
+    assert tree.item(object_item, 'text') == 'Object'
+    assert tree.item(order_item, 'text') == 'Order'
+    assert tree.item(order_line_item, 'text') == 'OrderLine'
     assert tree.selection() == (order_line_item,)
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_inheritance_hierarchy_refreshes_on_method_selection_change(fixture):
+    """AI: Selecting a different method in the methods list should immediately refresh inheritance analysis for the new selector."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    methods_widget = fixture.browser_window.methods_widget
+    methods_widget.show_method_hierarchy_var.set(True)
+    methods_widget.toggle_method_hierarchy()
+    fixture.mock_browser.get_compiled_method.reset_mock()
+
+    methods_listbox = methods_widget.selection_list.selection_listbox
+    methods_listbox.selection_clear(0, 'end')
+    fixture.select_in_listbox(
+        methods_listbox,
+        'description',
+    )
+
+    expected_calls = [
+        call('Object', 'description', True),
+        call('Order', 'description', True),
+        call('OrderLine', 'description', True),
+    ]
+    fixture.mock_browser.get_compiled_method.assert_has_calls(expected_calls)
 
 
 @with_fixtures(SwordfishGuiFixture)
