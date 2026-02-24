@@ -1,5 +1,6 @@
 #!/var/local/gemstone/venv/wonka/bin/python
 
+import argparse
 import json
 import logging
 import re
@@ -822,11 +823,12 @@ class SendersDialog(tk.Toplevel):
 
 
 class Swordfish(tk.Tk):
-    def __init__(self):
+    def __init__(self, default_stone_name='gs64stone'):
         super().__init__()
         self.event_queue = EventQueue(self)
         self.title("Swordfish")
         self.geometry("800x600")
+        self.default_stone_name = default_stone_name
         
         self.notebook = None
         self.browser_tab = None
@@ -873,7 +875,10 @@ class Swordfish(tk.Tk):
     def show_login_screen(self):
         self.clear_widgets()
 
-        self.login_frame = LoginFrame(self)
+        self.login_frame = LoginFrame(
+            self,
+            default_stone_name=self.default_stone_name,
+        )
         self.login_frame.grid(row=0, column=0, sticky="nsew")
         self.login_frame.rowconfigure(0, weight=1)
         self.login_frame.columnconfigure(0, weight=1)
@@ -3527,7 +3532,7 @@ class DebuggerControls(ttk.Frame):
 
         
 class LoginFrame(ttk.Frame):
-    def __init__(self, parent):
+    def __init__(self, parent, default_stone_name='gs64stone'):
         super().__init__(parent)
         self.parent = parent
         self.error_label = None
@@ -3558,8 +3563,7 @@ class LoginFrame(ttk.Frame):
 
         ttk.Label(self, text="Stone name:").grid(column=0,row=2)
         self.stone_name_entry = ttk.Entry(self)
-#        self.stone_name_entry.insert(0, 'gs64stone')
-        self.stone_name_entry.insert(0, 'development')
+        self.stone_name_entry.insert(0, default_stone_name)
         self.stone_name_entry.grid(column=1,row=2)
 
         # Remote checkbox
@@ -3618,7 +3622,17 @@ class LoginFrame(ttk.Frame):
 
 
 def run_application():
-    app = Swordfish()
+    argument_parser = argparse.ArgumentParser(
+        description='Run Swordfish IDE.'
+    )
+    argument_parser.add_argument(
+        'stone_name',
+        nargs='?',
+        default='gs64stone',
+        help='GemStone stone name to prefill in login form.',
+    )
+    arguments = argument_parser.parse_args()
+    app = Swordfish(default_stone_name=arguments.stone_name)
     app.mainloop()
 
 if __name__ == "__main__":
