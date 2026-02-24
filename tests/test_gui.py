@@ -22,6 +22,7 @@ from reahl.swordfish.main import Explorer
 from reahl.swordfish.main import FindDialog
 from reahl.swordfish.main import GemstoneSessionRecord
 from reahl.swordfish.main import ObjectInspector
+from reahl.swordfish.main import run_application
 from reahl.swordfish.main import SendersDialog
 from reahl.swordfish.main import Swordfish
 
@@ -735,6 +736,44 @@ def test_successful_login_switches_to_browser_interface(fixture):
 
     assert fixture.app.is_logged_in
     assert fixture.app.notebook is not None
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_login_screen_defaults_stone_name_to_gs64stone(fixture):
+    """AI: The login screen should prefill stone name with gs64stone when no CLI argument is supplied."""
+    assert fixture.app.login_frame.stone_name_entry.get() == 'gs64stone'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_swordfish_custom_default_stone_name_prefills_login_field(fixture):
+    """AI: A configured default stone name should be shown in the login screen stone field."""
+    custom_app = Swordfish(default_stone_name='customStone')
+    custom_app.withdraw()
+    custom_app.update()
+    assert custom_app.login_frame.stone_name_entry.get() == 'customStone'
+    custom_app.destroy()
+
+
+def test_run_application_uses_default_stone_name_when_arg_not_given():
+    """AI: run_application should construct Swordfish with gs64stone by default."""
+    with patch('reahl.swordfish.main.Swordfish') as mock_swordfish:
+        app_instance = Mock()
+        mock_swordfish.return_value = app_instance
+        with patch('sys.argv', ['swordfish']):
+            run_application()
+        mock_swordfish.assert_called_once_with(default_stone_name='gs64stone')
+        app_instance.mainloop.assert_called_once()
+
+
+def test_run_application_uses_cli_stone_name_when_given():
+    """AI: run_application should pass an explicitly provided stone name into Swordfish."""
+    with patch('reahl.swordfish.main.Swordfish') as mock_swordfish:
+        app_instance = Mock()
+        mock_swordfish.return_value = app_instance
+        with patch('sys.argv', ['swordfish', 'myStone']):
+            run_application()
+        mock_swordfish.assert_called_once_with(default_stone_name='myStone')
+        app_instance.mainloop.assert_called_once()
 
 
 @with_fixtures(SwordfishAppFixture)
