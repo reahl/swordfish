@@ -1030,6 +1030,7 @@ class RunTab(ttk.Frame):
     def run_code_from_editor(self):
         self.status_label.config(text='Running...')
         self.last_exception = None
+        self.clear_source_error_highlight()
         try:
             code_to_run = self.source_text.get('1.0', tk.END).strip()
             result = self.gemstone_session_record.run_code(code_to_run)
@@ -1039,6 +1040,7 @@ class RunTab(ttk.Frame):
 
     def on_run_complete(self, result):
         self.status_label.config(text='Completed successfully')
+        self.clear_source_error_highlight()
         self.result_text.config(state='normal')
         self.result_text.delete('1.0', tk.END)
         self.result_text.insert(tk.END, result.asString().to_py)
@@ -1046,7 +1048,209 @@ class RunTab(ttk.Frame):
 
     def on_run_error(self, exception):
         self.last_exception = exception
-        self.status_label.config(text=f'Error: {str(exception)}')
+        error_text = str(exception)
+        line_number, column_number = self.compile_error_location_for_exception(exception, error_text)
+        self.show_source_error_highlight(line_number, column_number)
+        self.show_error_in_result_panel(error_text, line_number, column_number)
+        self.status_label.config(text=self.error_status_text(error_text, line_number, column_number))
+
+    def clear_source_error_highlight(self):
+        self.source_text.tag_remove('compile_error_location', '1.0', tk.END)
+
+    def show_source_error_highlight(self, line_number, column_number):
+        self.clear_source_error_highlight()
+        if line_number is None:
+            return
+
+        source_lines = self.source_text.get('1.0', tk.END).splitlines()
+        if line_number < 1 or line_number > len(source_lines):
+            return
+
+        start_index = f'{line_number}.0'
+        end_index = f'{line_number}.end'
+        if column_number is not None and column_number > 0:
+            source_line = source_lines[line_number - 1]
+            bounded_column_number = column_number
+            if bounded_column_number > len(source_line) + 1:
+                bounded_column_number = len(source_line) + 1
+            start_index = f'{line_number}.{bounded_column_number - 1}'
+            end_index = f'{line_number}.{bounded_column_number}'
+
+        self.source_text.tag_configure('compile_error_location', background='#ffe4e4')
+        self.source_text.tag_add('compile_error_location', start_index, end_index)
+        self.source_text.see(start_index)
+
+    def show_error_in_result_panel(self, error_text, line_number, column_number):
+        self.result_text.config(state='normal')
+        self.result_text.delete('1.0', tk.END)
+        self.result_text.insert(tk.END, error_text)
+        if line_number is not None and column_number is not None:
+            source_lines = self.source_text.get('1.0', tk.END).splitlines()
+            source_line = ''
+            if line_number > 0 and line_number <= len(source_lines):
+                source_line = source_lines[line_number - 1]
+            caret_padding = ''
+            if column_number > 1:
+                caret_padding = ' ' * (column_number - 1)
+            self.result_text.insert(tk.END, f'\nLine {line_number}, column {column_number}\n')
+            self.result_text.insert(tk.END, f'{source_line}\n')
+            self.result_text.insert(tk.END, f'{caret_padding}^\n')
+        self.result_text.config(state='disabled')
+
+    def error_status_text(self, error_text, line_number, column_number):
+        if line_number is not None and column_number is not None:
+            return f'Error: {error_text} (line {line_number}, column {column_number})'
+        return f'Error: {error_text}'
+
+    def compile_error_location_for_exception(self, exception, error_text):
+        line_number = None
+        column_number = None
+
+        line_number, column_number = self.compile_error_location_from_structured_arguments(exception)
+        if line_number is None:
+            line_number, column_number = self.compile_error_location_from_text(error_text)
+            if line_number is None:
+                message_text = self.compile_error_message_text(exception)
+                line_number, column_number = self.compile_error_location_from_text(message_text)
+
+        return line_number, column_number
+
+    def compile_error_message_text(self, exception):
+        message_text = ''
+        try:
+            message_text = exception.message
+        except (AttributeError, GemstoneError, TypeError):
+            pass
+        return message_text
+
+    def compile_error_location_from_structured_arguments(self, exception):
+        error_number = None
+        try:
+            error_number = exception.number
+        except (AttributeError, GemstoneError, TypeError):
+            pass
+        if error_number != 1001:
+            return None, None
+
+        argument_values = self.compile_error_argument_values(exception)
+        detail_rows = self.sequence_item(argument_values, 1)
+        first_detail = self.sequence_item(detail_rows, 1)
+        offset_value = self.sequence_item(first_detail, 2)
+        source_text = self.sequence_item(argument_values, 2)
+
+        offset_number = self.python_error_value(offset_value)
+        source_value = self.python_error_value(source_text)
+        if not isinstance(offset_number, int) or not isinstance(source_value, str):
+            return None, None
+        return self.line_and_column_for_offset(source_value, offset_number)
+
+    def compile_error_argument_values(self, exception):
+        argument_values = ()
+        try:
+            argument_values = exception.args
+        except (AttributeError, GemstoneError, TypeError):
+            pass
+        return argument_values
+
+    def compile_error_location_from_text(self, error_text):
+        if not isinstance(error_text, str):
+            return None, None
+
+        line_number = None
+        column_number = None
+
+        full_match = re.search(r'line\s+(\d+)\s*[,;]?\s*column\s+(\d+)', error_text, re.IGNORECASE)
+        if full_match:
+            line_number = int(full_match.group(1))
+            column_number = int(full_match.group(2))
+
+        if line_number is None:
+            inverted_match = re.search(r'column\s+(\d+)\s*[,;]?\s*line\s+(\d+)', error_text, re.IGNORECASE)
+            if inverted_match:
+                line_number = int(inverted_match.group(2))
+                column_number = int(inverted_match.group(1))
+
+        if line_number is None:
+            line_only_match = re.search(r'line\s+(\d+)', error_text, re.IGNORECASE)
+            if line_only_match:
+                line_number = int(line_only_match.group(1))
+
+        return line_number, column_number
+
+    def sequence_item(self, sequence_value, one_based_index):
+        if sequence_value is None:
+            return None
+
+        if isinstance(sequence_value, (list, tuple)):
+            zero_based_index = one_based_index - 1
+            if zero_based_index >= 0 and zero_based_index < len(sequence_value):
+                return sequence_value[zero_based_index]
+            return None
+
+        size_value = self.python_error_value(self.message_send_result(sequence_value, 'size'))
+        if not isinstance(size_value, int):
+            return None
+        if one_based_index < 1 or one_based_index > size_value:
+            return None
+        return self.message_send_result(sequence_value, 'at', one_based_index)
+
+    def message_send_result(self, receiver, selector_name, *arguments):
+        result = None
+        if receiver is None:
+            return result
+        selector = getattr(receiver, selector_name, None)
+        if selector is None:
+            return result
+        try:
+            result = selector(*arguments)
+        except (GemstoneError, TypeError, AttributeError):
+            pass
+        return result
+
+    def python_error_value(self, candidate_value):
+        if candidate_value is None:
+            return None
+        if isinstance(candidate_value, (int, str)):
+            return candidate_value
+
+        to_py_value = getattr(candidate_value, 'to_py', None)
+        if to_py_value is not None:
+            if callable(to_py_value):
+                try:
+                    return to_py_value()
+                except (GemstoneError, TypeError, AttributeError):
+                    pass
+            if not callable(to_py_value):
+                return to_py_value
+
+        as_string_result = self.message_send_result(candidate_value, 'asString')
+        as_string_value = getattr(as_string_result, 'to_py', None)
+        if callable(as_string_value):
+            try:
+                return as_string_value()
+            except (GemstoneError, TypeError, AttributeError):
+                return None
+        if as_string_value is not None:
+            return as_string_value
+        return None
+
+    def line_and_column_for_offset(self, source_text, one_based_offset):
+        if one_based_offset < 1:
+            return None, None
+
+        bounded_offset = one_based_offset
+        if bounded_offset > len(source_text):
+            bounded_offset = len(source_text)
+        if bounded_offset < 1:
+            bounded_offset = 1
+
+        source_before_error = source_text[:bounded_offset - 1]
+        line_number = source_before_error.count('\n') + 1
+        last_newline_index = source_before_error.rfind('\n')
+        column_number = bounded_offset
+        if last_newline_index >= 0:
+            column_number = len(source_before_error) - last_newline_index
+        return line_number, column_number
 
     def open_debugger(self):
         if self.last_exception is None:
@@ -3220,40 +3424,185 @@ class BrowserWindow(ttk.PanedWindow):
 class ObjectInspector(ttk.Frame):
     def __init__(self, parent, an_object=None, values=None):
         super().__init__(parent)
-
-        if not values:
-            values = self.inspect_object(an_object)
-
-        # Keep a list of actual value objects
+        self.inspected_object = an_object
+        self.page_size = 100
+        self.current_page = 0
+        self.total_items = 0
+        self.pagination_mode = None
+        self.dictionary_keys = []
         self.actual_values = []
+        self.treeview_heading = 'Name'
 
-        # Create a Treeview widget in the 'context' tab
+        # Create a Treeview widget in the inspector
         self.treeview = ttk.Treeview(self, columns=('Name', 'Class', 'Value'), show='headings')
         self.treeview.heading('Name', text='Name')
         self.treeview.heading('Class', text='Class')
         self.treeview.heading('Value', text='Value')
-        self.treeview.grid(row=0, column=0, sticky="nsew")
+        self.treeview.grid(row=0, column=0, sticky='nsew')
 
-        # Add data to the Treeview and keep track of actual values
-        for name, value in values.items():
-            self.treeview.insert('', 'end', values=(name, value.gemstone_class().asString().to_py, value.asString().to_py))
-            self.actual_values.append(value)
+        self.footer = ttk.Frame(self)
+        self.footer.grid(row=1, column=0, sticky='ew', pady=(4, 0))
+        self.status_label = ttk.Label(self.footer, text='')
+        self.status_label.grid(row=0, column=0, sticky='w')
+        self.previous_button = ttk.Button(self.footer, text='Previous', command=self.on_previous_page)
+        self.previous_button.grid(row=0, column=1, padx=(8, 0))
+        self.next_button = ttk.Button(self.footer, text='Next', command=self.on_next_page)
+        self.next_button.grid(row=0, column=2, padx=(4, 0))
 
-        # Configure grid in the context_frame for proper resizing
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
+        self.footer.columnconfigure(0, weight=1)
 
-        # Bind double-click event to add new tab
-        self.treeview.bind("<Double-1>", self.on_item_double_click)
+        if values is not None:
+            self.pagination_mode = None
+            self.load_rows(list(values.items()), 'Name', len(values))
+        else:
+            self.inspect_object(an_object)
+
+        # Bind double-click event to open nested inspectors
+        self.treeview.bind('<Double-1>', self.on_item_double_click)
+
+    def class_name_of(self, an_object):
+        class_name = 'Unknown'
+        if an_object is not None:
+            try:
+                class_name = an_object.gemstone_class().asString().to_py
+            except GemstoneError:
+                pass
+        return class_name
+
+    def value_label(self, an_object):
+        label = '<unavailable>'
+        if an_object is not None:
+            try:
+                label = an_object.asString().to_py
+            except GemstoneError:
+                label = f'<{self.class_name_of(an_object)}>'
+        return label
+
+    def class_name_has_dictionary_semantics(self, class_name):
+        dictionary_markers = ('Dictionary', 'KeyValue')
+        return any(marker in class_name for marker in dictionary_markers)
+
+    def class_name_has_indexed_collection_semantics(self, class_name):
+        indexed_markers = ('Array', 'OrderedCollection', 'SortedCollection', 'SequenceableCollection', 'List')
+        return any(marker in class_name for marker in indexed_markers)
 
     def inspect_object(self, an_object):
+        if an_object is None:
+            self.pagination_mode = None
+            self.load_rows([], 'Name', 0)
+            return
+
         try:
             is_class = an_object.isBehavior().to_py
         except GemstoneError:
             is_class = False
+
         if is_class:
-            return self.inspect_class(an_object)
-        return self.inspect_instance(an_object)
+            self.pagination_mode = None
+            inspected_values = self.inspect_class(an_object)
+            self.load_rows(list(inspected_values.items()), 'Name', len(inspected_values))
+            return
+
+        class_name = self.class_name_of(an_object)
+        dictionary_is_configured = False
+        if self.class_name_has_dictionary_semantics(class_name):
+            dictionary_is_configured = self.configure_dictionary_rows(an_object)
+        if dictionary_is_configured:
+            return
+
+        indexed_collection_is_configured = False
+        if self.class_name_has_indexed_collection_semantics(class_name):
+            indexed_collection_is_configured = self.configure_indexed_collection_rows(an_object)
+        if indexed_collection_is_configured:
+            return
+
+        self.pagination_mode = None
+        inspected_values = self.inspect_instance(an_object)
+        self.load_rows(list(inspected_values.items()), 'Name', len(inspected_values))
+
+    def configure_dictionary_rows(self, an_object):
+        try:
+            self.dictionary_keys = list(an_object.keys())
+        except GemstoneError:
+            return False
+
+        self.pagination_mode = 'dictionary'
+        self.current_page = 0
+        self.total_items = len(self.dictionary_keys)
+        self.treeview_heading = 'Key'
+        self.refresh_rows_for_current_page()
+        return True
+
+    def configure_indexed_collection_rows(self, an_object):
+        try:
+            total_items = an_object.size().to_py
+        except GemstoneError:
+            return False
+
+        can_access_index_one = True
+        if total_items > 0:
+            try:
+                an_object.at(1)
+            except GemstoneError:
+                can_access_index_one = False
+        if not can_access_index_one:
+            return False
+
+        self.pagination_mode = 'indexed'
+        self.current_page = 0
+        self.total_items = total_items
+        self.treeview_heading = 'Index'
+        self.refresh_rows_for_current_page()
+        return True
+
+    def row_range_for_current_page(self):
+        if self.total_items < 1:
+            return 0, 0
+
+        start_index = self.current_page * self.page_size
+        end_index = start_index + self.page_size
+        if end_index > self.total_items:
+            end_index = self.total_items
+        return start_index, end_index
+
+    def dictionary_rows_for_range(self, start_index, end_index):
+        rows = []
+        for key in self.dictionary_keys[start_index:end_index]:
+            value_found = False
+            value = None
+            try:
+                value = self.inspected_object.at(key)
+                value_found = True
+            except GemstoneError:
+                pass
+            if value_found:
+                rows.append((self.value_label(key), value))
+        return rows
+
+    def indexed_rows_for_range(self, start_index, end_index):
+        rows = []
+        for one_based_index in range(start_index + 1, end_index + 1):
+            value_found = False
+            value = None
+            try:
+                value = self.inspected_object.at(one_based_index)
+                value_found = True
+            except GemstoneError:
+                pass
+            if value_found:
+                rows.append((f'[{one_based_index}]', value))
+        return rows
+
+    def refresh_rows_for_current_page(self):
+        start_index, end_index = self.row_range_for_current_page()
+        rows = []
+        if self.pagination_mode == 'dictionary':
+            rows = self.dictionary_rows_for_range(start_index, end_index)
+        if self.pagination_mode == 'indexed':
+            rows = self.indexed_rows_for_range(start_index, end_index)
+        self.load_rows(rows, self.treeview_heading, self.total_items)
 
     def inspect_instance(self, an_object):
         # AI: Regular instances expose their instance variables via instVarNamed:.
@@ -3290,16 +3639,79 @@ class ObjectInspector(ttk.Frame):
                 pass
         return values
 
+    def load_rows(self, rows, first_column_title, total_items):
+        self.treeview_heading = first_column_title
+        self.total_items = total_items
+        self.treeview.heading('Name', text=self.treeview_heading)
+
+        for existing_item in self.treeview.get_children():
+            self.treeview.delete(existing_item)
+        self.actual_values = []
+
+        for row_name, row_value in rows:
+            self.treeview.insert(
+                '',
+                'end',
+                values=(
+                    row_name,
+                    self.class_name_of(row_value),
+                    self.value_label(row_value),
+                ),
+            )
+            self.actual_values.append(row_value)
+
+        self.update_footer()
+
+    def update_footer(self):
+        start_index, end_index = self.row_range_for_current_page()
+        show_page_window = self.pagination_mode in ('dictionary', 'indexed') and self.total_items > self.page_size
+        if show_page_window:
+            self.status_label.configure(text=f'Items {start_index + 1}-{end_index} of {self.total_items}')
+        if not show_page_window:
+            if self.total_items == 1:
+                self.status_label.configure(text='1 item')
+            if self.total_items != 1:
+                self.status_label.configure(text=f'{self.total_items} items')
+
+        self.previous_button.configure(state=tk.DISABLED)
+        self.next_button.configure(state=tk.DISABLED)
+        if show_page_window:
+            if self.current_page > 0:
+                self.previous_button.configure(state=tk.NORMAL)
+            if end_index < self.total_items:
+                self.next_button.configure(state=tk.NORMAL)
+
+    def on_previous_page(self):
+        can_page_backwards = self.pagination_mode in ('dictionary', 'indexed') and self.current_page > 0
+        if can_page_backwards:
+            self.current_page -= 1
+            self.refresh_rows_for_current_page()
+
+    def on_next_page(self):
+        start_index, end_index = self.row_range_for_current_page()
+        can_page_forwards = self.pagination_mode in ('dictionary', 'indexed') and end_index < self.total_items
+        if can_page_forwards:
+            self.current_page += 1
+            self.refresh_rows_for_current_page()
+
     def on_item_double_click(self, event):
         selected_item = self.treeview.focus()
         if selected_item:
             index = self.treeview.index(selected_item)
-            value = self.actual_values[index]
-            tab_label = f"Inspector: {self.treeview.item(selected_item, 'values')[0]}"
+            value = None
+            if index < len(self.actual_values):
+                value = self.actual_values[index]
+            if value is None:
+                return
+
             for tab_id in self.master.tabs():
-                if self.master.tab(tab_id, 'text') == tab_label:
+                inspected_widget = self.master.nametowidget(tab_id)
+                tab_matches_object = isinstance(inspected_widget, ObjectInspector) and inspected_widget.inspected_object is value
+                if tab_matches_object:
                     self.master.select(tab_id)
                     return
+
+            tab_label = self.class_name_of(value)
             try:
                 new_tab = ObjectInspector(self.master, an_object=value)
             except GemstoneError as e:
