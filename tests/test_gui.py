@@ -76,16 +76,28 @@ class SwordfishGuiFixture(Fixture):
                 'class_name': 'OrderLine',
                 'superclass_name': 'Order',
                 'package_name': 'Kernel',
+                'inst_var_names': ['amount', 'quantity'],
+                'class_var_names': [],
+                'class_inst_var_names': [],
+                'pool_dictionary_names': [],
             },
             'Order': {
                 'class_name': 'Order',
                 'superclass_name': 'Object',
                 'package_name': 'Kernel',
+                'inst_var_names': ['lines'],
+                'class_var_names': [],
+                'class_inst_var_names': [],
+                'pool_dictionary_names': [],
             },
             'Object': {
                 'class_name': 'Object',
                 'superclass_name': None,
                 'package_name': 'Kernel',
+                'inst_var_names': [],
+                'class_var_names': [],
+                'class_inst_var_names': [],
+                'pool_dictionary_names': [],
             },
         }
 
@@ -134,6 +146,7 @@ class SwordfishGuiFixture(Fixture):
         """
         items = listbox.get(0, 'end')
         idx = list(items).index(item)
+        listbox.selection_clear(0, 'end')
         listbox.selection_set(idx)
         selection_list = listbox.master  # AI: listbox is a direct child of InteractiveSelectionList
         selection_list.handle_selection(types.SimpleNamespace(widget=listbox))
@@ -217,6 +230,33 @@ def test_add_package_creates_installs_and_selects_package(fixture):
     assert fixture.selected_listbox_entry(
         fixture.browser_window.packages_widget.selection_list.selection_listbox
     ) == 'Stuff'
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_add_class_creates_in_selected_package_and_selects_it(fixture):
+    """AI: Adding a class from the class pane should create it in the selected package and make it the selected class."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        'Kernel',
+    )
+    fixture.mock_browser.list_classes.return_value = ['OrderLine', 'Order', 'Invoice']
+
+    with patch(
+        'reahl.swordfish.main.simpledialog.askstring',
+        side_effect=['Invoice', 'Object'],
+    ):
+        fixture.browser_window.classes_widget.add_class()
+        fixture.root.update()
+
+    fixture.mock_browser.create_class.assert_called_with(
+        class_name='Invoice',
+        superclass_name='Object',
+        in_dictionary='Kernel',
+    )
+    assert fixture.session_record.selected_class == 'Invoice'
+    assert fixture.selected_listbox_entry(
+        fixture.browser_window.classes_widget.selection_list.selection_listbox
+    ) == 'Invoice'
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -415,12 +455,106 @@ def test_opening_hierarchy_tab_builds_and_expands_tree_for_selected_class(fixtur
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_selecting_class_in_hierarchy_selects_default_category_and_refreshes_methods(
+    fixture,
+):
+    """AI: Selecting a class in hierarchy view should auto-select a method category and refresh method views."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        'Kernel',
+    )
+    classes_widget = fixture.browser_window.classes_widget
+    classes_widget.classes_notebook.select(classes_widget.hierarchy_frame)
+    fixture.root.update()
+
+    tree = classes_widget.hierarchy_tree
+
+    def child_with_text(parent_item, expected_text):
+        child_item_ids = tree.get_children(parent_item)
+        for child_item_id in child_item_ids:
+            if tree.item(child_item_id, 'text') == expected_text:
+                return child_item_id
+        raise AssertionError(
+            f'Could not find {expected_text} under {parent_item}.',
+        )
+
+    object_item = child_with_text('', 'Object')
+    order_item = child_with_text(object_item, 'Order')
+    child_with_text(order_item, 'OrderLine')
+    classes_widget.select_class(
+        'OrderLine',
+        selection_source='hierarchy',
+        class_category='Kernel',
+    )
+    fixture.root.update()
+
+    assert fixture.session_record.selected_class == 'OrderLine'
+    assert fixture.session_record.selected_method_category == 'all'
+    assert fixture.selected_listbox_entry(
+        fixture.browser_window.categories_widget.selection_list.selection_listbox,
+    ) == 'all'
+    method_entries = list(
+        fixture.browser_window.methods_widget.selection_list.selection_listbox.get(
+            0,
+            'end',
+        )
+    )
+    assert method_entries == ['total', 'description']
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_show_class_definition_displays_and_updates_for_selected_class(fixture):
+    """AI: Enabling class definition view should render the selected class definition and refresh when selection changes."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        'Kernel',
+    )
+    fixture.select_in_listbox(
+        fixture.browser_window.classes_widget.selection_list.selection_listbox,
+        'OrderLine',
+    )
+    classes_widget = fixture.browser_window.classes_widget
+    classes_widget.show_class_definition_var.set(True)
+    classes_widget.toggle_class_definition()
+    fixture.root.update()
+
+    rendered_definition = classes_widget.class_definition_text.get(
+        '1.0',
+        'end',
+    ).strip()
+    assert "Order subclass: 'OrderLine'" in rendered_definition
+    assert 'instVarNames: #(amount quantity)' in rendered_definition
+    assert 'inDictionary: Kernel' in rendered_definition
+
+    fixture.browser_window.classes_widget.selection_list.selection_listbox.selection_clear(
+        0,
+        'end',
+    )
+    fixture.select_in_listbox(
+        fixture.browser_window.classes_widget.selection_list.selection_listbox,
+        'Order',
+    )
+    fixture.root.update()
+    updated_definition = classes_widget.class_definition_text.get(
+        '1.0',
+        'end',
+    ).strip()
+    assert "Object subclass: 'Order'" in updated_definition
+    assert 'instVarNames: #(lines)' in updated_definition
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_method_inheritance_checkbox_shows_class_hierarchy(fixture):
     """AI: Enabling method inheritance view should show the selected method's superclass chain as class names only."""
     fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
     methods_widget = fixture.browser_window.methods_widget
     methods_widget.show_method_hierarchy_var.set(True)
     methods_widget.toggle_method_hierarchy()
+    assert fixture.session_record.selected_method_symbol == 'total'
+    method_hierarchy_tree = methods_widget.method_hierarchy_tree
+    root_item_ids = method_hierarchy_tree.get_children('')
+    assert len(root_item_ids) == 1
+    assert method_hierarchy_tree.item(root_item_ids[0], 'text') == 'Object'
     fixture.root.update()
 
     tree = methods_widget.method_hierarchy_tree
@@ -462,6 +596,52 @@ def test_method_inheritance_hierarchy_refreshes_on_method_selection_change(fixtu
         call('OrderLine', 'description', True),
     ]
     fixture.mock_browser.get_compiled_method.assert_has_calls(expected_calls)
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_inheritance_updates_after_explicit_method_click_from_hierarchy_class_view(
+    fixture,
+):
+    """AI: With class selected from hierarchy view and no method selected, clicking a method should refresh method inheritance for that method."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        'Kernel',
+    )
+    classes_widget = fixture.browser_window.classes_widget
+    classes_widget.classes_notebook.select(classes_widget.hierarchy_frame)
+    classes_widget.select_class(
+        'OrderLine',
+        selection_source='hierarchy',
+        class_category='Kernel',
+    )
+    fixture.root.update()
+
+    assert fixture.session_record.selected_method_symbol is None
+    assert fixture.session_record.selected_method_category == 'all'
+
+    methods_widget = fixture.browser_window.methods_widget
+    methods_widget.show_method_hierarchy_var.set(True)
+    methods_widget.toggle_method_hierarchy()
+    fixture.root.update()
+    assert not methods_widget.method_hierarchy_tree.get_children('')
+
+    fixture.mock_browser.get_compiled_method.reset_mock()
+    methods_listbox = methods_widget.selection_list.selection_listbox
+    methods_listbox.selection_clear(0, 'end')
+    fixture.select_in_listbox(
+        methods_listbox,
+        'total',
+    )
+    fixture.root.update()
+
+    assert fixture.session_record.selected_method_symbol == 'total'
+    expected_calls = [
+        call('Object', 'total', True),
+        call('Order', 'total', True),
+        call('OrderLine', 'total', True),
+    ]
+    fixture.mock_browser.get_compiled_method.assert_has_calls(expected_calls)
+    assert methods_widget.method_hierarchy_tree.get_children('')
 
 
 @with_fixtures(SwordfishGuiFixture)

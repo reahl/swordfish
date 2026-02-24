@@ -105,6 +105,21 @@ class GemstoneSessionRecord:
 
     def create_and_install_package(self, package_name):
         self.gemstone_browser_session.create_and_install_package(package_name)
+
+    def create_class(
+        self,
+        class_name,
+        superclass_name='Object',
+        in_dictionary=None,
+    ):
+        selected_dictionary = in_dictionary
+        if selected_dictionary is None:
+            selected_dictionary = self.selected_package or 'UserGlobals'
+        self.gemstone_browser_session.create_class(
+            class_name=class_name,
+            superclass_name=superclass_name,
+            in_dictionary=selected_dictionary,
+        )
         
     def get_classes_in_category(self, category):
         yield from self.gemstone_browser_session.list_classes(category)
@@ -1103,6 +1118,7 @@ class InteractiveSelectionList(ttk.Frame):
         self.get_all_entries = get_all_entries
         self.get_selected_entry = get_selected_entry
         self.set_selected_to = set_selected_to
+        self.synchronizing_selection = False
 
         # Filter entry to allow filtering listbox content
         self.filter_var = tk.StringVar()
@@ -1114,7 +1130,7 @@ class InteractiveSelectionList(ttk.Frame):
         self.selection_listbox = tk.Listbox(self, selectmode=tk.SINGLE, exportselection=False)
         self.selection_listbox.grid(row=1, column=0, sticky='nsew')
 
-        self.scrollbar = tk.Scrollbar(self, orient="vertical", command=self.selection_listbox.yview)
+        self.scrollbar = tk.Scrollbar(self, orient='vertical', command=self.selection_listbox.yview)
         self.scrollbar.grid(row=1, column=1, sticky='ns')
         self.selection_listbox.config(yscrollcommand=self.scrollbar.set)
 
@@ -1129,39 +1145,44 @@ class InteractiveSelectionList(ttk.Frame):
         self.selection_listbox.bind('<<ListboxSelect>>', self.handle_selection)
         
     def repopulate(self, origin=None):
-        # Store packages for filtering purposes
-        self.all_entries = self.get_all_entries()
-        self.filter_var.set('')
-        self.update_filter()
+        self.synchronizing_selection = True
+        try:
+            self.all_entries = self.get_all_entries()
+            self.filter_var.set('')
+            self.update_filter()
 
-        # Scroll into view the selected item if it exists
-        selected_indices = self.selection_listbox.curselection()
-        if selected_indices:
-            index = selected_indices[0]
-            if not self.selection_listbox.bbox(index):
-                self.selection_listbox.see(index)
+            selected_indices = self.selection_listbox.curselection()
+            if selected_indices:
+                index = selected_indices[0]
+                if not self.selection_listbox.bbox(index):
+                    self.selection_listbox.see(index)
+        finally:
+            self.synchronizing_selection = False
                     
     def update_filter(self, *args):
-        # Get the filter text
         filter_text = self.filter_var.get().lower()
-
-        # Clear current listbox contents
         self.selection_listbox.delete(0, tk.END)
 
         selected_entry = self.get_selected_entry()
-        
-        # Add only matching packages to the listbox and select the matching item
-        for index, entry in enumerate(self.all_entries):
+        filtered_index = 0
+        for entry in self.all_entries:
             if filter_text in entry.lower():
                 self.selection_listbox.insert(tk.END, entry)
                 if selected_entry and selected_entry == entry:
-                    self.selection_listbox.selection_set(index)
+                    self.selection_listbox.selection_set(filtered_index)
+                filtered_index += 1
 
     def handle_selection(self, event):
+        if self.synchronizing_selection:
+            return
         try:
             selected_listbox = event.widget
-            selected_index = selected_listbox.curselection()[0]
+            selected_indices = selected_listbox.curselection()
+            selected_index = selected_indices[-1]
             selected_entry = selected_listbox.get(selected_index)
+            current_selected_entry = self.get_selected_entry()
+            if selected_entry == current_selected_entry:
+                return
 
             self.set_selected_to(selected_entry)
         except IndexError:
@@ -1226,23 +1247,20 @@ class PackageSelection(FramedWidget):
 class ClassSelection(FramedWidget):        
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
         super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
-        
-        self.classes_notebook = ttk.Notebook(self)
-        self.classes_notebook.grid(row=0, column=0, columnspan=2, sticky="nsew")
 
-        # Configure the grid layout to expand properly
+        self.classes_notebook = ttk.Notebook(self)
+        self.classes_notebook.grid(row=0, column=0, columnspan=2, sticky='nsew')
+
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=1)
 
-        # Create 'List' tab with an InteractiveSelectionList
         self.selection_list = InteractiveSelectionList(self, self.get_all_classes, self.get_selected_class, self.select_class)
-        self.selection_list.grid(row=0, column=0, sticky="nsew")
+        self.selection_list.grid(row=0, column=0, sticky='nsew')
         self.classes_notebook.add(self.selection_list, text='List')
 
-        # Create 'Hierarchy' tab with a Treeview
         self.hierarchy_frame = ttk.Frame(self.classes_notebook)
-        self.hierarchy_frame.grid(row=0, column=0, sticky="nsew")
+        self.hierarchy_frame.grid(row=0, column=0, sticky='nsew')
         self.classes_notebook.add(self.hierarchy_frame, text='Hierarchy')
         self.hierarchy_tree = ttk.Treeview(
             self.hierarchy_frame,
@@ -1257,23 +1275,49 @@ class ClassSelection(FramedWidget):
         self.hierarchy_tree.column('#0', width=260, anchor='w')
         self.hierarchy_tree.column('class_category', width=180, anchor='w')
         self.hierarchy_item_by_class_name = {}
+        self.synchronizing_hierarchy_selection = False
         self.hierarchy_tree.bind('<<TreeviewSelect>>', self.repopulate_categories)
         self.classes_notebook.bind(
             '<<NotebookTabChanged>>',
             self.handle_classes_notebook_changed,
         )
 
-        # Add Radiobuttons for Class or Instance selection
         self.selection_var = tk.StringVar(value='instance' if self.gemstone_session_record.show_instance_side else 'class')
         self.syncing_side_selection = False
         self.selection_var.trace_add('write', lambda name, index, operation: self.switch_side())
         self.class_radiobutton = tk.Radiobutton(self, text='Class', variable=self.selection_var, value='class')
         self.instance_radiobutton = tk.Radiobutton(self, text='Instance', variable=self.selection_var, value='instance')
-        self.class_radiobutton.grid(column=0, row=2, sticky="w")
-        self.instance_radiobutton.grid(column=1, row=2, sticky="w")
+        self.class_radiobutton.grid(column=0, row=2, sticky='w')
+        self.instance_radiobutton.grid(column=1, row=2, sticky='w')
+        self.show_class_definition_var = tk.BooleanVar(value=False)
+        self.show_class_definition_checkbox = tk.Checkbutton(
+            self,
+            text='Show Class Definition',
+            variable=self.show_class_definition_var,
+            command=self.toggle_class_definition,
+        )
+        self.show_class_definition_checkbox.grid(
+            column=0,
+            row=3,
+            columnspan=2,
+            sticky='w',
+        )
+        self.class_definition_text = tk.Text(
+            self,
+            wrap='word',
+            height=8,
+        )
+        self.class_definition_text.grid(
+            column=0,
+            row=4,
+            columnspan=2,
+            sticky='nsew',
+        )
+        self.class_definition_text.config(state='disabled')
+        self.class_definition_text.grid_remove()
 
-        # Configure row and column for frame layout to expand properly
-        self.rowconfigure(1, weight=0)  # Give no weight to the row with radiobuttons to keep them fixed
+        self.rowconfigure(1, weight=0)
+        self.rowconfigure(4, weight=1)
 
         self.event_queue.subscribe('SelectedPackageChanged', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
@@ -1295,16 +1339,33 @@ class ClassSelection(FramedWidget):
         widget = event.widget
         try:
             if isinstance(widget, tk.Listbox):
-                # Handle selection from a Listbox
                 selected_index = widget.curselection()[0]
                 selected_class = widget.get(selected_index)
-            elif isinstance(widget, ttk.Treeview):
-                # Handle selection from a Treeview
+                self.select_class(
+                    selected_class,
+                    selection_source='list',
+                )
+                return
+            if isinstance(widget, ttk.Treeview):
+                if self.synchronizing_hierarchy_selection:
+                    return
                 selected_item_id = widget.selection()[0]
                 selected_class = widget.item(selected_item_id, 'text')
-
-            self.gemstone_session_record.select_class(selected_class)
-            self.event_queue.publish('SelectedClassChanged', origin=self)
+                class_values = widget.item(selected_item_id, 'values')
+                class_category = class_values[0] if class_values else ''
+                current_class = self.gemstone_session_record.selected_class
+                current_package = self.gemstone_session_record.selected_package
+                selected_package = class_category or current_package
+                if (
+                    selected_class == current_class
+                    and selected_package == current_package
+                ):
+                    return
+                self.select_class(
+                    selected_class,
+                    selection_source='hierarchy',
+                    class_category=class_category,
+                )
         except IndexError:
             pass
 
@@ -1322,6 +1383,7 @@ class ClassSelection(FramedWidget):
             self.selection_list.repopulate()
             if self.selected_tab_is_hierarchy():
                 self.refresh_hierarchy_tree()
+            self.refresh_class_definition()
 
     def selected_tab_is_hierarchy(self):
         selected_tab = self.classes_notebook.select()
@@ -1332,35 +1394,39 @@ class ClassSelection(FramedWidget):
             self.refresh_hierarchy_tree()
 
     def refresh_hierarchy_tree(self):
-        self.hierarchy_tree.delete(*self.hierarchy_tree.get_children())
-        self.hierarchy_item_by_class_name = {}
-        class_names = self.get_all_classes()
-        if not class_names:
-            return
-        class_definition_by_class_name = self.class_definition_map_for_classes(
-            class_names,
-        )
-        superclass_by_class_name = {
-            class_name: class_definition.get('superclass_name')
-            for class_name, class_definition in class_definition_by_class_name.items()
-        }
-        children_by_parent_name = {}
-        for class_name, superclass_name in superclass_by_class_name.items():
-            parent_name = superclass_name
-            if superclass_name not in superclass_by_class_name:
-                parent_name = None
-            if parent_name not in children_by_parent_name:
-                children_by_parent_name[parent_name] = []
-            children_by_parent_name[parent_name].append(class_name)
-        for child_names in children_by_parent_name.values():
-            child_names.sort()
-        self.add_hierarchy_children(
-            '',
-            None,
-            children_by_parent_name,
-            class_definition_by_class_name,
-        )
-        self.reveal_selected_class_in_hierarchy()
+        self.synchronizing_hierarchy_selection = True
+        try:
+            self.hierarchy_tree.delete(*self.hierarchy_tree.get_children())
+            self.hierarchy_item_by_class_name = {}
+            class_names = self.get_all_classes()
+            if not class_names:
+                return
+            class_definition_by_class_name = self.class_definition_map_for_classes(
+                class_names,
+            )
+            superclass_by_class_name = {
+                class_name: class_definition.get('superclass_name')
+                for class_name, class_definition in class_definition_by_class_name.items()
+            }
+            children_by_parent_name = {}
+            for class_name, superclass_name in superclass_by_class_name.items():
+                parent_name = superclass_name
+                if superclass_name not in superclass_by_class_name:
+                    parent_name = None
+                if parent_name not in children_by_parent_name:
+                    children_by_parent_name[parent_name] = []
+                children_by_parent_name[parent_name].append(class_name)
+            for child_names in children_by_parent_name.values():
+                child_names.sort()
+            self.add_hierarchy_children(
+                '',
+                None,
+                children_by_parent_name,
+                class_definition_by_class_name,
+            )
+            self.reveal_selected_class_in_hierarchy()
+        finally:
+            self.synchronizing_hierarchy_selection = False
 
     def class_definition_map_for_classes(self, class_names):
         class_definition_by_class_name = {}
@@ -1442,17 +1508,131 @@ class ClassSelection(FramedWidget):
     def get_selected_class(self):
         return self.gemstone_session_record.selected_class
 
-    def select_class(self, selected_class):
+    def select_class(
+        self,
+        selected_class,
+        selection_source='list',
+        class_category='',
+    ):
+        selected_package = self.gemstone_session_record.selected_package
+        if selection_source == 'hierarchy':
+            selected_package = class_category
+            if not selected_package:
+                try:
+                    class_definition = (
+                        self.gemstone_session_record.gemstone_browser_session.get_class_definition(
+                            selected_class,
+                        )
+                    )
+                except (GemstoneDomainException, GemstoneError):
+                    class_definition = {}
+                selected_package = class_definition.get('package_name') or selected_package
+            if selected_package:
+                self.gemstone_session_record.select_package(selected_package)
+                self.selection_list.repopulate()
         self.gemstone_session_record.select_class(selected_class)
+        if selection_source == 'hierarchy':
+            self.gemstone_session_record.select_method_category('all')
+        self.refresh_class_definition()
         self.event_queue.publish('SelectedClassChanged', origin=self)
 
     def show_context_menu(self, event):
-        idx = self.selection_list.selection_listbox.nearest(event.y)
-        self.selection_list.selection_listbox.selection_clear(0, 'end')
-        self.selection_list.selection_listbox.selection_set(idx)
+        if self.selection_list.selection_listbox.size():
+            idx = self.selection_list.selection_listbox.nearest(event.y)
+            self.selection_list.selection_listbox.selection_clear(0, 'end')
+            self.selection_list.selection_listbox.selection_set(idx)
         menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label='Add Class', command=self.add_class)
         menu.add_command(label='Run All Tests', command=self.run_all_tests)
         menu.tk_popup(event.x_root, event.y_root)
+
+    def add_class(self):
+        selected_package = self.gemstone_session_record.selected_package
+        if not selected_package:
+            messagebox.showerror('Add Class', 'Select a package first.')
+            return
+        class_name = simpledialog.askstring('Add Class', 'Class name:')
+        if class_name is None:
+            return
+        class_name = class_name.strip()
+        if not class_name:
+            return
+        superclass_name = simpledialog.askstring(
+            'Add Class',
+            'Superclass name:',
+            initialvalue='Object',
+        )
+        if superclass_name is None:
+            return
+        superclass_name = superclass_name.strip()
+        if not superclass_name:
+            return
+        try:
+            self.gemstone_session_record.create_class(
+                class_name=class_name,
+                superclass_name=superclass_name,
+                in_dictionary=selected_package,
+            )
+            self.gemstone_session_record.select_class(class_name)
+            self.selection_list.repopulate()
+            self.refresh_class_definition()
+            self.event_queue.publish('SelectedClassChanged', origin=self)
+        except (GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror('Add Class', str(error))
+
+    def toggle_class_definition(self):
+        if self.show_class_definition_var.get():
+            self.class_definition_text.grid()
+            self.refresh_class_definition()
+            return
+        self.class_definition_text.config(state='normal')
+        self.class_definition_text.delete('1.0', tk.END)
+        self.class_definition_text.config(state='disabled')
+        self.class_definition_text.grid_remove()
+
+    def formatted_class_definition(self, class_definition):
+        class_name = class_definition.get('class_name') or ''
+        superclass_name = class_definition.get('superclass_name') or 'Object'
+        package_name = class_definition.get('package_name') or ''
+        inst_var_names = class_definition.get('inst_var_names') or []
+        class_var_names = class_definition.get('class_var_names') or []
+        class_inst_var_names = class_definition.get('class_inst_var_names') or []
+        pool_dictionary_names = class_definition.get('pool_dictionary_names') or []
+        return (
+            f"{superclass_name} subclass: '{class_name}'\n"
+            f'    instVarNames: {self.symbol_array_literal(inst_var_names)}\n'
+            f'    classVars: {self.symbol_array_literal(class_var_names)}\n'
+            f'    classInstVars: {self.symbol_array_literal(class_inst_var_names)}\n'
+            f'    poolDictionaries: {self.symbol_array_literal(pool_dictionary_names)}\n'
+            f'    inDictionary: {package_name}'
+        )
+
+    def symbol_array_literal(self, symbol_names):
+        if not symbol_names:
+            return '#()'
+        return '#(%s)' % ' '.join(symbol_names)
+
+    def refresh_class_definition(self):
+        if not self.show_class_definition_var.get():
+            return
+        class_definition_text = ''
+        selected_class = self.gemstone_session_record.selected_class
+        if selected_class:
+            try:
+                class_definition = (
+                    self.gemstone_session_record.gemstone_browser_session.get_class_definition(
+                        selected_class,
+                    )
+                )
+                class_definition_text = self.formatted_class_definition(
+                    class_definition,
+                )
+            except (GemstoneDomainException, GemstoneError):
+                class_definition_text = ''
+        self.class_definition_text.config(state='normal')
+        self.class_definition_text.delete('1.0', tk.END)
+        self.class_definition_text.insert('1.0', class_definition_text)
+        self.class_definition_text.config(state='disabled')
 
     def run_all_tests(self):
         listbox = self.selection_list.selection_listbox
@@ -1496,8 +1676,9 @@ class CategorySelection(FramedWidget):
             pass
         
     def repopulate(self, origin=None):
-        if origin is not self:
-            self.selection_list.repopulate()
+        if origin is self:
+            return
+        self.selection_list.repopulate()
 
     def get_all_categories(self):
         if self.gemstone_session_record.selected_class:
