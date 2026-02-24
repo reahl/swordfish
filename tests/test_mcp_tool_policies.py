@@ -9,6 +9,10 @@ from reahl.swordfish.mcp.session_registry import clear_connections
 from reahl.swordfish.mcp.tools import register_tools
 
 
+EVAL_APPROVAL_CODE = 'eval-human-approved'
+COMMIT_APPROVAL_CODE = 'commit-human-approved'
+
+
 class McpToolRegistrar:
     def __init__(self):
         self.registered_tools_by_name = {}
@@ -199,6 +203,8 @@ class AllowedToolsFixture(Fixture):
             allow_compile=True,
             allow_commit=True,
             allow_tracing=True,
+            eval_approval_code=EVAL_APPROVAL_CODE,
+            commit_approval_code=COMMIT_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -365,26 +371,6 @@ class AllowedToolsFixture(Fixture):
         return self.registered_mcp_tools['gs_guidance']
 
 
-class AllowedToolsWithEvalWriteFixture(Fixture):
-    def new_registered_mcp_tools(self):
-        registrar = McpToolRegistrar()
-        register_tools(
-            registrar,
-            allow_eval=True,
-            allow_eval_write=True,
-            allow_compile=True,
-            allow_commit=True,
-            allow_tracing=True,
-        )
-        return registrar.registered_tools_by_name
-
-    def new_gs_eval(self):
-        return self.registered_mcp_tools['gs_eval']
-
-    def new_gs_capabilities(self):
-        return self.registered_mcp_tools['gs_capabilities']
-
-
 class AllowedToolsWithNoActiveTransactionFixture(Fixture):
     @set_up
     def prepare_registry(self):
@@ -402,6 +388,8 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
             allow_compile=True,
             allow_commit=True,
             allow_tracing=True,
+            eval_approval_code=EVAL_APPROVAL_CODE,
+            commit_approval_code=COMMIT_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -541,6 +529,8 @@ class AllowedToolsWithNoActiveTransactionAndStrictAstFixture(Fixture):
             allow_commit=True,
             allow_tracing=True,
             require_gemstone_ast=True,
+            eval_approval_code=EVAL_APPROVAL_CODE,
+            commit_approval_code=COMMIT_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -577,6 +567,8 @@ class AllowedToolsWithActiveTransactionFixture(Fixture):
             allow_compile=True,
             allow_commit=True,
             allow_tracing=True,
+            eval_approval_code=EVAL_APPROVAL_CODE,
+            commit_approval_code=COMMIT_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -635,6 +627,8 @@ class AllowedToolsWithTracingDisabledFixture(Fixture):
             allow_compile=True,
             allow_commit=True,
             allow_tracing=False,
+            eval_approval_code=EVAL_APPROVAL_CODE,
+            commit_approval_code=COMMIT_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -679,6 +673,8 @@ def test_gs_capabilities_reports_restricted_policy_flags(tools_fixture):
     assert policy['allow_eval'] is False
     assert policy['allow_eval_write'] is False
     assert policy['eval_mode'] == 'disabled'
+    assert not policy['eval_requires_human_approval']
+    assert not policy['commit_requires_human_approval']
     assert policy['allow_compile'] is False
     assert policy['allow_commit'] is False
     assert policy['allow_tracing'] is False
@@ -706,7 +702,9 @@ def test_gs_capabilities_reports_enabled_policy_flags(tools_fixture):
     policy = capabilities_result['policy']
     assert policy['allow_eval'] is True
     assert policy['allow_eval_write'] is False
-    assert policy['eval_mode'] == 'read_only'
+    assert policy['eval_mode'] == 'approval_required'
+    assert policy['eval_requires_human_approval']
+    assert policy['commit_requires_human_approval']
     assert policy['allow_compile'] is True
     assert policy['allow_commit'] is True
     assert policy['allow_tracing'] is True
@@ -1298,22 +1296,42 @@ def test_gs_debug_eval_is_disabled_by_default(tools_fixture):
     )
 
 
-def test_register_tools_rejects_eval_write_without_commit_permission():
+def test_register_tools_rejects_eval_without_eval_approval_code():
     registrar = McpToolRegistrar()
     with expected(ValueError):
         register_tools(
             registrar,
             allow_eval=True,
-            allow_eval_write=True,
             allow_compile=True,
-            allow_commit=False,
+            allow_commit=True,
             allow_tracing=False,
+            eval_approval_code='',
+            commit_approval_code=COMMIT_APPROVAL_CODE,
+        )
+
+
+def test_register_tools_rejects_commit_without_commit_approval_code():
+    registrar = McpToolRegistrar()
+    with expected(ValueError):
+        register_tools(
+            registrar,
+            allow_eval=False,
+            allow_compile=True,
+            allow_commit=True,
+            allow_tracing=False,
+            eval_approval_code='',
+            commit_approval_code='',
         )
 
 
 @with_fixtures(AllowedToolsFixture)
 def test_gs_eval_requires_unsafe_flag_when_allowed(tools_fixture):
-    eval_result = tools_fixture.gs_eval('missing-connection-id', '3 + 4')
+    eval_result = tools_fixture.gs_eval(
+        'missing-connection-id',
+        '3 + 4',
+        approval_code=EVAL_APPROVAL_CODE,
+        reason='connection check',
+    )
     assert not eval_result['ok']
     assert eval_result['error']['message'] == (
         'gs_eval requires unsafe=True. '
@@ -1327,19 +1345,34 @@ def test_gs_eval_checks_connection_when_allowed(tools_fixture):
         'missing-connection-id',
         '3 + 4',
         unsafe=True,
+        approval_code=EVAL_APPROVAL_CODE,
+        reason='connection check',
     )
     assert not eval_result['ok']
     assert eval_result['error']['message'] == 'Unknown connection_id.'
 
 
-@with_fixtures(AllowedToolsWithEvalWriteFixture)
-def test_gs_capabilities_reports_eval_write_mode(tools_fixture):
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_eval_requires_non_empty_reason_when_approved(tools_fixture):
+    eval_result = tools_fixture.gs_eval(
+        tools_fixture.connection_id,
+        '3 + 4',
+        unsafe=True,
+        approval_code=EVAL_APPROVAL_CODE,
+        reason='',
+    )
+    assert not eval_result['ok']
+    assert eval_result['error']['message'] == 'reason cannot be empty.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_capabilities_reports_eval_approval_mode(tools_fixture):
     capabilities_result = tools_fixture.gs_capabilities()
     assert capabilities_result['ok'], capabilities_result
     policy = capabilities_result['policy']
     assert policy['allow_eval']
-    assert policy['allow_eval_write']
-    assert policy['eval_mode'] == 'write_enabled'
+    assert not policy['allow_eval_write']
+    assert policy['eval_mode'] == 'approval_required'
     assert policy['require_gemstone_ast'] is False
 
 
@@ -1367,35 +1400,29 @@ def test_gs_capabilities_reports_strict_ast_mode_policy(tools_fixture):
 
 
 @with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
-def test_gs_eval_blocks_write_like_source_in_read_only_eval_mode(
-    tools_fixture,
-):
+def test_gs_eval_requires_human_approval_code(tools_fixture):
     eval_result = tools_fixture.gs_eval(
         tools_fixture.connection_id,
         'System commit',
         unsafe=True,
     )
     assert not eval_result['ok']
-    assert eval_result['error']['message'] == (
-        'gs_eval is running in read-only eval mode and blocked potential '
-        'write operation (transaction_control). Start swordfish-mcp with '
-        '--allow-commit --allow-eval-write to enable write eval.'
+    assert (
+        'gs_eval requires human approval for eval bypass.'
+        in eval_result['error']['message']
     )
 
 
 @with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
-def test_gs_debug_eval_blocks_write_like_source_in_read_only_eval_mode(
-    tools_fixture,
-):
+def test_gs_debug_eval_requires_human_approval_code(tools_fixture):
     eval_result = tools_fixture.gs_debug_eval(
         tools_fixture.connection_id,
         'System commit',
     )
     assert not eval_result['ok']
-    assert eval_result['error']['message'] == (
-        'gs_debug_eval is running in read-only eval mode and blocked potential '
-        'write operation (transaction_control). Start swordfish-mcp with '
-        '--allow-commit --allow-eval-write to enable write eval.'
+    assert (
+        'gs_debug_eval requires human approval for eval bypass.'
+        in eval_result['error']['message']
     )
 
 
@@ -1415,9 +1442,22 @@ def test_gs_begin_if_needed_checks_connection_when_allowed(tools_fixture):
 
 @with_fixtures(AllowedToolsFixture)
 def test_gs_commit_checks_connection_when_allowed(tools_fixture):
-    commit_result = tools_fixture.gs_commit('missing-connection-id')
+    commit_result = tools_fixture.gs_commit(
+        'missing-connection-id',
+        approval_code=COMMIT_APPROVAL_CODE,
+    )
     assert not commit_result['ok']
     assert commit_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_commit_requires_human_approval_code(tools_fixture):
+    commit_result = tools_fixture.gs_commit('missing-connection-id')
+    assert not commit_result['ok']
+    assert (
+        'gs_commit requires human approval for commit.'
+        in commit_result['error']['message']
+    )
 
 
 @with_fixtures(AllowedToolsFixture)
@@ -1951,6 +1991,8 @@ def test_gs_debug_eval_checks_connection_when_allowed(tools_fixture):
     debug_eval_result = tools_fixture.gs_debug_eval(
         'missing-connection-id',
         '3 + 4',
+        approval_code=EVAL_APPROVAL_CODE,
+        reason='connection check',
     )
     assert not debug_eval_result['ok']
     assert debug_eval_result['error']['message'] == 'Unknown connection_id.'

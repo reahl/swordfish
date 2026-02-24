@@ -28,6 +28,10 @@ from reahl.swordfish.mcp.session_registry import has_connection
 from reahl.swordfish.mcp.tools import register_tools
 
 
+EVAL_APPROVAL_CODE = 'eval-human-approved'
+COMMIT_APPROVAL_CODE = 'commit-human-approved'
+
+
 class McpToolRegistrar:
     def __init__(self):
         self.registered_tools_by_name = {}
@@ -102,6 +106,8 @@ class LiveMcpConnectionFixture(Fixture):
             allow_compile=True,
             allow_commit=True,
             allow_tracing=True,
+            eval_approval_code=EVAL_APPROVAL_CODE,
+            commit_approval_code=COMMIT_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -126,7 +132,33 @@ class LiveMcpConnectionFixture(Fixture):
         return self.registered_mcp_tools['gs_disconnect']
 
     def new_gs_eval(self):
-        return self.registered_mcp_tools['gs_eval']
+        raw_gs_eval = self.registered_mcp_tools['gs_eval']
+
+        def gs_eval_with_approval(
+            connection_id,
+            source,
+            unsafe=False,
+            reason='',
+            approval_code=None,
+        ):
+            selected_approval_code = (
+                self.eval_approval_code
+                if approval_code is None
+                else approval_code
+            )
+            selected_reason = reason or 'live-test-approved-eval'
+            return raw_gs_eval(
+                connection_id,
+                source,
+                unsafe=unsafe,
+                reason=selected_reason,
+                approval_code=selected_approval_code,
+            )
+
+        return gs_eval_with_approval
+
+    def new_eval_approval_code(self):
+        return EVAL_APPROVAL_CODE
 
     def new_gs_transaction_status(self):
         return self.registered_mcp_tools['gs_transaction_status']
@@ -144,7 +176,23 @@ class LiveMcpConnectionFixture(Fixture):
         return self.registered_mcp_tools['gs_begin']
 
     def new_gs_commit(self):
-        return self.registered_mcp_tools['gs_commit']
+        raw_gs_commit = self.registered_mcp_tools['gs_commit']
+
+        def gs_commit_with_approval(connection_id, approval_code=None):
+            selected_approval_code = (
+                self.commit_approval_code
+                if approval_code is None
+                else approval_code
+            )
+            return raw_gs_commit(
+                connection_id,
+                approval_code=selected_approval_code,
+            )
+
+        return gs_commit_with_approval
+
+    def new_commit_approval_code(self):
+        return COMMIT_APPROVAL_CODE
 
     def new_gs_abort(self):
         return self.registered_mcp_tools['gs_abort']
@@ -315,7 +363,28 @@ class LiveMcpConnectionFixture(Fixture):
         return self.registered_mcp_tools['gs_run_gemstone_tests']
 
     def new_gs_debug_eval(self):
-        return self.registered_mcp_tools['gs_debug_eval']
+        raw_gs_debug_eval = self.registered_mcp_tools['gs_debug_eval']
+
+        def gs_debug_eval_with_approval(
+            connection_id,
+            source,
+            approval_code=None,
+            reason='',
+        ):
+            selected_approval_code = (
+                self.eval_approval_code
+                if approval_code is None
+                else approval_code
+            )
+            selected_reason = reason or 'live-test-approved-debug-eval'
+            return raw_gs_debug_eval(
+                connection_id,
+                source,
+                approval_code=selected_approval_code,
+                reason=selected_reason,
+            )
+
+        return gs_debug_eval_with_approval
 
     def new_gs_debug_stack(self):
         return self.registered_mcp_tools['gs_debug_stack']
@@ -398,6 +467,8 @@ class LiveMcpConnectionWithoutCommitPermissionFixture(Fixture):
             allow_compile=True,
             allow_commit=False,
             allow_tracing=True,
+            eval_approval_code=EVAL_APPROVAL_CODE,
+            commit_approval_code='',
         )
         return registrar.registered_tools_by_name
 
@@ -425,7 +496,33 @@ class LiveMcpConnectionWithoutCommitPermissionFixture(Fixture):
         return self.registered_mcp_tools['gs_begin_if_needed']
 
     def new_gs_eval(self):
-        return self.registered_mcp_tools['gs_eval']
+        raw_gs_eval = self.registered_mcp_tools['gs_eval']
+
+        def gs_eval_with_approval(
+            connection_id,
+            source,
+            unsafe=False,
+            reason='',
+            approval_code=None,
+        ):
+            selected_approval_code = (
+                self.eval_approval_code
+                if approval_code is None
+                else approval_code
+            )
+            selected_reason = reason or 'live-test-approved-eval'
+            return raw_gs_eval(
+                connection_id,
+                source,
+                unsafe=unsafe,
+                reason=selected_reason,
+                approval_code=selected_approval_code,
+            )
+
+        return gs_eval_with_approval
+
+    def new_eval_approval_code(self):
+        return EVAL_APPROVAL_CODE
 
     def new_gs_transaction_status(self):
         return self.registered_mcp_tools['gs_transaction_status']
@@ -440,7 +537,23 @@ class LiveMcpConnectionWithoutCommitPermissionFixture(Fixture):
         return self.registered_mcp_tools['gs_compile_method']
 
     def new_gs_commit(self):
-        return self.registered_mcp_tools['gs_commit']
+        raw_gs_commit = self.registered_mcp_tools['gs_commit']
+
+        def gs_commit_with_approval(connection_id, approval_code=None):
+            selected_approval_code = (
+                self.commit_approval_code
+                if approval_code is None
+                else approval_code
+            )
+            return raw_gs_commit(
+                connection_id,
+                approval_code=selected_approval_code,
+            )
+
+        return gs_commit_with_approval
+
+    def new_commit_approval_code(self):
+        return COMMIT_APPROVAL_CODE
 
     def new_gs_abort(self):
         return self.registered_mcp_tools['gs_abort']
@@ -577,7 +690,7 @@ def test_live_workflow_without_commit_permission_requires_abort(
     assert not capabilities_result['policy']['allow_commit']
     assert capabilities_result['policy']['allow_eval']
     assert not capabilities_result['policy']['allow_eval_write']
-    assert capabilities_result['policy']['eval_mode'] == 'read_only'
+    assert capabilities_result['policy']['eval_mode'] == 'approval_required'
     begin_result = live_connection.gs_begin_if_needed(
         live_connection.connection_id
     )
@@ -616,7 +729,7 @@ def test_live_workflow_without_commit_permission_requires_abort(
 
 
 @with_fixtures(LiveMcpConnectionWithoutCommitPermissionFixture)
-def test_live_read_only_eval_mode_blocks_commit_bypass(live_connection):
+def test_live_eval_requires_human_approval_code(live_connection):
     begin_result = live_connection.gs_begin_if_needed(
         live_connection.connection_id
     )
@@ -626,12 +739,12 @@ def test_live_read_only_eval_mode_blocks_commit_bypass(live_connection):
         'System commit',
         unsafe=True,
         reason='verify-policy-hardening',
+        approval_code='',
     )
     assert not eval_result['ok']
-    assert eval_result['error']['message'] == (
-        'gs_eval is running in read-only eval mode and blocked potential '
-        'write operation (transaction_control). Start swordfish-mcp with '
-        '--allow-commit --allow-eval-write to enable write eval.'
+    assert (
+        'gs_eval requires human approval for eval bypass.'
+        in eval_result['error']['message']
     )
     status_result = live_connection.gs_transaction_status(
         live_connection.connection_id

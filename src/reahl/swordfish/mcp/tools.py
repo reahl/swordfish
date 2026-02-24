@@ -38,16 +38,19 @@ from reahl.swordfish.mcp.tracer_assets import TRACER_VERSION
 def register_tools(
     mcp_server,
     allow_eval=False,
-    allow_eval_write=False,
     allow_compile=False,
     allow_commit=False,
     allow_tracing=False,
+    eval_approval_code='',
+    commit_approval_code='',
     require_gemstone_ast=False,
 ):
-    if allow_eval_write and not allow_eval:
-        allow_eval = True
-    if allow_eval_write and not allow_commit:
-        raise ValueError('allow_eval_write requires allow_commit.')
+    eval_approval_code = eval_approval_code.strip()
+    commit_approval_code = commit_approval_code.strip()
+    if allow_eval and not eval_approval_code:
+        raise ValueError('allow_eval requires eval_approval_code.')
+    if allow_commit and not commit_approval_code:
+        raise ValueError('allow_commit requires commit_approval_code.')
 
     identifier_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*$')
     unary_selector_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*$')
@@ -136,6 +139,49 @@ def register_tools(
             return None
         return tracing_disabled_tool_response(connection_id, tool_name)
 
+    def approval_required_tool_response(connection_id, tool_name, action_name):
+        return disabled_tool_response(
+            connection_id,
+            (
+                '%s requires human approval for %s. '
+                'Provide a valid approval_code.'
+            )
+            % (
+                tool_name,
+                action_name,
+            ),
+        )
+
+    def approval_rejected_tool_response(connection_id, tool_name):
+        return disabled_tool_response(
+            connection_id,
+            '%s approval_code was rejected.' % tool_name,
+        )
+
+    def require_human_approval(
+        connection_id,
+        tool_name,
+        action_name,
+        approval_code,
+        expected_approval_code,
+    ):
+        if not isinstance(approval_code, str):
+            return approval_required_tool_response(
+                connection_id,
+                tool_name,
+                action_name,
+            )
+        normalized_approval_code = approval_code.strip()
+        if not normalized_approval_code:
+            return approval_required_tool_response(
+                connection_id,
+                tool_name,
+                action_name,
+            )
+        if normalized_approval_code != expected_approval_code:
+            return approval_rejected_tool_response(connection_id, tool_name)
+        return None
+
     def validated_identifier(input_value, argument_name):
         if not isinstance(input_value, str):
             raise DomainException('%s must be a string.' % argument_name)
@@ -217,20 +263,20 @@ def register_tools(
     def current_eval_mode():
         if not allow_eval:
             return 'disabled'
-        if allow_eval_write:
-            return 'write_enabled'
-        return 'read_only'
+        return 'approval_required'
 
     def policy_flags():
         return {
             'allow_eval': allow_eval,
-            'allow_eval_write': allow_eval_write,
+            'allow_eval_write': False,
             'allow_compile': allow_compile,
             'allow_commit': allow_commit,
             'allow_tracing': allow_tracing,
             'require_gemstone_ast': require_gemstone_ast,
             'eval_mode': current_eval_mode(),
             'eval_requires_unsafe': True,
+            'eval_requires_human_approval': allow_eval,
+            'commit_requires_human_approval': allow_commit,
             'writes_require_active_transaction': True,
         }
 
@@ -321,20 +367,6 @@ def register_tools(
             return 'active'
         return 'unknown'
 
-    def read_only_eval_disabled_response(connection_id, tool_name, write_reason):
-        return disabled_tool_response(
-            connection_id,
-            (
-                '%s is running in read-only eval mode and blocked potential '
-                'write operation (%s). Start swordfish-mcp with '
-                '--allow-commit --allow-eval-write to enable write eval.'
-            )
-            % (
-                tool_name,
-                write_reason,
-            ),
-        )
-
     def guidance_intents():
         return [
             'general',
@@ -372,23 +404,30 @@ def register_tools(
         ]
         cautions = []
         workflow = []
-        if current_eval_mode() == 'read_only':
+        if allow_eval:
             decision_rules.append(
                 {
                     'when': 'You are using gs_eval or gs_debug_eval.',
-                    'prefer_tools': ['read-only evaluation only'],
-                    'avoid_tools': ['commit/write/compile via eval'],
+                    'prefer_tools': [
+                        'human-approved eval bypass for motivated cases only'
+                    ],
+                    'avoid_tools': ['routine writes via gs_eval'],
                     'reason': (
-                        'Current policy is read-only eval mode; write-like eval '
-                        'operations are blocked by design.'
+                        'Eval is powerful and should be exceptional. '
+                        'Use structured tools first; use eval bypass only when '
+                        'a human explicitly approves and the reason is clear.'
                     ),
                 }
             )
             cautions.append(
                 (
-                    'Eval mode is read-only. Write-capable eval requires '
-                    '--allow-commit and --allow-eval-write at MCP startup.'
+                    'gs_eval and gs_debug_eval require approval_code and reason. '
+                    'Prefer structured tools for routine work.'
                 )
+            )
+        if allow_commit:
+            cautions.append(
+                'gs_commit requires approval_code for every commit.'
             )
         if intent == 'general':
             workflow = [
@@ -2054,7 +2093,7 @@ def register_tools(
             }
 
     @mcp_server.tool()
-    def gs_commit(connection_id):
+    def gs_commit(connection_id, approval_code=''):
         if not allow_commit:
             return disabled_tool_response(
                 connection_id,
@@ -2063,6 +2102,15 @@ def register_tools(
                     'Start swordfish-mcp with --allow-commit to enable.'
                 ),
             )
+        approval_error_response = require_human_approval(
+            connection_id,
+            'gs_commit',
+            'commit',
+            approval_code,
+            commit_approval_code,
+        )
+        if approval_error_response:
+            return approval_error_response
         gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
             return error_response
@@ -5699,7 +5747,12 @@ def register_tools(
             }
 
     @mcp_server.tool()
-    def gs_debug_eval(connection_id, source):
+    def gs_debug_eval(
+        connection_id,
+        source,
+        approval_code='',
+        reason='',
+    ):
         if not allow_eval:
             return disabled_tool_response(
                 connection_id,
@@ -5708,16 +5761,18 @@ def register_tools(
                     'Start swordfish-mcp with --allow-eval to enable.'
                 ),
             )
+        approval_error_response = require_human_approval(
+            connection_id,
+            'gs_debug_eval',
+            'eval bypass',
+            approval_code,
+            eval_approval_code,
+        )
+        if approval_error_response:
+            return approval_error_response
         try:
             source = validated_non_empty_string(source, 'source')
-            if current_eval_mode() == 'read_only':
-                write_reason = write_reason_for_eval_source(source)
-                if write_reason is not None:
-                    return read_only_eval_disabled_response(
-                        connection_id,
-                        'gs_debug_eval',
-                        write_reason,
-                    )
+            reason = validated_non_empty_string_stripped(reason, 'reason')
         except DomainException as error:
             return {
                 'ok': False,
@@ -5730,19 +5785,19 @@ def register_tools(
         metadata = get_metadata(connection_id)
         try:
             output = browser_session.evaluate_source(source)
-            if current_eval_mode() == 'write_enabled':
-                transaction_state_effect = (
-                    transaction_state_effect_for_eval_source(source)
-                )
-                if transaction_state_effect == 'active':
-                    metadata['transaction_active'] = True
-                if transaction_state_effect == 'inactive':
-                    metadata['transaction_active'] = False
+            transaction_state_effect = (
+                transaction_state_effect_for_eval_source(source)
+            )
+            if transaction_state_effect == 'active':
+                metadata['transaction_active'] = True
+            if transaction_state_effect == 'inactive':
+                metadata['transaction_active'] = False
             return {
                 'ok': True,
                 'connection_id': connection_id,
                 'completed': True,
                 'eval_mode': current_eval_mode(),
+                'reason': reason,
                 'output': output,
             }
         except GemstoneError as error:
@@ -5875,6 +5930,7 @@ def register_tools(
         source,
         unsafe=False,
         reason='',
+        approval_code='',
     ):
         if not allow_eval:
             return disabled_tool_response(
@@ -5892,6 +5948,15 @@ def register_tools(
                     'Prefer explicit gs_* tools when possible.'
                 ),
             )
+        approval_error_response = require_human_approval(
+            connection_id,
+            'gs_eval',
+            'eval bypass',
+            approval_code,
+            eval_approval_code,
+        )
+        if approval_error_response:
+            return approval_error_response
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -5899,32 +5964,22 @@ def register_tools(
 
         try:
             source = validated_non_empty_string(source, 'source')
-            if reason is not None:
-                if not isinstance(reason, str):
-                    raise DomainException('reason must be a string.')
-            if current_eval_mode() == 'read_only':
-                write_reason = write_reason_for_eval_source(source)
-                if write_reason is not None:
-                    return read_only_eval_disabled_response(
-                        connection_id,
-                        'gs_eval',
-                        write_reason,
-                    )
+            reason = validated_non_empty_string_stripped(reason, 'reason')
             output = browser_session.evaluate_source(source)
-            if current_eval_mode() == 'write_enabled':
-                transaction_state_effect = (
-                    transaction_state_effect_for_eval_source(source)
-                )
-                if transaction_state_effect == 'active':
-                    metadata['transaction_active'] = True
-                if transaction_state_effect == 'inactive':
-                    metadata['transaction_active'] = False
+            transaction_state_effect = (
+                transaction_state_effect_for_eval_source(source)
+            )
+            if transaction_state_effect == 'active':
+                metadata['transaction_active'] = True
+            if transaction_state_effect == 'inactive':
+                metadata['transaction_active'] = False
             return {
                 'ok': True,
                 'connection_id': connection_id,
                 'connection_mode': metadata['connection_mode'],
                 'unsafe': unsafe,
                 'reason': reason,
+                'approval_code_used': True,
                 'eval_mode': current_eval_mode(),
                 'output': output,
             }

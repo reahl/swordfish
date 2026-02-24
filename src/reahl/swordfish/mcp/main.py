@@ -16,15 +16,7 @@ def run_application():
     parser.add_argument(
         '--allow-eval',
         action='store_true',
-        help='Enable gs_eval in read-only mode (disabled by default).',
-    )
-    parser.add_argument(
-        '--allow-eval-write',
-        action='store_true',
-        help=(
-            'Enable write-capable eval/debug-eval (requires '
-            '--allow-eval and --allow-commit).'
-        ),
+        help='Enable gs_eval and gs_debug_eval (disabled by default).',
     )
     parser.add_argument(
         '--allow-compile',
@@ -35,6 +27,22 @@ def run_application():
         '--allow-commit',
         action='store_true',
         help='Enable gs_commit tool (disabled by default).',
+    )
+    parser.add_argument(
+        '--eval-approval-code',
+        default='',
+        help=(
+            'Human approval code required by gs_eval and gs_debug_eval. '
+            'Required when --allow-eval is enabled.'
+        ),
+    )
+    parser.add_argument(
+        '--commit-approval-code',
+        default='',
+        help=(
+            'Human approval code required by gs_commit. '
+            'Required when --allow-commit is enabled.'
+        ),
     )
     parser.add_argument(
         '--allow-tracing',
@@ -50,15 +58,17 @@ def run_application():
         ),
     )
     arguments = parser.parse_args()
-    if arguments.allow_eval_write and not arguments.allow_commit:
-        parser.error('--allow-eval-write requires --allow-commit.')
-    allow_eval = arguments.allow_eval or arguments.allow_eval_write
+    if arguments.allow_eval and not arguments.eval_approval_code.strip():
+        parser.error('--allow-eval requires --eval-approval-code.')
+    if arguments.allow_commit and not arguments.commit_approval_code.strip():
+        parser.error('--allow-commit requires --commit-approval-code.')
     mcp_server = create_server(
-        allow_eval=allow_eval,
-        allow_eval_write=arguments.allow_eval_write,
+        allow_eval=arguments.allow_eval,
         allow_compile=arguments.allow_compile,
         allow_commit=arguments.allow_commit,
         allow_tracing=arguments.allow_tracing,
+        eval_approval_code=arguments.eval_approval_code,
+        commit_approval_code=arguments.commit_approval_code,
         require_gemstone_ast=arguments.require_gemstone_ast,
     )
     mcp_server.run(transport=arguments.transport)
