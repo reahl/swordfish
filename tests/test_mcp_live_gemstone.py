@@ -604,6 +604,15 @@ class LiveBrowserSessionFixture(Fixture):
             return error
         raise AssertionError('AI: Expected a GemstoneError raised from halt.')
 
+    def new_nested_block_halt_exception(self):
+        try:
+            self.gemstone_session.execute(
+                '1 + [ 3 + [ 4 halt * [ 5 ] value ] value ] value'
+            )
+        except GemstoneError as error:
+            return error
+        raise AssertionError('AI: Expected a GemstoneError raised from halt.')
+
 
 @with_fixtures(LiveMcpConnectionFixture)
 def test_live_gs_connect_returns_session_summary(live_connection):
@@ -3372,6 +3381,27 @@ def test_live_debug_session_has_stack_frames_when_halted(browser_fixture):
     assert first_frame.class_name
     assert first_frame.method_name
     assert first_frame.method_source
+
+
+@with_fixtures(LiveBrowserSessionFixture)
+def test_live_debug_session_nested_block_frames_have_visible_step_markers(
+    browser_fixture,
+):
+    """AI: Nested block stack frames should expose a non-whitespace marker offset."""
+    debug_session = GemstoneDebugSession(
+        browser_fixture.nested_block_halt_exception
+    )
+    nested_block_frames = [
+        frame
+        for frame in debug_session.call_stack()
+        if 'halt * [ 5 ] value' in frame.method_source
+    ]
+    assert nested_block_frames
+    for frame in nested_block_frames:
+        source = frame.method_source
+        offset = frame.step_point_offset
+        assert 1 <= offset <= len(source)
+        assert not source[offset - 1].isspace()
 
 
 @with_fixtures(LiveBrowserSessionFixture)
