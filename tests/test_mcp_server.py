@@ -36,18 +36,20 @@ def test_create_server_passes_policy_flags_to_tool_registration():
     def fake_register_tools(
         mcp_server,
         allow_eval=False,
-        allow_eval_write=False,
         allow_compile=False,
         allow_commit=False,
         allow_tracing=False,
+        eval_approval_code='',
+        commit_approval_code='',
         require_gemstone_ast=False,
     ):
         captured['mcp_server'] = mcp_server
         captured['allow_eval'] = allow_eval
-        captured['allow_eval_write'] = allow_eval_write
         captured['allow_compile'] = allow_compile
         captured['allow_commit'] = allow_commit
         captured['allow_tracing'] = allow_tracing
+        captured['eval_approval_code'] = eval_approval_code
+        captured['commit_approval_code'] = commit_approval_code
         captured['require_gemstone_ast'] = require_gemstone_ast
 
     with patch(
@@ -60,19 +62,21 @@ def test_create_server_passes_policy_flags_to_tool_registration():
         ):
             mcp_server = create_server(
                 allow_eval=True,
-                allow_eval_write=True,
                 allow_compile=True,
                 allow_commit=True,
                 allow_tracing=True,
+                eval_approval_code='eval-approval',
+                commit_approval_code='commit-approval',
                 require_gemstone_ast=True,
             )
 
     assert mcp_server is captured['mcp_server']
     assert captured['allow_eval']
-    assert captured['allow_eval_write']
     assert captured['allow_compile']
     assert captured['allow_commit']
     assert captured['allow_tracing']
+    assert captured['eval_approval_code'] == 'eval-approval'
+    assert captured['commit_approval_code'] == 'commit-approval'
     assert captured['require_gemstone_ast']
 
 
@@ -91,18 +95,20 @@ def test_create_server_supports_fast_mcp_without_version_argument():
     def fake_register_tools(
         mcp_server,
         allow_eval=False,
-        allow_eval_write=False,
         allow_compile=False,
         allow_commit=False,
         allow_tracing=False,
+        eval_approval_code='',
+        commit_approval_code='',
         require_gemstone_ast=False,
     ):
         captured['mcp_server'] = mcp_server
         captured['allow_eval'] = allow_eval
-        captured['allow_eval_write'] = allow_eval_write
         captured['allow_compile'] = allow_compile
         captured['allow_commit'] = allow_commit
         captured['allow_tracing'] = allow_tracing
+        captured['eval_approval_code'] = eval_approval_code
+        captured['commit_approval_code'] = commit_approval_code
         captured['require_gemstone_ast'] = require_gemstone_ast
 
     with patch(
@@ -115,28 +121,44 @@ def test_create_server_supports_fast_mcp_without_version_argument():
         ):
             mcp_server = create_server(
                 allow_eval=False,
-                allow_eval_write=False,
                 allow_compile=False,
                 allow_commit=False,
                 allow_tracing=False,
+                eval_approval_code='',
+                commit_approval_code='',
                 require_gemstone_ast=False,
             )
 
     assert mcp_server is captured['mcp_server']
     assert mcp_server.name == 'SwordfishMCP'
     assert not captured['allow_commit']
-    assert not captured['allow_eval_write']
     assert not captured['allow_tracing']
     assert not captured['require_gemstone_ast']
+    assert captured['eval_approval_code'] == ''
+    assert captured['commit_approval_code'] == ''
 
 
-def test_create_server_rejects_eval_write_without_commit_permission():
+def test_create_server_rejects_eval_enabled_without_eval_approval_code():
     with expected(ValueError):
         create_server(
             allow_eval=True,
-            allow_eval_write=True,
             allow_compile=True,
-            allow_commit=False,
+            allow_commit=True,
             allow_tracing=False,
+            eval_approval_code='',
+            commit_approval_code='commit-approval',
+            require_gemstone_ast=False,
+        )
+
+
+def test_create_server_rejects_commit_enabled_without_commit_approval_code():
+    with expected(ValueError):
+        create_server(
+            allow_eval=False,
+            allow_compile=True,
+            allow_commit=True,
+            allow_tracing=False,
+            eval_approval_code='',
+            commit_approval_code='',
             require_gemstone_ast=False,
         )
