@@ -221,15 +221,55 @@ class GemstoneBrowserSession:
     def list_classes(self, package_name):
         if not package_name:
             return []
+        class_names_from_categories = []
+        class_names_from_package_dictionary = []
         try:
             gemstone_classes = self.class_organizer.categories().at(package_name)
+            class_names_from_categories = [
+                gemstone_class.name().to_py for gemstone_class in gemstone_classes
+            ]
+        except GemstoneError:
+            class_names_from_categories = []
+        except GemstoneApiError:
+            class_names_from_categories = []
+        except KeyError:
+            class_names_from_categories = []
+        class_names_from_package_dictionary = self.class_names_in_package_dictionary(
+            package_name
+        )
+        return sorted(
+            set(class_names_from_categories)
+            | set(class_names_from_package_dictionary)
+        )
+
+    def class_names_in_package_dictionary(self, package_name):
+        class_names = []
+        try:
+            package_dictionary = self.package_library.objectNamed(package_name)
         except GemstoneError:
             return []
         except GemstoneApiError:
             return []
         except KeyError:
             return []
-        return [gemstone_class.name().to_py for gemstone_class in gemstone_classes]
+        has_is_nil = hasattr(package_dictionary, 'isNil')
+        if has_is_nil:
+            try:
+                if package_dictionary.isNil().to_py:
+                    return []
+            except GemstoneError:
+                return []
+            except GemstoneApiError:
+                return []
+        for package_entry in package_dictionary:
+            try:
+                if package_entry.isBehavior().to_py:
+                    class_names.append(package_entry.name().to_py)
+            except GemstoneError:
+                pass
+            except GemstoneApiError:
+                pass
+        return class_names
 
     def list_method_categories(self, class_name, show_instance_side):
         if not class_name:
