@@ -199,6 +199,15 @@ class SwordfishGuiFixture(Fixture):
         return listbox.get(selected_index)
 
 
+def menu_command_labels(menu):
+    labels = []
+    entry_count = int(menu.index('end')) + 1
+    for entry_index in range(entry_count):
+        if menu.type(entry_index) == 'command':
+            labels.append(menu.entrycget(entry_index, 'label'))
+    return labels
+
+
 @with_fixtures(SwordfishGuiFixture)
 def test_selecting_package_fetches_and_shows_classes(fixture):
     """Selecting a package causes GemstoneBrowserSession to fetch classes
@@ -306,15 +315,15 @@ def test_text_context_menu_includes_save_and_close_for_open_tab(fixture):
     tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
 
     menu = fixture.open_text_context_menu_for_tab(tab)
-    command_labels = []
-    entry_count = int(menu.index('end')) + 1
-    for entry_index in range(entry_count):
-        if menu.type(entry_index) == 'command':
-            command_labels.append(menu.entrycget(entry_index, 'label'))
+    command_labels = menu_command_labels(menu)
 
     assert 'Jump to Class' in command_labels
     assert 'Save' in command_labels
     assert 'Close' in command_labels
+    assert 'Select All' in command_labels
+    assert 'Copy' in command_labels
+    assert 'Paste' in command_labels
+    assert 'Undo' in command_labels
     assert 'Preview Rename Method' not in command_labels
     assert 'Preview Move Method' not in command_labels
     assert 'Preview Add Parameter' not in command_labels
@@ -382,6 +391,36 @@ def test_jump_to_class_command_from_text_context_menu_syncs_browser_selection(
     assert fixture.selected_listbox_entry(
         fixture.browser_window.methods_widget.selection_list.selection_listbox
     ) == 'total'
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_text_editor_context_menu_paste_replaces_selected_text_and_undo_restores_it(
+    fixture,
+):
+    """Pasting from the editor context menu replaces selected text and Undo restores the previous source."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+    tab.code_panel.text_editor.delete('1.0', 'end')
+    tab.code_panel.text_editor.insert('1.0', 'alpha beta')
+    tab.code_panel.text_editor.tag_add(tk.SEL, '1.6', '1.10')
+
+    fixture.root.clipboard_clear()
+    fixture.root.clipboard_append('gamma')
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    fixture.invoke_menu_command(menu, 'Paste')
+    assert tab.code_panel.text_editor.get('1.0', 'end-1c') == 'alpha gamma'
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    fixture.invoke_menu_command(menu, 'Undo')
+    assert tab.code_panel.text_editor.get('1.0', 'end-1c') == 'alpha beta'
+
+    tab.code_panel.text_editor.tag_add(tk.SEL, '1.6', '1.10')
+    tab.code_panel.replace_selected_text_editor_before_typing(
+        types.SimpleNamespace(state=0, char='q', keysym='q'),
+    )
+    tab.code_panel.text_editor.insert(tk.INSERT, 'q')
+    assert tab.code_panel.text_editor.get('1.0', 'end-1c') == 'alpha q'
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -893,6 +932,70 @@ def test_run_dialog_shows_debug_button_when_code_raises_error(fixture):
 
     assert hasattr(run_tab, 'debug_button')
     assert run_tab.debug_button.winfo_exists()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_source_text_shortcuts_replace_selection_and_support_undo(fixture):
+    """Run source text supports select/copy/paste/undo shortcuts, and typed input replaces selected text."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+
+    assert run_tab.source_text.bind('<Control-a>')
+    assert run_tab.source_text.bind('<Control-c>')
+    assert run_tab.source_text.bind('<Control-v>')
+    assert run_tab.source_text.bind('<Control-z>')
+
+    run_tab.source_text.delete('1.0', 'end')
+    run_tab.source_text.insert('1.0', 'alpha beta')
+    run_tab.source_text.tag_add(tk.SEL, '1.6', '1.10')
+
+    fixture.app.clipboard_clear()
+    fixture.app.clipboard_append('gamma')
+    run_tab.paste_into_source_text()
+    assert run_tab.source_text.get('1.0', 'end-1c') == 'alpha gamma'
+
+    run_tab.undo_source_text()
+    assert run_tab.source_text.get('1.0', 'end-1c') == 'alpha beta'
+
+    run_tab.source_text.tag_add(tk.SEL, '1.0', '1.5')
+    run_tab.replace_selected_source_text_before_typing(
+        types.SimpleNamespace(state=0, char='z', keysym='z'),
+    )
+    run_tab.source_text.insert(tk.INSERT, 'z')
+    assert run_tab.source_text.get('1.0', 'end-1c') == 'z beta'
+
+    run_tab.select_all_source_text()
+    run_tab.copy_source_selection()
+    assert fixture.app.clipboard_get() == 'z beta'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_result_text_supports_copy_and_has_result_context_menu(fixture):
+    """Run result text supports selecting/copying output via shortcuts and context menu actions."""
+    fixture.simulate_login()
+    mock_result = Mock()
+    mock_result.asString.return_value.to_py = '42'
+    fixture.mock_browser.run_code.return_value = mock_result
+
+    fixture.app.run_code('40 + 2')
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+
+    assert run_tab.result_text.bind('<Control-a>')
+    assert run_tab.result_text.bind('<Control-c>')
+
+    run_tab.select_all_result_text()
+    run_tab.copy_result_selection()
+    assert fixture.app.clipboard_get() == '42'
+
+    run_tab.open_result_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    labels = menu_command_labels(run_tab.current_text_menu)
+    assert 'Select All' in labels
+    assert 'Copy' in labels
+    assert 'Paste' not in labels
+    assert 'Undo' not in labels
 
 
 @with_fixtures(SwordfishAppFixture)

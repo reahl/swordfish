@@ -19,6 +19,93 @@ from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainEx
 class DomainException(Exception):
     pass
 
+
+def selected_range_in_text_widget(text_widget):
+    start_index = None
+    end_index = None
+    try:
+        start_index = text_widget.index(tk.SEL_FIRST)
+        end_index = text_widget.index(tk.SEL_LAST)
+    except tk.TclError:
+        pass
+    return start_index, end_index
+
+
+def delete_selected_range_in_text_widget(text_widget):
+    start_index, end_index = selected_range_in_text_widget(text_widget)
+    if start_index is None:
+        return False
+    text_widget.mark_set(tk.INSERT, start_index)
+    text_widget.delete(start_index, end_index)
+    return True
+
+
+def select_all_in_text_widget(text_widget):
+    text_widget.tag_add(tk.SEL, '1.0', 'end-1c')
+    text_widget.mark_set(tk.INSERT, '1.0')
+    text_widget.see(tk.INSERT)
+
+
+def copy_selection_from_text_widget(clipboard_owner, text_widget):
+    start_index, end_index = selected_range_in_text_widget(text_widget)
+    if start_index is None:
+        return
+    selected_text = text_widget.get(start_index, end_index)
+    clipboard_owner.clipboard_clear()
+    clipboard_owner.clipboard_append(selected_text)
+
+
+def clipboard_text_from_widget(clipboard_owner):
+    clipboard_text = None
+    try:
+        clipboard_text = clipboard_owner.clipboard_get()
+    except tk.TclError:
+        pass
+    return clipboard_text
+
+
+def paste_text_into_widget(clipboard_owner, text_widget):
+    clipboard_text = clipboard_text_from_widget(clipboard_owner)
+    if clipboard_text is None:
+        return
+    autoseparators_enabled = True
+    can_configure_autoseparators = True
+    try:
+        autoseparators_value = text_widget.cget('autoseparators')
+        autoseparators_enabled = bool(int(autoseparators_value))
+    except (tk.TclError, TypeError, ValueError):
+        can_configure_autoseparators = False
+
+    if can_configure_autoseparators:
+        text_widget.configure(autoseparators=False)
+    text_widget.edit_separator()
+    delete_selected_range_in_text_widget(text_widget)
+    text_widget.insert(tk.INSERT, clipboard_text)
+    text_widget.edit_separator()
+    if can_configure_autoseparators and autoseparators_enabled:
+        text_widget.configure(autoseparators=True)
+
+
+def undo_text_widget_edit(text_widget):
+    try:
+        text_widget.edit_undo()
+    except tk.TclError:
+        pass
+
+
+def control_key_pressed_for_event(event):
+    return bool(event.state & 0x4)
+
+
+def replace_selected_range_before_typing(text_widget, event):
+    if control_key_pressed_for_event(event):
+        return
+    inserts_character = bool(event.char)
+    inserts_control_character = event.keysym in ('Return', 'KP_Enter', 'Tab')
+    if inserts_character or inserts_control_character:
+        delete_selected_range_in_text_widget(text_widget)
+
+
 class GemstoneSessionRecord:
     def __init__(self, gemstone_session):
         self.gemstone_session = gemstone_session
@@ -971,6 +1058,7 @@ class RunTab(ttk.Frame):
         super().__init__(parent)
         self.application = application
         self.last_exception = None
+        self.current_text_menu = None
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
@@ -979,7 +1067,7 @@ class RunTab(ttk.Frame):
         self.source_label = ttk.Label(self, text='Source Code:')
         self.source_label.grid(row=0, column=0, sticky='w', padx=10, pady=(10, 0))
 
-        self.source_text = tk.Text(self, height=10)
+        self.source_text = tk.Text(self, height=10, undo=True)
         self.source_text.grid(row=1, column=0, sticky='nsew', padx=10, pady=(0, 10))
 
         self.button_frame = ttk.Frame(self)
@@ -1015,6 +1103,103 @@ class RunTab(ttk.Frame):
 
         self.result_text = tk.Text(self, height=7, state='disabled')
         self.result_text.grid(row=5, column=0, sticky='nsew', padx=10, pady=(0, 10))
+        self.configure_text_actions()
+
+    def configure_text_actions(self):
+        self.source_text.bind('<Control-a>', self.select_all_source_text)
+        self.source_text.bind('<Control-A>', self.select_all_source_text)
+        self.source_text.bind('<Control-c>', self.copy_source_selection)
+        self.source_text.bind('<Control-C>', self.copy_source_selection)
+        self.source_text.bind('<Control-v>', self.paste_into_source_text)
+        self.source_text.bind('<Control-V>', self.paste_into_source_text)
+        self.source_text.bind('<Control-z>', self.undo_source_text)
+        self.source_text.bind('<Control-Z>', self.undo_source_text)
+        self.source_text.bind('<KeyPress>', self.replace_selected_source_text_before_typing, add='+')
+        self.source_text.bind('<Button-3>', self.open_source_text_menu)
+
+        self.result_text.bind('<Control-a>', self.select_all_result_text)
+        self.result_text.bind('<Control-A>', self.select_all_result_text)
+        self.result_text.bind('<Control-c>', self.copy_result_selection)
+        self.result_text.bind('<Control-C>', self.copy_result_selection)
+        self.result_text.bind('<Button-3>', self.open_result_text_menu)
+
+        self.source_text.bind('<Button-1>', self.close_text_menu, add='+')
+        self.result_text.bind('<Button-1>', self.close_text_menu, add='+')
+
+    def select_all_source_text(self, event=None):
+        select_all_in_text_widget(self.source_text)
+        return 'break'
+
+    def copy_source_selection(self, event=None):
+        copy_selection_from_text_widget(self, self.source_text)
+        return 'break'
+
+    def paste_into_source_text(self, event=None):
+        paste_text_into_widget(self, self.source_text)
+        return 'break'
+
+    def undo_source_text(self, event=None):
+        undo_text_widget_edit(self.source_text)
+        return 'break'
+
+    def replace_selected_source_text_before_typing(self, event):
+        replace_selected_range_before_typing(self.source_text, event)
+
+    def select_all_result_text(self, event=None):
+        select_all_in_text_widget(self.result_text)
+        return 'break'
+
+    def copy_result_selection(self, event=None):
+        copy_selection_from_text_widget(self, self.result_text)
+        return 'break'
+
+    def open_source_text_menu(self, event):
+        self.source_text.mark_set(tk.INSERT, f'@{event.x},{event.y}')
+        self.show_text_menu_for_widget(
+            event,
+            self.source_text,
+            allow_paste=True,
+            allow_undo=True,
+        )
+
+    def open_result_text_menu(self, event):
+        self.result_text.mark_set(tk.INSERT, f'@{event.x},{event.y}')
+        self.show_text_menu_for_widget(
+            event,
+            self.result_text,
+            allow_paste=False,
+            allow_undo=False,
+        )
+
+    def show_text_menu_for_widget(self, event, text_widget, allow_paste, allow_undo):
+        if self.current_text_menu is not None:
+            self.current_text_menu.unpost()
+
+        self.current_text_menu = tk.Menu(self, tearoff=0)
+        self.current_text_menu.add_command(
+            label='Select All',
+            command=lambda: select_all_in_text_widget(text_widget),
+        )
+        self.current_text_menu.add_command(
+            label='Copy',
+            command=lambda: copy_selection_from_text_widget(self, text_widget),
+        )
+        if allow_paste:
+            self.current_text_menu.add_command(
+                label='Paste',
+                command=lambda: paste_text_into_widget(self, text_widget),
+            )
+        if allow_undo:
+            self.current_text_menu.add_command(
+                label='Undo',
+                command=lambda: undo_text_widget_edit(text_widget),
+            )
+        self.current_text_menu.post(event.x_root, event.y_root)
+
+    def close_text_menu(self, event):
+        if self.current_text_menu is not None:
+            self.current_text_menu.unpost()
+            self.current_text_menu = None
 
     @property
     def gemstone_session_record(self):
@@ -2223,7 +2408,7 @@ class CodePanel(tk.Frame):
         self.application = application
         self.tab_key = tab_key
 
-        self.text_editor = tk.Text(self, tabs=('4',), wrap='none')
+        self.text_editor = tk.Text(self, tabs=('4',), wrap='none', undo=True)
 
         self.scrollbar_y = tk.Scrollbar(
             self,
@@ -2252,6 +2437,15 @@ class CodePanel(tk.Frame):
         self.text_editor.tag_configure("smalltalk_string", foreground="orange")
         self.text_editor.tag_configure("highlight", background="darkgrey")
 
+        self.text_editor.bind('<Control-a>', self.select_all_text_editor)
+        self.text_editor.bind('<Control-A>', self.select_all_text_editor)
+        self.text_editor.bind('<Control-c>', self.copy_text_editor_selection)
+        self.text_editor.bind('<Control-C>', self.copy_text_editor_selection)
+        self.text_editor.bind('<Control-v>', self.paste_into_text_editor)
+        self.text_editor.bind('<Control-V>', self.paste_into_text_editor)
+        self.text_editor.bind('<Control-z>', self.undo_text_editor)
+        self.text_editor.bind('<Control-Z>', self.undo_text_editor)
+        self.text_editor.bind('<KeyPress>', self.replace_selected_text_editor_before_typing, add='+')
         self.text_editor.bind("<KeyRelease>", self.on_key_release)
         self.text_editor.bind("<Button-3>", self.open_text_menu)
 
@@ -2283,6 +2477,25 @@ class CodePanel(tk.Frame):
             return self.text_editor.get(tk.SEL_FIRST, tk.SEL_LAST).strip()
         except tk.TclError:
             return ''
+
+    def select_all_text_editor(self, event=None):
+        select_all_in_text_widget(self.text_editor)
+        return 'break'
+
+    def copy_text_editor_selection(self, event=None):
+        copy_selection_from_text_widget(self, self.text_editor)
+        return 'break'
+
+    def paste_into_text_editor(self, event=None):
+        paste_text_into_widget(self, self.text_editor)
+        return 'break'
+
+    def undo_text_editor(self, event=None):
+        undo_text_widget_edit(self.text_editor)
+        return 'break'
+
+    def replace_selected_text_editor_before_typing(self, event):
+        replace_selected_range_before_typing(self.text_editor, event)
 
     def selector_token(self, token_text):
         candidate = (token_text or '').strip()
@@ -2371,6 +2584,23 @@ class CodePanel(tk.Frame):
             self.current_context_menu.unpost()
 
         self.current_context_menu = tk.Menu(self, tearoff=0)
+        self.current_context_menu.add_command(
+            label='Select All',
+            command=self.select_all_text_editor,
+        )
+        self.current_context_menu.add_command(
+            label='Copy',
+            command=self.copy_text_editor_selection,
+        )
+        self.current_context_menu.add_command(
+            label='Paste',
+            command=self.paste_into_text_editor,
+        )
+        self.current_context_menu.add_command(
+            label='Undo',
+            command=self.undo_text_editor,
+        )
+        self.current_context_menu.add_separator()
         active_editor_tab = self.active_editor_tab()
         if active_editor_tab is not None:
             self.current_context_menu.add_command(
