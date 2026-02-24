@@ -682,6 +682,29 @@ class FakeGemstoneError(GemstoneError):
         return None
 
 
+class FakeCompileGemstoneError(GemstoneError):
+    """AI: Minimal compile error carrying GemStone-like structured arguments."""
+
+    def __init__(self, source_text, source_offset):
+        self.source_text = source_text
+        self.source_offset = source_offset
+
+    def __str__(self):
+        return 'a CompileError occurred (error 1001), unexpected token'
+
+    @property
+    def number(self):
+        return 1001
+
+    @property
+    def args(self):
+        return ([[1034, self.source_offset, 'unexpected token']], self.source_text)
+
+    @property
+    def context(self):
+        return None
+
+
 class SwordfishAppFixture(Fixture):
     @set_up
     def create_app(self):
@@ -870,6 +893,36 @@ def test_run_dialog_shows_debug_button_when_code_raises_error(fixture):
 
     assert hasattr(run_tab, 'debug_button')
     assert run_tab.debug_button.winfo_exists()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_dialog_shows_compile_error_location_and_highlights_source(fixture):
+    """Compile errors show line/column details and visually mark the source position that failed to parse."""
+    fixture.simulate_login()
+    source_text = (
+        '| a b |\n'
+        'b := (Set new) add: 123; add: 457; add 1122; yourself.\n'
+        'a := { 1 . 2 . 3 . 4 . 5 . (Date today) . b } .\n'
+        '\n'
+        'a halt at: 5\n'
+    )
+    fixture.mock_browser.run_code.side_effect = FakeCompileGemstoneError(source_text, 48)
+
+    fixture.app.run_code(source_text)
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+
+    status_text = run_tab.status_label.cget('text')
+    assert 'line 2, column 40' in status_text
+
+    result_text = run_tab.result_text.get('1.0', 'end')
+    assert 'Line 2, column 40' in result_text
+    assert '\n                                       ^\n' in result_text
+
+    highlight_range = run_tab.source_text.tag_ranges('compile_error_location')
+    assert len(highlight_range) == 2
+    assert str(highlight_range[0]) == '2.39'
+    assert str(highlight_range[1]) == '2.40'
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -1062,6 +1115,40 @@ def make_mock_gemstone_object(class_name='OrderLine', string_repr='anObject'):
     return obj
 
 
+def make_mock_dictionary(entries):
+    dictionary = make_mock_gemstone_object('Dictionary', f'a Dictionary({len(entries)})')
+    keys = []
+    values_by_key = {}
+    for key_name, value in entries:
+        key = make_mock_gemstone_object('Symbol', key_name)
+        keys.append(key)
+        values_by_key[key] = value
+
+    dictionary.keys.return_value = keys
+    dictionary.size.return_value.to_py = len(keys)
+
+    def at_key(key):
+        return values_by_key[key]
+
+    dictionary.at.side_effect = at_key
+    return dictionary
+
+
+def make_mock_array(values):
+    array = make_mock_gemstone_object('Array', f'an Array({len(values)})')
+    array.size.return_value.to_py = len(values)
+    values_by_index = {
+        index + 1: value
+        for index, value in enumerate(values)
+    }
+
+    def at_index(index):
+        return values_by_index[index]
+
+    array.at.side_effect = at_index
+    return array
+
+
 class ObjectInspectorFixture(Fixture):
     @set_up
     def create_explorer(self):
@@ -1104,8 +1191,8 @@ def test_double_clicking_value_opens_new_inspector_tab_and_selects_it(fixture):
     fixture.root.update()
 
     tab_labels = [fixture.explorer.tab(t, 'text') for t in fixture.explorer.tabs()]
-    assert 'Inspector: self' in tab_labels
-    assert fixture.explorer.tab(fixture.explorer.select(), 'text') == 'Inspector: self'
+    assert 'OrderLine' in tab_labels
+    assert fixture.explorer.tab(fixture.explorer.select(), 'text') == 'OrderLine'
 
 
 @with_fixtures(ObjectInspectorFixture)
@@ -1124,8 +1211,61 @@ def test_double_clicking_same_value_again_reuses_existing_tab(fixture):
     fixture.root.update()
 
     tab_labels = [fixture.explorer.tab(t, 'text') for t in fixture.explorer.tabs()]
-    assert tab_labels.count('Inspector: self') == 1
-    assert fixture.explorer.tab(fixture.explorer.select(), 'text') == 'Inspector: self'
+    assert tab_labels.count('OrderLine') == 1
+    assert fixture.explorer.tab(fixture.explorer.select(), 'text') == 'OrderLine'
+
+
+@with_fixtures(ObjectInspectorFixture)
+def test_dictionary_inspector_shows_key_value_rows_and_drills_into_value(fixture):
+    """Dictionary-like objects are shown as key/value rows and double-clicking a row opens an inspector for the value."""
+    first_value = make_mock_gemstone_object('Integer', '1')
+    second_value = make_mock_gemstone_object('OrderLine', 'anOrderLine')
+    dictionary = make_mock_dictionary([
+        ('first', first_value),
+        ('second', second_value),
+    ])
+
+    dictionary_inspector = ObjectInspector(fixture.explorer, an_object=dictionary)
+    fixture.explorer.add(dictionary_inspector, text='Dictionary')
+    fixture.explorer.select(dictionary_inspector)
+    fixture.root.update()
+
+    rows = dictionary_inspector.treeview.get_children()
+    assert dictionary_inspector.treeview.heading('Name', 'text') == 'Key'
+    assert len(rows) == 2
+    assert dictionary_inspector.status_label.cget('text') == '2 items'
+
+    dictionary_inspector.treeview.focus(rows[0])
+    dictionary_inspector.on_item_double_click(None)
+    fixture.root.update()
+
+    assert fixture.explorer.tab(fixture.explorer.select(), 'text') == 'Integer'
+
+
+@with_fixtures(ObjectInspectorFixture)
+def test_array_inspector_shows_size_and_pages_through_values(fixture):
+    """Array-like objects show indexed rows, report total size, and allow paging through large collections."""
+    values = [
+        make_mock_gemstone_object('Integer', str(index))
+        for index in range(105)
+    ]
+    array = make_mock_array(values)
+    array_inspector = ObjectInspector(fixture.root, an_object=array)
+    array_inspector.pack()
+    fixture.root.update()
+
+    rows = array_inspector.treeview.get_children()
+    assert array_inspector.treeview.heading('Name', 'text') == 'Index'
+    assert len(rows) == 100
+    assert array_inspector.status_label.cget('text') == 'Items 1-100 of 105'
+
+    array_inspector.on_next_page()
+    fixture.root.update()
+
+    next_rows = array_inspector.treeview.get_children()
+    assert len(next_rows) == 5
+    assert array_inspector.status_label.cget('text') == 'Items 101-105 of 105'
+    assert array_inspector.treeview.item(next_rows[0], 'values')[0] == '[101]'
 
 
 @with_fixtures(SwordfishGuiFixture)
