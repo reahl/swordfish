@@ -845,8 +845,22 @@ def test_run_dialog_shows_result_on_successful_eval(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_run_dialog_always_shows_enabled_debug_button(fixture):
+    """The Run tab should always show an enabled Debug button, even before any run error occurs."""
+    fixture.simulate_login()
+
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+
+    assert hasattr(run_tab, 'debug_button')
+    assert run_tab.debug_button.winfo_exists()
+    assert not run_tab.debug_button.instate(['disabled'])
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_run_dialog_shows_debug_button_when_code_raises_error(fixture):
-    """If run code raises a GemstoneError, the Run tab should expose a Debug button for opening the debugger."""
+    """If run code raises a GemstoneError, the Run tab should still show the Debug button for opening the debugger."""
     fixture.simulate_login()
     fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
 

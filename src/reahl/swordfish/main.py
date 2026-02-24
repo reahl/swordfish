@@ -984,7 +984,7 @@ class RunTab(ttk.Frame):
 
         self.button_frame = ttk.Frame(self)
         self.button_frame.grid(row=2, column=0, sticky='ew', padx=10, pady=(0, 10))
-        self.button_frame.columnconfigure(2, weight=1)
+        self.button_frame.columnconfigure(3, weight=1)
 
         self.run_button = ttk.Button(
             self.button_frame,
@@ -999,6 +999,13 @@ class RunTab(ttk.Frame):
             command=self.close_tab,
         )
         self.close_button.grid(row=0, column=1, padx=(0, 5))
+
+        self.debug_button = ttk.Button(
+            self.button_frame,
+            text='Debug',
+            command=self.open_debugger,
+        )
+        self.debug_button.grid(row=0, column=2, sticky='w')
 
         self.status_label = ttk.Label(self, text='Ready')
         self.status_label.grid(row=3, column=0, sticky='w', padx=10)
@@ -1022,7 +1029,6 @@ class RunTab(ttk.Frame):
 
     def run_code_from_editor(self):
         self.status_label.config(text='Running...')
-        self.clear_debug_button()
         self.last_exception = None
         try:
             code_to_run = self.source_text.get('1.0', tk.END).strip()
@@ -1041,21 +1047,22 @@ class RunTab(ttk.Frame):
     def on_run_error(self, exception):
         self.last_exception = exception
         self.status_label.config(text=f'Error: {str(exception)}')
-        self.debug_button = ttk.Button(
-            self.button_frame,
-            text='Debug',
-            command=self.open_debugger,
-        )
-        self.debug_button.grid(row=0, column=2, sticky='w')
-
-    def clear_debug_button(self):
-        if hasattr(self, 'debug_button') and self.debug_button is not None:
-            self.debug_button.destroy()
-            self.debug_button = None
 
     def open_debugger(self):
         if self.last_exception is None:
-            return
+            code_to_run = self.source_text.get('1.0', tk.END).strip()
+            if not code_to_run:
+                self.status_label.config(text='No source to debug')
+                return
+            try:
+                result = self.gemstone_session_record.run_code(code_to_run)
+                self.on_run_complete(result)
+                self.status_label.config(
+                    text='Completed successfully; no debugger context',
+                )
+                return
+            except GemstoneError as gemstone_exception:
+                self.on_run_error(gemstone_exception)
         self.application.open_debugger(self.last_exception)
 
     def close_tab(self):
