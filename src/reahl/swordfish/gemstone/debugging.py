@@ -26,14 +26,35 @@ class GemstoneStackFrame:
 
     @property
     def step_point_offset(self):
-        # AI: See OGStackFrame initializeContexts.
+        # AI: Use the previous step point so marker reflects current execution location.
         step_point = self.gemstone_method.perform(
-            '_nextStepPointForIp:',
+            '_previousStepPointForIp:',
             self.ip_offset,
         )
         offsets = self.gemstone_method.perform('_sourceOffsets')
-        offset = offsets.at(step_point.min(offsets.size()))
-        return offset.to_py
+        bounded_step_point = step_point.min(offsets.size())
+        offset = offsets.at(bounded_step_point).to_py
+        source = self.method_source
+        if offset < 1:
+            return offset
+        source_length = len(source)
+        if offset > source_length:
+            return source_length
+        if source[offset - 1].isspace():
+            left_offset = offset
+            while left_offset > 1 and source[left_offset - 1].isspace():
+                left_offset -= 1
+            if not source[left_offset - 1].isspace():
+                return left_offset
+            right_offset = offset
+            while (
+                right_offset <= source_length
+                and source[right_offset - 1].isspace()
+            ):
+                right_offset += 1
+            if right_offset <= source_length:
+                return right_offset
+        return offset
 
     @property
     def method_source(self):
