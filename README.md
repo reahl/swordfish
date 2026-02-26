@@ -337,7 +337,8 @@ Docker script options:
 ```bash
 ./docker-start.sh                    # Normal development mode
 ./docker-start.sh --no-cache         # Clean rebuild (clears Docker cache)
-./docker-start.sh --foreground       # Debug mode (bypass entrypoint, root shell)
+./docker-start.sh --foreground       # Foreground shell with entrypoint setup
+./docker-start.sh --foreground --no-entry-point  # Root shell without entrypoint setup
 ./docker-start.sh --enable-ssh       # Start sshd in container (key-only auth)
 ./docker-start.sh --enable-ssh --ssh-pubkey-file ~/.ssh/id_ed25519.pub
 ```
@@ -349,6 +350,7 @@ The Docker setup includes:
 - X11 forwarding for GUI applications
 - Volume mounts for live code editing
 - Automatic user mapping for file permissions
+- Entry-point setup that adds `~/.local/venv/bin` to `PATH` and loads GemStone environment in interactive shells
 
 ### SSH access for automated commands
 
@@ -361,19 +363,7 @@ export SF_SSH_PORT=2222
 export SF_SSH_BIND_ADDRESS=127.0.0.1
 ```
 
-Then connect from the host:
-
-```bash
-ssh -p 2222 "$(whoami)"@127.0.0.1
-```
-
-Run tests through SSH:
-
-```bash
-ssh -p 2222 "$(whoami)"@127.0.0.1 'cd /workspace && source ~/.local/venv/bin/activate && pytest -q'
-```
-
-Or use project wrappers from the host:
+Run commands from the host (recommended):
 
 ```bash
 # Run any command in /workspace with ~/.local/venv activated
@@ -383,6 +373,12 @@ Or use project wrappers from the host:
 # Convenience wrapper for pytest
 ./docker-test-over-ssh.sh
 ./docker-test-over-ssh.sh tests/test_mcp_session_registry.py -q
+```
+
+Optional direct SSH session for troubleshooting:
+
+```bash
+ssh -p 2222 "$(whoami)"@127.0.0.1
 ```
 
 ### GemStone server management
@@ -406,6 +402,18 @@ sudo -u gemstone -i
 Note: GemStone server operations must be run as the `gemstone` user for proper permissions and security. The `-l` flag ensures the GemStone environment is loaded.
 
 ### Run the IDE inside the container
+
+When started normally (without `--no-entry-point`), the container entrypoint sets up your shell environment for Swordfish:
+
+- `~/.local/venv/bin` is added to `PATH`
+- GemStone environment is loaded for interactive shells (including `GEMSTONE`)
+
+If you bypass the entrypoint (for example `--no-entry-point`), configure the environment manually:
+
+```bash
+source ~/.local/venv/bin/activate
+. /opt/dev/gemstone/gemShell.sh 3.7.4.3
+```
 
 ```bash
 # 1. Start the GemStone server
