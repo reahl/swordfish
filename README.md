@@ -113,7 +113,7 @@ codex mcp list --json
 To enable eval/commit with human-approval handshakes, add:
 
 ```bash
---allow-eval --eval-approval-code "<eval-approval>" --allow-commit --commit-approval-code "<commit-approval>"
+--allow-eval --eval-approval-code "<eval-approval>" --allow-commit
 ```
 
 Add `--allow-eval` to enable `gs_eval` and `gs_debug_eval`.
@@ -121,8 +121,9 @@ When enabled, you must also set `--eval-approval-code` and provide the same
 `approval_code` on each eval call (with `unsafe=True` and a non-empty
 `reason`).
 Add `--allow-commit` only when you explicitly want transactions to persist.
-When enabled, you must also set `--commit-approval-code` and provide the same
-`approval_code` on each `gs_commit` call.
+When enabled, `gs_commit` always requires explicit human approval:
+- Provide `approved_by_user=true` and a non-empty `approval_note` on each
+  `gs_commit` call.
 Add `--require-gemstone-ast` to enforce AST-strict refactoring mode; when
 enabled, heuristic refactoring tools are blocked unless real GemStone AST
 adapter support is available. In strict mode, refactoring actions attempt an
@@ -131,8 +132,9 @@ For new AI sessions, call `gs_capabilities` first to discover active policy
 switches and available workflows, then call `gs_guidance` for task-specific
 tool selection and sequencing.
 For normal browse/edit/test workflows, prefer explicit tools like:
-`gs_create_class`, `gs_create_test_case_class`, `gs_compile_method`, and
-`gs_run_gemstone_tests`.
+`gs_create_class`, `gs_create_class_in_package`,
+`gs_create_test_case_class`, `gs_create_test_case_class_in_package`,
+`gs_compile_method`, and `gs_run_gemstone_tests`.
 For selector exploration, use `gs_find_implementors` and `gs_find_senders`
 instead of free-form evaluation. Both support `max_results` and `count_only`.
 For method-level semantic navigation, use `gs_method_ast`,

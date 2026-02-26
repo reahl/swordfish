@@ -37,14 +37,6 @@ def run_application():
         ),
     )
     parser.add_argument(
-        '--commit-approval-code',
-        default='',
-        help=(
-            'Human approval code required by gs_commit. '
-            'Required when --allow-commit is enabled.'
-        ),
-    )
-    parser.add_argument(
         '--allow-tracing',
         action='store_true',
         help='Enable gs_tracer_* and evidence tools (disabled by default).',
@@ -60,15 +52,12 @@ def run_application():
     arguments = parser.parse_args()
     if arguments.allow_eval and not arguments.eval_approval_code.strip():
         parser.error('--allow-eval requires --eval-approval-code.')
-    if arguments.allow_commit and not arguments.commit_approval_code.strip():
-        parser.error('--allow-commit requires --commit-approval-code.')
     mcp_server = create_server(
         allow_eval=arguments.allow_eval,
         allow_compile=arguments.allow_compile,
         allow_commit=arguments.allow_commit,
         allow_tracing=arguments.allow_tracing,
         eval_approval_code=arguments.eval_approval_code,
-        commit_approval_code=arguments.commit_approval_code,
         require_gemstone_ast=arguments.require_gemstone_ast,
     )
     mcp_server.run(transport=arguments.transport)

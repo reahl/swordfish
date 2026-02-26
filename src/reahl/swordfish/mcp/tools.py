@@ -42,15 +42,11 @@ def register_tools(
     allow_commit=False,
     allow_tracing=False,
     eval_approval_code='',
-    commit_approval_code='',
     require_gemstone_ast=False,
 ):
     eval_approval_code = eval_approval_code.strip()
-    commit_approval_code = commit_approval_code.strip()
     if allow_eval and not eval_approval_code:
         raise ValueError('allow_eval requires eval_approval_code.')
-    if allow_commit and not commit_approval_code:
-        raise ValueError('allow_commit requires commit_approval_code.')
 
     identifier_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*$')
     unary_selector_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*$')
@@ -139,18 +135,45 @@ def register_tools(
             return None
         return tracing_disabled_tool_response(connection_id, tool_name)
 
-    def approval_required_tool_response(connection_id, tool_name, action_name):
-        return disabled_tool_response(
-            connection_id,
-            (
-                '%s requires human approval for %s. '
-                'Provide a valid approval_code.'
-            )
-            % (
-                tool_name,
-                action_name,
-            ),
+    def approval_required_tool_response(
+        connection_id,
+        tool_name,
+        action_name,
+        approval_mode='approval_code',
+        resolution_hint='',
+    ):
+        message = '%s requires human approval for %s.' % (
+            tool_name,
+            action_name,
         )
+        retry_arguments = {}
+        if approval_mode == 'approval_code':
+            message = message + ' Provide a valid approval_code.'
+            retry_arguments = {'approval_code': '<approval-code>'}
+        elif approval_mode == 'explicit_confirmation':
+            message = (
+                message
+                + ' Retry with approved_by_user=true and '
+                + 'a non-empty approval_note.'
+            )
+            retry_arguments = {
+                'approved_by_user': True,
+                'approval_note': '<human-approval-note>',
+            }
+        if resolution_hint:
+            message = message + ' ' + resolution_hint
+        response = disabled_tool_response(
+            connection_id,
+            message,
+        )
+        response['error']['approval'] = {
+            'required': True,
+            'tool_name': tool_name,
+            'action_name': action_name,
+            'mode': approval_mode,
+            'retry_arguments': retry_arguments,
+        }
+        return response
 
     def approval_rejected_tool_response(connection_id, tool_name):
         return disabled_tool_response(
@@ -164,12 +187,14 @@ def register_tools(
         action_name,
         approval_code,
         expected_approval_code,
+        resolution_hint='',
     ):
         if not isinstance(approval_code, str):
             return approval_required_tool_response(
                 connection_id,
                 tool_name,
                 action_name,
+                resolution_hint=resolution_hint,
             )
         normalized_approval_code = approval_code.strip()
         if not normalized_approval_code:
@@ -177,9 +202,40 @@ def register_tools(
                 connection_id,
                 tool_name,
                 action_name,
+                resolution_hint=resolution_hint,
             )
         if normalized_approval_code != expected_approval_code:
             return approval_rejected_tool_response(connection_id, tool_name)
+        return None
+
+    def require_explicit_user_confirmation(
+        connection_id,
+        tool_name,
+        action_name,
+        approved_by_user,
+        approval_note,
+    ):
+        try:
+            approved_by_user = validated_boolean_like(
+                approved_by_user,
+                'approved_by_user',
+            )
+        except DomainException as error:
+            return disabled_tool_response(connection_id, str(error))
+        if not approved_by_user:
+            return approval_required_tool_response(
+                connection_id,
+                tool_name,
+                action_name,
+                approval_mode='explicit_confirmation',
+            )
+        try:
+            validated_non_empty_string_stripped(
+                approval_note,
+                'approval_note',
+            )
+        except DomainException as error:
+            return disabled_tool_response(connection_id, str(error))
         return None
 
     def validated_identifier(input_value, argument_name):
@@ -228,6 +284,55 @@ def register_tools(
             raise DomainException('%s cannot be blank.' % argument_name)
         return normalized_input_value
 
+    def validated_optional_package_name(package_name):
+        if package_name is None:
+            return ''
+        if not isinstance(package_name, str):
+            raise DomainException('package_name must be a string.')
+        return package_name.strip()
+
+    def validated_existing_package_name(browser_session, package_name):
+        package_name = validated_non_empty_string_stripped(
+            package_name,
+            'package_name',
+        )
+        if not browser_session.package_exists(package_name):
+            raise DomainException(
+                (
+                    'Unknown package_name. '
+                    'Create/install package first.'
+                )
+            )
+        return package_name
+
+    def resolved_class_creation_target(
+        browser_session,
+        in_dictionary,
+        package_name,
+    ):
+        in_dictionary = validated_non_empty_string_stripped(
+            in_dictionary,
+            'in_dictionary',
+        )
+        package_name = validated_optional_package_name(package_name)
+        if package_name:
+            package_name = validated_existing_package_name(
+                browser_session,
+                package_name,
+            )
+            if (
+                in_dictionary != 'UserGlobals'
+                and in_dictionary != package_name
+            ):
+                raise DomainException(
+                    (
+                        'Provide either in_dictionary or package_name, '
+                        'not both with different values.'
+                    )
+                )
+            return package_name, package_name
+        return in_dictionary, None
+
     def validated_non_negative_integer_or_none(input_value, argument_name):
         if input_value is None:
             return None
@@ -265,6 +370,11 @@ def register_tools(
             return 'disabled'
         return 'approval_required'
 
+    def current_commit_approval_mode():
+        if not allow_commit:
+            return 'disabled'
+        return 'explicit_confirmation'
+
     def policy_flags():
         return {
             'allow_eval': allow_eval,
@@ -274,6 +384,7 @@ def register_tools(
             'allow_tracing': allow_tracing,
             'require_gemstone_ast': require_gemstone_ast,
             'eval_mode': current_eval_mode(),
+            'commit_approval_mode': current_commit_approval_mode(),
             'eval_requires_unsafe': True,
             'eval_requires_human_approval': allow_eval,
             'commit_requires_human_approval': allow_commit,
@@ -427,7 +538,10 @@ def register_tools(
             )
         if allow_commit:
             cautions.append(
-                'gs_commit requires approval_code for every commit.'
+                (
+                    'gs_commit requires explicit confirmation: '
+                    'approved_by_user=true and non-empty approval_note.'
+                )
             )
         if intent == 'general':
             workflow = [
@@ -457,6 +571,8 @@ def register_tools(
                     'tools': [
                         'gs_create_package',
                         'gs_install_package',
+                        'gs_create_class_in_package',
+                        'gs_create_test_case_class_in_package',
                     ],
                 },
             ]
@@ -2093,7 +2209,11 @@ def register_tools(
             }
 
     @mcp_server.tool()
-    def gs_commit(connection_id, approval_code=''):
+    def gs_commit(
+        connection_id,
+        approved_by_user=False,
+        approval_note='',
+    ):
         if not allow_commit:
             return disabled_tool_response(
                 connection_id,
@@ -2102,12 +2222,12 @@ def register_tools(
                     'Start swordfish-mcp with --allow-commit to enable.'
                 ),
             )
-        approval_error_response = require_human_approval(
+        approval_error_response = require_explicit_user_confirmation(
             connection_id,
             'gs_commit',
             'commit',
-            approval_code,
-            commit_approval_code,
+            approved_by_user,
+            approval_note,
         )
         if approval_error_response:
             return approval_error_response
@@ -2190,7 +2310,9 @@ def register_tools(
                     'gs_install_package',
                     'gs_compile_method',
                     'gs_create_class',
+                    'gs_create_class_in_package',
                     'gs_create_test_case_class',
+                    'gs_create_test_case_class_in_package',
                     'gs_apply_selector_rename',
                     'gs_apply_rename_method',
                     'gs_apply_move_method',
@@ -3994,6 +4116,7 @@ def register_tools(
         class_inst_var_names=None,
         pool_dictionary_names=None,
         in_dictionary='UserGlobals',
+        package_name='',
     ):
         if not allow_compile:
             return disabled_tool_response(
@@ -4016,9 +4139,10 @@ def register_tools(
                 superclass_name,
                 'superclass_name',
             )
-            in_dictionary = validated_non_empty_string_stripped(
+            in_dictionary, package_name = resolved_class_creation_target(
+                browser_session,
                 in_dictionary,
-                'in_dictionary',
+                package_name,
             )
             inst_var_names = validated_identifier_names(
                 inst_var_names,
@@ -4055,6 +4179,7 @@ def register_tools(
                 'class_inst_var_names': class_inst_var_names,
                 'pool_dictionary_names': pool_dictionary_names,
                 'in_dictionary': in_dictionary,
+                'package_name': package_name,
             }
         except GemstoneError as error:
             return {
@@ -4076,10 +4201,33 @@ def register_tools(
             }
 
     @mcp_server.tool()
+    def gs_create_class_in_package(
+        connection_id,
+        class_name,
+        package_name,
+        superclass_name='Object',
+        inst_var_names=None,
+        class_var_names=None,
+        class_inst_var_names=None,
+        pool_dictionary_names=None,
+    ):
+        return gs_create_class(
+            connection_id=connection_id,
+            class_name=class_name,
+            superclass_name=superclass_name,
+            inst_var_names=inst_var_names,
+            class_var_names=class_var_names,
+            class_inst_var_names=class_inst_var_names,
+            pool_dictionary_names=pool_dictionary_names,
+            package_name=package_name,
+        )
+
+    @mcp_server.tool()
     def gs_create_test_case_class(
         connection_id,
         class_name,
         in_dictionary='UserGlobals',
+        package_name='',
     ):
         if not allow_compile:
             return disabled_tool_response(
@@ -4098,9 +4246,10 @@ def register_tools(
         browser_session = browser_session_for_policy(gemstone_session)
         try:
             class_name = validated_identifier(class_name, 'class_name')
-            in_dictionary = validated_non_empty_string_stripped(
+            in_dictionary, package_name = resolved_class_creation_target(
+                browser_session,
                 in_dictionary,
-                'in_dictionary',
+                package_name,
             )
             browser_session.create_test_case_class(
                 class_name=class_name,
@@ -4112,6 +4261,7 @@ def register_tools(
                 'class_name': class_name,
                 'superclass_name': 'TestCase',
                 'in_dictionary': in_dictionary,
+                'package_name': package_name,
             }
         except GemstoneError as error:
             return {
@@ -4131,6 +4281,18 @@ def register_tools(
                 'connection_id': connection_id,
                 'error': {'message': str(error)},
             }
+
+    @mcp_server.tool()
+    def gs_create_test_case_class_in_package(
+        connection_id,
+        class_name,
+        package_name,
+    ):
+        return gs_create_test_case_class(
+            connection_id=connection_id,
+            class_name=class_name,
+            package_name=package_name,
+        )
 
     @mcp_server.tool()
     def gs_get_class_definition(connection_id, class_name):

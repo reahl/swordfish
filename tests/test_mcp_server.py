@@ -40,7 +40,6 @@ def test_create_server_passes_policy_flags_to_tool_registration():
         allow_commit=False,
         allow_tracing=False,
         eval_approval_code='',
-        commit_approval_code='',
         require_gemstone_ast=False,
     ):
         captured['mcp_server'] = mcp_server
@@ -49,7 +48,6 @@ def test_create_server_passes_policy_flags_to_tool_registration():
         captured['allow_commit'] = allow_commit
         captured['allow_tracing'] = allow_tracing
         captured['eval_approval_code'] = eval_approval_code
-        captured['commit_approval_code'] = commit_approval_code
         captured['require_gemstone_ast'] = require_gemstone_ast
 
     with patch(
@@ -66,7 +64,6 @@ def test_create_server_passes_policy_flags_to_tool_registration():
                 allow_commit=True,
                 allow_tracing=True,
                 eval_approval_code='eval-approval',
-                commit_approval_code='commit-approval',
                 require_gemstone_ast=True,
             )
 
@@ -76,7 +73,6 @@ def test_create_server_passes_policy_flags_to_tool_registration():
     assert captured['allow_commit']
     assert captured['allow_tracing']
     assert captured['eval_approval_code'] == 'eval-approval'
-    assert captured['commit_approval_code'] == 'commit-approval'
     assert captured['require_gemstone_ast']
 
 
@@ -99,7 +95,6 @@ def test_create_server_supports_fast_mcp_without_version_argument():
         allow_commit=False,
         allow_tracing=False,
         eval_approval_code='',
-        commit_approval_code='',
         require_gemstone_ast=False,
     ):
         captured['mcp_server'] = mcp_server
@@ -108,7 +103,6 @@ def test_create_server_supports_fast_mcp_without_version_argument():
         captured['allow_commit'] = allow_commit
         captured['allow_tracing'] = allow_tracing
         captured['eval_approval_code'] = eval_approval_code
-        captured['commit_approval_code'] = commit_approval_code
         captured['require_gemstone_ast'] = require_gemstone_ast
 
     with patch(
@@ -125,7 +119,6 @@ def test_create_server_supports_fast_mcp_without_version_argument():
                 allow_commit=False,
                 allow_tracing=False,
                 eval_approval_code='',
-                commit_approval_code='',
                 require_gemstone_ast=False,
             )
 
@@ -135,7 +128,6 @@ def test_create_server_supports_fast_mcp_without_version_argument():
     assert not captured['allow_tracing']
     assert not captured['require_gemstone_ast']
     assert captured['eval_approval_code'] == ''
-    assert captured['commit_approval_code'] == ''
 
 
 def test_create_server_rejects_eval_enabled_without_eval_approval_code():
@@ -146,19 +138,85 @@ def test_create_server_rejects_eval_enabled_without_eval_approval_code():
             allow_commit=True,
             allow_tracing=False,
             eval_approval_code='',
-            commit_approval_code='commit-approval',
             require_gemstone_ast=False,
         )
 
 
-def test_create_server_rejects_commit_enabled_without_commit_approval_code():
-    with expected(ValueError):
-        create_server(
-            allow_eval=False,
-            allow_compile=True,
-            allow_commit=True,
-            allow_tracing=False,
-            eval_approval_code='',
-            commit_approval_code='',
-            require_gemstone_ast=False,
-        )
+def test_create_server_allows_commit_enabled_without_extra_approval_configuration():
+    class FakeServer:
+        pass
+
+    def fake_fast_mcp(name, version):
+        return FakeServer()
+
+    def fake_register_tools(
+        mcp_server,
+        allow_eval=False,
+        allow_compile=False,
+        allow_commit=False,
+        allow_tracing=False,
+        eval_approval_code='',
+        require_gemstone_ast=False,
+    ):
+        pass
+
+    with patch(
+        'reahl.swordfish.mcp.server.import_fast_mcp',
+        return_value=fake_fast_mcp,
+    ):
+        with patch(
+            'reahl.swordfish.mcp.server.import_tool_registration',
+            return_value=fake_register_tools,
+        ):
+            with expected(NoException):
+                create_server(
+                    allow_eval=False,
+                    allow_compile=True,
+                    allow_commit=True,
+                    allow_tracing=False,
+                    eval_approval_code='',
+                    require_gemstone_ast=False,
+                )
+
+
+def test_create_server_passes_commit_policy_flags_in_confirmation_mode():
+    class FakeServer:
+        pass
+
+    def fake_fast_mcp(name, version):
+        return FakeServer()
+
+    captured = {}
+
+    def fake_register_tools(
+        mcp_server,
+        allow_eval=False,
+        allow_compile=False,
+        allow_commit=False,
+        allow_tracing=False,
+        eval_approval_code='',
+        require_gemstone_ast=False,
+    ):
+        captured['allow_commit'] = allow_commit
+        captured['allow_compile'] = allow_compile
+
+    with patch(
+        'reahl.swordfish.mcp.server.import_fast_mcp',
+        return_value=fake_fast_mcp,
+    ):
+        with patch(
+            'reahl.swordfish.mcp.server.import_tool_registration',
+            return_value=fake_register_tools,
+        ):
+            with expected(NoException):
+                create_server(
+                    allow_eval=False,
+                    allow_compile=True,
+                    allow_commit=True,
+                    allow_tracing=False,
+                    eval_approval_code='',
+                    require_gemstone_ast=False,
+                )
+
+    assert captured['allow_commit']
+    assert captured['allow_compile']
