@@ -1218,8 +1218,8 @@ class RunTab(ttk.Frame):
         return self.source_text.get(start_index, end_index)
 
     def run_selected_source_text(self):
-        selected_text = self.selected_source_text().strip()
-        if not selected_text:
+        selected_text = self.selected_source_text()
+        if not selected_text.strip():
             self.status_label.config(text='Select source text to run')
             return
         self.status_label.config(text='Running selection...')
@@ -1232,8 +1232,8 @@ class RunTab(ttk.Frame):
             self.on_run_error(gemstone_exception)
 
     def inspect_selected_source_text(self):
-        selected_text = self.selected_source_text().strip()
-        if not selected_text:
+        selected_text = self.selected_source_text()
+        if not selected_text.strip():
             self.status_label.config(text='Select source text to inspect')
             return
         self.status_label.config(text='Inspecting selection...')
@@ -1313,7 +1313,7 @@ class RunTab(ttk.Frame):
         self.last_exception = None
         self.clear_source_error_highlight()
         try:
-            code_to_run = self.source_text.get('1.0', tk.END).strip()
+            code_to_run = self.source_text.get('1.0', 'end-1c')
             result = self.gemstone_session_record.run_code(code_to_run)
             self.on_run_complete(result)
         except GemstoneError as gemstone_exception:
@@ -1338,26 +1338,40 @@ class RunTab(ttk.Frame):
     def clear_source_error_highlight(self):
         self.source_text.tag_remove('compile_error_location', '1.0', tk.END)
 
+    def source_text_line_count(self):
+        return int(self.source_text.index('end-1c').split('.')[0])
+
+    def source_text_line(self, line_number):
+        if line_number < 1:
+            return None
+        line_count = self.source_text_line_count()
+        if line_number > line_count:
+            return None
+        return self.source_text.get(f'{line_number}.0', f'{line_number}.end')
+
     def show_source_error_highlight(self, line_number, column_number):
         self.clear_source_error_highlight()
         if line_number is None:
             return
 
-        source_lines = self.source_text.get('1.0', tk.END).splitlines()
-        if line_number < 1 or line_number > len(source_lines):
+        source_line = self.source_text_line(line_number)
+        if source_line is None:
             return
 
         start_index = f'{line_number}.0'
         end_index = f'{line_number}.end'
         if column_number is not None and column_number > 0:
-            source_line = source_lines[line_number - 1]
             bounded_column_number = column_number
             if bounded_column_number > len(source_line) + 1:
                 bounded_column_number = len(source_line) + 1
             start_index = f'{line_number}.{bounded_column_number - 1}'
             end_index = f'{line_number}.{bounded_column_number}'
 
-        self.source_text.tag_configure('compile_error_location', background='#ffe4e4')
+        self.source_text.tag_configure(
+            'compile_error_location',
+            background='#ffe4e4',
+            underline=True,
+        )
         self.source_text.tag_add('compile_error_location', start_index, end_index)
         self.source_text.see(start_index)
 
@@ -1366,10 +1380,9 @@ class RunTab(ttk.Frame):
         self.result_text.delete('1.0', tk.END)
         self.result_text.insert(tk.END, error_text)
         if line_number is not None and column_number is not None:
-            source_lines = self.source_text.get('1.0', tk.END).splitlines()
-            source_line = ''
-            if line_number > 0 and line_number <= len(source_lines):
-                source_line = source_lines[line_number - 1]
+            source_line = self.source_text_line(line_number)
+            if source_line is None:
+                source_line = ''
             caret_padding = ''
             if column_number > 1:
                 caret_padding = ' ' * (column_number - 1)
@@ -1534,8 +1547,8 @@ class RunTab(ttk.Frame):
         return line_number, column_number
 
     def open_debugger(self):
-        code_to_run = self.source_text.get('1.0', tk.END).strip()
-        if not code_to_run:
+        code_to_run = self.source_text.get('1.0', 'end-1c')
+        if not code_to_run.strip():
             self.status_label.config(text='No source to debug')
             return
 

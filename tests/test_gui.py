@@ -1243,12 +1243,53 @@ def test_run_dialog_shows_compile_error_location_and_highlights_source(fixture):
 
     result_text = run_tab.result_text.get('1.0', 'end')
     assert 'Line 2, column 40' in result_text
+    assert 'b := (Set new) add: 123; add: 457; add 1122; yourself.' in result_text
     assert '\n                                       ^\n' in result_text
 
     highlight_range = run_tab.source_text.tag_ranges('compile_error_location')
     assert len(highlight_range) == 2
     assert str(highlight_range[0]) == '2.39'
     assert str(highlight_range[1]) == '2.40'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_dialog_preserves_leading_blank_lines_for_compile_error_location(
+    fixture,
+):
+    """Compile error location mapping keeps the source exactly as shown in the Run editor."""
+    fixture.simulate_login()
+    source_text = (
+        '\n'
+        '| a |\n'
+        '\n'
+        'a := set new.\n'
+        'a\n'
+    )
+
+    def raise_compile_error(executed_source):
+        offset = executed_source.index('set') + 1
+        raise FakeCompileGemstoneError(executed_source, offset)
+
+    fixture.mock_browser.run_code.side_effect = raise_compile_error
+
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete('1.0', 'end')
+    run_tab.source_text.insert('1.0', source_text)
+
+    run_tab.run_button.invoke()
+    fixture.app.update()
+
+    status_text = run_tab.status_label.cget('text')
+    assert 'line 4, column 6' in status_text
+    expected_source = run_tab.source_text.get('1.0', 'end-1c')
+    assert fixture.mock_browser.run_code.call_args_list[-1] == call(expected_source)
+
+    highlight_range = run_tab.source_text.tag_ranges('compile_error_location')
+    assert len(highlight_range) == 2
+    assert str(highlight_range[0]) == '4.5'
+    assert str(highlight_range[1]) == '4.6'
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -1316,7 +1357,8 @@ def test_debug_button_does_not_open_debugger_for_compile_error(fixture):
 
     tab_labels = [fixture.app.notebook.tab(t, 'text') for t in fixture.app.notebook.tabs()]
     assert 'Debugger' not in tab_labels
-    assert fixture.mock_browser.run_code.call_args_list[-1] == call(source_text.strip())
+    expected_source = run_tab.source_text.get('1.0', 'end-1c')
+    assert fixture.mock_browser.run_code.call_args_list[-1] == call(expected_source)
     assert 'line 2, column 40' in run_tab.status_label.cget('text')
 
 
