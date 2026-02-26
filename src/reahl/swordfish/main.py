@@ -448,6 +448,97 @@ class GemstoneSessionRecord:
             for sender in sender_search_result['senders']
         ]
 
+    def plan_sender_evidence_tests(
+        self,
+        method_name,
+        max_depth=2,
+        max_nodes=500,
+        max_senders_per_selector=200,
+        max_test_methods=200,
+        max_elapsed_ms=1500,
+    ):
+        return self.gemstone_browser_session.sender_test_plan_for_selector(
+            method_name,
+            max_depth,
+            max_nodes,
+            max_senders_per_selector,
+            max_test_methods,
+            max_elapsed_ms=max_elapsed_ms,
+        )
+
+    def collect_sender_evidence_from_tests(
+        self,
+        method_name,
+        selected_tests,
+        max_traced_senders=250,
+        max_observed_results=500,
+    ):
+        trace_result = None
+        observed_result = None
+        untrace_result = None
+        test_runs = []
+        tracer_enabled = False
+        trace_installed = False
+        self.gemstone_browser_session.ensure_tracer_manifest_matches()
+        self.gemstone_browser_session.enable_tracer()
+        tracer_enabled = True
+        try:
+            trace_result = self.gemstone_browser_session.trace_selector(
+                method_name,
+                max_results=max_traced_senders,
+            )
+            trace_installed = True
+            self.gemstone_browser_session.clear_observed_senders(method_name)
+            for selected_test in selected_tests:
+                test_case_class_name = selected_test['test_case_class_name']
+                test_method_selector = selected_test['test_method_selector']
+                test_result = self.run_test_method(
+                    test_case_class_name,
+                    test_method_selector,
+                )
+                test_runs.append(
+                    {
+                        'test_case_class_name': test_case_class_name,
+                        'test_method_selector': test_method_selector,
+                        'depth': selected_test.get('depth'),
+                        'tests_passed': test_result['has_passed'],
+                        'result': test_result,
+                    }
+                )
+            observed_result = (
+                self.gemstone_browser_session.observed_senders_for_selector(
+                    method_name,
+                    max_results=max_observed_results,
+                    count_only=False,
+                )
+            )
+        finally:
+            if trace_installed:
+                try:
+                    untrace_result = self.gemstone_browser_session.untrace_selector(
+                        method_name
+                    )
+                except (
+                    GemstoneDomainException,
+                    GemstoneError,
+                ):
+                    untrace_result = None
+            if tracer_enabled:
+                try:
+                    self.gemstone_browser_session.disable_tracer()
+                except (
+                    GemstoneDomainException,
+                    GemstoneError,
+                ):
+                    pass
+        return {
+            'method_name': method_name,
+            'trace': trace_result,
+            'test_runs': test_runs,
+            'observed': observed_result,
+            'untrace': untrace_result,
+        }
+
     def method_sends(self, class_name, method_selector, show_instance_side):
         return self.gemstone_browser_session.method_sends(
             class_name,
@@ -992,22 +1083,200 @@ class ImplementorsDialog(tk.Toplevel):
             pass
 
 
+class SenderEvidenceTestsDialog(tk.Toplevel):
+    def __init__(self, parent, method_name, test_plan):
+        super().__init__(parent)
+        self.title('Trace Narrowing Tests')
+        self.geometry('760x520')
+        self.transient(parent)
+        self.wait_visibility()
+        self.grab_set()
+
+        self.selected_tests = None
+        self.candidate_tests = test_plan.get('candidate_tests', [])
+        self.checkbox_variables = []
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+
+        summary_text = self.plan_summary_text(method_name, test_plan)
+        self.summary_label = ttk.Label(
+            self,
+            text=summary_text,
+            justify='left',
+        )
+        self.summary_label.grid(
+            row=0,
+            column=0,
+            padx=10,
+            pady=(10, 6),
+            sticky='w',
+        )
+
+        self.canvas = tk.Canvas(self, borderwidth=0, highlightthickness=0)
+        self.canvas.grid(row=1, column=0, sticky='nsew', padx=10)
+        self.scrollbar = ttk.Scrollbar(
+            self,
+            orient='vertical',
+            command=self.canvas.yview,
+        )
+        self.scrollbar.grid(row=1, column=1, sticky='ns', padx=(0, 10))
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.tests_frame = ttk.Frame(self.canvas)
+        self.canvas_window = self.canvas.create_window(
+            (0, 0),
+            window=self.tests_frame,
+            anchor='nw',
+        )
+        self.tests_frame.bind('<Configure>', self.update_scroll_region)
+        self.canvas.bind('<Configure>', self.update_canvas_window_width)
+
+        self.populate_test_checkboxes()
+
+        self.buttons = ttk.Frame(self)
+        self.buttons.grid(row=2, column=0, columnspan=2, sticky='e', pady=10)
+        self.select_all_button = ttk.Button(
+            self.buttons,
+            text='Select All',
+            command=self.select_all_tests,
+        )
+        self.select_all_button.grid(row=0, column=0, padx=(0, 4))
+        self.select_none_button = ttk.Button(
+            self.buttons,
+            text='Select None',
+            command=self.select_no_tests,
+        )
+        self.select_none_button.grid(row=0, column=1, padx=(0, 10))
+        self.run_selected_button = ttk.Button(
+            self.buttons,
+            text='Run Selected While Tracing',
+            command=self.run_selected_tests,
+        )
+        self.run_selected_button.grid(row=0, column=2, padx=(0, 4))
+        self.cancel_button = ttk.Button(
+            self.buttons,
+            text='Cancel',
+            command=self.destroy,
+        )
+        self.cancel_button.grid(row=0, column=3)
+
+    def plan_summary_text(self, method_name, test_plan):
+        candidate_count = test_plan.get('candidate_test_count', 0)
+        visited_selector_count = test_plan.get('visited_selector_count', 0)
+        summary_parts = [
+            (
+                'Suggested tests for tracing callers of %s '
+                '(candidates: %s, explored selectors: %s).'
+            )
+            % (
+                method_name,
+                candidate_count,
+                visited_selector_count,
+            )
+        ]
+        if test_plan.get('elapsed_limit_reached'):
+            summary_parts.append(
+                (
+                    'Discovery hit time limit (%sms) and returned partial '
+                    'suggestions.'
+                )
+                % test_plan.get('max_elapsed_ms')
+            )
+        if test_plan.get('sender_search_truncated'):
+            summary_parts.append(
+                (
+                    'Some sender searches were truncated, so this is an '
+                    'incomplete subset.'
+                )
+            )
+        if test_plan.get('selector_limit_reached'):
+            summary_parts.append(
+                'Selector traversal limit was reached.'
+            )
+        return ' '.join(summary_parts)
+
+    def format_test_label(self, candidate_test):
+        return (
+            '%s>>%s (depth %s via %s)'
+            % (
+                candidate_test['test_case_class_name'],
+                candidate_test['test_method_selector'],
+                candidate_test.get('depth', '?'),
+                candidate_test.get('reached_from_selector', '?'),
+            )
+        )
+
+    def populate_test_checkboxes(self):
+        default_checked_count = 20
+        for index, candidate_test in enumerate(self.candidate_tests):
+            is_default_checked = index < default_checked_count
+            selected = tk.BooleanVar(value=is_default_checked)
+            self.checkbox_variables.append(selected)
+            checkbutton = ttk.Checkbutton(
+                self.tests_frame,
+                text=self.format_test_label(candidate_test),
+                variable=selected,
+            )
+            checkbutton.grid(
+                row=index,
+                column=0,
+                sticky='w',
+                padx=4,
+                pady=2,
+            )
+
+    def update_scroll_region(self, event=None):
+        self.canvas.configure(scrollregion=self.canvas.bbox('all'))
+
+    def update_canvas_window_width(self, event):
+        self.canvas.itemconfigure(
+            self.canvas_window,
+            width=event.width,
+        )
+
+    def select_all_tests(self):
+        for selected in self.checkbox_variables:
+            selected.set(True)
+
+    def select_no_tests(self):
+        for selected in self.checkbox_variables:
+            selected.set(False)
+
+    def run_selected_tests(self):
+        selected_tests = []
+        for index, selected in enumerate(self.checkbox_variables):
+            if selected.get():
+                selected_tests.append(self.candidate_tests[index])
+        if not selected_tests:
+            messagebox.showwarning(
+                'Trace Narrowing',
+                'Select at least one test.',
+                parent=self,
+            )
+            return
+        self.selected_tests = selected_tests
+        self.destroy()
+
+
 class SendersDialog(tk.Toplevel):
     def __init__(self, parent, method_name=None):
         super().__init__(parent)
-        self.title("Senders")
-        self.geometry("500x500")
+        self.title('Senders')
+        self.geometry('560x560')
         self.transient(parent)
         self.wait_visibility()
         self.grab_set()
 
         self.parent = parent
         self.sender_results = []
+        self.static_sender_results = []
+        self.status_var = tk.StringVar(value='')
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(2, weight=1)
 
-        ttk.Label(self, text="Method Name:").grid(
+        ttk.Label(self, text='Method Name:').grid(
             row=0,
             column=0,
             padx=10,
@@ -1028,22 +1297,27 @@ class SendersDialog(tk.Toplevel):
 
         self.button_frame = ttk.Frame(self)
         self.button_frame.grid(row=1, column=0, columnspan=3, pady=10)
-        self.button_frame.grid_columnconfigure(0, weight=1)
-        self.button_frame.grid_columnconfigure(1, weight=1)
 
         self.find_button = ttk.Button(
             self.button_frame,
-            text="Find",
+            text='Find',
             command=self.find_senders,
         )
         self.find_button.grid(row=0, column=0, padx=5)
 
+        self.narrow_button = ttk.Button(
+            self.button_frame,
+            text='Narrow With Tracing',
+            command=self.narrow_senders_with_tracing,
+        )
+        self.narrow_button.grid(row=0, column=1, padx=5)
+
         self.cancel_button = ttk.Button(
             self.button_frame,
-            text="Cancel",
+            text='Cancel',
             command=self.destroy,
         )
-        self.cancel_button.grid(row=0, column=1, padx=5)
+        self.cancel_button.grid(row=0, column=2, padx=5)
 
         self.results_listbox = tk.Listbox(self)
         self.results_listbox.bind('<Double-Button-1>', self.on_result_double_click)
@@ -1052,8 +1326,22 @@ class SendersDialog(tk.Toplevel):
             column=0,
             columnspan=3,
             padx=10,
-            pady=10,
+            pady=(10, 4),
             sticky='nsew',
+        )
+
+        self.status_label = ttk.Label(
+            self,
+            textvariable=self.status_var,
+            anchor='w',
+        )
+        self.status_label.grid(
+            row=3,
+            column=0,
+            columnspan=3,
+            padx=10,
+            pady=(0, 10),
+            sticky='ew',
         )
 
         self.find_senders()
@@ -1062,14 +1350,8 @@ class SendersDialog(tk.Toplevel):
     def gemstone_session_record(self):
         return self.parent.gemstone_session_record
 
-    def find_senders(self):
-        method_name = self.method_entry.get()
-        self.sender_results = []
-        if method_name:
-            self.sender_results = list(
-                self.gemstone_session_record.find_senders_of_method(method_name)
-            )
-
+    def populate_sender_results(self, sender_results):
+        self.sender_results = list(sender_results)
         self.results_listbox.delete(0, tk.END)
         for class_name, show_instance_side, method_selector in self.sender_results:
             side_text = '' if show_instance_side else ' class'
@@ -1077,6 +1359,139 @@ class SendersDialog(tk.Toplevel):
                 tk.END,
                 f'{class_name}{side_text}>>{method_selector}',
             )
+
+    def find_senders(self):
+        method_name = self.method_entry.get().strip()
+        static_sender_results = []
+        if method_name:
+            static_sender_results = list(
+                self.gemstone_session_record.find_senders_of_method(method_name)
+            )
+        self.static_sender_results = static_sender_results
+        self.populate_sender_results(self.static_sender_results)
+        self.status_var.set(
+            'Static senders: %s' % len(self.static_sender_results)
+        )
+
+    def choose_tests_for_tracing(self, method_name, test_plan):
+        test_selection_dialog = SenderEvidenceTestsDialog(
+            self,
+            method_name,
+            test_plan,
+        )
+        self.wait_window(test_selection_dialog)
+        return test_selection_dialog.selected_tests
+
+    def observed_sender_key(self, observed_sender):
+        return (
+            observed_sender['caller_class_name'],
+            observed_sender['caller_show_instance_side'],
+            observed_sender['caller_method_selector'],
+        )
+
+    def narrow_senders_with_tracing(self):
+        method_name = self.method_entry.get().strip()
+        if not method_name:
+            messagebox.showwarning(
+                'Narrow Senders',
+                'Enter a method selector first.',
+                parent=self,
+            )
+            return
+        if not self.static_sender_results:
+            self.find_senders()
+        try:
+            test_plan = self.gemstone_session_record.plan_sender_evidence_tests(
+                method_name,
+                max_depth=2,
+                max_nodes=500,
+                max_senders_per_selector=200,
+                max_test_methods=200,
+                max_elapsed_ms=1500,
+            )
+        except (GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror(
+                'Narrow Senders',
+                str(error),
+                parent=self,
+            )
+            return
+        if test_plan.get('candidate_test_count', 0) == 0:
+            messagebox.showinfo(
+                'Narrow Senders',
+                (
+                    'No candidate tests were found for this selector. '
+                    'Run relevant tests manually, then retry narrowing.'
+                ),
+                parent=self,
+            )
+            return
+        selected_tests = self.choose_tests_for_tracing(method_name, test_plan)
+        if selected_tests is None:
+            return
+        self.status_var.set(
+            (
+                'Tracing %s and running %s selected tests...'
+            )
+            % (
+                method_name,
+                len(selected_tests),
+            )
+        )
+        self.update_idletasks()
+        try:
+            evidence_result = (
+                self.gemstone_session_record.collect_sender_evidence_from_tests(
+                    method_name,
+                    selected_tests,
+                    max_traced_senders=250,
+                    max_observed_results=500,
+                )
+            )
+        except (GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror(
+                'Narrow Senders',
+                str(error),
+                parent=self,
+            )
+            self.status_var.set('')
+            return
+        observed_sender_entries = evidence_result['observed']['observed_senders']
+        observed_sender_keys = {
+            self.observed_sender_key(observed_sender)
+            for observed_sender in observed_sender_entries
+        }
+        narrowed_sender_results = [
+            sender_result
+            for sender_result in self.static_sender_results
+            if sender_result in observed_sender_keys
+        ]
+        self.populate_sender_results(narrowed_sender_results)
+        trace_result = evidence_result.get('trace') or {}
+        total_sender_count = trace_result.get('total_sender_count')
+        targeted_sender_count = trace_result.get('targeted_sender_count')
+        summary_text = (
+            'Observed sender matches: %s of %s static senders.'
+            % (
+                len(narrowed_sender_results),
+                len(self.static_sender_results),
+            )
+        )
+        trace_was_capped = (
+            total_sender_count is not None
+            and targeted_sender_count is not None
+            and targeted_sender_count < total_sender_count
+        )
+        if trace_was_capped:
+            summary_text = (
+                summary_text
+                + ' Tracing targeted %s of %s senders (capped).'
+                % (
+                    targeted_sender_count,
+                    total_sender_count,
+                )
+            )
+        self.status_var.set(summary_text)
 
     def on_result_double_click(self, event):
         try:

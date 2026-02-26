@@ -1,11 +1,15 @@
 import os
 import re
+import time
 
 from reahl.ptongue import GemstoneApiError
 from reahl.ptongue import GemstoneError
 from reahl.swordfish.mcp.ast_assets import ast_support_source
 from reahl.swordfish.mcp.ast_assets import ast_support_source_hash
 from reahl.swordfish.mcp.ast_assets import AST_SUPPORT_VERSION
+from reahl.swordfish.mcp.tracer_assets import tracer_source
+from reahl.swordfish.mcp.tracer_assets import tracer_source_hash
+from reahl.swordfish.mcp.tracer_assets import TRACER_VERSION
 
 from reahl.swordfish.gemstone.session import DomainException
 from reahl.swordfish.gemstone.session import render_result
@@ -2182,6 +2186,799 @@ class GemstoneBrowserSession:
             'has_passed': has_passed,
             'failures': failure_entries,
             'errors': error_entries,
+        }
+
+    def tracer_status(self):
+        expected_source_hash = tracer_source_hash()
+        expected_version = TRACER_VERSION
+        manifest_exists = self.run_code(
+            'UserGlobals includesKey: #SwordfishMcpTracerManifest'
+        ).to_py
+        installed_source_hash = ''
+        installed_version = ''
+        installed_at = ''
+        enabled = self.run_code(
+            'UserGlobals at: #SwordfishMcpTracerEnabled ifAbsent: [ false ]'
+        ).to_py
+        observed_selector_count = self.run_code(
+            (
+                '(UserGlobals at: #SwordfishMcpTracerEdgeCounts '
+                'ifAbsent: [ Dictionary new ]) size'
+            )
+        ).to_py
+        observed_edge_count = self.run_code(
+            (
+                '| edgeCounts edgeTotal |\n'
+                'edgeCounts := UserGlobals\n'
+                '    at: #SwordfishMcpTracerEdgeCounts\n'
+                '    ifAbsent: [ Dictionary new ].\n'
+                'edgeTotal := 0.\n'
+                'edgeCounts valuesDo: [ :selectorEdgeCounts |\n'
+                '    edgeTotal := edgeTotal + selectorEdgeCounts size\n'
+                '].\n'
+                'edgeTotal'
+            )
+        ).to_py
+        if manifest_exists:
+            installed_source_hash = self.run_code(
+                (
+                    '(UserGlobals at: #SwordfishMcpTracerManifest) '
+                    "at: #sourceHash ifAbsent: ['']"
+                )
+            ).to_py
+            installed_version = self.run_code(
+                (
+                    '(UserGlobals at: #SwordfishMcpTracerManifest) '
+                    "at: #version ifAbsent: ['']"
+                )
+            ).to_py
+            installed_at = self.run_code(
+                (
+                    '(UserGlobals at: #SwordfishMcpTracerManifest) '
+                    "at: #installedAt ifAbsent: ['']"
+                )
+            ).to_py
+        hashes_match = manifest_exists and (
+            installed_source_hash == expected_source_hash
+        )
+        versions_match = manifest_exists and (
+            installed_version == expected_version
+        )
+        manifest_matches = hashes_match and versions_match
+        return {
+            'tracer_installed': manifest_exists,
+            'tracer_enabled': enabled,
+            'expected_version': expected_version,
+            'installed_version': installed_version,
+            'versions_match': versions_match,
+            'expected_source_hash': expected_source_hash,
+            'installed_source_hash': installed_source_hash,
+            'hashes_match': hashes_match,
+            'manifest_matches': manifest_matches,
+            'installed_at': installed_at,
+            'observed_selector_count': observed_selector_count,
+            'observed_edge_count': observed_edge_count,
+        }
+
+    def tracer_manifest_install_script(self):
+        expected_source_hash = tracer_source_hash()
+        expected_version = TRACER_VERSION
+        expected_version_literal = self.smalltalk_string_literal(
+            expected_version
+        )
+        expected_hash_literal = self.smalltalk_string_literal(
+            expected_source_hash
+        )
+        installed_by_literal = self.smalltalk_string_literal('swordfish-ide')
+        return (
+            '| manifest |\n'
+            'manifest := Dictionary new.\n'
+            'manifest at: #version put: %s.\n'
+            'manifest at: #sourceHash put: %s.\n'
+            'manifest at: #installedBy put: %s.\n'
+            'manifest at: #installedAt put: DateAndTime now printString.\n'
+            'UserGlobals at: #SwordfishMcpTracerManifest put: manifest.\n'
+            'UserGlobals at: #SwordfishMcpTracerEnabled put: false.\n'
+            'true'
+        ) % (
+            expected_version_literal,
+            expected_hash_literal,
+            installed_by_literal,
+        )
+
+    def tracer_alias_selector(self, method_name):
+        return 'swordfishMcpTracerOriginal__' + method_name
+
+    def selector_tokens_for_method(self, method_name):
+        if ':' in method_name:
+            return self.selector_keyword_tokens(method_name)
+        return [method_name]
+
+    def source_with_rewritten_method_header(
+        self,
+        source,
+        old_selector,
+        new_selector,
+    ):
+        old_tokens = self.selector_tokens_for_method(old_selector)
+        new_tokens = self.selector_tokens_for_method(new_selector)
+        if len(old_tokens) != len(new_tokens):
+            raise DomainException(
+                'old_selector and new_selector must have the same arity.'
+            )
+        selector_token_ranges = self.selector_token_ranges_in_source(
+            source,
+            old_tokens,
+        )
+        if not selector_token_ranges:
+            raise DomainException(
+                'Could not locate selector tokens in method source.'
+            )
+        replacement_plan = self.replacement_plan_for_selector_tokens(
+            [selector_token_ranges[0]],
+            new_tokens,
+        )
+        return self.source_with_replaced_selector_tokens(
+            source,
+            replacement_plan,
+        )
+
+    def tracer_sender_wrapper_source(
+        self,
+        sender_method_selector,
+        alias_selector,
+        target_method_name,
+        caller_class_name,
+        caller_show_instance_side,
+    ):
+        target_selector_literal = self.selector_reference_expression(
+            target_method_name
+        )
+        caller_class_name_literal = self.smalltalk_string_literal(
+            caller_class_name
+        )
+        caller_method_selector_literal = self.selector_reference_expression(
+            sender_method_selector
+        )
+        caller_show_instance_side_literal = (
+            'true' if caller_show_instance_side else 'false'
+        )
+        if ':' in sender_method_selector:
+            method_tokens = self.selector_keyword_tokens(sender_method_selector)
+            alias_tokens = self.selector_keyword_tokens(alias_selector)
+            argument_names = [
+                'argument%s' % (index + 1)
+                for index in range(len(method_tokens))
+            ]
+            method_header_tokens = [
+                '%s %s' % (method_tokens[index], argument_names[index])
+                for index in range(len(method_tokens))
+            ]
+            alias_send_tokens = [
+                '%s %s' % (alias_tokens[index], argument_names[index])
+                for index in range(len(alias_tokens))
+            ]
+            method_header = ' '.join(method_header_tokens)
+            alias_send = ' '.join(alias_send_tokens)
+        else:
+            method_header = sender_method_selector
+            alias_send = alias_selector
+        return (
+            '%s\n'
+            '    SwordfishMcpTracer\n'
+            '        recordSenderExecutionForTarget: %s\n'
+            '        callerClassName: %s\n'
+            '        callerMethodSelector: %s\n'
+            '        callerShowInstanceSide: %s.\n'
+            '    ^self %s'
+        ) % (
+            method_header,
+            target_selector_literal,
+            caller_class_name_literal,
+            caller_method_selector_literal,
+            caller_show_instance_side_literal,
+            alias_send,
+        )
+
+    def tracer_class_method_sources(self):
+        return [
+            (
+                'edgeCounts\n'
+                '    ^UserGlobals\n'
+                '        at: #SwordfishMcpTracerEdgeCounts\n'
+                '        ifAbsentPut: [ Dictionary new ]'
+            ),
+            (
+                'clearEdgeCounts\n'
+                '    UserGlobals at: #SwordfishMcpTracerEdgeCounts put: '
+                'Dictionary new.\n'
+                '    true'
+            ),
+            (
+                'instrumentation\n'
+                '    ^UserGlobals\n'
+                '        at: #SwordfishMcpTracerInstrumentation\n'
+                '        ifAbsentPut: [ Dictionary new ]'
+            ),
+            (
+                'instrumentationEntriesForTarget: aTargetSelector\n'
+                '    ^self instrumentation\n'
+                '        at: aTargetSelector asString\n'
+                '        ifAbsent: [ OrderedCollection new ]'
+            ),
+            (
+                'instrumentationReportForTarget: aTargetSelector\n'
+                '    | instrumentationEntries stream |\n'
+                '    instrumentationEntries := self '
+                'instrumentationEntriesForTarget: aTargetSelector.\n'
+                '    stream := WriteStream on: String new.\n'
+                '    instrumentationEntries withIndexDo: [ :entry :index |\n'
+                '        stream nextPutAll: (entry at: 1).\n'
+                '        stream nextPut: $|.\n'
+                '        stream nextPutAll: ((entry at: 2) '
+                "ifTrue: [ 'true' ] ifFalse: [ 'false' ]).\n"
+                '        stream nextPut: $|.\n'
+                '        stream nextPutAll: (entry at: 3).\n'
+                '        stream nextPut: $|.\n'
+                '        stream nextPutAll: (entry at: 4).\n'
+                '        index < instrumentationEntries size\n'
+                '            ifTrue: [ stream nextPut: Character lf ]\n'
+                '    ].\n'
+                '    ^stream contents'
+            ),
+            (
+                'clearInstrumentationForTarget: aTargetSelector\n'
+                '    self instrumentation\n'
+                '        removeKey: aTargetSelector asString\n'
+                '        ifAbsent: [ ].\n'
+                '    true'
+            ),
+            (
+                'registerInstrumentationForTarget: aTargetSelector '
+                'callerClassName: callerClassName callerMethodSelector: '
+                'callerMethodSelector callerShowInstanceSide: '
+                'callerShowInstanceSide aliasSelector: aliasSelector\n'
+                '    | instrumentationEntry instrumentationEntries |\n'
+                '    instrumentationEntry := Array\n'
+                '        with: callerClassName\n'
+                '        with: callerShowInstanceSide\n'
+                '        with: callerMethodSelector asString\n'
+                '        with: aliasSelector asString.\n'
+                '    instrumentationEntries := self instrumentation\n'
+                '        at: aTargetSelector asString\n'
+                '        ifAbsentPut: [ OrderedCollection new ].\n'
+                '    (instrumentationEntries includes: instrumentationEntry)\n'
+                '        ifFalse: [ instrumentationEntries add: '
+                'instrumentationEntry ].\n'
+                '    true'
+            ),
+            (
+                'selectorEdgeCountsFor: aSelector\n'
+                '    ^self edgeCounts\n'
+                '        at: aSelector asString\n'
+                '        ifAbsentPut: [ Dictionary new ]'
+            ),
+            (
+                'recordSenderExecutionForTarget: aTargetSelector '
+                'callerClassName: callerClassName callerMethodSelector: '
+                'callerMethodSelector callerShowInstanceSide: '
+                'callerShowInstanceSide\n'
+                '    | edge selectorEdgeCounts |\n'
+                '    (UserGlobals at: #SwordfishMcpTracerEnabled '
+                'ifAbsent: [ false ])\n'
+                '        ifFalse: [ ^self ].\n'
+                '    edge := Array\n'
+                '        with: callerClassName\n'
+                '        with: callerShowInstanceSide\n'
+                '        with: callerMethodSelector asString.\n'
+                '    selectorEdgeCounts := self selectorEdgeCountsFor: '
+                'aTargetSelector.\n'
+                '    selectorEdgeCounts\n'
+                '        at: edge\n'
+                '        put: ((selectorEdgeCounts at: edge '
+                'ifAbsent: [ 0 ]) + 1).\n'
+                '    ^self'
+            ),
+            (
+                'observedEdgesFor: aSelector\n'
+                '    | selectorEdgeCounts observedEdges |\n'
+                '    selectorEdgeCounts := self edgeCounts\n'
+                '        at: aSelector asString\n'
+                '        ifAbsent: [ Dictionary new ].\n'
+                '    observedEdges := OrderedCollection new.\n'
+                '    selectorEdgeCounts keysAndValuesDo: [ :edge :count |\n'
+                '        observedEdges add: (Array\n'
+                '            with: (edge at: 1)\n'
+                '            with: (edge at: 2)\n'
+                '            with: (edge at: 3)\n'
+                '            with: count)\n'
+                '    ].\n'
+                '    ^observedEdges asArray'
+            ),
+            (
+                'observedEdgesReportFor: aSelector\n'
+                '    | observedEdges stream |\n'
+                '    observedEdges := self observedEdgesFor: aSelector.\n'
+                '    stream := WriteStream on: String new.\n'
+                '    observedEdges withIndexDo: [ :edge :index |\n'
+                '        stream nextPutAll: (edge at: 1).\n'
+                '        stream nextPut: $|.\n'
+                '        stream nextPutAll: ((edge at: 2) '
+                "ifTrue: [ 'true' ] ifFalse: [ 'false' ]).\n"
+                '        stream nextPut: $|.\n'
+                '        stream nextPutAll: (edge at: 3).\n'
+                '        stream nextPut: $|.\n'
+                '        stream nextPutAll: (edge at: 4) printString.\n'
+                '        index < observedEdges size\n'
+                '            ifTrue: [ stream nextPut: Character lf ]\n'
+                '    ].\n'
+                '    ^stream contents'
+            ),
+        ]
+
+    def install_tracer_methods(self):
+        for method_source in self.tracer_class_method_sources():
+            self.compile_method(
+                'SwordfishMcpTracer',
+                False,
+                method_source,
+                'tracing',
+            )
+
+    def install_or_refresh_tracer(self):
+        if not self.package_exists('Swordfish'):
+            self.create_and_install_package('Swordfish')
+        self.run_code(tracer_source())
+        self.install_tracer_methods()
+        self.run_code(self.tracer_manifest_install_script())
+        self.run_code('SwordfishMcpTracer clearEdgeCounts')
+
+    def ensure_tracer_manifest_matches(self):
+        tracer_status = self.tracer_status()
+        if not tracer_status['manifest_matches']:
+            self.install_or_refresh_tracer()
+            tracer_status = self.tracer_status()
+        return tracer_status
+
+    def enable_tracer(self):
+        self.run_code('UserGlobals at: #SwordfishMcpTracerEnabled put: true. true')
+
+    def disable_tracer(self):
+        self.run_code(
+            'UserGlobals at: #SwordfishMcpTracerEnabled put: false. true'
+        )
+
+    def uninstall_tracer(self):
+        self.run_code(
+            (
+                'UserGlobals removeKey: #SwordfishMcpTracerManifest '
+                'ifAbsent: [ ].\n'
+                'UserGlobals removeKey: #SwordfishMcpTracerEdgeCounts '
+                'ifAbsent: [ ].\n'
+                'UserGlobals removeKey: #SwordfishMcpTracerInstrumentation '
+                'ifAbsent: [ ].\n'
+                'UserGlobals at: #SwordfishMcpTracerEnabled put: false.\n'
+                'true'
+            )
+        )
+
+    def trace_selector(self, method_name, max_results=None):
+        self.run_code(
+            'SwordfishMcpTracer clearInstrumentationForTarget: %s'
+            % self.selector_reference_expression(method_name)
+        )
+        sender_search_result = self.find_senders(
+            method_name,
+            max_results=max_results,
+            count_only=False,
+        )
+        traced_senders = []
+        skipped_senders = []
+        for sender_entry in sender_search_result['senders']:
+            class_name = sender_entry['class_name']
+            show_instance_side = sender_entry['show_instance_side']
+            sender_method_selector = sender_entry['method_selector']
+            alias_selector = self.tracer_alias_selector(sender_method_selector)
+            selectors = self.list_methods(
+                class_name,
+                'all',
+                show_instance_side,
+            )
+            if alias_selector in selectors:
+                skipped_senders.append(
+                    {
+                        'class_name': class_name,
+                        'show_instance_side': show_instance_side,
+                        'method_selector': sender_method_selector,
+                        'alias_selector': alias_selector,
+                    }
+                )
+            else:
+                method_source = self.get_method_source(
+                    class_name,
+                    sender_method_selector,
+                    show_instance_side,
+                )
+                method_category = self.get_method_category(
+                    class_name,
+                    sender_method_selector,
+                    show_instance_side,
+                )
+                alias_method_source = self.source_with_rewritten_method_header(
+                    method_source,
+                    sender_method_selector,
+                    alias_selector,
+                )
+                self.compile_method(
+                    class_name,
+                    show_instance_side,
+                    alias_method_source,
+                    method_category,
+                )
+                wrapper_method_source = self.tracer_sender_wrapper_source(
+                    sender_method_selector,
+                    alias_selector,
+                    method_name,
+                    class_name,
+                    show_instance_side,
+                )
+                self.compile_method(
+                    class_name,
+                    show_instance_side,
+                    wrapper_method_source,
+                    method_category,
+                )
+                traced_senders.append(
+                    {
+                        'class_name': class_name,
+                        'show_instance_side': show_instance_side,
+                        'method_selector': sender_method_selector,
+                        'alias_selector': alias_selector,
+                    }
+                )
+            self.run_code(
+                (
+                    'SwordfishMcpTracer '
+                    'registerInstrumentationForTarget: %s '
+                    'callerClassName: %s '
+                    'callerMethodSelector: %s '
+                    'callerShowInstanceSide: %s '
+                    'aliasSelector: %s'
+                )
+                % (
+                    self.selector_reference_expression(method_name),
+                    self.smalltalk_string_literal(class_name),
+                    self.selector_reference_expression(sender_method_selector),
+                    'true' if show_instance_side else 'false',
+                    self.selector_reference_expression(alias_selector),
+                )
+            )
+        return {
+            'method_name': method_name,
+            'max_results': max_results,
+            'total_sender_count': sender_search_result['total_count'],
+            'targeted_sender_count': len(sender_search_result['senders']),
+            'traced_sender_count': len(traced_senders),
+            'skipped_sender_count': len(skipped_senders),
+            'traced_senders': traced_senders,
+            'skipped_senders': skipped_senders,
+        }
+
+    def untrace_selector(self, method_name):
+        instrumentation_entries_report = self.run_code(
+            'SwordfishMcpTracer instrumentationReportForTarget: %s'
+            % self.selector_reference_expression(method_name)
+        ).to_py
+        instrumentation_entry_lines = (
+            []
+            if instrumentation_entries_report == ''
+            else instrumentation_entries_report.splitlines()
+        )
+        restored_senders = []
+        skipped_senders = []
+        for instrumentation_entry_line in instrumentation_entry_lines:
+            instrumentation_entry_fields = instrumentation_entry_line.split('|')
+            if len(instrumentation_entry_fields) != 4:
+                raise DomainException(
+                    'Instrumentation entry must have four fields.'
+                )
+            class_name = instrumentation_entry_fields[0]
+            show_instance_side = instrumentation_entry_fields[1] == 'true'
+            sender_method_selector = instrumentation_entry_fields[2]
+            alias_selector = instrumentation_entry_fields[3]
+            selectors = self.list_methods(
+                class_name,
+                'all',
+                show_instance_side,
+            )
+            if alias_selector not in selectors:
+                skipped_senders.append(
+                    {
+                        'class_name': class_name,
+                        'show_instance_side': show_instance_side,
+                        'method_selector': sender_method_selector,
+                        'alias_selector': alias_selector,
+                    }
+                )
+            else:
+                alias_method_source = self.get_method_source(
+                    class_name,
+                    alias_selector,
+                    show_instance_side,
+                )
+                alias_method_category = self.get_method_category(
+                    class_name,
+                    alias_selector,
+                    show_instance_side,
+                )
+                restored_method_source = self.source_with_rewritten_method_header(
+                    alias_method_source,
+                    alias_selector,
+                    sender_method_selector,
+                )
+                self.compile_method(
+                    class_name,
+                    show_instance_side,
+                    restored_method_source,
+                    alias_method_category,
+                )
+                self.delete_method(
+                    class_name,
+                    alias_selector,
+                    show_instance_side,
+                )
+                restored_senders.append(
+                    {
+                        'class_name': class_name,
+                        'show_instance_side': show_instance_side,
+                        'method_selector': sender_method_selector,
+                        'alias_selector': alias_selector,
+                    }
+                )
+        self.run_code(
+            'SwordfishMcpTracer clearInstrumentationForTarget: %s'
+            % self.selector_reference_expression(method_name)
+        )
+        return {
+            'method_name': method_name,
+            'total_instrumented_sender_count': len(instrumentation_entry_lines),
+            'restored_sender_count': len(restored_senders),
+            'skipped_sender_count': len(skipped_senders),
+            'restored_senders': restored_senders,
+            'skipped_senders': skipped_senders,
+        }
+
+    def clear_observed_senders(self, method_name=None):
+        if method_name is None:
+            self.run_code('SwordfishMcpTracer clearEdgeCounts')
+            return
+        method_name_literal = self.smalltalk_string_literal(method_name)
+        self.run_code(
+            '(SwordfishMcpTracer edgeCounts) removeKey: %s ifAbsent: [ ]. true'
+            % method_name_literal
+        )
+
+    def observed_senders_for_selector(
+        self,
+        method_name,
+        max_results=None,
+        count_only=False,
+    ):
+        selector_expression = self.selector_reference_expression(method_name)
+        observed_edges_report = self.run_code(
+            'SwordfishMcpTracer observedEdgesReportFor: %s'
+            % selector_expression
+        ).to_py
+        observed_sender_entries = []
+        observed_edge_lines = (
+            []
+            if observed_edges_report == ''
+            else observed_edges_report.splitlines()
+        )
+        for observed_edge_line in observed_edge_lines:
+            observed_edge_fields = observed_edge_line.split('|')
+            if len(observed_edge_fields) != 4:
+                raise DomainException(
+                    'Observed tracer edge must have four fields.'
+                )
+            caller_class_name = observed_edge_fields[0]
+            caller_show_instance_side = observed_edge_fields[1] == 'true'
+            caller_method_selector = observed_edge_fields[2]
+            observed_count = int(observed_edge_fields[3])
+            observed_sender_entries.append(
+                {
+                    'caller_class_name': caller_class_name,
+                    'caller_show_instance_side': caller_show_instance_side,
+                    'caller_method_selector': caller_method_selector,
+                    'method_selector': method_name,
+                    'observed_count': observed_count,
+                }
+            )
+        observed_sender_entries = sorted(
+            observed_sender_entries,
+            key=lambda observed_sender_entry: (
+                observed_sender_entry['caller_class_name'],
+                observed_sender_entry['caller_show_instance_side'],
+                observed_sender_entry['caller_method_selector'],
+            ),
+        )
+        total_count = len(observed_sender_entries)
+        returned_entries = (
+            []
+            if count_only
+            else self.limited_entries(observed_sender_entries, max_results)
+        )
+        return {
+            'total_count': total_count,
+            'returned_count': len(returned_entries),
+            'total_observed_calls': sum(
+                [
+                    observed_sender_entry['observed_count']
+                    for observed_sender_entry in observed_sender_entries
+                ]
+            ),
+            'observed_senders': returned_entries,
+        }
+
+    def sender_test_plan_for_selector(
+        self,
+        method_name,
+        max_depth,
+        max_nodes,
+        max_senders_per_selector,
+        max_test_methods,
+        max_elapsed_ms=None,
+    ):
+        if max_depth < 0:
+            raise DomainException('max_depth must be non-negative.')
+        if max_nodes <= 0:
+            raise DomainException('max_nodes must be positive.')
+        if max_senders_per_selector <= 0:
+            raise DomainException(
+                'max_senders_per_selector must be positive.'
+            )
+        if max_test_methods <= 0:
+            raise DomainException('max_test_methods must be positive.')
+        if max_elapsed_ms is not None and max_elapsed_ms <= 0:
+            raise DomainException('max_elapsed_ms must be positive.')
+        selector_queue = [{'selector': method_name, 'depth': 0}]
+        queued_selector_names = {method_name}
+        visited_selector_names = set()
+        queue_index = 0
+        visited_selector_count = 0
+        sender_search_truncated = False
+        class_is_test_case = {}
+        candidate_tests_by_key = {}
+        sender_edges = []
+        started_at = time.perf_counter()
+        elapsed_limit_reached = False
+        elapsed_ms = 0
+        while queue_index < len(selector_queue) and not elapsed_limit_reached:
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            if max_elapsed_ms is not None:
+                elapsed_limit_reached = elapsed_ms >= max_elapsed_ms
+            if not elapsed_limit_reached:
+                selector_item = selector_queue[queue_index]
+                queue_index += 1
+                can_visit_more_selectors = visited_selector_count < max_nodes
+                selector_name = selector_item['selector']
+                is_unseen_selector = (
+                    selector_name not in visited_selector_names
+                )
+                if can_visit_more_selectors and is_unseen_selector:
+                    visited_selector_names.add(selector_name)
+                    visited_selector_count += 1
+                    selector_depth = selector_item['depth']
+                    sender_search_result = self.find_senders(
+                        selector_name,
+                        max_results=max_senders_per_selector,
+                        count_only=False,
+                    )
+                    selector_result_was_truncated = (
+                        sender_search_result['returned_count']
+                        < sender_search_result['total_count']
+                    )
+                    if selector_result_was_truncated:
+                        sender_search_truncated = True
+                    for sender_entry in sender_search_result['senders']:
+                        sender_class_name = sender_entry['class_name']
+                        sender_method_selector = sender_entry[
+                            'method_selector'
+                        ]
+                        sender_depth = selector_depth + 1
+                        sender_edges.append(
+                            {
+                                'from_selector': selector_name,
+                                'to_class_name': sender_class_name,
+                                'to_method_selector': sender_method_selector,
+                                'to_show_instance_side': sender_entry[
+                                    'show_instance_side'
+                                ],
+                                'depth': sender_depth,
+                            }
+                        )
+                        is_test_method_name = (
+                            sender_entry['show_instance_side']
+                            and sender_method_selector.startswith('test')
+                        )
+                        if is_test_method_name:
+                            if sender_class_name not in class_is_test_case:
+                                class_is_test_case[sender_class_name] = (
+                                    self.class_inherits_from(
+                                        sender_class_name,
+                                        'TestCase',
+                                    )
+                                )
+                            if class_is_test_case[sender_class_name]:
+                                sender_key = (
+                                    sender_class_name,
+                                    sender_method_selector,
+                                )
+                                has_capacity_for_new_test = (
+                                    len(candidate_tests_by_key)
+                                    < max_test_methods
+                                )
+                                if (
+                                    sender_key not in candidate_tests_by_key
+                                    and has_capacity_for_new_test
+                                ):
+                                    candidate_tests_by_key[sender_key] = {
+                                        'test_case_class_name': (
+                                            sender_class_name
+                                        ),
+                                        'test_method_selector': (
+                                            sender_method_selector
+                                        ),
+                                        'depth': sender_depth,
+                                        'reached_from_selector': (
+                                            selector_name
+                                        ),
+                                    }
+                        can_expand_depth = selector_depth < max_depth
+                        can_enqueue_more_selectors = (
+                            len(queued_selector_names) < max_nodes
+                        )
+                        can_add_sender_selector = (
+                            sender_method_selector
+                            not in queued_selector_names
+                        )
+                        if (
+                            can_expand_depth
+                            and can_enqueue_more_selectors
+                            and can_add_sender_selector
+                        ):
+                            selector_queue.append(
+                                {
+                                    'selector': sender_method_selector,
+                                    'depth': sender_depth,
+                                }
+                            )
+                            queued_selector_names.add(sender_method_selector)
+        candidate_tests = sorted(
+            candidate_tests_by_key.values(),
+            key=lambda candidate_test: (
+                candidate_test['depth'],
+                candidate_test['test_case_class_name'],
+                candidate_test['test_method_selector'],
+            ),
+        )
+        selector_limit_reached = visited_selector_count >= max_nodes
+        return {
+            'method_name': method_name,
+            'max_depth': max_depth,
+            'max_nodes': max_nodes,
+            'max_senders_per_selector': max_senders_per_selector,
+            'max_test_methods': max_test_methods,
+            'max_elapsed_ms': max_elapsed_ms,
+            'elapsed_ms': elapsed_ms,
+            'elapsed_limit_reached': elapsed_limit_reached,
+            'visited_selector_count': visited_selector_count,
+            'sender_edge_count': len(sender_edges),
+            'sender_search_truncated': sender_search_truncated,
+            'selector_limit_reached': selector_limit_reached,
+            'candidate_test_count': len(candidate_tests),
+            'candidate_tests': candidate_tests,
+            'sender_edges': sender_edges,
         }
 
     def get_class_definition(self, class_name):

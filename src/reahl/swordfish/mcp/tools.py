@@ -869,78 +869,7 @@ def register_tools(
         )
 
     def tracer_status_for_browser_session(browser_session):
-        expected_source_hash = tracer_source_hash()
-        expected_version = TRACER_VERSION
-        manifest_exists = browser_session.run_code(
-            'UserGlobals includesKey: #SwordfishMcpTracerManifest'
-        ).to_py
-        installed_source_hash = ''
-        installed_version = ''
-        installed_at = ''
-        observed_selector_count = 0
-        observed_edge_count = 0
-        enabled = browser_session.run_code(
-            'UserGlobals at: #SwordfishMcpTracerEnabled ifAbsent: [ false ]'
-        ).to_py
-        observed_selector_count = browser_session.run_code(
-            (
-                '(UserGlobals at: #SwordfishMcpTracerEdgeCounts ifAbsent: [ Dictionary new ]) '
-                'size'
-            )
-        ).to_py
-        observed_edge_count = browser_session.run_code(
-            (
-                '| edgeCounts edgeTotal |\n'
-                'edgeCounts := UserGlobals\n'
-                '    at: #SwordfishMcpTracerEdgeCounts\n'
-                '    ifAbsent: [ Dictionary new ].\n'
-                'edgeTotal := 0.\n'
-                'edgeCounts valuesDo: [ :selectorEdgeCounts |\n'
-                '    edgeTotal := edgeTotal + selectorEdgeCounts size\n'
-                '].\n'
-                'edgeTotal'
-            )
-        ).to_py
-        if manifest_exists:
-            installed_source_hash = browser_session.run_code(
-                (
-                    '(UserGlobals at: #SwordfishMcpTracerManifest) '
-                    "at: #sourceHash ifAbsent: ['']"
-                )
-            ).to_py
-            installed_version = browser_session.run_code(
-                (
-                    '(UserGlobals at: #SwordfishMcpTracerManifest) '
-                    "at: #version ifAbsent: ['']"
-                )
-            ).to_py
-            installed_at = browser_session.run_code(
-                (
-                    '(UserGlobals at: #SwordfishMcpTracerManifest) '
-                    "at: #installedAt ifAbsent: ['']"
-                )
-            ).to_py
-        hashes_match = manifest_exists and (
-            installed_source_hash == expected_source_hash
-        )
-        versions_match = manifest_exists and (
-            installed_version == expected_version
-        )
-        manifest_matches = hashes_match and versions_match
-        return {
-            'tracer_installed': manifest_exists,
-            'tracer_enabled': enabled,
-            'expected_version': expected_version,
-            'installed_version': installed_version,
-            'versions_match': versions_match,
-            'expected_source_hash': expected_source_hash,
-            'installed_source_hash': installed_source_hash,
-            'hashes_match': hashes_match,
-            'manifest_matches': manifest_matches,
-            'installed_at': installed_at,
-            'observed_selector_count': observed_selector_count,
-            'observed_edge_count': observed_edge_count,
-        }
+        return browser_session.tracer_status()
 
     def tracer_manifest_install_script(browser_session):
         expected_source_hash = tracer_source_hash()
@@ -1217,227 +1146,26 @@ def register_tools(
         )
 
     def install_tracer_in_browser_session(browser_session):
-        if not browser_session.package_exists('Swordfish'):
-            browser_session.create_and_install_package('Swordfish')
-        browser_session.run_code(tracer_source())
-        install_tracer_methods(browser_session)
-        browser_session.run_code(
-            tracer_manifest_install_script(browser_session)
-        )
-        browser_session.run_code('SwordfishMcpTracer clearEdgeCounts')
+        browser_session.install_or_refresh_tracer()
 
     def ensure_tracer_manifest_matches(browser_session):
-        tracer_status = tracer_status_for_browser_session(browser_session)
-        if not tracer_status['manifest_matches']:
-            install_tracer_in_browser_session(browser_session)
-            tracer_status = tracer_status_for_browser_session(browser_session)
-        return tracer_status
+        return browser_session.ensure_tracer_manifest_matches()
 
     def enable_tracer_in_browser_session(browser_session):
-        browser_session.run_code(
-            'UserGlobals at: #SwordfishMcpTracerEnabled put: true. true'
-        )
+        browser_session.enable_tracer()
 
     def trace_selector_in_browser_session(
         browser_session,
         method_name,
         max_results,
     ):
-        browser_session.run_code(
-            'SwordfishMcpTracer clearInstrumentationForTarget: %s'
-            % browser_session.selector_reference_expression(method_name)
-        )
-        sender_search_result = browser_session.find_senders(
+        return browser_session.trace_selector(
             method_name,
             max_results=max_results,
-            count_only=False,
         )
-        traced_senders = []
-        skipped_senders = []
-        for sender_entry in sender_search_result['senders']:
-            class_name = sender_entry['class_name']
-            show_instance_side = sender_entry['show_instance_side']
-            sender_method_selector = sender_entry['method_selector']
-            alias_selector = tracer_alias_selector(sender_method_selector)
-            selectors = browser_session.list_methods(
-                class_name,
-                'all',
-                show_instance_side,
-            )
-            if alias_selector in selectors:
-                skipped_senders.append(
-                    {
-                        'class_name': class_name,
-                        'show_instance_side': show_instance_side,
-                        'method_selector': sender_method_selector,
-                        'alias_selector': alias_selector,
-                    }
-                )
-            else:
-                method_source = browser_session.get_method_source(
-                    class_name,
-                    sender_method_selector,
-                    show_instance_side,
-                )
-                method_category = browser_session.get_method_category(
-                    class_name,
-                    sender_method_selector,
-                    show_instance_side,
-                )
-                alias_method_source = source_with_rewritten_method_header(
-                    browser_session,
-                    method_source,
-                    sender_method_selector,
-                    alias_selector,
-                )
-                browser_session.compile_method(
-                    class_name,
-                    show_instance_side,
-                    alias_method_source,
-                    method_category,
-                )
-                wrapper_method_source = tracer_sender_wrapper_source(
-                    browser_session,
-                    sender_method_selector,
-                    alias_selector,
-                    method_name,
-                    class_name,
-                    show_instance_side,
-                )
-                browser_session.compile_method(
-                    class_name,
-                    show_instance_side,
-                    wrapper_method_source,
-                    method_category,
-                )
-                traced_senders.append(
-                    {
-                        'class_name': class_name,
-                        'show_instance_side': show_instance_side,
-                        'method_selector': sender_method_selector,
-                        'alias_selector': alias_selector,
-                    }
-                )
-            browser_session.run_code(
-                (
-                    'SwordfishMcpTracer '
-                    'registerInstrumentationForTarget: %s '
-                    'callerClassName: %s '
-                    'callerMethodSelector: %s '
-                    'callerShowInstanceSide: %s '
-                    'aliasSelector: %s'
-                )
-                % (
-                    browser_session.selector_reference_expression(
-                        method_name
-                    ),
-                    browser_session.smalltalk_string_literal(class_name),
-                    browser_session.selector_reference_expression(
-                        sender_method_selector
-                    ),
-                    'true' if show_instance_side else 'false',
-                    browser_session.selector_reference_expression(
-                        alias_selector
-                    ),
-                )
-            )
-        return {
-            'method_name': method_name,
-            'max_results': max_results,
-            'total_sender_count': sender_search_result['total_count'],
-            'targeted_sender_count': len(sender_search_result['senders']),
-            'traced_sender_count': len(traced_senders),
-            'skipped_sender_count': len(skipped_senders),
-            'traced_senders': traced_senders,
-            'skipped_senders': skipped_senders,
-        }
 
     def untrace_selector_in_browser_session(browser_session, method_name):
-        instrumentation_entries_report = browser_session.run_code(
-            'SwordfishMcpTracer instrumentationReportForTarget: %s'
-            % browser_session.selector_reference_expression(method_name)
-        ).to_py
-        instrumentation_entry_lines = (
-            []
-            if instrumentation_entries_report == ''
-            else instrumentation_entries_report.splitlines()
-        )
-        restored_senders = []
-        skipped_senders = []
-        for instrumentation_entry_line in instrumentation_entry_lines:
-            instrumentation_entry_fields = instrumentation_entry_line.split('|')
-            if len(instrumentation_entry_fields) != 4:
-                raise DomainException(
-                    'Instrumentation entry must have four fields.'
-                )
-            class_name = instrumentation_entry_fields[0]
-            show_instance_side = instrumentation_entry_fields[1] == 'true'
-            sender_method_selector = instrumentation_entry_fields[2]
-            alias_selector = instrumentation_entry_fields[3]
-            selectors = browser_session.list_methods(
-                class_name,
-                'all',
-                show_instance_side,
-            )
-            if alias_selector not in selectors:
-                skipped_senders.append(
-                    {
-                        'class_name': class_name,
-                        'show_instance_side': show_instance_side,
-                        'method_selector': sender_method_selector,
-                        'alias_selector': alias_selector,
-                    }
-                )
-            else:
-                alias_method_source = browser_session.get_method_source(
-                    class_name,
-                    alias_selector,
-                    show_instance_side,
-                )
-                alias_method_category = browser_session.get_method_category(
-                    class_name,
-                    alias_selector,
-                    show_instance_side,
-                )
-                restored_method_source = source_with_rewritten_method_header(
-                    browser_session,
-                    alias_method_source,
-                    alias_selector,
-                    sender_method_selector,
-                )
-                browser_session.compile_method(
-                    class_name,
-                    show_instance_side,
-                    restored_method_source,
-                    alias_method_category,
-                )
-                browser_session.delete_method(
-                    class_name,
-                    alias_selector,
-                    show_instance_side,
-                )
-                restored_senders.append(
-                    {
-                        'class_name': class_name,
-                        'show_instance_side': show_instance_side,
-                        'method_selector': sender_method_selector,
-                        'alias_selector': alias_selector,
-                    }
-                )
-        browser_session.run_code(
-            'SwordfishMcpTracer clearInstrumentationForTarget: %s'
-            % browser_session.selector_reference_expression(method_name)
-        )
-        return {
-            'method_name': method_name,
-            'total_instrumented_sender_count': len(
-                instrumentation_entry_lines
-            ),
-            'restored_sender_count': len(restored_senders),
-            'skipped_sender_count': len(skipped_senders),
-            'restored_senders': restored_senders,
-            'skipped_senders': skipped_senders,
-        }
+        return browser_session.untrace_selector(method_name)
 
     def store_sender_evidence(
         connection_id,
@@ -1475,121 +1203,13 @@ def register_tools(
         max_senders_per_selector,
         max_test_methods,
     ):
-        selector_queue = [{'selector': method_name, 'depth': 0}]
-        queued_selector_names = {method_name}
-        visited_selector_names = set()
-        queue_index = 0
-        visited_selector_count = 0
-        sender_search_truncated = False
-        class_is_test_case = {}
-        candidate_tests_by_key = {}
-        sender_edges = []
-        while queue_index < len(selector_queue):
-            selector_item = selector_queue[queue_index]
-            queue_index += 1
-            can_visit_more_selectors = visited_selector_count < max_nodes
-            selector_name = selector_item['selector']
-            is_unseen_selector = selector_name not in visited_selector_names
-            if can_visit_more_selectors and is_unseen_selector:
-                visited_selector_names.add(selector_name)
-                visited_selector_count += 1
-                selector_depth = selector_item['depth']
-                sender_search_result = browser_session.find_senders(
-                    selector_name,
-                    max_results=max_senders_per_selector,
-                    count_only=False,
-                )
-                selector_result_was_truncated = (
-                    sender_search_result['returned_count']
-                    < sender_search_result['total_count']
-                )
-                if selector_result_was_truncated:
-                    sender_search_truncated = True
-                for sender_entry in sender_search_result['senders']:
-                    sender_class_name = sender_entry['class_name']
-                    sender_method_selector = sender_entry['method_selector']
-                    sender_depth = selector_depth + 1
-                    sender_edges.append(
-                        {
-                            'from_selector': selector_name,
-                            'to_class_name': sender_class_name,
-                            'to_method_selector': sender_method_selector,
-                            'to_show_instance_side': sender_entry[
-                                'show_instance_side'
-                            ],
-                            'depth': sender_depth,
-                        }
-                    )
-                    is_test_method_name = (
-                        sender_entry['show_instance_side']
-                        and sender_method_selector.startswith('test')
-                    )
-                    if is_test_method_name:
-                        if sender_class_name not in class_is_test_case:
-                            class_is_test_case[sender_class_name] = (
-                                browser_session.class_inherits_from(
-                                    sender_class_name,
-                                    'TestCase',
-                                )
-                            )
-                        if class_is_test_case[sender_class_name]:
-                            sender_key = (
-                                sender_class_name,
-                                sender_method_selector,
-                            )
-                            has_capacity_for_new_test = (
-                                len(candidate_tests_by_key)
-                                < max_test_methods
-                            )
-                            if (
-                                sender_key not in candidate_tests_by_key
-                                and has_capacity_for_new_test
-                            ):
-                                candidate_tests_by_key[sender_key] = {
-                                    'test_case_class_name': sender_class_name,
-                                    'test_method_selector': sender_method_selector,
-                                    'depth': sender_depth,
-                                    'reached_from_selector': selector_name,
-                                }
-                    can_expand_depth = selector_depth < max_depth
-                    can_enqueue_more_selectors = (
-                        len(queued_selector_names) < max_nodes
-                    )
-                    if (
-                        can_expand_depth
-                        and can_enqueue_more_selectors
-                        and sender_method_selector not in queued_selector_names
-                    ):
-                        selector_queue.append(
-                            {
-                                'selector': sender_method_selector,
-                                'depth': sender_depth,
-                            }
-                        )
-                        queued_selector_names.add(sender_method_selector)
-        candidate_tests = sorted(
-            candidate_tests_by_key.values(),
-            key=lambda candidate_test: (
-                candidate_test['depth'],
-                candidate_test['test_case_class_name'],
-                candidate_test['test_method_selector'],
-            ),
+        return browser_session.sender_test_plan_for_selector(
+            method_name,
+            max_depth,
+            max_nodes,
+            max_senders_per_selector,
+            max_test_methods,
         )
-        selector_limit_reached = visited_selector_count >= max_nodes
-        return {
-            'method_name': method_name,
-            'max_depth': max_depth,
-            'max_nodes': max_nodes,
-            'max_senders_per_selector': max_senders_per_selector,
-            'max_test_methods': max_test_methods,
-            'visited_selector_count': visited_selector_count,
-            'sender_edge_count': len(sender_edges),
-            'sender_search_truncated': sender_search_truncated,
-            'selector_limit_reached': selector_limit_reached,
-            'candidate_test_count': len(candidate_tests),
-            'candidate_tests': candidate_tests,
-            'sender_edges': sender_edges,
-        }
 
     def test_plan_for_connection_and_selector(
         connection_id,
@@ -1648,66 +1268,11 @@ def register_tools(
         max_results=None,
         count_only=False,
     ):
-        selector_expression = browser_session.selector_reference_expression(
-            method_name
+        return browser_session.observed_senders_for_selector(
+            method_name,
+            max_results=max_results,
+            count_only=count_only,
         )
-        observed_edges_report = browser_session.run_code(
-            'SwordfishMcpTracer observedEdgesReportFor: %s'
-            % selector_expression
-        ).to_py
-        observed_sender_entries = []
-        observed_edge_lines = (
-            []
-            if observed_edges_report == ''
-            else observed_edges_report.splitlines()
-        )
-        for observed_edge_line in observed_edge_lines:
-            observed_edge_fields = observed_edge_line.split('|')
-            if len(observed_edge_fields) != 4:
-                raise DomainException(
-                    'Observed tracer edge must have four fields.'
-                )
-            caller_class_name = observed_edge_fields[0]
-            caller_show_instance_side = observed_edge_fields[1] == 'true'
-            caller_method_selector = observed_edge_fields[2]
-            observed_count = int(observed_edge_fields[3])
-            observed_sender_entries.append(
-                {
-                    'caller_class_name': caller_class_name,
-                    'caller_show_instance_side': caller_show_instance_side,
-                    'caller_method_selector': caller_method_selector,
-                    'method_selector': method_name,
-                    'observed_count': observed_count,
-                }
-            )
-        observed_sender_entries = sorted(
-            observed_sender_entries,
-            key=lambda observed_sender_entry: (
-                observed_sender_entry['caller_class_name'],
-                observed_sender_entry['caller_show_instance_side'],
-                observed_sender_entry['caller_method_selector'],
-            ),
-        )
-        total_count = len(observed_sender_entries)
-        returned_entries = (
-            []
-            if count_only
-            else browser_session.limited_entries(
-                observed_sender_entries,
-                max_results,
-            )
-        )
-        return {
-            'total_count': total_count,
-            'returned_count': len(returned_entries),
-            'total_observed_calls': sum(
-                [
-                    observed_sender_entry['observed_count']
-                    for observed_sender_entry in observed_sender_entries
-                ]
-            ),
-            'observed_senders': returned_entries,
-        }
 
     def validated_literal_value(input_value, argument_name):
         if input_value is None:
@@ -3393,9 +2958,7 @@ def register_tools(
             return transaction_error_response
         browser_session = browser_session_for_policy(gemstone_session)
         try:
-            browser_session.run_code(
-                'UserGlobals at: #SwordfishMcpTracerEnabled put: false. true'
-            )
+            browser_session.disable_tracer()
             return {
                 'ok': True,
                 'connection_id': connection_id,
@@ -3438,18 +3001,7 @@ def register_tools(
             return transaction_error_response
         browser_session = browser_session_for_policy(gemstone_session)
         try:
-            browser_session.run_code(
-                (
-                    'UserGlobals removeKey: #SwordfishMcpTracerManifest '
-                    'ifAbsent: [ ].\n'
-                    'UserGlobals removeKey: #SwordfishMcpTracerEdgeCounts '
-                    'ifAbsent: [ ].\n'
-                    'UserGlobals removeKey: #SwordfishMcpTracerInstrumentation '
-                    'ifAbsent: [ ].\n'
-                    'UserGlobals at: #SwordfishMcpTracerEnabled put: false.\n'
-                    'true'
-                )
-            )
+            browser_session.uninstall_tracer()
             return {
                 'ok': True,
                 'connection_id': connection_id,
@@ -3613,17 +3165,9 @@ def register_tools(
             return transaction_error_response
         browser_session = browser_session_for_policy(gemstone_session)
         try:
-            if method_name is None:
-                browser_session.run_code('SwordfishMcpTracer clearEdgeCounts')
-            else:
+            if method_name is not None:
                 method_name = validated_selector(method_name, 'method_name')
-                method_name_literal = browser_session.smalltalk_string_literal(
-                    method_name
-                )
-                browser_session.run_code(
-                    '(SwordfishMcpTracer edgeCounts) removeKey: %s ifAbsent: [ ]. true'
-                    % method_name_literal
-                )
+            browser_session.clear_observed_senders(method_name)
             return {
                 'ok': True,
                 'connection_id': connection_id,
@@ -3886,10 +3430,7 @@ def register_tools(
                 max_results,
             )
             if clear_observed:
-                browser_session.run_code(
-                    '(SwordfishMcpTracer edgeCounts) removeKey: %s ifAbsent: [ ]. true'
-                    % browser_session.smalltalk_string_literal(method_name)
-                )
+                browser_session.clear_observed_senders(method_name)
             test_runs = []
             planned_tests = []
             if test_plan_id is not None:
