@@ -67,54 +67,6 @@ class GemstoneBrowserSession:
             and installed_version == AST_SUPPORT_VERSION
         )
 
-    def ast_support_class_installed_in_swordfish(self):
-        if not self.can_attempt_ast_support_auto_install():
-            return False
-        try:
-            return self.gemstone_session.execute(
-                (
-                    '| swordfishDictionary |\n'
-                    'swordfishDictionary := '
-                    'System myUserProfile symbolList '
-                    'objectNamed: #Swordfish.\n'
-                    'swordfishDictionary notNil and: [\n'
-                    '    swordfishDictionary includesKey: '
-                    '#SwordfishMcpAstSupport\n'
-                    ']'
-                )
-            ).to_py
-        except (GemstoneError, GemstoneApiError):
-            return False
-
-    def ensure_ast_support_installed_when_possible(self):
-        if not self.can_attempt_ast_support_auto_install():
-            return
-        try:
-            package_installed = self.package_exists('Swordfish')
-            support_class_installed = (
-                self.ast_support_class_installed_in_swordfish()
-            )
-            manifest_matches = (
-                self.ast_support_manifest_matches_expected()
-            )
-        except (
-            AttributeError,
-            DomainException,
-            GemstoneError,
-            GemstoneApiError,
-        ):
-            return
-        if (
-            package_installed
-            and support_class_installed
-            and manifest_matches
-        ):
-            return
-        try:
-            self.install_or_refresh_ast_support()
-        except (DomainException, GemstoneError, GemstoneApiError):
-            return
-
     def ast_support_manifest_install_script(self):
         expected_source_hash_literal = self.smalltalk_string_literal(
             ast_support_source_hash()
@@ -713,7 +665,6 @@ class GemstoneBrowserSession:
         method_selector,
         show_instance_side,
     ):
-        self.ensure_ast_support_installed_when_possible()
         source = self.get_method_source(
             class_name,
             method_selector,

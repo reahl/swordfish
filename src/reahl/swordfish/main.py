@@ -258,11 +258,17 @@ class GemstoneSessionRecord:
     def __init__(self, gemstone_session):
         self.gemstone_session = gemstone_session
         self.gemstone_browser_session = GemstoneBrowserSession(gemstone_session)
+        self.change_event_publisher = None
         self.selected_package = None
         self.selected_class = None
         self.selected_method_category = None
         self.selected_method_symbol = None
         self.show_instance_side = True
+
+    def publish_model_change(self, change_kind):
+        if self.change_event_publisher is None:
+            return
+        self.change_event_publisher(change_kind)
 
     def select_package(self, package):
         self.selected_package = package
@@ -341,6 +347,7 @@ class GemstoneSessionRecord:
 
     def create_and_install_package(self, package_name):
         self.gemstone_browser_session.create_and_install_package(package_name)
+        self.publish_model_change('packages')
 
     def create_class(
         self,
@@ -356,6 +363,7 @@ class GemstoneSessionRecord:
             superclass_name=superclass_name,
             in_dictionary=selected_dictionary,
         )
+        self.publish_model_change('classes')
         
     def get_classes_in_category(self, category):
         yield from self.gemstone_browser_session.list_classes(category)
@@ -499,12 +507,14 @@ class GemstoneSessionRecord:
         old_selector,
         new_selector,
     ):
-        return self.gemstone_browser_session.apply_method_rename(
+        rename_result = self.gemstone_browser_session.apply_method_rename(
             class_name,
             show_instance_side,
             old_selector,
             new_selector,
         )
+        self.publish_model_change('methods')
+        return rename_result
 
     def preview_method_move(
         self,
@@ -532,7 +542,7 @@ class GemstoneSessionRecord:
         overwrite_target_method=False,
         delete_source_method=True,
     ):
-        return self.gemstone_browser_session.apply_method_move(
+        move_result = self.gemstone_browser_session.apply_method_move(
             source_class_name,
             source_show_instance_side,
             target_class_name,
@@ -541,6 +551,8 @@ class GemstoneSessionRecord:
             overwrite_target_method=overwrite_target_method,
             delete_source_method=delete_source_method,
         )
+        self.publish_model_change('methods')
+        return move_result
 
     def preview_method_add_parameter(
         self,
@@ -569,7 +581,7 @@ class GemstoneSessionRecord:
         parameter_name,
         default_argument_source,
     ):
-        return self.gemstone_browser_session.apply_method_add_parameter(
+        add_parameter_result = self.gemstone_browser_session.apply_method_add_parameter(
             class_name,
             show_instance_side,
             method_selector,
@@ -577,6 +589,8 @@ class GemstoneSessionRecord:
             parameter_name,
             default_argument_source,
         )
+        self.publish_model_change('methods')
+        return add_parameter_result
 
     def preview_method_remove_parameter(
         self,
@@ -603,7 +617,7 @@ class GemstoneSessionRecord:
         overwrite_new_method=False,
         rewrite_source_senders=False,
     ):
-        return self.gemstone_browser_session.apply_method_remove_parameter(
+        remove_parameter_result = self.gemstone_browser_session.apply_method_remove_parameter(
             class_name,
             show_instance_side,
             method_selector,
@@ -611,6 +625,8 @@ class GemstoneSessionRecord:
             overwrite_new_method=overwrite_new_method,
             rewrite_source_senders=rewrite_source_senders,
         )
+        self.publish_model_change('methods')
+        return remove_parameter_result
 
     def preview_method_extract(
         self,
@@ -637,7 +653,7 @@ class GemstoneSessionRecord:
         statement_indexes,
         overwrite_new_method=False,
     ):
-        return self.gemstone_browser_session.apply_method_extract(
+        extract_result = self.gemstone_browser_session.apply_method_extract(
             class_name,
             show_instance_side,
             method_selector,
@@ -645,6 +661,8 @@ class GemstoneSessionRecord:
             statement_indexes,
             overwrite_new_method=overwrite_new_method,
         )
+        self.publish_model_change('methods')
+        return extract_result
 
     def preview_method_inline(
         self,
@@ -668,13 +686,15 @@ class GemstoneSessionRecord:
         inline_selector,
         delete_inlined_method=False,
     ):
-        return self.gemstone_browser_session.apply_method_inline(
+        inline_result = self.gemstone_browser_session.apply_method_inline(
             class_name,
             show_instance_side,
             caller_selector,
             inline_selector,
             delete_inlined_method=delete_inlined_method,
         )
+        self.publish_model_change('methods')
+        return inline_result
         
     def update_method_source(self, selected_class, show_instance_side, method_symbol, source):
         self.gemstone_browser_session.compile_method(
@@ -682,6 +702,7 @@ class GemstoneSessionRecord:
             show_instance_side,
             source,
         )
+        self.publish_model_change('methods')
 
     def create_method(
         self,
@@ -696,6 +717,7 @@ class GemstoneSessionRecord:
             source,
             method_category=method_category,
         )
+        self.publish_model_change('methods')
 
     def run_code(self, source):
         return self.gemstone_browser_session.run_code(source)
@@ -1104,10 +1126,12 @@ class Swordfish(tk.Tk):
     def commit(self):
         self.gemstone_session_record.commit()
         self.event_queue.publish('Committed')
+        self.publish_model_change_events('transaction')
         
     def abort(self):
         self.gemstone_session_record.abort()
         self.event_queue.publish('Aborted')
+        self.publish_model_change_events('transaction')
         
     def logout(self):
         self.gemstone_session_record.log_out()
@@ -1136,11 +1160,33 @@ class Swordfish(tk.Tk):
 
     def show_main_app(self, gemstone_session_record):
         self.gemstone_session_record = gemstone_session_record
+        self.gemstone_session_record.change_event_publisher = (
+            self.publish_model_change_events
+        )
         
         self.clear_widgets()
 
         self.create_notebook()
         self.add_browser_tab()
+
+    def publish_model_change_events(self, change_kind):
+        if change_kind == 'packages':
+            self.event_queue.publish('PackagesChanged')
+            self.event_queue.publish('ClassesChanged')
+            return
+        if change_kind == 'classes':
+            self.event_queue.publish('ClassesChanged')
+            self.event_queue.publish('SelectedClassChanged')
+            return
+        if change_kind == 'methods':
+            self.event_queue.publish('MethodsChanged')
+            self.event_queue.publish('SelectedCategoryChanged')
+            self.event_queue.publish('MethodSelected')
+            return
+        if change_kind == 'transaction':
+            self.event_queue.publish('PackagesChanged')
+            self.event_queue.publish('ClassesChanged')
+            self.event_queue.publish('MethodsChanged')
 
     def create_notebook(self):
         self.notebook = ttk.Notebook(self)
@@ -1920,6 +1966,8 @@ class PackageSelection(FramedWidget):
         self.repopulate()
 
         # Subscribe to event_queue for any "Aborted" event
+        self.event_queue.subscribe('PackagesChanged', self.repopulate)
+        self.event_queue.subscribe('Committed', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
         self.selection_list.selection_listbox.bind('<Button-3>', self.show_context_menu)
@@ -2071,6 +2119,9 @@ class ClassSelection(FramedWidget):
         self.rowconfigure(4, weight=1)
 
         self.event_queue.subscribe('SelectedPackageChanged', self.repopulate)
+        self.event_queue.subscribe('PackagesChanged', self.repopulate)
+        self.event_queue.subscribe('ClassesChanged', self.repopulate)
+        self.event_queue.subscribe('Committed', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
 
@@ -2414,6 +2465,9 @@ class CategorySelection(FramedWidget):
         # Subscribe to event_queue events
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
         self.event_queue.subscribe('SelectedPackageChanged', self.repopulate)
+        self.event_queue.subscribe('ClassesChanged', self.repopulate)
+        self.event_queue.subscribe('MethodsChanged', self.repopulate)
+        self.event_queue.subscribe('Committed', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
 
     def repopulate_class_and_instance(self, event):
@@ -2497,6 +2551,9 @@ class MethodSelection(FramedWidget):
         self.event_queue.subscribe('SelectedPackageChanged', self.repopulate)
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
         self.event_queue.subscribe('SelectedCategoryChanged', self.repopulate)
+        self.event_queue.subscribe('ClassesChanged', self.repopulate)
+        self.event_queue.subscribe('MethodsChanged', self.repopulate)
+        self.event_queue.subscribe('Committed', self.repopulate)
         self.event_queue.subscribe('MethodSelected', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
 
@@ -2890,6 +2947,8 @@ class MethodEditor(FramedWidget):
             'MethodSelected',
             self.record_method_navigation,
         )
+        self.event_queue.subscribe('MethodsChanged', self.repopulate)
+        self.event_queue.subscribe('Committed', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
         self.refresh_navigation_controls()
 
