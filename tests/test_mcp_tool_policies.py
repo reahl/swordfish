@@ -1,4 +1,5 @@
 from reahl.tofu import Fixture
+from reahl.tofu import NoException
 from reahl.tofu import expected
 from reahl.tofu import set_up
 from reahl.tofu import tear_down
@@ -10,7 +11,6 @@ from reahl.swordfish.mcp.tools import register_tools
 
 
 EVAL_APPROVAL_CODE = 'eval-human-approved'
-COMMIT_APPROVAL_CODE = 'commit-human-approved'
 
 
 class McpToolRegistrar:
@@ -49,6 +49,9 @@ class RestrictedToolsFixture(Fixture):
     def new_gs_create_class(self):
         return self.registered_mcp_tools['gs_create_class']
 
+    def new_gs_create_class_in_package(self):
+        return self.registered_mcp_tools['gs_create_class_in_package']
+
     def new_gs_create_package(self):
         return self.registered_mcp_tools['gs_create_package']
 
@@ -57,6 +60,9 @@ class RestrictedToolsFixture(Fixture):
 
     def new_gs_create_test_case_class(self):
         return self.registered_mcp_tools['gs_create_test_case_class']
+
+    def new_gs_create_test_case_class_in_package(self):
+        return self.registered_mcp_tools['gs_create_test_case_class_in_package']
 
     def new_gs_get_class_definition(self):
         return self.registered_mcp_tools['gs_get_class_definition']
@@ -204,7 +210,6 @@ class AllowedToolsFixture(Fixture):
             allow_commit=True,
             allow_tracing=True,
             eval_approval_code=EVAL_APPROVAL_CODE,
-            commit_approval_code=COMMIT_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -226,6 +231,9 @@ class AllowedToolsFixture(Fixture):
     def new_gs_create_class(self):
         return self.registered_mcp_tools['gs_create_class']
 
+    def new_gs_create_class_in_package(self):
+        return self.registered_mcp_tools['gs_create_class_in_package']
+
     def new_gs_create_package(self):
         return self.registered_mcp_tools['gs_create_package']
 
@@ -234,6 +242,9 @@ class AllowedToolsFixture(Fixture):
 
     def new_gs_create_test_case_class(self):
         return self.registered_mcp_tools['gs_create_test_case_class']
+
+    def new_gs_create_test_case_class_in_package(self):
+        return self.registered_mcp_tools['gs_create_test_case_class_in_package']
 
     def new_gs_get_class_definition(self):
         return self.registered_mcp_tools['gs_get_class_definition']
@@ -371,6 +382,26 @@ class AllowedToolsFixture(Fixture):
         return self.registered_mcp_tools['gs_guidance']
 
 
+class AllowedToolsWithCommitConfirmationFixture(Fixture):
+    def new_registered_mcp_tools(self):
+        registrar = McpToolRegistrar()
+        register_tools(
+            registrar,
+            allow_eval=True,
+            allow_compile=True,
+            allow_commit=True,
+            allow_tracing=True,
+            eval_approval_code=EVAL_APPROVAL_CODE,
+        )
+        return registrar.registered_tools_by_name
+
+    def new_gs_commit(self):
+        return self.registered_mcp_tools['gs_commit']
+
+    def new_gs_capabilities(self):
+        return self.registered_mcp_tools['gs_capabilities']
+
+
 class AllowedToolsWithNoActiveTransactionFixture(Fixture):
     @set_up
     def prepare_registry(self):
@@ -389,7 +420,6 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
             allow_commit=True,
             allow_tracing=True,
             eval_approval_code=EVAL_APPROVAL_CODE,
-            commit_approval_code=COMMIT_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -530,7 +560,6 @@ class AllowedToolsWithNoActiveTransactionAndStrictAstFixture(Fixture):
             allow_tracing=True,
             require_gemstone_ast=True,
             eval_approval_code=EVAL_APPROVAL_CODE,
-            commit_approval_code=COMMIT_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -568,7 +597,6 @@ class AllowedToolsWithActiveTransactionFixture(Fixture):
             allow_commit=True,
             allow_tracing=True,
             eval_approval_code=EVAL_APPROVAL_CODE,
-            commit_approval_code=COMMIT_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -628,7 +656,6 @@ class AllowedToolsWithTracingDisabledFixture(Fixture):
             allow_commit=True,
             allow_tracing=False,
             eval_approval_code=EVAL_APPROVAL_CODE,
-            commit_approval_code=COMMIT_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -673,6 +700,7 @@ def test_gs_capabilities_reports_restricted_policy_flags(tools_fixture):
     assert policy['allow_eval'] is False
     assert policy['allow_eval_write'] is False
     assert policy['eval_mode'] == 'disabled'
+    assert policy['commit_approval_mode'] == 'disabled'
     assert not policy['eval_requires_human_approval']
     assert not policy['commit_requires_human_approval']
     assert policy['allow_compile'] is False
@@ -703,6 +731,7 @@ def test_gs_capabilities_reports_enabled_policy_flags(tools_fixture):
     assert policy['allow_eval'] is True
     assert policy['allow_eval_write'] is False
     assert policy['eval_mode'] == 'approval_required'
+    assert policy['commit_approval_mode'] == 'explicit_confirmation'
     assert policy['eval_requires_human_approval']
     assert policy['commit_requires_human_approval']
     assert policy['allow_compile'] is True
@@ -718,6 +747,8 @@ def test_gs_capabilities_safe_write_includes_package_tools(tools_fixture):
     safe_write_tools = capabilities_result['tool_groups']['safe_write']
     assert 'gs_create_package' in safe_write_tools
     assert 'gs_install_package' in safe_write_tools
+    assert 'gs_create_class_in_package' in safe_write_tools
+    assert 'gs_create_test_case_class_in_package' in safe_write_tools
 
 
 @with_fixtures(AllowedToolsFixture)
@@ -1069,6 +1100,20 @@ def test_gs_create_class_is_disabled_by_default(tools_fixture):
 
 
 @with_fixtures(RestrictedToolsFixture)
+def test_gs_create_class_in_package_is_disabled_by_default(tools_fixture):
+    create_result = tools_fixture.gs_create_class_in_package(
+        'missing-connection-id',
+        'ExampleClass',
+        'ExamplePackage',
+    )
+    assert not create_result['ok']
+    assert create_result['error']['message'] == (
+        'gs_create_class is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
 def test_gs_create_package_is_disabled_by_default(tools_fixture):
     create_result = tools_fixture.gs_create_package(
         'missing-connection-id',
@@ -1099,6 +1144,22 @@ def test_gs_create_test_case_class_is_disabled_by_default(tools_fixture):
     create_result = tools_fixture.gs_create_test_case_class(
         'missing-connection-id',
         'ExampleTestCase',
+    )
+    assert not create_result['ok']
+    assert create_result['error']['message'] == (
+        'gs_create_test_case_class is disabled. '
+        'Start swordfish-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_create_test_case_class_in_package_is_disabled_by_default(
+    tools_fixture,
+):
+    create_result = tools_fixture.gs_create_test_case_class_in_package(
+        'missing-connection-id',
+        'ExampleTestCase',
+        'ExamplePackage',
     )
     assert not create_result['ok']
     assert create_result['error']['message'] == (
@@ -1306,13 +1367,12 @@ def test_register_tools_rejects_eval_without_eval_approval_code():
             allow_commit=True,
             allow_tracing=False,
             eval_approval_code='',
-            commit_approval_code=COMMIT_APPROVAL_CODE,
         )
 
 
-def test_register_tools_rejects_commit_without_commit_approval_code():
+def test_register_tools_allows_commit_with_explicit_confirmation_policy():
     registrar = McpToolRegistrar()
-    with expected(ValueError):
+    with expected(NoException):
         register_tools(
             registrar,
             allow_eval=False,
@@ -1320,7 +1380,6 @@ def test_register_tools_rejects_commit_without_commit_approval_code():
             allow_commit=True,
             allow_tracing=False,
             eval_approval_code='',
-            commit_approval_code='',
         )
 
 
@@ -1444,19 +1503,73 @@ def test_gs_begin_if_needed_checks_connection_when_allowed(tools_fixture):
 def test_gs_commit_checks_connection_when_allowed(tools_fixture):
     commit_result = tools_fixture.gs_commit(
         'missing-connection-id',
-        approval_code=COMMIT_APPROVAL_CODE,
+        approved_by_user=True,
+        approval_note='User explicitly approved this commit.',
     )
     assert not commit_result['ok']
     assert commit_result['error']['message'] == 'Unknown connection_id.'
 
 
 @with_fixtures(AllowedToolsFixture)
-def test_gs_commit_requires_human_approval_code(tools_fixture):
+def test_gs_commit_requires_explicit_confirmation(tools_fixture):
     commit_result = tools_fixture.gs_commit('missing-connection-id')
     assert not commit_result['ok']
     assert (
         'gs_commit requires human approval for commit.'
         in commit_result['error']['message']
+    )
+
+
+@with_fixtures(AllowedToolsWithCommitConfirmationFixture)
+def test_gs_commit_reports_explicit_confirmation_mode(
+    tools_fixture,
+):
+    commit_result = tools_fixture.gs_commit('missing-connection-id')
+    assert not commit_result['ok']
+    assert (
+        'gs_commit requires human approval for commit.'
+        in commit_result['error']['message']
+    )
+    assert (
+        commit_result['error']['approval']['mode']
+        == 'explicit_confirmation'
+    )
+
+
+@with_fixtures(AllowedToolsWithCommitConfirmationFixture)
+def test_gs_commit_requires_approval_note_in_confirmation_mode(
+    tools_fixture,
+):
+    commit_result = tools_fixture.gs_commit(
+        'missing-connection-id',
+        approved_by_user=True,
+        approval_note='',
+    )
+    assert not commit_result['ok']
+    assert commit_result['error']['message'] == 'approval_note cannot be empty.'
+
+
+@with_fixtures(AllowedToolsWithCommitConfirmationFixture)
+def test_gs_commit_checks_connection_with_explicit_confirmation(
+    tools_fixture,
+):
+    commit_result = tools_fixture.gs_commit(
+        'missing-connection-id',
+        approved_by_user=True,
+        approval_note='User explicitly approved this commit.',
+    )
+    assert not commit_result['ok']
+    assert commit_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsWithCommitConfirmationFixture)
+def test_gs_capabilities_reports_commit_confirmation_mode(tools_fixture):
+    capabilities_result = tools_fixture.gs_capabilities()
+    assert capabilities_result['ok'], capabilities_result
+    assert capabilities_result['policy']['commit_requires_human_approval']
+    assert (
+        capabilities_result['policy']['commit_approval_mode']
+        == 'explicit_confirmation'
     )
 
 
@@ -1483,12 +1596,38 @@ def test_gs_create_class_checks_connection_when_allowed(tools_fixture):
 
 
 @with_fixtures(AllowedToolsFixture)
+def test_gs_create_class_in_package_checks_connection_when_allowed(
+    tools_fixture,
+):
+    create_result = tools_fixture.gs_create_class_in_package(
+        'missing-connection-id',
+        'ExampleClass',
+        'ExamplePackage',
+    )
+    assert not create_result['ok']
+    assert create_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
 def test_gs_create_test_case_class_checks_connection_when_allowed(
     tools_fixture,
 ):
     create_result = tools_fixture.gs_create_test_case_class(
         'missing-connection-id',
         'ExampleTestCase',
+    )
+    assert not create_result['ok']
+    assert create_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_create_test_case_class_in_package_checks_connection_when_allowed(
+    tools_fixture,
+):
+    create_result = tools_fixture.gs_create_test_case_class_in_package(
+        'missing-connection-id',
+        'ExampleTestCase',
+        'ExamplePackage',
     )
     assert not create_result['ok']
     assert create_result['error']['message'] == 'Unknown connection_id.'
