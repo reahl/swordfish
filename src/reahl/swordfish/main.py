@@ -2420,34 +2420,128 @@ class MethodSelection(FramedWidget):
             self.browser_window.application.open_debugger(e)
 
         
+class MethodNavigationHistory:
+    def __init__(self, maximum_entries=200):
+        self.maximum_entries = maximum_entries
+        self.entries = []
+        self.current_index = -1
+
+    def current_method(self):
+        if 0 <= self.current_index < len(self.entries):
+            return self.entries[self.current_index]
+        return None
+
+    def record(self, method_context):
+        if method_context is None:
+            return
+        if self.current_method() == method_context:
+            return
+        if self.current_index < len(self.entries) - 1:
+            self.entries = self.entries[: self.current_index + 1]
+        self.entries.append(method_context)
+        overflow = len(self.entries) - self.maximum_entries
+        if overflow > 0:
+            self.entries = self.entries[overflow:]
+        self.current_index = len(self.entries) - 1
+
+    def can_go_back(self):
+        return self.current_index > 0
+
+    def can_go_forward(self):
+        return 0 <= self.current_index < len(self.entries) - 1
+
+    def go_back(self):
+        if not self.can_go_back():
+            return None
+        self.current_index -= 1
+        return self.current_method()
+
+    def go_forward(self):
+        if not self.can_go_forward():
+            return None
+        self.current_index += 1
+        return self.current_method()
+
+    def jump_to(self, history_index):
+        if history_index < 0:
+            return None
+        if history_index >= len(self.entries):
+            return None
+        self.current_index = history_index
+        return self.current_method()
+
+    def entries_with_current_marker(self):
+        entry_details = []
+        for index, method_context in enumerate(self.entries):
+            entry_details.append(
+                {
+                    'history_index': index,
+                    'method_context': method_context,
+                    'is_current': index == self.current_index,
+                },
+            )
+        return entry_details
+
+
 class MethodEditor(FramedWidget):
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
         super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
 
         self.current_menu = None
-        
-        # Add a label bar above the notebook
-        self.label_bar = tk.Label(self, text="Method Editor", anchor='w')
-        self.label_bar.grid(row=0, column=0, columnspan=2, sticky='ew')
+        self.method_navigation_history = MethodNavigationHistory()
+        self.history_choice_indices = []
 
-        # Add a notebook to editor_area_widget
+        self.navigation_bar = ttk.Frame(self)
+        self.navigation_bar.grid(row=0, column=0, sticky='ew')
+        self.navigation_bar.columnconfigure(0, weight=1)
+
+        self.label_bar = tk.Label(self.navigation_bar, text='Method Editor', anchor='w')
+        self.label_bar.grid(row=0, column=0, sticky='ew')
+
+        self.back_button = ttk.Button(
+            self.navigation_bar,
+            text='Back',
+            command=self.go_to_previous_method,
+        )
+        self.back_button.grid(row=0, column=1, padx=(6, 0))
+
+        self.forward_button = ttk.Button(
+            self.navigation_bar,
+            text='Forward',
+            command=self.go_to_next_method,
+        )
+        self.forward_button.grid(row=0, column=2, padx=(4, 0))
+
+        self.history_combobox = ttk.Combobox(
+            self.navigation_bar,
+            state='readonly',
+            width=44,
+        )
+        self.history_combobox.grid(row=0, column=3, padx=(6, 0), sticky='e')
+        self.history_combobox.bind(
+            '<<ComboboxSelected>>',
+            self.jump_to_selected_history_entry,
+        )
+
         self.editor_notebook = ttk.Notebook(self)
         self.editor_notebook.grid(row=1, column=0, sticky='nsew')
         self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=1)
 
-        # Bind hover event to change label bar text when the mouse moves over tabs
         self.editor_notebook.bind('<Motion>', self.on_tab_motion)
         self.editor_notebook.bind('<Leave>', self.on_tab_leave)
 
-        # Dictionary to keep track of open tabs
-        self.open_tabs = {}  # Format: {(class_name, show_instance_side, method_symbol): tab_reference}
+        self.open_tabs = {}
 
         self.event_queue.subscribe('MethodSelected', self.open_method)
+        self.event_queue.subscribe(
+            'MethodSelected',
+            self.record_method_navigation,
+        )
         self.event_queue.subscribe('Aborted', self.repopulate)
-        
+        self.refresh_navigation_controls()
+
     def repopulate(self, origin=None):
-        # Iterate through each open tab and update the text editor with the current method source code
         for key, tab in dict(self.open_tabs).items():
             tab.repopulate()
 
@@ -2464,39 +2558,127 @@ class MethodEditor(FramedWidget):
         if tab.tab_key in self.open_tabs:
             del self.open_tabs[tab.tab_key]
 
-    def open_method(self, origin=None):
+    def current_method_context(self):
         selected_class = self.gemstone_session_record.selected_class
-        show_instance_side = self.gemstone_session_record.show_instance_side
         selected_method_symbol = self.gemstone_session_record.selected_method_symbol
+        if selected_class is None:
+            return None
+        if selected_method_symbol is None:
+            return None
+        return (
+            selected_class,
+            self.gemstone_session_record.show_instance_side,
+            selected_method_symbol,
+        )
 
-        # Check if tab already exists using open_tabs dictionary
-        if (selected_class, show_instance_side, selected_method_symbol) in self.open_tabs:
-            self.editor_notebook.select(self.open_tabs[(selected_class, show_instance_side, selected_method_symbol)])
+    def method_context_label(self, method_context):
+        class_name, show_instance_side, method_symbol = method_context
+        if show_instance_side:
+            return f'{class_name}>>{method_symbol}'
+        return f'{class_name} class>>{method_symbol}'
+
+    def record_method_navigation(self, origin=None):
+        self.method_navigation_history.record(self.current_method_context())
+        self.refresh_navigation_controls()
+
+    def refresh_navigation_controls(self):
+        back_button_state = (
+            tk.NORMAL if self.method_navigation_history.can_go_back() else tk.DISABLED
+        )
+        self.back_button.configure(state=back_button_state)
+
+        forward_button_state = (
+            tk.NORMAL
+            if self.method_navigation_history.can_go_forward()
+            else tk.DISABLED
+        )
+        self.forward_button.configure(state=forward_button_state)
+
+        history_entries = self.method_navigation_history.entries_with_current_marker()
+        self.history_choice_indices = []
+        history_labels = []
+        for history_entry in reversed(history_entries):
+            history_index = history_entry['history_index']
+            method_context = history_entry['method_context']
+            history_labels.append(self.method_context_label(method_context))
+            self.history_choice_indices.append(history_index)
+        self.history_combobox['values'] = history_labels
+
+        if len(history_labels) > 0:
+            current_history_index = self.method_navigation_history.current_index
+            selected_index = len(history_labels) - current_history_index - 1
+            self.history_combobox.current(selected_index)
+        if len(history_labels) == 0:
+            self.history_combobox.set('')
+
+    def jump_to_method_context(self, method_context):
+        if method_context is None:
+            self.refresh_navigation_controls()
+            return
+        if method_context == self.current_method_context():
+            self.refresh_navigation_controls()
+            return
+        class_name, show_instance_side, method_symbol = method_context
+        self.browser_window.application.handle_sender_selection(
+            class_name,
+            show_instance_side,
+            method_symbol,
+        )
+        self.refresh_navigation_controls()
+
+    def go_to_previous_method(self):
+        method_context = self.method_navigation_history.go_back()
+        self.jump_to_method_context(method_context)
+
+    def go_to_next_method(self):
+        method_context = self.method_navigation_history.go_forward()
+        self.jump_to_method_context(method_context)
+
+    def jump_to_selected_history_entry(self, event):
+        combobox_index = self.history_combobox.current()
+        if combobox_index < 0:
+            return
+        if combobox_index >= len(self.history_choice_indices):
+            return
+        history_index = self.history_choice_indices[combobox_index]
+        method_context = self.method_navigation_history.jump_to(history_index)
+        self.jump_to_method_context(method_context)
+
+    def open_method(self, origin=None):
+        method_context = self.current_method_context()
+        if method_context is None:
+            return
+        selected_method_symbol = method_context[2]
+
+        if method_context in self.open_tabs:
+            self.editor_notebook.select(self.open_tabs[method_context])
             return
 
-        # Create a new tab using EditorTab
-        new_tab = EditorTab(self.editor_notebook, self.browser_window, self, (selected_class, show_instance_side, selected_method_symbol))
+        new_tab = EditorTab(
+            self.editor_notebook,
+            self.browser_window,
+            self,
+            method_context,
+        )
         self.editor_notebook.add(new_tab, text=selected_method_symbol)
         self.editor_notebook.select(new_tab)
-
-        # Add the tab to open_tabs dictionary
-        self.open_tabs[(selected_class, show_instance_side, selected_method_symbol)] = new_tab
+        self.open_tabs[method_context] = new_tab
 
     def on_tab_motion(self, event):
         try:
-            tab_index = self.editor_notebook.index("@%d,%d" % (event.x, event.y))
+            tab_index = self.editor_notebook.index('@%d,%d' % (event.x, event.y))
             if tab_index is not None:
                 tab_key = self.get_tab(tab_index).tab_key
                 if tab_key[1]:
-                    text = f"{tab_key[0]}>>{tab_key[2]}"
+                    text = f'{tab_key[0]}>>{tab_key[2]}'
                 else:
-                    text = f"{tab_key[0]} class>>{tab_key[2]}"
+                    text = f'{tab_key[0]} class>>{tab_key[2]}'
                 self.label_bar.config(text=text)
         except tk.TclError:
             pass
 
     def on_tab_leave(self, event):
-        self.label_bar.config(text="Method Editor")
+        self.label_bar.config(text='Method Editor')
 
 
 class CodePanel(tk.Frame):
