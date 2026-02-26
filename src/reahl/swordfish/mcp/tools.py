@@ -779,7 +779,14 @@ def register_tools(
         expected_source_hash = ast_support_source_hash()
         expected_version = AST_SUPPORT_VERSION
         support_class_exists = browser_session.run_code(
-            'UserGlobals includesKey: #SwordfishMcpAstSupport'
+            (
+                '| swordfishDictionary |\n'
+                'swordfishDictionary := System myUserProfile symbolList '
+                'objectNamed: #Swordfish.\n'
+                'swordfishDictionary notNil and: [\n'
+                '    swordfishDictionary includesKey: #SwordfishMcpAstSupport\n'
+                ']'
+            )
         ).to_py
         manifest_exists = browser_session.run_code(
             'UserGlobals includesKey: #SwordfishMcpAstManifest'
@@ -854,6 +861,8 @@ def register_tools(
         )
 
     def install_ast_support_in_browser_session(browser_session):
+        if not browser_session.package_exists('Swordfish'):
+            browser_session.create_and_install_package('Swordfish')
         browser_session.run_code(ast_support_source())
         browser_session.run_code(
             ast_manifest_install_script(browser_session)
@@ -1208,6 +1217,8 @@ def register_tools(
         )
 
     def install_tracer_in_browser_session(browser_session):
+        if not browser_session.package_exists('Swordfish'):
+            browser_session.create_and_install_package('Swordfish')
         browser_session.run_code(tracer_source())
         install_tracer_methods(browser_session)
         browser_session.run_code(
