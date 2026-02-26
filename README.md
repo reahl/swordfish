@@ -71,10 +71,10 @@ python -m swordfish
 
 Swordfish now includes an MCP server entrypoint named `swordfish-mcp`.
 
-### Install MCP dependencies
+### Install
 
 ```bash
-pip install -e ".[mcp]"
+pip install reahl-swordfish
 ```
 
 ### Run the server
