@@ -50,19 +50,24 @@ if [ -f /opt/dev/gemstone/defineGemStoneEnvironment.sh ]; then
     fi
 fi
 
+if [ -f /opt/dev/gemstone/gemShell.sh ]; then
+    if ! grep -q "/opt/dev/gemstone/gemShell.sh 3.7.4.3" "$USER_HOME/.bashrc" 2>/dev/null; then
+        echo "" >> "$USER_HOME/.bashrc"
+        echo ". /opt/dev/gemstone/gemShell.sh 3.7.4.3" >> "$USER_HOME/.bashrc"
+    fi
+fi
+
 # Install Python development tools for the user in a virtual environment
 if [ ! -f "$USER_HOME/.dev_tools_installed" ]; then
     
     # Create virtual environment for development tools
     gosu "$USERNAME" python3 -m venv "$USER_HOME/.local/venv"
     gosu "$USERNAME" "$USER_HOME/.local/venv/bin/pip" install black isort pytest
-    
-    # Add venv to PATH in .bashrc so tools are available
-    if ! grep -q ".local/venv/bin" "$USER_HOME/.bashrc" 2>/dev/null; then
-        echo "export PATH=\"\$HOME/.local/venv/bin:\$PATH\"" >> "$USER_HOME/.bashrc"
-    fi
-    
     touch "$USER_HOME/.dev_tools_installed"
+fi
+
+if ! grep -q ".local/venv/bin" "$USER_HOME/.bashrc" 2>/dev/null; then
+    echo "export PATH=\"\$HOME/.local/venv/bin:\$PATH\"" >> "$USER_HOME/.bashrc"
 fi
 
 # Change ownership of workspace to the user
@@ -85,6 +90,13 @@ if [ -f /opt/gemstone/GemStone*/bin/initial.config ]; then
         gosu gemstone /opt/dev/gemstone/defineGemStoneEnvironment.sh 3.7.4.3
         # Note: .profile already sources .bashrc, so no circular reference needed
         touch "$GEMSTONE_USER_HOME/.gemstone_setup_done"
+    fi
+fi
+
+if [ -z "$GEMSTONE" ]; then
+    GEMSTONE_DIR=$(ls -d /opt/gemstone/GemStone* 2>/dev/null | head -1)
+    if [ -n "$GEMSTONE_DIR" ]; then
+        export GEMSTONE="$GEMSTONE_DIR"
     fi
 fi
 
