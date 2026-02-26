@@ -13,7 +13,7 @@ def import_fast_mcp():
     except ModuleNotFoundError as module_not_found_error:
         raise McpDependencyNotInstalled(
             'SwordfishMCP requires the mcp package. '
-            "Install with: pip install 'reahl-swordfish[mcp]'"
+            'Install with: pip install reahl-swordfish'
         ) from module_not_found_error
     return FastMCP
 

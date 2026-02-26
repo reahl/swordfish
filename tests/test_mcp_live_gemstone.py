@@ -29,7 +29,6 @@ from reahl.swordfish.mcp.tools import register_tools
 
 
 EVAL_APPROVAL_CODE = 'eval-human-approved'
-COMMIT_APPROVAL_CODE = 'commit-human-approved'
 
 
 class McpToolRegistrar:
@@ -107,7 +106,6 @@ class LiveMcpConnectionFixture(Fixture):
             allow_commit=True,
             allow_tracing=True,
             eval_approval_code=EVAL_APPROVAL_CODE,
-            commit_approval_code=COMMIT_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -178,21 +176,18 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_commit(self):
         raw_gs_commit = self.registered_mcp_tools['gs_commit']
 
-        def gs_commit_with_approval(connection_id, approval_code=None):
-            selected_approval_code = (
-                self.commit_approval_code
-                if approval_code is None
-                else approval_code
-            )
+        def gs_commit_with_approval(
+            connection_id,
+            approved_by_user=True,
+            approval_note='User explicitly approved this commit.',
+        ):
             return raw_gs_commit(
                 connection_id,
-                approval_code=selected_approval_code,
+                approved_by_user=approved_by_user,
+                approval_note=approval_note,
             )
 
         return gs_commit_with_approval
-
-    def new_commit_approval_code(self):
-        return COMMIT_APPROVAL_CODE
 
     def new_gs_abort(self):
         return self.registered_mcp_tools['gs_abort']
@@ -468,7 +463,6 @@ class LiveMcpConnectionWithoutCommitPermissionFixture(Fixture):
             allow_commit=False,
             allow_tracing=True,
             eval_approval_code=EVAL_APPROVAL_CODE,
-            commit_approval_code='',
         )
         return registrar.registered_tools_by_name
 
@@ -539,21 +533,18 @@ class LiveMcpConnectionWithoutCommitPermissionFixture(Fixture):
     def new_gs_commit(self):
         raw_gs_commit = self.registered_mcp_tools['gs_commit']
 
-        def gs_commit_with_approval(connection_id, approval_code=None):
-            selected_approval_code = (
-                self.commit_approval_code
-                if approval_code is None
-                else approval_code
-            )
+        def gs_commit_with_approval(
+            connection_id,
+            approved_by_user=True,
+            approval_note='User explicitly approved this commit.',
+        ):
             return raw_gs_commit(
                 connection_id,
-                approval_code=selected_approval_code,
+                approved_by_user=approved_by_user,
+                approval_note=approval_note,
             )
 
         return gs_commit_with_approval
-
-    def new_commit_approval_code(self):
-        return COMMIT_APPROVAL_CODE
 
     def new_gs_abort(self):
         return self.registered_mcp_tools['gs_abort']
