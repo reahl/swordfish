@@ -1586,6 +1586,146 @@ def test_senders_dialog_double_click_navigates_browser_to_selected_sender(fixtur
     assert fixture.session_record.selected_method_symbol == 'recalculateTotal'
 
 
+@with_fixtures(SwordfishAppFixture)
+def test_senders_dialog_narrow_with_tracing_filters_to_observed_senders(fixture):
+    """AI: Narrowing sender results with tracing should keep only observed runtime callers."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_senders.return_value = {
+        'senders': [
+            {
+                'class_name': 'OrderLine',
+                'show_instance_side': True,
+                'method_selector': 'recalculateTotal',
+            },
+            {
+                'class_name': 'Order',
+                'show_instance_side': False,
+                'method_selector': 'default',
+            },
+        ],
+        'total_count': 2,
+        'returned_count': 2,
+    }
+    fixture.mock_browser.sender_test_plan_for_selector.return_value = {
+        'candidate_test_count': 1,
+        'candidate_tests': [
+            {
+                'test_case_class_name': 'OrderLineTest',
+                'test_method_selector': 'testRecalculateTotal',
+                'depth': 1,
+                'reached_from_selector': 'recalculateTotal',
+            },
+        ],
+        'visited_selector_count': 3,
+        'sender_search_truncated': False,
+        'selector_limit_reached': False,
+        'elapsed_limit_reached': False,
+    }
+    fixture.mock_browser.run_test_method.return_value = {
+        'run_count': 1,
+        'failure_count': 0,
+        'error_count': 0,
+        'has_passed': True,
+        'failures': [],
+        'errors': [],
+    }
+    fixture.mock_browser.trace_selector.return_value = {
+        'method_name': 'total',
+        'total_sender_count': 2,
+        'targeted_sender_count': 2,
+        'traced_sender_count': 2,
+        'skipped_sender_count': 0,
+        'traced_senders': [],
+        'skipped_senders': [],
+    }
+    fixture.mock_browser.observed_senders_for_selector.return_value = {
+        'total_count': 1,
+        'returned_count': 1,
+        'total_observed_calls': 2,
+        'observed_senders': [
+            {
+                'caller_class_name': 'OrderLine',
+                'caller_show_instance_side': True,
+                'caller_method_selector': 'recalculateTotal',
+                'method_selector': 'total',
+                'observed_count': 2,
+            },
+        ],
+    }
+    selected_tests = [
+        {
+            'test_case_class_name': 'OrderLineTest',
+            'test_method_selector': 'testRecalculateTotal',
+            'depth': 1,
+            'reached_from_selector': 'recalculateTotal',
+        },
+    ]
+
+    with patch.object(SendersDialog, 'wait_visibility'):
+        with patch.object(
+            SendersDialog,
+            'choose_tests_for_tracing',
+            return_value=selected_tests,
+        ):
+            dialog = SendersDialog(fixture.app, method_name='total')
+            dialog.narrow_senders_with_tracing()
+
+    results = list(dialog.results_listbox.get(0, 'end'))
+    assert results == ['OrderLine>>recalculateTotal']
+    fixture.mock_browser.sender_test_plan_for_selector.assert_called_once_with(
+        'total',
+        2,
+        500,
+        200,
+        200,
+        max_elapsed_ms=1500,
+    )
+    fixture.mock_browser.trace_selector.assert_called_once_with(
+        'total',
+        max_results=250,
+    )
+    fixture.mock_browser.run_test_method.assert_called_once_with(
+        'OrderLineTest',
+        'testRecalculateTotal',
+    )
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_senders_dialog_narrow_with_tracing_stops_when_no_candidate_tests(
+    fixture,
+):
+    """AI: Narrowing should inform the user and skip tracing when no candidate tests are found."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_senders.return_value = {
+        'senders': [
+            {
+                'class_name': 'OrderLine',
+                'show_instance_side': True,
+                'method_selector': 'recalculateTotal',
+            },
+        ],
+        'total_count': 1,
+        'returned_count': 1,
+    }
+    fixture.mock_browser.sender_test_plan_for_selector.return_value = {
+        'candidate_test_count': 0,
+        'candidate_tests': [],
+        'visited_selector_count': 1,
+        'elapsed_limit_reached': True,
+        'sender_search_truncated': True,
+    }
+
+    with patch.object(SendersDialog, 'wait_visibility'):
+        with patch('reahl.swordfish.main.messagebox.showinfo') as showinfo:
+            dialog = SendersDialog(fixture.app, method_name='total')
+            dialog.narrow_senders_with_tracing()
+
+    assert showinfo.called
+    fixture.mock_browser.trace_selector.assert_not_called()
+    dialog.destroy()
+
+
 def make_mock_gemstone_object(class_name='OrderLine', string_repr='anObject'):
     """AI: Minimal GemStone object mock satisfying ObjectInspector's full protocol.
     allInstVarNames() returns [] so sub-inspectors are created empty (no recursion needed).
