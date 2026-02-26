@@ -21,6 +21,7 @@ from reahl.swordfish.main import EventQueue
 from reahl.swordfish.main import Explorer
 from reahl.swordfish.main import FindDialog
 from reahl.swordfish.main import GemstoneSessionRecord
+from reahl.swordfish.main import InspectorTab
 from reahl.swordfish.main import ObjectInspector
 from reahl.swordfish.main import run_application
 from reahl.swordfish.main import SendersDialog
@@ -206,6 +207,17 @@ def menu_command_labels(menu):
         if menu.type(entry_index) == 'command':
             labels.append(menu.entrycget(entry_index, 'label'))
     return labels
+
+
+def invoke_menu_command_by_label(menu, label):
+    entry_count = int(menu.index('end')) + 1
+    for entry_index in range(entry_count):
+        if menu.type(entry_index) != 'command':
+            continue
+        if menu.entrycget(entry_index, 'label') == label:
+            menu.invoke(entry_index)
+            return
+    raise AssertionError(f'Menu command not found: {label}')
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -972,6 +984,100 @@ def test_run_source_text_shortcuts_replace_selection_and_support_undo(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_run_source_context_menu_includes_run_and_inspect_for_selected_text(fixture):
+    """Run source context menu exposes Run and Inspect commands that target selected text."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete('1.0', 'end')
+    run_tab.source_text.insert('1.0', '3 + 4\n5 + 6')
+    run_tab.source_text.tag_add(tk.SEL, '1.0', '1.5')
+
+    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    labels = menu_command_labels(run_tab.current_text_menu)
+    assert 'Run' in labels
+    assert 'Inspect' in labels
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_context_menu_run_executes_selected_text_only(fixture):
+    """Run command in Run source context menu evaluates only the selected source fragment."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete('1.0', 'end')
+    run_tab.source_text.insert('1.0', '3 + 4\nthisWillNotRun')
+    run_tab.source_text.tag_add(tk.SEL, '1.0', '1.5')
+
+    mock_result = Mock()
+    mock_result.asString.return_value.to_py = '7'
+    fixture.mock_browser.run_code.return_value = mock_result
+
+    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    invoke_menu_command_by_label(run_tab.current_text_menu, 'Run')
+    fixture.app.update()
+
+    fixture.mock_browser.run_code.assert_called_with('3 + 4')
+    assert run_tab.result_text.get('1.0', 'end').strip() == '7'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_context_menu_inspect_opens_inspector_for_selected_result(fixture):
+    """Inspect command in Run source context menu evaluates selected source and opens Inspector on the result object."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete('1.0', 'end')
+    run_tab.source_text.insert('1.0', '3 + 4\nthisWillNotRun')
+    run_tab.source_text.tag_add(tk.SEL, '1.0', '1.5')
+
+    inspected_result = make_mock_gemstone_object('Integer', '7')
+    fixture.mock_browser.run_code.return_value = inspected_result
+
+    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    invoke_menu_command_by_label(run_tab.current_text_menu, 'Inspect')
+    fixture.app.update()
+
+    fixture.mock_browser.run_code.assert_called_with('3 + 4')
+    assert fixture.app.inspector_tab is not None
+    assert isinstance(fixture.app.inspector_tab, InspectorTab)
+    assert isinstance(fixture.app.inspector_tab.explorer, Explorer)
+    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+    assert selected_tab_text == 'Inspect'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_inspector_tab_can_be_closed_with_close_button(fixture):
+    """The inspector tab opened from Run can be dismissed using its Close Inspector button."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete('1.0', 'end')
+    run_tab.source_text.insert('1.0', '3 + 4')
+    run_tab.source_text.tag_add(tk.SEL, '1.0', '1.5')
+
+    inspected_result = make_mock_gemstone_object('Integer', '7')
+    fixture.mock_browser.run_code.return_value = inspected_result
+
+    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    invoke_menu_command_by_label(run_tab.current_text_menu, 'Inspect')
+    fixture.app.update()
+
+    inspector_tab = fixture.app.inspector_tab
+    assert inspector_tab is not None
+    inspector_tab.close_button.invoke()
+    fixture.app.update()
+
+    assert fixture.app.inspector_tab is None
+    tab_labels = [fixture.app.notebook.tab(tab_id, 'text') for tab_id in fixture.app.notebook.tabs()]
+    assert 'Inspect' not in tab_labels
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_run_result_text_supports_copy_and_has_result_context_menu(fixture):
     """Run result text supports selecting/copying output via shortcuts and context menu actions."""
     fixture.simulate_login()
@@ -1043,6 +1149,58 @@ def test_debug_button_opens_debugger_tab_in_notebook(fixture):
 
     tab_labels = [fixture.app.notebook.tab(t, 'text') for t in fixture.app.notebook.tabs()]
     assert 'Debugger' in tab_labels
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debug_button_uses_current_source_text_not_stale_prior_error(fixture):
+    """Debug always evaluates the code currently visible in the Run source editor."""
+    fixture.simulate_login()
+    successful_result = Mock()
+    successful_result.asString.return_value.to_py = '4'
+    fixture.mock_browser.run_code.side_effect = [
+        FakeGemstoneError(),
+        successful_result,
+    ]
+
+    fixture.app.run_code('1/0')
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete('1.0', 'end')
+    run_tab.source_text.insert('1.0', '2 + 2')
+
+    run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    assert fixture.mock_browser.run_code.call_args_list[-1] == call('2 + 2')
+    assert fixture.app.debugger_tab is None
+    assert run_tab.status_label.cget('text') == 'Completed successfully; no debugger context'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debug_button_does_not_open_debugger_for_compile_error(fixture):
+    """Debug does not open a debugger tab when current source has a compile error."""
+    fixture.simulate_login()
+    source_text = (
+        '| a b |\n'
+        'b := (Set new) add: 123; add: 457; add 1122; yourself.\n'
+        'a := { 1 . 2 . 3 . 4 . 5 . (Date today) . b } .\n'
+        '\n'
+        'a halt at: 5\n'
+    )
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete('1.0', 'end')
+    run_tab.source_text.insert('1.0', source_text)
+    fixture.mock_browser.run_code.side_effect = FakeCompileGemstoneError(source_text, 48)
+
+    run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    tab_labels = [fixture.app.notebook.tab(t, 'text') for t in fixture.app.notebook.tabs()]
+    assert 'Debugger' not in tab_labels
+    assert fixture.mock_browser.run_code.call_args_list[-1] == call(source_text.strip())
+    assert 'line 2, column 40' in run_tab.status_label.cget('text')
 
 
 @with_fixtures(SwordfishAppFixture)
