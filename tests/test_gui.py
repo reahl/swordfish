@@ -365,6 +365,31 @@ def test_selecting_method_opens_editor_tab(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_method_editor_source_shows_line_numbers(fixture):
+    """AI: Method source editors display a synchronized line-number column."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+
+    line_numbers = tab.code_panel.line_number_column.line_numbers_text.get(
+        '1.0',
+        'end-1c',
+    ).splitlines()
+    assert line_numbers[:2] == ['1', '2']
+
+    tab.code_panel.text_editor.insert('end', '\n    ^42')
+    fixture.root.update()
+
+    updated_line_numbers = tab.code_panel.line_number_column.line_numbers_text.get(
+        '1.0',
+        'end-1c',
+    ).splitlines()
+    assert updated_line_numbers[:3] == ['1', '2', '3']
+    tab.code_panel.text_editor.mark_set(tk.INSERT, '2.4')
+    tab.code_panel.cursor_position_indicator.update_position()
+    assert tab.code_panel.cursor_position_label.cget('text') == 'Ln 2, Col 5'
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_selecting_already_open_method_brings_its_tab_to_fore(fixture):
     """Re-selecting a method that already has an open tab switches to that
     tab rather than opening a duplicate."""
@@ -691,6 +716,19 @@ def test_show_class_definition_displays_and_updates_for_selected_class(fixture):
         '1.0',
         'end',
     ).strip()
+    rendered_line_numbers = (
+        classes_widget.class_definition_line_number_column.line_numbers_text.get(
+            '1.0',
+            'end-1c',
+        ).splitlines()
+    )
+    assert rendered_line_numbers[:3] == ['1', '2', '3']
+    classes_widget.class_definition_text.mark_set(tk.INSERT, '2.3')
+    classes_widget.class_definition_cursor_position_indicator.update_position()
+    assert (
+        classes_widget.class_definition_cursor_position_label.cget('text')
+        == 'Ln 2, Col 4'
+    )
     assert "Order subclass: 'OrderLine'" in rendered_definition
     assert 'instVarNames: #(amount quantity)' in rendered_definition
     assert 'inDictionary: Kernel' in rendered_definition
@@ -1098,6 +1136,31 @@ def test_run_source_text_shortcuts_replace_selection_and_support_undo(fixture):
     run_tab.select_all_source_text()
     run_tab.copy_source_selection()
     assert fixture.app.clipboard_get() == 'z beta'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_source_editor_shows_line_numbers(fixture):
+    """AI: Run source editor displays line numbers that track visible source lines."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+
+    run_tab.source_text.delete('1.0', 'end')
+    run_tab.source_text.insert(
+        '1.0',
+        'alpha\nbeta\ngamma',
+    )
+    fixture.app.update()
+
+    line_numbers = run_tab.source_line_number_column.line_numbers_text.get(
+        '1.0',
+        'end-1c',
+    ).splitlines()
+    assert line_numbers[:3] == ['1', '2', '3']
+    run_tab.source_text.mark_set(tk.INSERT, '3.2')
+    run_tab.source_cursor_position_indicator.update_position()
+    assert run_tab.source_cursor_position_label.cget('text') == 'Ln 3, Col 3'
 
 
 @with_fixtures(SwordfishAppFixture)

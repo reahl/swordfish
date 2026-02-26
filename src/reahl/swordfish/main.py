@@ -106,6 +106,154 @@ def replace_selected_range_before_typing(text_widget, event):
         delete_selected_range_in_text_widget(text_widget)
 
 
+class CodeLineNumberColumn:
+    def __init__(self, parent, text_widget, external_yscrollcommand=None):
+        self.parent = parent
+        self.text_widget = text_widget
+        self.external_yscrollcommand = external_yscrollcommand
+        self.line_numbers_text = tk.Text(
+            parent,
+            width=4,
+            wrap='none',
+            padx=6,
+            takefocus=0,
+            state='disabled',
+            borderwidth=0,
+            highlightthickness=0,
+            background='#f2f2f2',
+            foreground='#666666',
+            cursor='arrow',
+        )
+        self.line_numbers_text.tag_configure(
+            'line_number_alignment',
+            justify='right',
+        )
+        self.line_numbers_text.bind('<MouseWheel>', self.scroll_main_text)
+        self.line_numbers_text.bind('<Button-4>', self.scroll_main_text)
+        self.line_numbers_text.bind('<Button-5>', self.scroll_main_text)
+        self.line_numbers_text.bind('<Button-1>', self.ignore_mouse_click)
+
+        self.text_widget.bind('<<Modified>>', self.on_text_modified, add='+')
+        self.text_widget.bind('<Configure>', self.refresh_line_numbers, add='+')
+        self.text_widget.bind('<KeyRelease>', self.refresh_line_numbers, add='+')
+        self.text_widget.bind('<ButtonRelease-1>', self.refresh_line_numbers, add='+')
+        self.text_widget.configure(yscrollcommand=self.on_text_scrolled)
+
+        self.clear_modified_flag()
+        self.refresh_line_numbers()
+
+    def clear_modified_flag(self):
+        try:
+            self.text_widget.edit_modified(False)
+        except tk.TclError:
+            pass
+
+    def on_text_modified(self, event=None):
+        text_is_marked_modified = False
+        try:
+            text_is_marked_modified = bool(self.text_widget.edit_modified())
+        except tk.TclError:
+            text_is_marked_modified = True
+        if text_is_marked_modified:
+            self.clear_modified_flag()
+            self.refresh_line_numbers()
+
+    def ignore_mouse_click(self, event=None):
+        return 'break'
+
+    def scroll_units_for_event(self, event):
+        mouse_delta = 0
+        if hasattr(event, 'delta'):
+            mouse_delta = event.delta
+        if mouse_delta > 0:
+            return -1
+        if mouse_delta < 0:
+            return 1
+        button_number = getattr(event, 'num', None)
+        if button_number == 4:
+            return -1
+        if button_number == 5:
+            return 1
+        return 0
+
+    def scroll_main_text(self, event):
+        scroll_units = self.scroll_units_for_event(event)
+        if scroll_units == 0:
+            return None
+        self.text_widget.yview_scroll(scroll_units, 'units')
+        self.sync_scroll_position()
+        return 'break'
+
+    def on_text_scrolled(self, first_fraction, last_fraction):
+        self.line_numbers_text.yview_moveto(first_fraction)
+        if self.external_yscrollcommand:
+            self.external_yscrollcommand(first_fraction, last_fraction)
+
+    def line_count(self):
+        line_number = int(self.text_widget.index('end-1c').split('.')[0])
+        if line_number < 1:
+            return 1
+        return line_number
+
+    def line_number_text_for_count(self, line_count):
+        line_numbers = []
+        for line_number in range(1, line_count + 1):
+            line_numbers.append(str(line_number))
+        return '\n'.join(line_numbers)
+
+    def sync_scroll_position(self):
+        first_fraction, _ = self.text_widget.yview()
+        self.line_numbers_text.yview_moveto(first_fraction)
+
+    def refresh_line_numbers(self, event=None):
+        line_count = self.line_count()
+        line_number_text = self.line_number_text_for_count(line_count)
+        self.line_numbers_text.configure(state='normal')
+        self.line_numbers_text.delete('1.0', tk.END)
+        self.line_numbers_text.insert(
+            '1.0',
+            line_number_text,
+            'line_number_alignment',
+        )
+        self.line_numbers_text.configure(
+            width=max(3, len(str(line_count)) + 1),
+        )
+        self.line_numbers_text.configure(state='disabled')
+        self.sync_scroll_position()
+
+
+class TextCursorPositionIndicator:
+    def __init__(self, text_widget, label_widget):
+        self.text_widget = text_widget
+        self.label_widget = label_widget
+        self.text_widget.bind('<KeyRelease>', self.update_position, add='+')
+        self.text_widget.bind('<ButtonRelease-1>', self.update_position, add='+')
+        self.text_widget.bind('<ButtonRelease-2>', self.update_position, add='+')
+        self.text_widget.bind('<ButtonRelease-3>', self.update_position, add='+')
+        self.text_widget.bind('<FocusIn>', self.update_position, add='+')
+        self.update_position()
+
+    def line_and_column(self):
+        try:
+            line_text, zero_based_column_text = self.text_widget.index(
+                tk.INSERT
+            ).split('.')
+            line_number = int(line_text)
+            one_based_column_number = int(zero_based_column_text) + 1
+            return line_number, one_based_column_number
+        except (tk.TclError, ValueError):
+            return None, None
+
+    def update_position(self, event=None):
+        line_number, column_number = self.line_and_column()
+        if line_number is None or column_number is None:
+            self.label_widget.config(text='Ln -, Col -')
+            return
+        self.label_widget.config(
+            text=f'Ln {line_number}, Col {column_number}'
+        )
+
+
 class GemstoneSessionRecord:
     def __init__(self, gemstone_session):
         self.gemstone_session = gemstone_session
@@ -1105,8 +1253,35 @@ class RunTab(ttk.Frame):
         self.source_label = ttk.Label(self, text='Source Code:')
         self.source_label.grid(row=0, column=0, sticky='w', padx=10, pady=(10, 0))
 
-        self.source_text = tk.Text(self, height=10, undo=True)
-        self.source_text.grid(row=1, column=0, sticky='nsew', padx=10, pady=(0, 10))
+        self.source_editor_frame = ttk.Frame(self)
+        self.source_editor_frame.grid(
+            row=1,
+            column=0,
+            sticky='nsew',
+            padx=10,
+            pady=(0, 10),
+        )
+        self.source_editor_frame.rowconfigure(0, weight=1)
+        self.source_editor_frame.columnconfigure(1, weight=1)
+        self.source_text = tk.Text(
+            self.source_editor_frame,
+            height=10,
+            undo=True,
+        )
+        self.source_line_number_column = CodeLineNumberColumn(
+            self.source_editor_frame,
+            self.source_text,
+        )
+        self.source_line_number_column.line_numbers_text.grid(
+            row=0,
+            column=0,
+            sticky='ns',
+        )
+        self.source_text.grid(
+            row=0,
+            column=1,
+            sticky='nsew',
+        )
 
         self.button_frame = ttk.Frame(self)
         self.button_frame.grid(row=2, column=0, sticky='ew', padx=10, pady=(0, 10))
@@ -1133,8 +1308,20 @@ class RunTab(ttk.Frame):
         )
         self.debug_button.grid(row=0, column=2, sticky='w')
 
-        self.status_label = ttk.Label(self, text='Ready')
-        self.status_label.grid(row=3, column=0, sticky='w', padx=10)
+        self.status_bar = ttk.Frame(self)
+        self.status_bar.grid(row=3, column=0, sticky='ew', padx=10)
+        self.status_bar.columnconfigure(0, weight=1)
+        self.status_label = ttk.Label(self.status_bar, text='Ready')
+        self.status_label.grid(row=0, column=0, sticky='w')
+        self.source_cursor_position_label = ttk.Label(
+            self.status_bar,
+            text='Ln 1, Col 1',
+        )
+        self.source_cursor_position_label.grid(
+            row=0,
+            column=1,
+            sticky='e',
+        )
 
         self.result_label = ttk.Label(self, text='Result:')
         self.result_label.grid(row=4, column=0, sticky='nw', padx=10, pady=(10, 0))
@@ -1142,6 +1329,10 @@ class RunTab(ttk.Frame):
         self.result_text = tk.Text(self, height=7, state='disabled')
         self.result_text.grid(row=5, column=0, sticky='nsew', padx=10, pady=(0, 10))
         self.configure_text_actions()
+        self.source_cursor_position_indicator = TextCursorPositionIndicator(
+            self.source_text,
+            self.source_cursor_position_label,
+        )
 
     def configure_text_actions(self):
         self.source_text.bind('<Control-a>', self.select_all_source_text)
@@ -1305,6 +1496,7 @@ class RunTab(ttk.Frame):
         if source and source.strip():
             self.source_text.delete('1.0', tk.END)
             self.source_text.insert(tk.END, source)
+            self.source_cursor_position_indicator.update_position()
         if run_immediately:
             self.run_code_from_editor()
 
@@ -1828,19 +2020,52 @@ class ClassSelection(FramedWidget):
             columnspan=2,
             sticky='w',
         )
-        self.class_definition_text = tk.Text(
-            self,
-            wrap='word',
-            height=8,
-        )
-        self.class_definition_text.grid(
+        self.class_definition_frame = ttk.Frame(self)
+        self.class_definition_frame.grid(
             column=0,
             row=4,
             columnspan=2,
             sticky='nsew',
         )
+        self.class_definition_frame.rowconfigure(0, weight=1)
+        self.class_definition_frame.columnconfigure(1, weight=1)
+        self.class_definition_text = tk.Text(
+            self.class_definition_frame,
+            wrap='word',
+            height=8,
+        )
+        self.class_definition_line_number_column = CodeLineNumberColumn(
+            self.class_definition_frame,
+            self.class_definition_text,
+        )
+        self.class_definition_line_number_column.line_numbers_text.grid(
+            column=0,
+            row=0,
+            sticky='ns',
+        )
+        self.class_definition_text.grid(
+            column=1,
+            row=0,
+            sticky='nsew',
+        )
+        self.class_definition_cursor_position_label = ttk.Label(
+            self.class_definition_frame,
+            text='Ln 1, Col 1',
+        )
+        self.class_definition_cursor_position_label.grid(
+            column=1,
+            row=1,
+            sticky='e',
+            pady=(2, 0),
+        )
+        self.class_definition_cursor_position_indicator = (
+            TextCursorPositionIndicator(
+                self.class_definition_text,
+                self.class_definition_cursor_position_label,
+            )
+        )
         self.class_definition_text.config(state='disabled')
-        self.class_definition_text.grid_remove()
+        self.class_definition_frame.grid_remove()
 
         self.rowconfigure(1, weight=0)
         self.rowconfigure(4, weight=1)
@@ -2108,13 +2333,13 @@ class ClassSelection(FramedWidget):
 
     def toggle_class_definition(self):
         if self.show_class_definition_var.get():
-            self.class_definition_text.grid()
+            self.class_definition_frame.grid()
             self.refresh_class_definition()
             return
         self.class_definition_text.config(state='normal')
         self.class_definition_text.delete('1.0', tk.END)
         self.class_definition_text.config(state='disabled')
-        self.class_definition_text.grid_remove()
+        self.class_definition_frame.grid_remove()
 
     def formatted_class_definition(self, class_definition):
         class_name = class_definition.get('class_name') or ''
@@ -2159,6 +2384,7 @@ class ClassSelection(FramedWidget):
         self.class_definition_text.delete('1.0', tk.END)
         self.class_definition_text.insert('1.0', class_definition_text)
         self.class_definition_text.config(state='disabled')
+        self.class_definition_cursor_position_indicator.update_position()
 
     def run_all_tests(self):
         listbox = self.selection_list.selection_listbox
@@ -2826,17 +3052,37 @@ class CodePanel(tk.Frame):
             orient='horizontal',
             command=self.text_editor.xview,
         )
+        self.line_number_column = CodeLineNumberColumn(
+            self,
+            self.text_editor,
+            external_yscrollcommand=self.scrollbar_y.set,
+        )
         self.text_editor.configure(
-            yscrollcommand=self.scrollbar_y.set,
             xscrollcommand=self.scrollbar_x.set,
         )
 
-        self.text_editor.grid(row=0, column=0, sticky='nsew')
-        self.scrollbar_y.grid(row=0, column=1, sticky='ns')
-        self.scrollbar_x.grid(row=1, column=0, sticky='ew')
+        self.line_number_column.line_numbers_text.grid(
+            row=0,
+            column=0,
+            sticky='ns',
+        )
+        self.text_editor.grid(row=0, column=1, sticky='nsew')
+        self.scrollbar_y.grid(row=0, column=2, sticky='ns')
+        self.scrollbar_x.grid(row=1, column=1, sticky='ew')
+        self.cursor_position_label = ttk.Label(self, text='Ln 1, Col 1')
+        self.cursor_position_label.grid(
+            row=2,
+            column=1,
+            sticky='e',
+            pady=(2, 0),
+        )
+        self.cursor_position_indicator = TextCursorPositionIndicator(
+            self.text_editor,
+            self.cursor_position_label,
+        )
 
         self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
 
         self.text_editor.tag_configure("smalltalk_keyword", foreground="blue")
         self.text_editor.tag_configure("smalltalk_comment", foreground="green")
@@ -3973,6 +4219,7 @@ class CodePanel(tk.Frame):
             position = self.text_editor.index(f"1.0 + {mark-1} chars")
             self.text_editor.tag_add("highlight", position, f"{position} + 1c")
         self.apply_syntax_highlighting(source)
+        self.cursor_position_indicator.update_position()
         
 
 class EditorTab(tk.Frame):
