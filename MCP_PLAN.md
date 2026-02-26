@@ -33,7 +33,7 @@ Build an MCP server (`SwordfishMCP`) that allows AI tools (Codex, Claude Code, o
 - Keep existing script:
   - `swordfish = reahl.swordfish.main:run_application`
 - Add MCP script:
-  - `swordfish-mcp = reahl.swordfish.mcp.main:run_application`
+  - `swordfish = reahl.swordfish.main:run_application` with `--mode mcp-headless`
 - Keep this as a single distributable project.
 - Add MCP dependencies as optional extras to avoid forcing MCP runtime on all users.
 

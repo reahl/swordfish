@@ -69,7 +69,7 @@ python -m swordfish
 
 ## MCP
 
-Swordfish now includes an MCP server entrypoint named `swordfish-mcp`.
+Swordfish includes MCP modes on the same `swordfish` executable.
 
 ### Install
 
@@ -80,7 +80,7 @@ pip install reahl-swordfish
 ### Run the server
 
 ```bash
-swordfish-mcp
+swordfish --mode mcp-headless
 ```
 
 ### Add MCP to Claude Code and Codex (Docker-over-SSH)
@@ -94,19 +94,19 @@ Start the development container with SSH enabled in one terminal and keep it run
 ```
 
 In another terminal, from the project root, configure MCP clients to launch
-`swordfish-mcp` through `docker-run-over-ssh.sh`:
+`swordfish --mode mcp-headless` through `docker-run-over-ssh.sh`:
 
 ```bash
 PROJECT_DIR="$(pwd)"
 
 # Claude Code
 claude mcp remove -s project swordfish 2>/dev/null || true
-claude mcp add -s project swordfish -- "$PROJECT_DIR/docker-run-over-ssh.sh" swordfish-mcp --allow-compile --allow-tracing
+claude mcp add -s project swordfish -- "$PROJECT_DIR/docker-run-over-ssh.sh" swordfish --mode mcp-headless --allow-compile --allow-tracing
 claude mcp list
 
 # Codex
 codex mcp remove swordfish 2>/dev/null || true
-codex mcp add swordfish -- "$PROJECT_DIR/docker-run-over-ssh.sh" swordfish-mcp --allow-compile --allow-tracing
+codex mcp add swordfish -- "$PROJECT_DIR/docker-run-over-ssh.sh" swordfish --mode mcp-headless --allow-compile --allow-tracing
 codex mcp list --json
 ```
 

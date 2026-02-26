@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import re
+import threading
 import tkinter as tk
 import tkinter.messagebox as messagebox
 import tkinter.simpledialog as simpledialog
@@ -14,6 +15,8 @@ from reahl.ptongue import GemstoneError, LinkedSession, RPCSession
 from reahl.swordfish.gemstone import GemstoneBrowserSession
 from reahl.swordfish.gemstone import GemstoneDebugSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
+from reahl.swordfish.mcp.integration_state import current_integrated_session_state
+from reahl.swordfish.mcp.server import create_server
 
 
 class DomainException(Exception):
@@ -259,11 +262,35 @@ class GemstoneSessionRecord:
         self.gemstone_session = gemstone_session
         self.gemstone_browser_session = GemstoneBrowserSession(gemstone_session)
         self.change_event_publisher = None
+        self.integrated_session_state = None
         self.selected_package = None
         self.selected_class = None
         self.selected_method_category = None
         self.selected_method_symbol = None
         self.show_instance_side = True
+
+    def set_integrated_session_state(self, integrated_session_state):
+        self.integrated_session_state = integrated_session_state
+
+    def require_write_access(self, operation_name):
+        if self.integrated_session_state is None:
+            return
+        if not self.integrated_session_state.is_mcp_busy():
+            return
+        mcp_operation_name = (
+            self.integrated_session_state.current_mcp_operation_name()
+            or 'unknown'
+        )
+        raise DomainException(
+            (
+                'IDE is read-only while MCP operation %s is active. '
+                'Retry %s after MCP finishes.'
+            )
+            % (
+                mcp_operation_name,
+                operation_name,
+            )
+        )
 
     def publish_model_change(self, change_kind):
         if self.change_event_publisher is None:
@@ -290,9 +317,11 @@ class GemstoneSessionRecord:
         self.selected_method_symbol = selected_method_symbol
 
     def commit(self):
+        self.require_write_access('commit')
         self.gemstone_session.commit()
         
     def abort(self):
+        self.require_write_access('abort')
         self.gemstone_session.abort()
         
     @classmethod
@@ -346,6 +375,7 @@ class GemstoneSessionRecord:
         yield from self.gemstone_browser_session.list_packages()
 
     def create_and_install_package(self, package_name):
+        self.require_write_access('create_and_install_package')
         self.gemstone_browser_session.create_and_install_package(package_name)
         self.publish_model_change('packages')
 
@@ -355,6 +385,7 @@ class GemstoneSessionRecord:
         superclass_name='Object',
         in_dictionary=None,
     ):
+        self.require_write_access('create_class')
         selected_dictionary = in_dictionary
         if selected_dictionary is None:
             selected_dictionary = self.selected_package or 'UserGlobals'
@@ -473,6 +504,7 @@ class GemstoneSessionRecord:
         max_traced_senders=250,
         max_observed_results=500,
     ):
+        self.require_write_access('collect_sender_evidence_from_tests')
         trace_result = None
         observed_result = None
         untrace_result = None
@@ -598,6 +630,7 @@ class GemstoneSessionRecord:
         old_selector,
         new_selector,
     ):
+        self.require_write_access('apply_method_rename')
         rename_result = self.gemstone_browser_session.apply_method_rename(
             class_name,
             show_instance_side,
@@ -633,6 +666,7 @@ class GemstoneSessionRecord:
         overwrite_target_method=False,
         delete_source_method=True,
     ):
+        self.require_write_access('apply_method_move')
         move_result = self.gemstone_browser_session.apply_method_move(
             source_class_name,
             source_show_instance_side,
@@ -672,6 +706,7 @@ class GemstoneSessionRecord:
         parameter_name,
         default_argument_source,
     ):
+        self.require_write_access('apply_method_add_parameter')
         add_parameter_result = self.gemstone_browser_session.apply_method_add_parameter(
             class_name,
             show_instance_side,
@@ -708,6 +743,7 @@ class GemstoneSessionRecord:
         overwrite_new_method=False,
         rewrite_source_senders=False,
     ):
+        self.require_write_access('apply_method_remove_parameter')
         remove_parameter_result = self.gemstone_browser_session.apply_method_remove_parameter(
             class_name,
             show_instance_side,
@@ -744,6 +780,7 @@ class GemstoneSessionRecord:
         statement_indexes,
         overwrite_new_method=False,
     ):
+        self.require_write_access('apply_method_extract')
         extract_result = self.gemstone_browser_session.apply_method_extract(
             class_name,
             show_instance_side,
@@ -777,6 +814,7 @@ class GemstoneSessionRecord:
         inline_selector,
         delete_inlined_method=False,
     ):
+        self.require_write_access('apply_method_inline')
         inline_result = self.gemstone_browser_session.apply_method_inline(
             class_name,
             show_instance_side,
@@ -788,6 +826,7 @@ class GemstoneSessionRecord:
         return inline_result
         
     def update_method_source(self, selected_class, show_instance_side, method_symbol, source):
+        self.require_write_access('update_method_source')
         self.gemstone_browser_session.compile_method(
             selected_class,
             show_instance_side,
@@ -802,6 +841,7 @@ class GemstoneSessionRecord:
         source,
         method_category='as yet unclassified',
     ):
+        self.require_write_access('create_method')
         self.gemstone_browser_session.compile_method(
             selected_class,
             show_instance_side,
@@ -811,15 +851,19 @@ class GemstoneSessionRecord:
         self.publish_model_change('methods')
 
     def run_code(self, source):
+        self.require_write_access('run_code')
         return self.gemstone_browser_session.run_code(source)
 
     def run_gemstone_tests(self, class_name):
+        self.require_write_access('run_gemstone_tests')
         return self.gemstone_browser_session.run_gemstone_tests(class_name)
 
     def run_test_method(self, class_name, method_selector):
+        self.require_write_access('run_test_method')
         return self.gemstone_browser_session.run_test_method(class_name, method_selector)
 
     def debug_test_method(self, class_name, method_selector):
+        self.require_write_access('debug_test_method')
         return self.gemstone_browser_session.debug_test_method(class_name, method_selector)
     # except GemstoneError as e:
     #     try:
@@ -858,8 +902,15 @@ class EventQueue:
                     
     def clear_subscribers(self, owner):
         for event_name, registered_callbacks in self.events.copy().items():
-            cleaned_callbacks = [(weak_callback, callback_args) for (weak_callback, callback_args) in registered_callbacks
-                                 if weak_callback().__self__ is not owner]
+            cleaned_callbacks = []
+            for weak_callback, callback_args in registered_callbacks:
+                callback = weak_callback()
+                callback_is_live = callback is not None
+                owner_matches = False
+                if callback_is_live:
+                    owner_matches = callback.__self__ is owner
+                if callback_is_live and not owner_matches:
+                    cleaned_callbacks.append((weak_callback, callback_args))
             self.events[event_name] = cleaned_callbacks
 
 
@@ -886,27 +937,50 @@ class MainMenu(tk.Menu):
     def _subscribe_events(self):
         self.event_queue.subscribe('LoggedInSuccessfully', self.update_menus)
         self.event_queue.subscribe('LoggedOut', self.update_menus)
+        self.event_queue.subscribe('McpBusyStateChanged', self.update_menus)
 
-    def update_menus(self, gemstone_session_record=None):
+    def update_menus(self, gemstone_session_record=None, **kwargs):
         self.update_session_menu()
         self.update_file_menu()
         
     def update_session_menu(self):
         self.session_menu.delete(0, tk.END)
         if self.parent.is_logged_in:
-            self.session_menu.add_command(label="Commit", command=self.parent.commit)
-            self.session_menu.add_command(label="Abort", command=self.parent.abort)
-            self.session_menu.add_command(label="Logout", command=self.parent.logout)
+            menu_state = tk.NORMAL
+            if self.parent.integrated_session_state.is_mcp_busy():
+                menu_state = tk.DISABLED
+            self.session_menu.add_command(
+                label='Commit',
+                command=self.parent.commit,
+                state=menu_state,
+            )
+            self.session_menu.add_command(
+                label='Abort',
+                command=self.parent.abort,
+                state=menu_state,
+            )
+            self.session_menu.add_command(
+                label='Logout',
+                command=self.parent.logout,
+                state=menu_state,
+            )
         else:
             self.session_menu.add_command(label="Login", command=self.parent.show_login_screen)
             
     def update_file_menu(self):
         self.file_menu.delete(0, tk.END)
         if self.parent.is_logged_in:
+            run_command_state = tk.NORMAL
+            if self.parent.integrated_session_state.is_mcp_busy():
+                run_command_state = tk.DISABLED
             self.file_menu.add_command(label="Find", command=self.show_find_dialog)
             self.file_menu.add_command(label="Implementors", command=self.show_implementors_dialog)
             self.file_menu.add_command(label="Senders", command=self.show_senders_dialog)
-            self.file_menu.add_command(label="Run", command=self.show_run_dialog)
+            self.file_menu.add_command(
+                label='Run',
+                command=self.show_run_dialog,
+                state=run_command_state,
+            )
             self.file_menu.add_separator()
         self.file_menu.add_command(label="Exit", command=self.parent.quit)
 
@@ -1512,6 +1586,8 @@ class Swordfish(tk.Tk):
     def __init__(self, default_stone_name='gs64stone'):
         super().__init__()
         self.event_queue = EventQueue(self)
+        self.integrated_session_state = current_integrated_session_state()
+        self.integrated_session_state.attach_ide_gui()
         self.title("Swordfish")
         self.geometry("800x600")
         self.default_stone_name = default_stone_name
@@ -1521,14 +1597,19 @@ class Swordfish(tk.Tk):
         self.debugger_tab = None
         self.run_tab = None
         self.inspector_tab = None
+        self.collaboration_status_label = None
+        self.collaboration_status_text = tk.StringVar(value='')
         
         self.gemstone_session_record = None
+        self.last_mcp_busy_state = None
+        self.collaboration_sync_after_id = None
 
         self.event_queue.subscribe('LoggedInSuccessfully', self.show_main_app)
         self.event_queue.subscribe('LoggedOut', self.show_login_screen)
         
         self.create_menu()
         self.show_login_screen()
+        self.schedule_collaboration_sync()
 
     @property
     def is_logged_in(self):
@@ -1540,17 +1621,26 @@ class Swordfish(tk.Tk):
 
     def commit(self):
         self.gemstone_session_record.commit()
+        self.integrated_session_state.mark_ide_transaction_inactive()
         self.event_queue.publish('Committed')
         self.publish_model_change_events('transaction')
         
     def abort(self):
         self.gemstone_session_record.abort()
+        self.integrated_session_state.mark_ide_transaction_inactive()
         self.event_queue.publish('Aborted')
         self.publish_model_change_events('transaction')
         
     def logout(self):
+        if self.integrated_session_state.is_mcp_busy():
+            messagebox.showwarning(
+                'MCP Busy',
+                'Logout is disabled while MCP is running an operation.',
+            )
+            return
         self.gemstone_session_record.log_out()
         self.gemstone_session_record = None
+        self.integrated_session_state.detach_ide_session()
         self.event_queue.publish('LoggedOut')
             
     def clear_widgets(self):
@@ -1561,9 +1651,11 @@ class Swordfish(tk.Tk):
         self.debugger_tab = None
         self.run_tab = None
         self.inspector_tab = None
+        self.collaboration_status_label = None
 
     def show_login_screen(self):
         self.clear_widgets()
+        self.collaboration_status_text.set('')
 
         self.login_frame = LoginFrame(
             self,
@@ -1575,14 +1667,21 @@ class Swordfish(tk.Tk):
 
     def show_main_app(self, gemstone_session_record):
         self.gemstone_session_record = gemstone_session_record
+        self.gemstone_session_record.set_integrated_session_state(
+            self.integrated_session_state
+        )
         self.gemstone_session_record.change_event_publisher = (
             self.publish_model_change_events
+        )
+        self.integrated_session_state.attach_ide_session(
+            self.gemstone_session_record.gemstone_session
         )
         
         self.clear_widgets()
 
         self.create_notebook()
         self.add_browser_tab()
+        self.create_collaboration_status_bar()
 
     def publish_model_change_events(self, change_kind):
         if change_kind == 'packages':
@@ -1609,6 +1708,83 @@ class Swordfish(tk.Tk):
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
+    def create_collaboration_status_bar(self):
+        self.collaboration_status_label = ttk.Label(
+            self,
+            textvariable=self.collaboration_status_text,
+            anchor='w',
+        )
+        self.collaboration_status_label.grid(
+            row=1,
+            column=0,
+            sticky='ew',
+            padx=6,
+            pady=(2, 4),
+        )
+        self.rowconfigure(1, weight=0)
+
+    def schedule_collaboration_sync(self):
+        self.collaboration_sync_after_id = self.after(
+            150,
+            self.synchronise_collaboration_state,
+        )
+
+    def apply_collaboration_read_only_state(self, read_only):
+        if self.browser_tab is not None and self.browser_tab.winfo_exists():
+            self.browser_tab.editor_area_widget.set_read_only(read_only)
+        if self.run_tab is not None and self.run_tab.winfo_exists():
+            self.run_tab.set_read_only(read_only)
+
+    def synchronise_collaboration_state(self):
+        if not self.winfo_exists():
+            return
+        mcp_busy = self.integrated_session_state.is_mcp_busy()
+        if self.is_logged_in:
+            pending_change_kinds = (
+                self.integrated_session_state.consume_model_refresh_requests()
+            )
+            for change_kind in pending_change_kinds:
+                self.publish_model_change_events(change_kind)
+        else:
+            self.integrated_session_state.consume_model_refresh_requests()
+        if self.last_mcp_busy_state != mcp_busy:
+            self.last_mcp_busy_state = mcp_busy
+            self.menu_bar.update_menus()
+            self.event_queue.publish(
+                'McpBusyStateChanged',
+                is_busy=mcp_busy,
+                operation_name=(
+                    self.integrated_session_state.current_mcp_operation_name()
+                ),
+            )
+        self.apply_collaboration_read_only_state(mcp_busy)
+        if mcp_busy:
+            operation_name = (
+                self.integrated_session_state.current_mcp_operation_name()
+                or 'unknown'
+            )
+            self.collaboration_status_text.set(
+                'MCP busy: %s. IDE write/run/debug actions are read-only.'
+                % operation_name
+            )
+        elif self.is_logged_in:
+            self.collaboration_status_text.set(
+                'IDE ready. MCP can attach to this session.'
+            )
+        else:
+            self.collaboration_status_text.set('')
+        self.schedule_collaboration_sync()
+
+    def destroy(self):
+        self.integrated_session_state.detach_ide_gui()
+        if self.collaboration_sync_after_id is not None:
+            try:
+                self.after_cancel(self.collaboration_sync_after_id)
+            except tk.TclError:
+                pass
+            self.collaboration_sync_after_id = None
+        super().destroy()
+
     def add_browser_tab(self):
         if self.browser_tab:
             self.browser_tab.destroy()
@@ -1616,6 +1792,12 @@ class Swordfish(tk.Tk):
         self.notebook.add(self.browser_tab, text="Browser")
 
     def open_debugger(self, exception):
+        if self.integrated_session_state.is_mcp_busy():
+            messagebox.showwarning(
+                'MCP Busy',
+                'Debugging is disabled while MCP is running an operation.',
+            )
+            return
         if self.debugger_tab:
             if self.debugger_tab.is_running:
                 response = messagebox.askquestion("Debugger Already Open", "A debugger is already open. Replace it with a new one?", icon='warning', type='okcancel')
@@ -1664,6 +1846,9 @@ class Swordfish(tk.Tk):
         if self.run_tab is None or not self.run_tab.winfo_exists():
             self.run_tab = RunTab(self.notebook, self)
             self.notebook.add(self.run_tab, text='Run')
+        self.run_tab.set_read_only(
+            self.integrated_session_state.is_mcp_busy()
+        )
         self.notebook.select(self.run_tab)
         run_immediately = bool(source and source.strip())
         self.run_tab.present_source(source, run_immediately=run_immediately)
@@ -1794,6 +1979,11 @@ class RunTab(ttk.Frame):
             self.source_text,
             self.source_cursor_position_label,
         )
+        self.application.event_queue.subscribe(
+            'McpBusyStateChanged',
+            self.handle_mcp_busy_state_changed,
+        )
+        self.set_read_only(self.is_read_only())
 
     def configure_text_actions(self):
         self.source_text.bind('<Control-a>', self.select_all_source_text)
@@ -1815,6 +2005,24 @@ class RunTab(ttk.Frame):
 
         self.source_text.bind('<Button-1>', self.close_text_menu, add='+')
         self.result_text.bind('<Button-1>', self.close_text_menu, add='+')
+
+    def is_read_only(self):
+        return self.application.integrated_session_state.is_mcp_busy()
+
+    def set_read_only(self, read_only):
+        source_text_state = tk.NORMAL
+        run_button_state = tk.NORMAL
+        debug_button_state = tk.NORMAL
+        if read_only:
+            source_text_state = tk.DISABLED
+            run_button_state = tk.DISABLED
+            debug_button_state = tk.DISABLED
+        self.source_text.configure(state=source_text_state)
+        self.run_button.configure(state=run_button_state)
+        self.debug_button.configure(state=debug_button_state)
+
+    def handle_mcp_busy_state_changed(self, is_busy=False, operation_name=''):
+        self.set_read_only(is_busy)
 
     def select_all_source_text(self, event=None):
         select_all_in_text_widget(self.source_text)
@@ -1870,6 +2078,9 @@ class RunTab(ttk.Frame):
         return self.source_text.get(start_index, end_index)
 
     def run_selected_source_text(self):
+        if self.is_read_only():
+            self.status_label.config(text='MCP is busy. Run is disabled.')
+            return
         selected_text = self.selected_source_text()
         if not selected_text.strip():
             self.status_label.config(text='Select source text to run')
@@ -1880,10 +2091,16 @@ class RunTab(ttk.Frame):
         try:
             result = self.gemstone_session_record.run_code(selected_text)
             self.on_run_complete(result)
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            self.status_label.config(text=str(domain_exception))
+            self.show_error_in_result_panel(str(domain_exception), None, None)
         except GemstoneError as gemstone_exception:
             self.on_run_error(gemstone_exception)
 
     def inspect_selected_source_text(self):
+        if self.is_read_only():
+            self.status_label.config(text='MCP is busy. Inspect is disabled.')
+            return
         selected_text = self.selected_source_text()
         if not selected_text.strip():
             self.status_label.config(text='Select source text to inspect')
@@ -1895,6 +2112,9 @@ class RunTab(ttk.Frame):
             result = self.gemstone_session_record.run_code(selected_text)
             self.on_run_complete(result)
             self.application.open_inspector_for_object(result)
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            self.status_label.config(text=str(domain_exception))
+            self.show_error_in_result_panel(str(domain_exception), None, None)
         except GemstoneError as gemstone_exception:
             self.on_run_error(gemstone_exception)
 
@@ -1910,6 +2130,12 @@ class RunTab(ttk.Frame):
             self.current_text_menu.unpost()
 
         self.current_text_menu = tk.Menu(self, tearoff=0)
+        read_only = self.is_read_only()
+        paste_command_state = tk.NORMAL
+        undo_command_state = tk.NORMAL
+        if read_only and text_widget is self.source_text:
+            paste_command_state = tk.DISABLED
+            undo_command_state = tk.DISABLED
         self.current_text_menu.add_command(
             label='Select All',
             command=lambda: select_all_in_text_widget(text_widget),
@@ -1922,15 +2148,19 @@ class RunTab(ttk.Frame):
             self.current_text_menu.add_command(
                 label='Paste',
                 command=lambda: paste_text_into_widget(self, text_widget),
+                state=paste_command_state,
             )
         if allow_undo:
             self.current_text_menu.add_command(
                 label='Undo',
                 command=lambda: undo_text_widget_edit(text_widget),
+                state=undo_command_state,
             )
         if include_run_actions:
             has_selection = bool(self.selected_source_text().strip())
             run_command_state = tk.NORMAL if has_selection else tk.DISABLED
+            if self.is_read_only():
+                run_command_state = tk.DISABLED
             self.current_text_menu.add_separator()
             self.current_text_menu.add_command(
                 label='Run',
@@ -1954,14 +2184,22 @@ class RunTab(ttk.Frame):
         return self.application.gemstone_session_record
 
     def present_source(self, source, run_immediately=False):
+        source_text_was_disabled = self.source_text.cget('state') == tk.DISABLED
+        if source_text_was_disabled:
+            self.source_text.configure(state=tk.NORMAL)
         if source and source.strip():
             self.source_text.delete('1.0', tk.END)
             self.source_text.insert(tk.END, source)
             self.source_cursor_position_indicator.update_position()
+        if source_text_was_disabled:
+            self.source_text.configure(state=tk.DISABLED)
         if run_immediately:
             self.run_code_from_editor()
 
     def run_code_from_editor(self):
+        if self.is_read_only():
+            self.status_label.config(text='MCP is busy. Run is disabled.')
+            return
         self.status_label.config(text='Running...')
         self.last_exception = None
         self.clear_source_error_highlight()
@@ -1969,6 +2207,9 @@ class RunTab(ttk.Frame):
             code_to_run = self.source_text.get('1.0', 'end-1c')
             result = self.gemstone_session_record.run_code(code_to_run)
             self.on_run_complete(result)
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            self.status_label.config(text=str(domain_exception))
+            self.show_error_in_result_panel(str(domain_exception), None, None)
         except GemstoneError as gemstone_exception:
             self.on_run_error(gemstone_exception)
 
@@ -2200,6 +2441,9 @@ class RunTab(ttk.Frame):
         return line_number, column_number
 
     def open_debugger(self):
+        if self.is_read_only():
+            self.status_label.config(text='MCP is busy. Debug is disabled.')
+            return
         code_to_run = self.source_text.get('1.0', 'end-1c')
         if not code_to_run.strip():
             self.status_label.config(text='No source to debug')
@@ -2213,6 +2457,10 @@ class RunTab(ttk.Frame):
             self.status_label.config(
                 text='Completed successfully; no debugger context',
             )
+            return
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            self.status_label.config(text=str(domain_exception))
+            self.show_error_in_result_panel(str(domain_exception), None, None)
             return
         except GemstoneError as gemstone_exception:
             self.on_run_error(gemstone_exception)
@@ -2406,7 +2654,14 @@ class PackageSelection(FramedWidget):
         self.selection_list.selection_listbox.selection_clear(0, 'end')
         self.selection_list.selection_listbox.selection_set(idx)
         menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label='Add Package', command=self.add_package)
+        command_state = tk.NORMAL
+        if self.browser_window.application.integrated_session_state.is_mcp_busy():
+            command_state = tk.DISABLED
+        menu.add_command(
+            label='Add Package',
+            command=self.add_package,
+            state=command_state,
+        )
         menu.tk_popup(event.x_root, event.y_root)
 
     def add_package(self):
@@ -2759,8 +3014,22 @@ class ClassSelection(FramedWidget):
             self.selection_list.selection_listbox.selection_clear(0, 'end')
             self.selection_list.selection_listbox.selection_set(idx)
         menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label='Add Class', command=self.add_class)
-        menu.add_command(label='Run All Tests', command=self.run_all_tests)
+        read_only = self.browser_window.application.integrated_session_state.is_mcp_busy()
+        write_command_state = tk.NORMAL
+        run_command_state = tk.NORMAL
+        if read_only:
+            write_command_state = tk.DISABLED
+            run_command_state = tk.DISABLED
+        menu.add_command(
+            label='Add Class',
+            command=self.add_class,
+            state=write_command_state,
+        )
+        menu.add_command(
+            label='Run All Tests',
+            command=self.run_all_tests,
+            state=run_command_state,
+        )
         menu.tk_popup(event.x_root, event.y_root)
 
     def add_class(self):
@@ -2861,6 +3130,8 @@ class ClassSelection(FramedWidget):
         try:
             result = self.gemstone_session_record.run_gemstone_tests(class_name)
             self.show_test_result(result)
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            messagebox.showerror('Run All Tests', str(domain_exception))
         except GemstoneError as e:
             self.browser_window.application.open_debugger(e)
 
@@ -3212,10 +3483,28 @@ class MethodSelection(FramedWidget):
             listbox.selection_clear(0, 'end')
             listbox.selection_set(idx)
         menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label='Add Method', command=self.add_method)
+        read_only = self.browser_window.application.integrated_session_state.is_mcp_busy()
+        write_command_state = tk.NORMAL
+        run_command_state = tk.NORMAL
+        if read_only:
+            write_command_state = tk.DISABLED
+            run_command_state = tk.DISABLED
+        menu.add_command(
+            label='Add Method',
+            command=self.add_method,
+            state=write_command_state,
+        )
         menu.add_separator()
-        menu.add_command(label='Run Test', command=self.run_test)
-        menu.add_command(label='Debug Test', command=self.debug_test)
+        menu.add_command(
+            label='Run Test',
+            command=self.run_test,
+            state=run_command_state,
+        )
+        menu.add_command(
+            label='Debug Test',
+            command=self.debug_test,
+            state=run_command_state,
+        )
         menu.tk_popup(event.x_root, event.y_root)
 
     def run_test(self):
@@ -3228,6 +3517,8 @@ class MethodSelection(FramedWidget):
         try:
             result = self.gemstone_session_record.run_test_method(class_name, method_selector)
             self.show_test_result(result)
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            messagebox.showerror('Run Test', str(domain_exception))
         except GemstoneError as e:
             self.browser_window.application.open_debugger(e)
 
@@ -3240,6 +3531,8 @@ class MethodSelection(FramedWidget):
         method_selector = listbox.get(selection[0])
         try:
             self.gemstone_session_record.debug_test_method(class_name, method_selector)
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            messagebox.showerror('Debug Test', str(domain_exception))
         except GemstoneError as e:
             self.browser_window.application.open_debugger(e)
 
@@ -3365,7 +3658,14 @@ class MethodEditor(FramedWidget):
         self.event_queue.subscribe('MethodsChanged', self.repopulate)
         self.event_queue.subscribe('Committed', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
+        self.event_queue.subscribe(
+            'McpBusyStateChanged',
+            self.handle_mcp_busy_state_changed,
+        )
         self.refresh_navigation_controls()
+        self.set_read_only(
+            self.browser_window.application.integrated_session_state.is_mcp_busy()
+        )
 
     def repopulate(self, origin=None):
         for key, tab in dict(self.open_tabs).items():
@@ -3489,6 +3789,16 @@ class MethodEditor(FramedWidget):
         self.editor_notebook.add(new_tab, text=selected_method_symbol)
         self.editor_notebook.select(new_tab)
         self.open_tabs[method_context] = new_tab
+        new_tab.code_panel.set_read_only(
+            self.browser_window.application.integrated_session_state.is_mcp_busy()
+        )
+
+    def set_read_only(self, read_only):
+        for open_tab in self.open_tabs.values():
+            open_tab.code_panel.set_read_only(read_only)
+
+    def handle_mcp_busy_state_changed(self, is_busy=False, operation_name=''):
+        self.set_read_only(is_busy)
 
     def on_tab_motion(self, event):
         try:
@@ -3577,6 +3887,15 @@ class CodePanel(tk.Frame):
 
         self.current_context_menu = None
         self.text_editor.bind("<Button-1>", self.close_context_menu, add="+")
+
+    def is_read_only(self):
+        return self.application.integrated_session_state.is_mcp_busy()
+
+    def set_read_only(self, read_only):
+        text_state = tk.NORMAL
+        if read_only:
+            text_state = tk.DISABLED
+        self.text_editor.configure(state=text_state)
 
     @property
     def gemstone_session_record(self):
@@ -3710,6 +4029,12 @@ class CodePanel(tk.Frame):
             self.current_context_menu.unpost()
 
         self.current_context_menu = tk.Menu(self, tearoff=0)
+        read_only = self.is_read_only()
+        write_command_state = tk.NORMAL
+        run_command_state = tk.NORMAL
+        if read_only:
+            write_command_state = tk.DISABLED
+            run_command_state = tk.DISABLED
         self.current_context_menu.add_command(
             label='Select All',
             command=self.select_all_text_editor,
@@ -3721,10 +4046,12 @@ class CodePanel(tk.Frame):
         self.current_context_menu.add_command(
             label='Paste',
             command=self.paste_into_text_editor,
+            state=write_command_state,
         )
         self.current_context_menu.add_command(
             label='Undo',
             command=self.undo_text_editor,
+            state=write_command_state,
         )
         self.current_context_menu.add_separator()
         active_editor_tab = self.active_editor_tab()
@@ -3737,6 +4064,7 @@ class CodePanel(tk.Frame):
             self.current_context_menu.add_command(
                 label='Save',
                 command=self.save_current_tab,
+                state=write_command_state,
             )
             self.current_context_menu.add_command(
                 label='Close',
@@ -3748,6 +4076,7 @@ class CodePanel(tk.Frame):
             self.current_context_menu.add_command(
                 label='Run',
                 command=lambda: self.run_selected_text(selected_text),
+                state=run_command_state,
             )
             self.current_context_menu.add_separator()
         self.current_context_menu.add_command(
@@ -3779,26 +4108,32 @@ class CodePanel(tk.Frame):
         self.current_context_menu.add_command(
             label='Apply Rename Method',
             command=self.apply_method_rename,
+            state=write_command_state,
         )
         self.current_context_menu.add_command(
             label='Apply Move Method',
             command=self.apply_method_move,
+            state=write_command_state,
         )
         self.current_context_menu.add_command(
             label='Apply Add Parameter',
             command=self.apply_method_add_parameter,
+            state=write_command_state,
         )
         self.current_context_menu.add_command(
             label='Apply Remove Parameter',
             command=self.apply_method_remove_parameter,
+            state=write_command_state,
         )
         self.current_context_menu.add_command(
             label='Apply Extract Method',
             command=self.apply_method_extract,
+            state=write_command_state,
         )
         self.current_context_menu.add_command(
             label='Apply Inline Method',
             command=self.apply_method_inline,
+            state=write_command_state,
         )
         self.current_context_menu.post(event.x_root, event.y_root)
 
@@ -3846,6 +4181,12 @@ class CodePanel(tk.Frame):
             self.current_context_menu = None
 
     def run_selected_text(self, selected_text):
+        if self.is_read_only():
+            messagebox.showwarning(
+                'Read Only',
+                'MCP is busy. Run is disabled until MCP finishes.',
+            )
+            return
         self.application.run_code(selected_text)
 
     def open_implementors_from_source(self):
@@ -4687,6 +5028,11 @@ class CodePanel(tk.Frame):
         self.apply_syntax_highlighting(text)
 
     def refresh(self, source, mark=None):
+        text_editor_was_disabled = (
+            self.text_editor.cget('state') == tk.DISABLED
+        )
+        if text_editor_was_disabled:
+            self.text_editor.configure(state=tk.NORMAL)
         self.text_editor.delete("1.0", tk.END)
         self.text_editor.insert("1.0", source)
         if mark is not None and mark >= 0:
@@ -4694,6 +5040,8 @@ class CodePanel(tk.Frame):
             self.text_editor.tag_add("highlight", position, f"{position} + 1c")
         self.apply_syntax_highlighting(source)
         self.cursor_position_indicator.update_position()
+        if text_editor_was_disabled:
+            self.text_editor.configure(state=tk.DISABLED)
         
 
 class EditorTab(tk.Frame):
@@ -5418,9 +5766,9 @@ class LoginFrame(ttk.Frame):
             self.error_label.grid(column=0,row=6,columnspan=2)           
 
 
-def run_application():
+def new_application_argument_parser(default_mode='ide'):
     argument_parser = argparse.ArgumentParser(
-        description='Run Swordfish IDE.'
+        description='Run Swordfish IDE and MCP server.'
     )
     argument_parser.add_argument(
         'stone_name',
@@ -5428,9 +5776,110 @@ def run_application():
         default='gs64stone',
         help='GemStone stone name to prefill in login form.',
     )
+    argument_parser.add_argument(
+        '--mode',
+        default=default_mode,
+        choices=['ide', 'mcp-headless', 'mcp-gui'],
+        help=(
+            'Run mode: ide (GUI only), mcp-headless (MCP only), '
+            'or mcp-gui (MCP with GUI).'
+        ),
+    )
+    argument_parser.add_argument(
+        '--transport',
+        default='stdio',
+        choices=['stdio'],
+        help='MCP transport type.',
+    )
+    argument_parser.add_argument(
+        '--allow-eval',
+        action='store_true',
+        help='Enable gs_eval and gs_debug_eval (disabled by default).',
+    )
+    argument_parser.add_argument(
+        '--allow-compile',
+        action='store_true',
+        help='Enable gs_compile_method tool (disabled by default).',
+    )
+    argument_parser.add_argument(
+        '--allow-commit',
+        action='store_true',
+        help='Enable gs_commit tool (disabled by default).',
+    )
+    argument_parser.add_argument(
+        '--allow-mcp-commit-when-gui',
+        action='store_true',
+        help=(
+            'Allow gs_commit even when MCP is attached to an IDE-owned '
+            'session (disabled by default).'
+        ),
+    )
+    argument_parser.add_argument(
+        '--eval-approval-code',
+        default='',
+        help=(
+            'Human approval code required by gs_eval and gs_debug_eval. '
+            'Required when --allow-eval is enabled.'
+        ),
+    )
+    argument_parser.add_argument(
+        '--allow-tracing',
+        action='store_true',
+        help='Enable gs_tracer_* and evidence tools (disabled by default).',
+    )
+    argument_parser.add_argument(
+        '--require-gemstone-ast',
+        action='store_true',
+        help=(
+            'Require real GemStone AST backend for refactoring tools. '
+            'When enabled, heuristic refactorings are blocked.'
+        ),
+    )
+    return argument_parser
+
+
+def run_mcp_server(arguments, integrated_session_state=None):
+    mcp_server = create_server(
+        allow_eval=arguments.allow_eval,
+        allow_compile=arguments.allow_compile,
+        allow_commit=arguments.allow_commit,
+        allow_tracing=arguments.allow_tracing,
+        eval_approval_code=arguments.eval_approval_code,
+        allow_commit_when_gui=arguments.allow_mcp_commit_when_gui,
+        integrated_session_state=integrated_session_state,
+        require_gemstone_ast=arguments.require_gemstone_ast,
+    )
+    mcp_server.run(transport=arguments.transport)
+
+
+def validate_application_arguments(argument_parser, arguments):
+    if arguments.allow_eval and not arguments.eval_approval_code.strip():
+        argument_parser.error('--allow-eval requires --eval-approval-code.')
+
+
+def run_application(default_mode='ide'):
+    argument_parser = new_application_argument_parser(default_mode=default_mode)
     arguments = argument_parser.parse_args()
-    app = Swordfish(default_stone_name=arguments.stone_name)
-    app.mainloop()
+    validate_application_arguments(argument_parser, arguments)
+    if arguments.mode == 'ide':
+        app = Swordfish(default_stone_name=arguments.stone_name)
+        app.mainloop()
+        return
+    if arguments.mode == 'mcp-gui':
+        integrated_session_state = current_integrated_session_state()
+        app = Swordfish(default_stone_name=arguments.stone_name)
+        mcp_server_thread = threading.Thread(
+            target=run_mcp_server,
+            kwargs={
+                'arguments': arguments,
+                'integrated_session_state': integrated_session_state,
+            },
+            daemon=True,
+        )
+        mcp_server_thread.start()
+        app.mainloop()
+        return
+    run_mcp_server(arguments)
 
 if __name__ == "__main__":
     run_application()

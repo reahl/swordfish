@@ -1,6 +1,7 @@
 import inspect
 
 from reahl.swordfish import __version__
+from reahl.swordfish.mcp.integration_state import current_integrated_session_state
 
 
 class McpDependencyNotInstalled(Exception):
@@ -24,10 +25,14 @@ def create_server(
     allow_commit=False,
     allow_tracing=False,
     eval_approval_code='',
+    allow_commit_when_gui=False,
+    integrated_session_state=None,
     require_gemstone_ast=False,
 ):
     if allow_eval and not eval_approval_code.strip():
         raise ValueError('allow_eval requires eval_approval_code.')
+    if integrated_session_state is None:
+        integrated_session_state = current_integrated_session_state()
     fast_mcp = import_fast_mcp()
     register_tools = import_tool_registration()
     try:
@@ -59,6 +64,8 @@ def create_server(
         allow_commit=allow_commit,
         allow_tracing=allow_tracing,
         eval_approval_code=eval_approval_code,
+        allow_commit_when_gui=allow_commit_when_gui,
+        integrated_session_state=integrated_session_state,
         require_gemstone_ast=require_gemstone_ast,
     )
     return mcp_server
