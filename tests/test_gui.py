@@ -25,6 +25,7 @@ from reahl.swordfish.main import GemstoneSessionRecord
 from reahl.swordfish.main import InspectorTab
 from reahl.swordfish.main import ObjectInspector
 from reahl.swordfish.main import run_application
+from reahl.swordfish.main import run_mcp_server
 from reahl.swordfish.main import SendersDialog
 from reahl.swordfish.main import Swordfish
 
@@ -257,6 +258,31 @@ def test_add_package_creates_installs_and_selects_package(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_delete_package_removes_selected_package_and_clears_selection(fixture):
+    """AI: Deleting a selected package should invoke browser deletion and clear package/class/method selection."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        'Kernel',
+    )
+    fixture.mock_browser.list_packages.return_value = ['Collections']
+
+    with patch('reahl.swordfish.main.messagebox.askyesno', return_value=True):
+        fixture.browser_window.packages_widget.delete_package()
+        fixture.root.update()
+
+    fixture.mock_browser.delete_package.assert_called_once_with('Kernel')
+    assert fixture.session_record.selected_package is None
+    assert fixture.session_record.selected_class is None
+    assert fixture.session_record.selected_method_symbol is None
+    assert list(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox.get(
+            0,
+            'end',
+        )
+    ) == ['Collections']
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_add_class_creates_in_selected_package_and_selects_it(fixture):
     """AI: Adding a class from the class pane should create it in the selected package and make it the selected class."""
     fixture.select_in_listbox(
@@ -281,6 +307,37 @@ def test_add_class_creates_in_selected_package_and_selects_it(fixture):
     assert fixture.selected_listbox_entry(
         fixture.browser_window.classes_widget.selection_list.selection_listbox
     ) == 'Invoice'
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_delete_class_removes_selected_class_and_clears_method_selection(fixture):
+    """AI: Deleting a selected class should remove it from the package and clear class/method selection state."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        'Kernel',
+    )
+    fixture.select_in_listbox(
+        fixture.browser_window.classes_widget.selection_list.selection_listbox,
+        'OrderLine',
+    )
+    fixture.mock_browser.list_classes.return_value = ['Order']
+
+    with patch('reahl.swordfish.main.messagebox.askyesno', return_value=True):
+        fixture.browser_window.classes_widget.delete_class()
+        fixture.root.update()
+
+    fixture.mock_browser.delete_class.assert_called_once_with(
+        'OrderLine',
+        in_dictionary='Kernel',
+    )
+    assert fixture.session_record.selected_class is None
+    assert fixture.session_record.selected_method_symbol is None
+    assert list(
+        fixture.browser_window.classes_widget.selection_list.selection_listbox.get(
+            0,
+            'end',
+        )
+    ) == ['Order']
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -352,6 +409,30 @@ def test_add_method_generates_keyword_template_argument_names(fixture):
         'copyFrom: argument1 to: argument2\n    ^self',
         method_category='as yet unclassified',
     )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_delete_method_removes_selected_method_from_class(fixture):
+    """AI: Deleting a selected method should remove it from the class and clear selected method state."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    fixture.mock_browser.list_methods.return_value = ['description']
+
+    with patch('reahl.swordfish.main.messagebox.askyesno', return_value=True):
+        fixture.browser_window.methods_widget.delete_method()
+        fixture.root.update()
+
+    fixture.mock_browser.delete_method.assert_called_once_with(
+        'OrderLine',
+        'total',
+        True,
+    )
+    assert fixture.session_record.selected_method_symbol is None
+    assert list(
+        fixture.browser_window.methods_widget.selection_list.selection_listbox.get(
+            0,
+            'end',
+        )
+    ) == ['description']
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -1017,6 +1098,35 @@ def test_run_application_starts_headless_mcp_when_mode_is_mcp_headless():
     mock_run_mcp_server.assert_called_once()
 
 
+def test_run_application_passes_streamable_http_configuration_to_mcp():
+    """AI: mcp-headless mode should pass streamable-http host/port/path options into MCP startup arguments."""
+    with patch('reahl.swordfish.main.Swordfish') as mock_swordfish:
+        with patch('reahl.swordfish.main.run_mcp_server') as mock_run_mcp_server:
+            with patch(
+                'sys.argv',
+                [
+                    'swordfish',
+                    '--mode',
+                    'mcp-headless',
+                    '--transport',
+                    'streamable-http',
+                    '--mcp-host',
+                    '127.0.0.1',
+                    '--mcp-port',
+                    '9177',
+                    '--mcp-http-path',
+                    '/running-ide',
+                ],
+            ):
+                run_application()
+    mock_swordfish.assert_not_called()
+    application_arguments = mock_run_mcp_server.call_args.args[0]
+    assert application_arguments.transport == 'streamable-http'
+    assert application_arguments.mcp_host == '127.0.0.1'
+    assert application_arguments.mcp_port == 9177
+    assert application_arguments.mcp_http_path == '/running-ide'
+
+
 def test_run_application_starts_gui_and_mcp_when_mode_is_mcp_gui():
     """AI: mcp-gui mode should launch the GUI and start MCP in a background thread."""
     with patch('reahl.swordfish.main.run_mcp_server') as mock_run_mcp_server:
@@ -1040,6 +1150,41 @@ def test_run_application_starts_gui_and_mcp_when_mode_is_mcp_gui():
     thread_instance.start.assert_called_once()
     app_instance.mainloop.assert_called_once()
     mock_run_mcp_server.assert_not_called()
+
+
+def test_run_mcp_server_passes_streamable_http_options_to_create_server():
+    """AI: MCP startup should forward host/port/path options to create_server and run with the requested transport."""
+    arguments = types.SimpleNamespace(
+        allow_eval=False,
+        allow_compile=True,
+        allow_commit=False,
+        allow_tracing=True,
+        eval_approval_code='',
+        allow_mcp_commit_when_gui=False,
+        require_gemstone_ast=False,
+        mcp_host='127.0.0.1',
+        mcp_port=9177,
+        mcp_http_path='/running-ide',
+        transport='streamable-http',
+    )
+    with patch('reahl.swordfish.main.create_server') as create_server:
+        mock_server = Mock()
+        create_server.return_value = mock_server
+        run_mcp_server(arguments)
+    create_server.assert_called_once_with(
+        allow_eval=False,
+        allow_compile=True,
+        allow_commit=False,
+        allow_tracing=True,
+        eval_approval_code='',
+        allow_commit_when_gui=False,
+        integrated_session_state=None,
+        require_gemstone_ast=False,
+        mcp_host='127.0.0.1',
+        mcp_port=9177,
+        mcp_streamable_http_path='/running-ide',
+    )
+    mock_server.run.assert_called_once_with(transport='streamable-http')
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -1567,6 +1712,101 @@ def test_completed_debugger_can_be_dismissed_with_close_button(fixture):
         for tab_id in fixture.app.notebook.tabs()
     ]
     assert 'Debugger' not in tab_labels
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugger_browse_method_navigates_to_selected_stack_frame_method(fixture):
+    """AI: Browse Method on debugger should navigate the browser to the selected stack frame method."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+
+    fixture.app.run_code('1/0')
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    debugger_tab = fixture.app.debugger_tab
+    frame = types.SimpleNamespace(
+        class_name='OrderLine',
+        method_name='total',
+    )
+
+    with patch.object(
+        debugger_tab,
+        'get_selected_stack_frame',
+        return_value=frame,
+    ):
+        with patch.object(
+            fixture.app,
+            'handle_sender_selection',
+        ) as handle_sender_selection:
+            debugger_tab.open_selected_frame_method()
+
+    handle_sender_selection.assert_called_once_with(
+        'OrderLine',
+        True,
+        'total',
+    )
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugger_browse_method_maps_class_side_frames_to_class_side_selection(fixture):
+    """AI: Class-side stack frames should browse to the class side in the browser."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+
+    fixture.app.run_code('1/0')
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    debugger_tab = fixture.app.debugger_tab
+    frame = types.SimpleNamespace(
+        class_name='OrderLine class',
+        method_name='buildForDemo',
+    )
+
+    with patch.object(
+        debugger_tab,
+        'get_selected_stack_frame',
+        return_value=frame,
+    ):
+        with patch.object(
+            fixture.app,
+            'handle_sender_selection',
+        ) as handle_sender_selection:
+            debugger_tab.open_selected_frame_method()
+
+    handle_sender_selection.assert_called_once_with(
+        'OrderLine',
+        False,
+        'buildForDemo',
+    )
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugger_browse_button_dispatches_to_browse_selected_frame_method(fixture):
+    """AI: Browse Method debugger control should invoke debugger frame browsing action."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+
+    fixture.app.run_code('1/0')
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    debugger_tab = fixture.app.debugger_tab
+
+    with patch.object(
+        debugger_tab,
+        'open_selected_frame_method',
+    ) as open_selected_frame_method:
+        debugger_tab.debugger_controls.browse_button.invoke()
+
+    open_selected_frame_method.assert_called_once_with()
 
 
 @with_fixtures(SwordfishAppFixture)

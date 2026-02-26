@@ -24,13 +24,15 @@ services:
       - BUILDKIT_PROGRESS=plain
       - ENABLE_SSHD=${ENABLE_SSHD:-false}
       - SSH_PORT=${SF_SSH_PORT:-2222}
-      - SSH_BIND_ADDRESS=${SF_SSH_BIND_ADDRESS:-127.0.0.1}
+      - SSH_BIND_ADDRESS=0.0.0.0
       - SSH_AUTHORIZED_KEY=${SF_SSH_AUTHORIZED_KEY:-}
       # Pass host user information to container
       - USER_ID=${HOST_UID:-1000}
       - GROUP_ID=${HOST_GID:-1000} 
       - USERNAME=${HOST_USER:-developer}
-    network_mode: host
+    ports:
+      - ${SF_SSH_BIND_ADDRESS:-127.0.0.1}:${SF_SSH_PORT:-2222}:${SF_SSH_PORT:-2222}
+      - ${SF_MCP_BIND_ADDRESS:-127.0.0.1}:${SF_MCP_PORT:-9177}:${SF_MCP_PORT:-9177}
     stdin_open: true
     tty: true
     working_dir: /workspace

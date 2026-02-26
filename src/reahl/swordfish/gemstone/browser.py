@@ -233,6 +233,38 @@ class GemstoneBrowserSession:
         self.create_package(package_name)
         return self.install_package(package_name)
 
+    def delete_package(self, package_name):
+        class_names = self.list_classes(package_name)
+        for class_name in class_names:
+            self.delete_class(class_name, in_dictionary=package_name)
+        package_name_literal = self.smalltalk_string_literal(package_name)
+        return self.run_code(
+            (
+                '| packageName packageLibrary packageSelectors |\n'
+                'packageName := %s.\n'
+                'packageLibrary := GsPackageLibrary.\n'
+                "packageSelectors := #(#uninstallPackageNamed: #removePackageNamed: #deletePackageNamed:).\n"
+                '[ ClassOrganizer new removeCategory: packageName ] on: Error do: [ ].\n'
+                'packageSelectors do: [ :selector |\n'
+                '    (packageLibrary respondsTo: selector) ifTrue: [\n'
+                '        [ packageLibrary perform: selector with: packageName ]\n'
+                '            on: Error do: [ ].\n'
+                '    ].\n'
+                '    ((packageLibrary respondsTo: #packageLibrary)\n'
+                '        and: [ packageLibrary packageLibrary respondsTo: selector ])\n'
+                '            ifTrue: [\n'
+                '                [\n'
+                '                    packageLibrary packageLibrary\n'
+                '                        perform: selector\n'
+                '                        with: packageName\n'
+                '                ] on: Error do: [ ].\n'
+                '            ].\n'
+                '].\n'
+                'true'
+            )
+            % package_name_literal
+        )
+
     def list_classes(self, package_name):
         if not package_name:
             return []
