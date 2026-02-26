@@ -1,4 +1,10 @@
-(UserGlobals includesKey: #SwordfishMcpTracer)
+| symbolList swordfishDictionary |
+symbolList := System myUserProfile symbolList.
+swordfishDictionary := symbolList objectNamed: #Swordfish.
+swordfishDictionary ifNil: [
+    Error signal: 'Swordfish package is not installed.'
+].
+(swordfishDictionary includesKey: #SwordfishMcpTracer)
     ifFalse: [
         Object
             subclass: #SwordfishMcpTracer
@@ -6,7 +12,7 @@
             classVars: #()
             classInstVars: #()
             poolDictionaries: #()
-            inDictionary: UserGlobals
+            inDictionary: swordfishDictionary
     ].
 UserGlobals at: #SwordfishMcpTracerEnabled put: false.
 true

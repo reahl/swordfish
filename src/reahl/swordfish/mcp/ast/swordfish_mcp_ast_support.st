@@ -1,15 +1,19 @@
-| symbolList astClass |
+| symbolList swordfishDictionary astClass |
 symbolList := System myUserProfile symbolList.
-(UserGlobals includesKey: #SwordfishMcpAstSupport)
+swordfishDictionary := symbolList objectNamed: #Swordfish.
+swordfishDictionary ifNil: [
+    Error signal: 'Swordfish package is not installed.'
+].
+(swordfishDictionary includesKey: #SwordfishMcpAstSupport)
     ifFalse: [
         Object subclass: #SwordfishMcpAstSupport
             instVarNames: #()
             classVars: #()
             classInstVars: #()
             poolDictionaries: #()
-            inDictionary: UserGlobals
+            inDictionary: swordfishDictionary
     ].
-astClass := UserGlobals at: #SwordfishMcpAstSupport.
+astClass := swordfishDictionary at: #SwordfishMcpAstSupport.
 astClass class
     compileMethod: 'argumentNamesForCompiledMethod: aCompiledMethod
     | argsAndTemps argumentCount names |

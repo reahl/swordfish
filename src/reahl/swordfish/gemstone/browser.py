@@ -91,6 +91,8 @@ class GemstoneBrowserSession:
         )
 
     def install_or_refresh_ast_support(self):
+        if not self.package_exists('Swordfish'):
+            self.create_and_install_package('Swordfish')
         self.run_code(ast_support_source())
         self.run_code(self.ast_support_manifest_install_script())
         self.real_gemstone_ast_backend_available = None
@@ -110,7 +112,16 @@ class GemstoneBrowserSession:
                     self.real_gemstone_ast_backend_available = False
                     return False
                 ast_support_exists = self.gemstone_session.execute(
-                    'UserGlobals includesKey: #SwordfishMcpAstSupport'
+                    (
+                        '| swordfishDictionary |\n'
+                        'swordfishDictionary := '
+                        'System myUserProfile symbolList '
+                        'objectNamed: #Swordfish.\n'
+                        'swordfishDictionary notNil and: [\n'
+                        '    swordfishDictionary includesKey: '
+                        '#SwordfishMcpAstSupport\n'
+                        ']'
+                    )
                 ).to_py
                 if not ast_support_exists:
                     self.real_gemstone_ast_backend_available = False
