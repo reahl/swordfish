@@ -282,6 +282,77 @@ def test_add_class_creates_in_selected_package_and_selects_it(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_add_method_compiles_template_in_as_yet_unclassified_and_opens_tab(fixture):
+    """AI: Adding a method compiles a starter template in as yet unclassified and opens that method in the editor."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        'Kernel',
+    )
+    fixture.select_in_listbox(
+        fixture.browser_window.classes_widget.selection_list.selection_listbox,
+        'OrderLine',
+    )
+    fixture.mock_browser.list_method_categories.return_value = [
+        'accessing',
+        'testing',
+        'as yet unclassified',
+    ]
+
+    with patch(
+        'reahl.swordfish.main.simpledialog.askstring',
+        return_value='calculateTotal',
+    ):
+        fixture.browser_window.methods_widget.add_method()
+        fixture.root.update()
+
+    fixture.mock_browser.compile_method.assert_called_once_with(
+        'OrderLine',
+        True,
+        'calculateTotal\n    ^self',
+        method_category='as yet unclassified',
+    )
+    assert fixture.session_record.selected_method_category == 'as yet unclassified'
+    assert fixture.session_record.selected_method_symbol == 'calculateTotal'
+    assert (
+        'OrderLine',
+        True,
+        'calculateTotal',
+    ) in fixture.browser_window.editor_area_widget.open_tabs
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_add_method_generates_keyword_template_argument_names(fixture):
+    """AI: Keyword selectors are prepopulated with argument placeholders so the generated method source compiles."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        'Kernel',
+    )
+    fixture.select_in_listbox(
+        fixture.browser_window.classes_widget.selection_list.selection_listbox,
+        'OrderLine',
+    )
+    fixture.mock_browser.list_method_categories.return_value = [
+        'accessing',
+        'testing',
+        'as yet unclassified',
+    ]
+
+    with patch(
+        'reahl.swordfish.main.simpledialog.askstring',
+        return_value='copyFrom:to:',
+    ):
+        fixture.browser_window.methods_widget.add_method()
+        fixture.root.update()
+
+    fixture.mock_browser.compile_method.assert_called_once_with(
+        'OrderLine',
+        True,
+        'copyFrom: argument1 to: argument2\n    ^self',
+        method_category='as yet unclassified',
+    )
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_selecting_method_opens_editor_tab(fixture):
     """Choosing a method from the method list opens a new editor tab
     containing that method's source code."""

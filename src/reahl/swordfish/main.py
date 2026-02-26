@@ -535,6 +535,20 @@ class GemstoneSessionRecord:
             source,
         )
 
+    def create_method(
+        self,
+        selected_class,
+        show_instance_side,
+        source,
+        method_category='as yet unclassified',
+    ):
+        self.gemstone_browser_session.compile_method(
+            selected_class,
+            show_instance_side,
+            source,
+            method_category=method_category,
+        )
+
     def run_code(self, source):
         return self.gemstone_browser_session.run_code(source)
 
@@ -2204,14 +2218,23 @@ class MethodSelection(FramedWidget):
         # Create InteractiveSelectionList for methods
         self.selection_list = InteractiveSelectionList(self, self.get_all_methods, self.get_selected_method, self.select_method)
         self.selection_list.grid(row=0, column=0, sticky="nsew")
+        self.controls_frame = ttk.Frame(self)
+        self.controls_frame.grid(row=1, column=0, sticky='ew')
+        self.controls_frame.columnconfigure(0, weight=1)
         self.show_method_hierarchy_var = tk.BooleanVar(value=False)
         self.show_method_hierarchy_checkbox = tk.Checkbutton(
-            self,
+            self.controls_frame,
             text='Show Method Inheritance',
             variable=self.show_method_hierarchy_var,
             command=self.toggle_method_hierarchy,
         )
-        self.show_method_hierarchy_checkbox.grid(row=1, column=0, sticky='w')
+        self.show_method_hierarchy_checkbox.grid(row=0, column=0, sticky='w')
+        self.add_method_button = tk.Button(
+            self.controls_frame,
+            text='Add Method',
+            command=self.add_method,
+        )
+        self.add_method_button.grid(row=0, column=1, sticky='e')
         self.method_hierarchy_tree = ttk.Treeview(
             self,
             show='tree',
@@ -2270,6 +2293,92 @@ class MethodSelection(FramedWidget):
         if self.show_method_hierarchy_var.get():
             self.refresh_method_hierarchy()
         self.event_queue.publish('MethodSelected', origin=self)
+
+    def new_method_argument_names(self, method_selector):
+        selector_tokens = self.keyword_selector_tokens(method_selector)
+        if selector_tokens:
+            return [
+                f'argument{index + 1}'
+                for index in range(len(selector_tokens))
+            ]
+        if self.is_binary_selector(method_selector):
+            return ['argument1']
+        return []
+
+    def keyword_selector_tokens(self, method_selector):
+        if ':' not in method_selector:
+            return []
+        selector_parts = method_selector.split(':')
+        if not selector_parts or selector_parts[-1] != '':
+            return []
+        keyword_tokens = []
+        for selector_part in selector_parts[:-1]:
+            is_valid_selector_part = re.fullmatch(
+                r'[A-Za-z][A-Za-z0-9_]*',
+                selector_part,
+            )
+            if is_valid_selector_part is None:
+                return []
+            keyword_tokens.append(f'{selector_part}:')
+        return keyword_tokens
+
+    def is_binary_selector(self, method_selector):
+        if not method_selector:
+            return False
+        binary_characters = '+-*/\\~<>=@%,|&?!'
+        return all(
+            character in binary_characters
+            for character in method_selector
+        )
+
+    def new_method_header(self, method_selector):
+        selector_tokens = self.keyword_selector_tokens(method_selector)
+        argument_names = self.new_method_argument_names(method_selector)
+        if selector_tokens:
+            return ' '.join(
+                [
+                    f'{selector_tokens[token_index]} {argument_names[token_index]}'
+                    for token_index in range(len(selector_tokens))
+                ]
+            )
+        if self.is_binary_selector(method_selector):
+            return f'{method_selector} {argument_names[0]}'
+        return method_selector
+
+    def new_method_source(self, method_selector):
+        method_header = self.new_method_header(method_selector)
+        return f'{method_header}\n    ^self'
+
+    def add_method(self):
+        selected_class = self.gemstone_session_record.selected_class
+        if not selected_class:
+            messagebox.showerror('Add Method', 'Select a class first.')
+            return
+        method_selector = simpledialog.askstring('Add Method', 'Method selector:')
+        if method_selector is None:
+            return
+        method_selector = method_selector.strip()
+        if not method_selector:
+            return
+        method_category = 'as yet unclassified'
+        show_instance_side = self.gemstone_session_record.show_instance_side
+        try:
+            method_source = self.new_method_source(method_selector)
+            self.gemstone_session_record.create_method(
+                selected_class,
+                show_instance_side,
+                method_source,
+                method_category=method_category,
+            )
+            self.gemstone_session_record.select_method_category(method_category)
+            self.gemstone_session_record.select_method_symbol(method_selector)
+            if self.show_method_hierarchy_var.get():
+                self.refresh_method_hierarchy()
+            self.event_queue.publish('SelectedClassChanged', origin=self)
+            self.event_queue.publish('SelectedCategoryChanged', origin=self)
+            self.event_queue.publish('MethodSelected', origin=self)
+        except (GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror('Add Method', str(error))
 
     def toggle_method_hierarchy(self):
         if self.show_method_hierarchy_var.get():
@@ -2386,10 +2495,14 @@ class MethodSelection(FramedWidget):
         self.event_queue.publish('MethodSelected', origin=self)
 
     def show_context_menu(self, event):
-        idx = self.selection_list.selection_listbox.nearest(event.y)
-        self.selection_list.selection_listbox.selection_clear(0, 'end')
-        self.selection_list.selection_listbox.selection_set(idx)
+        listbox = self.selection_list.selection_listbox
+        if listbox.size():
+            idx = listbox.nearest(event.y)
+            listbox.selection_clear(0, 'end')
+            listbox.selection_set(idx)
         menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label='Add Method', command=self.add_method)
+        menu.add_separator()
         menu.add_command(label='Run Test', command=self.run_test)
         menu.add_command(label='Debug Test', command=self.debug_test)
         menu.tk_popup(event.x_root, event.y_root)
