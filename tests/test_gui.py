@@ -15,6 +15,7 @@ from reahl.tofu import with_fixtures
 
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
+from reahl.swordfish.mcp.integration_state import IntegratedSessionState
 from reahl.swordfish.main import BrowserWindow
 from reahl.swordfish.main import DomainException
 from reahl.swordfish.main import EventQueue
@@ -34,6 +35,7 @@ class FakeApplication:
     def __init__(self, event_queue, gemstone_session_record):
         self.event_queue = event_queue
         self.gemstone_session_record = gemstone_session_record
+        self.integrated_session_state = IntegratedSessionState()
 
     def handle_sender_selection(self, class_name, show_instance_side, method_symbol):
         if self.gemstone_session_record.gemstone_session is not None:
@@ -1005,6 +1007,41 @@ def test_run_application_uses_cli_stone_name_when_given():
         app_instance.mainloop.assert_called_once()
 
 
+def test_run_application_starts_headless_mcp_when_mode_is_mcp_headless():
+    """AI: mcp-headless mode should run only the MCP server and not construct the GUI."""
+    with patch('reahl.swordfish.main.Swordfish') as mock_swordfish:
+        with patch('reahl.swordfish.main.run_mcp_server') as mock_run_mcp_server:
+            with patch('sys.argv', ['swordfish', '--mode', 'mcp-headless']):
+                run_application()
+    mock_swordfish.assert_not_called()
+    mock_run_mcp_server.assert_called_once()
+
+
+def test_run_application_starts_gui_and_mcp_when_mode_is_mcp_gui():
+    """AI: mcp-gui mode should launch the GUI and start MCP in a background thread."""
+    with patch('reahl.swordfish.main.run_mcp_server') as mock_run_mcp_server:
+        with patch('reahl.swordfish.main.threading.Thread') as mock_thread_class:
+            with patch('reahl.swordfish.main.Swordfish') as mock_swordfish:
+                app_instance = Mock()
+                mock_swordfish.return_value = app_instance
+                thread_instance = Mock()
+                mock_thread_class.return_value = thread_instance
+                with patch(
+                    'sys.argv',
+                    ['swordfish', '--mode', 'mcp-gui', 'myStone'],
+                ):
+                    run_application()
+    mock_swordfish.assert_called_once_with(default_stone_name='myStone')
+    thread_call_arguments = mock_thread_class.call_args.kwargs
+    assert thread_call_arguments['target'] == mock_run_mcp_server
+    assert thread_call_arguments['daemon']
+    assert thread_call_arguments['kwargs']['arguments'].mode == 'mcp-gui'
+    assert thread_call_arguments['kwargs']['arguments'].stone_name == 'myStone'
+    thread_instance.start.assert_called_once()
+    app_instance.mainloop.assert_called_once()
+    mock_run_mcp_server.assert_not_called()
+
+
 @with_fixtures(SwordfishAppFixture)
 def test_failed_login_shows_error_label(fixture):
     """If login credentials are rejected, the login frame stays visible and
@@ -1053,6 +1090,66 @@ def test_abort_sends_abort_to_gemstone(fixture):
     fixture.app.abort()
 
     fixture.mock_gemstone_session.abort.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_mcp_busy_state_publishes_events_for_listeners(fixture):
+    """AI: MCP busy/idle transitions are published as events so subscribers can update UI behavior."""
+    fixture.simulate_login()
+
+    class BusyListener:
+        def __init__(self):
+            self.events = []
+
+        def on_busy_state_changed(self, is_busy=False, operation_name=''):
+            self.events.append((is_busy, operation_name))
+
+    listener = BusyListener()
+    fixture.app.event_queue.subscribe(
+        'McpBusyStateChanged',
+        listener.on_busy_state_changed,
+    )
+
+    fixture.app.last_mcp_busy_state = (
+        fixture.app.integrated_session_state.is_mcp_busy()
+    )
+    fixture.app.integrated_session_state.begin_mcp_operation('gs_eval')
+    fixture.app.synchronise_collaboration_state()
+    fixture.app.update()
+
+    assert listener.events[-1] == (True, 'gs_eval')
+
+    fixture.app.integrated_session_state.end_mcp_operation()
+    fixture.app.synchronise_collaboration_state()
+    fixture.app.update()
+
+    assert listener.events[-1] == (False, '')
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_mcp_busy_state_disables_run_and_session_controls(fixture):
+    """AI: When MCP is busy, Run and Session controls are visually disabled and re-enabled when idle."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+
+    fixture.app.integrated_session_state.begin_mcp_operation('gs_apply_rename_method')
+    fixture.app.synchronise_collaboration_state()
+    fixture.app.update()
+
+    assert str(fixture.app.run_tab.run_button.cget('state')) == tk.DISABLED
+    assert str(fixture.app.run_tab.debug_button.cget('state')) == tk.DISABLED
+    assert fixture.app.run_tab.source_text.cget('state') == tk.DISABLED
+    assert fixture.app.menu_bar.session_menu.entrycget(0, 'state') == tk.DISABLED
+
+    fixture.app.integrated_session_state.end_mcp_operation()
+    fixture.app.synchronise_collaboration_state()
+    fixture.app.update()
+
+    assert str(fixture.app.run_tab.run_button.cget('state')) == tk.NORMAL
+    assert str(fixture.app.run_tab.debug_button.cget('state')) == tk.NORMAL
+    assert fixture.app.run_tab.source_text.cget('state') == tk.NORMAL
+    assert fixture.app.menu_bar.session_menu.entrycget(0, 'state') == tk.NORMAL
 
 
 @with_fixtures(SwordfishAppFixture)

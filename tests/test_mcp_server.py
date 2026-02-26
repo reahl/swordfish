@@ -40,6 +40,8 @@ def test_create_server_passes_policy_flags_to_tool_registration():
         allow_commit=False,
         allow_tracing=False,
         eval_approval_code='',
+        allow_commit_when_gui=False,
+        integrated_session_state=None,
         require_gemstone_ast=False,
     ):
         captured['mcp_server'] = mcp_server
@@ -48,6 +50,8 @@ def test_create_server_passes_policy_flags_to_tool_registration():
         captured['allow_commit'] = allow_commit
         captured['allow_tracing'] = allow_tracing
         captured['eval_approval_code'] = eval_approval_code
+        captured['allow_commit_when_gui'] = allow_commit_when_gui
+        captured['integrated_session_state'] = integrated_session_state
         captured['require_gemstone_ast'] = require_gemstone_ast
 
     with patch(
@@ -64,6 +68,7 @@ def test_create_server_passes_policy_flags_to_tool_registration():
                 allow_commit=True,
                 allow_tracing=True,
                 eval_approval_code='eval-approval',
+                allow_commit_when_gui=True,
                 require_gemstone_ast=True,
             )
 
@@ -73,6 +78,8 @@ def test_create_server_passes_policy_flags_to_tool_registration():
     assert captured['allow_commit']
     assert captured['allow_tracing']
     assert captured['eval_approval_code'] == 'eval-approval'
+    assert captured['allow_commit_when_gui']
+    assert captured['integrated_session_state'] is not None
     assert captured['require_gemstone_ast']
 
 
@@ -95,6 +102,8 @@ def test_create_server_supports_fast_mcp_without_version_argument():
         allow_commit=False,
         allow_tracing=False,
         eval_approval_code='',
+        allow_commit_when_gui=False,
+        integrated_session_state=None,
         require_gemstone_ast=False,
     ):
         captured['mcp_server'] = mcp_server
@@ -156,6 +165,8 @@ def test_create_server_allows_commit_enabled_without_extra_approval_configuratio
         allow_commit=False,
         allow_tracing=False,
         eval_approval_code='',
+        allow_commit_when_gui=False,
+        integrated_session_state=None,
         require_gemstone_ast=False,
     ):
         pass
@@ -195,6 +206,8 @@ def test_create_server_passes_commit_policy_flags_in_confirmation_mode():
         allow_commit=False,
         allow_tracing=False,
         eval_approval_code='',
+        allow_commit_when_gui=False,
+        integrated_session_state=None,
         require_gemstone_ast=False,
     ):
         captured['allow_commit'] = allow_commit

@@ -36,7 +36,6 @@ requires-python = ">=3.6"
 
 [project.scripts]
 swordfish = "reahl.swordfish.main:run_application"
-swordfish-mcp = "reahl.swordfish.mcp.main:run_application"
 
 [project.optional-dependencies]
 test = [

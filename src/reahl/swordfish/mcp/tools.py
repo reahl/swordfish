@@ -1,3 +1,4 @@
+import functools
 import re
 import time
 import uuid
@@ -27,6 +28,7 @@ from reahl.swordfish.mcp.session_registry import get_metadata
 from reahl.swordfish.mcp.session_registry import get_session
 from reahl.swordfish.mcp.session_registry import has_connection
 from reahl.swordfish.mcp.session_registry import remove_connection
+from reahl.swordfish.mcp.integration_state import IntegratedSessionState
 from reahl.swordfish.mcp.ast_assets import ast_support_source
 from reahl.swordfish.mcp.ast_assets import ast_support_source_hash
 from reahl.swordfish.mcp.ast_assets import AST_SUPPORT_VERSION
@@ -42,11 +44,17 @@ def register_tools(
     allow_commit=False,
     allow_tracing=False,
     eval_approval_code='',
+    allow_commit_when_gui=False,
+    integrated_session_state=None,
     require_gemstone_ast=False,
 ):
     eval_approval_code = eval_approval_code.strip()
     if allow_eval and not eval_approval_code:
         raise ValueError('allow_eval requires eval_approval_code.')
+    if not isinstance(allow_commit_when_gui, bool):
+        raise ValueError('allow_commit_when_gui must be a boolean.')
+    if integrated_session_state is None:
+        integrated_session_state = IntegratedSessionState()
 
     identifier_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*$')
     unary_selector_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*$')
@@ -56,7 +64,101 @@ def register_tools(
     collected_sender_evidence = {}
     planned_sender_tests = {}
 
+    def tool_name_writes_model(tool_name):
+        if tool_name in {
+            'gs_begin',
+            'gs_begin_if_needed',
+            'gs_commit',
+            'gs_abort',
+            'gs_eval',
+            'gs_debug_eval',
+            'gs_set_method_category',
+            'gs_delete_method',
+            'gs_delete_class',
+            'gs_global_set',
+            'gs_global_remove',
+            'gs_ast_install',
+            'gs_tracer_install',
+            'gs_tracer_uninstall',
+            'gs_tracer_enable',
+            'gs_tracer_disable',
+            'gs_tracer_trace_selector',
+            'gs_tracer_untrace_selector',
+            'gs_tracer_clear_observed_senders',
+        }:
+            return True
+        for write_prefix in (
+            'gs_create_',
+            'gs_install_',
+            'gs_compile_',
+            'gs_apply_',
+        ):
+            if tool_name.startswith(write_prefix):
+                return True
+        return False
+
+    def should_refresh_model(tool_name, tool_result):
+        if not isinstance(tool_result, dict):
+            return False
+        if not tool_result.get('ok'):
+            return False
+        return tool_name_writes_model(tool_name)
+
+    original_tool_decorator_factory = mcp_server.tool
+
+    def coordinated_tool_decorator_factory(*decorator_arguments, **decorator_keywords):
+        tool_decorator = original_tool_decorator_factory(
+            *decorator_arguments,
+            **decorator_keywords,
+        )
+
+        def coordinated_tool_decorator(function):
+            @functools.wraps(function)
+            def coordinated_tool(*function_arguments, **function_keywords):
+                integrated_session_state.begin_mcp_operation(function.__name__)
+                try:
+                    tool_result = function(*function_arguments, **function_keywords)
+                    if should_refresh_model(function.__name__, tool_result):
+                        integrated_session_state.request_model_refresh(
+                            'transaction'
+                        )
+                    return tool_result
+                finally:
+                    integrated_session_state.end_mcp_operation()
+
+            return tool_decorator(coordinated_tool)
+
+        return coordinated_tool_decorator
+
+    try:
+        mcp_server.tool = coordinated_tool_decorator_factory
+    except AttributeError:
+        pass
+
+    def gui_session_is_active():
+        return integrated_session_state.is_ide_gui_active()
+
+    def metadata_for_connection_id(connection_id):
+        if integrated_session_state.is_ide_connection_id(connection_id):
+            metadata = integrated_session_state.ide_metadata_for_mcp()
+            if metadata is None:
+                return None
+            return metadata
+        if not has_connection(connection_id):
+            return None
+        return get_metadata(connection_id)
+
     def get_active_session(connection_id):
+        if integrated_session_state.is_ide_connection_id(connection_id):
+            gemstone_session = integrated_session_state.ide_session_for_mcp()
+            if gemstone_session is None:
+                return None, {
+                    'ok': False,
+                    'error': {
+                        'message': 'Unknown connection_id.',
+                    },
+                }
+            return gemstone_session, None
         if not has_connection(connection_id):
             return None, {
                 'ok': False,
@@ -67,7 +169,15 @@ def register_tools(
         return get_session(connection_id), None
 
     def require_active_transaction(connection_id):
-        metadata = get_metadata(connection_id)
+        metadata = metadata_for_connection_id(connection_id)
+        if metadata is None:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {
+                    'message': 'Unknown connection_id.',
+                },
+            }
         if metadata.get('transaction_active'):
             return None
         return {
@@ -125,7 +235,7 @@ def register_tools(
             connection_id,
             (
                 '%s is disabled. '
-                'Start swordfish-mcp with --allow-tracing to enable.'
+                'Start swordfish --mode mcp-headless with --allow-tracing to enable.'
             )
             % tool_name,
         )
@@ -370,24 +480,37 @@ def register_tools(
             return 'disabled'
         return 'approval_required'
 
-    def current_commit_approval_mode():
+    def commit_allowed_for_current_mode():
         if not allow_commit:
+            return False
+        if gui_session_is_active() and not allow_commit_when_gui:
+            return False
+        return True
+
+    def current_commit_approval_mode():
+        if not commit_allowed_for_current_mode():
             return 'disabled'
         return 'explicit_confirmation'
 
     def policy_flags():
+        gui_active = gui_session_is_active()
         return {
             'allow_eval': allow_eval,
             'allow_eval_write': False,
             'allow_compile': allow_compile,
-            'allow_commit': allow_commit,
+            'allow_commit': commit_allowed_for_current_mode(),
             'allow_tracing': allow_tracing,
             'require_gemstone_ast': require_gemstone_ast,
+            'gui_session_active': gui_active,
+            'gui_controls_session': gui_active,
+            'mcp_can_connect_sessions': not gui_active,
+            'mcp_can_disconnect_sessions': not gui_active,
+            'mcp_commit_allowed_when_gui': allow_commit_when_gui,
             'eval_mode': current_eval_mode(),
             'commit_approval_mode': current_commit_approval_mode(),
             'eval_requires_unsafe': True,
             'eval_requires_human_approval': allow_eval,
-            'commit_requires_human_approval': allow_commit,
+            'commit_requires_human_approval': commit_allowed_for_current_mode(),
             'writes_require_active_transaction': True,
         }
 
@@ -536,11 +659,19 @@ def register_tools(
                     'Prefer structured tools for routine work.'
                 )
             )
-        if allow_commit:
+        if commit_allowed_for_current_mode():
             cautions.append(
                 (
                     'gs_commit requires explicit confirmation: '
                     'approved_by_user=true and non-empty approval_note.'
+                )
+            )
+        elif allow_commit and gui_session_is_active():
+            cautions.append(
+                (
+                    'gs_commit is disabled while the IDE owns the active '
+                    'session unless the server is started with '
+                    '--allow-mcp-commit-when-gui.'
                 )
             )
         if intent == 'general':
@@ -741,7 +872,7 @@ def register_tools(
             cautions.append(
                 (
                     'Runtime evidence tools are disabled. '
-                    'Start swordfish-mcp with --allow-tracing '
+                    'Start swordfish --mode mcp-headless with --allow-tracing '
                     'for observed caller evidence.'
                 )
             )
@@ -843,7 +974,7 @@ def register_tools(
             expected_source_hash
         )
         installed_by_literal = browser_session.smalltalk_string_literal(
-            'swordfish-mcp'
+            'swordfish'
         )
         return (
             '| manifest |\n'
@@ -881,7 +1012,7 @@ def register_tools(
             expected_source_hash
         )
         installed_by_literal = browser_session.smalltalk_string_literal(
-            'swordfish-mcp'
+            'swordfish'
         )
         return (
             '| manifest |\n'
@@ -1645,12 +1776,46 @@ def register_tools(
     @mcp_server.tool()
     def gs_connect(
         connection_mode,
-        gemstone_user_name,
-        gemstone_password,
+        gemstone_user_name='',
+        gemstone_password='',
         stone_name='gs64stone',
         rpc_hostname='localhost',
         netldi_name='gemnetobject',
     ):
+        if integrated_session_state.has_ide_session():
+            gemstone_session = integrated_session_state.ide_session_for_mcp()
+            if gemstone_session is None:
+                return {
+                    'ok': False,
+                    'error': {
+                        'message': 'IDE session is no longer available.',
+                    },
+                }
+            try:
+                summary = session_summary(gemstone_session)
+            except GemstoneError as error:
+                return {
+                    'ok': False,
+                    'error': gemstone_error_payload(error),
+                }
+            return {
+                'ok': True,
+                'connection_id': integrated_session_state.ide_connection_id(),
+                'connection_mode': 'ide_attached',
+                'session': summary,
+                'managed_by_ide': True,
+            }
+        if gui_session_is_active():
+            return {
+                'ok': False,
+                'error': {
+                    'message': (
+                        'gs_connect is disabled while the IDE is active '
+                        'without a logged-in session. Log in from the IDE '
+                        'first, then attach using gs_connect.'
+                    ),
+                },
+            }
         if connection_mode == 'linked':
             gemstone_session = create_linked_session(
                 gemstone_user_name,
@@ -1701,6 +1866,26 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_disconnect(connection_id):
+        if (
+            gui_session_is_active()
+            and has_connection(connection_id)
+            and not integrated_session_state.is_ide_connection_id(connection_id)
+        ):
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_disconnect is disabled while the IDE controls '
+                    'session ownership.'
+                ),
+            )
+        if integrated_session_state.is_ide_connection_id(connection_id):
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_disconnect is disabled while the IDE owns '
+                    'the active session.'
+                ),
+            )
         if not has_connection(connection_id):
             return {
                 'ok': False,
@@ -1731,7 +1916,11 @@ def register_tools(
             return error_response
         try:
             begin_transaction(gemstone_session)
-            get_metadata(connection_id)['transaction_active'] = True
+            metadata = metadata_for_connection_id(connection_id)
+            if metadata is not None:
+                metadata['transaction_active'] = True
+            if integrated_session_state.is_ide_connection_id(connection_id):
+                integrated_session_state.mark_ide_transaction_active()
             return {
                 'ok': True,
                 'connection_id': connection_id,
@@ -1754,7 +1943,13 @@ def register_tools(
         gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
             return error_response
-        metadata = get_metadata(connection_id)
+        metadata = metadata_for_connection_id(connection_id)
+        if metadata is None:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': 'Unknown connection_id.'},
+            }
         if metadata.get('transaction_active'):
             return {
                 'ok': True,
@@ -1765,6 +1960,8 @@ def register_tools(
         try:
             begin_transaction(gemstone_session)
             metadata['transaction_active'] = True
+            if integrated_session_state.is_ide_connection_id(connection_id):
+                integrated_session_state.mark_ide_transaction_active()
             return {
                 'ok': True,
                 'connection_id': connection_id,
@@ -1795,7 +1992,19 @@ def register_tools(
                 connection_id,
                 (
                     'gs_commit is disabled. '
-                    'Start swordfish-mcp with --allow-commit to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-commit to enable.'
+                ),
+            )
+        if (
+            integrated_session_state.is_ide_connection_id(connection_id)
+            and not allow_commit_when_gui
+        ):
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_commit is disabled while the IDE owns the session. '
+                    'Use the IDE commit action or start swordfish --mode mcp-headless with '
+                    '--allow-mcp-commit-when-gui.'
                 ),
             )
         approval_error_response = require_explicit_user_confirmation(
@@ -1812,7 +2021,11 @@ def register_tools(
             return error_response
         try:
             commit_transaction(gemstone_session)
-            get_metadata(connection_id)['transaction_active'] = False
+            metadata = metadata_for_connection_id(connection_id)
+            if metadata is not None:
+                metadata['transaction_active'] = False
+            if integrated_session_state.is_ide_connection_id(connection_id):
+                integrated_session_state.mark_ide_transaction_inactive()
             return {
                 'ok': True,
                 'connection_id': connection_id,
@@ -1835,7 +2048,13 @@ def register_tools(
         _, error_response = get_active_session(connection_id)
         if error_response:
             return error_response
-        metadata = get_metadata(connection_id)
+        metadata = metadata_for_connection_id(connection_id)
+        if metadata is None:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': 'Unknown connection_id.'},
+            }
         return {
             'ok': True,
             'connection_id': connection_id,
@@ -1846,10 +2065,15 @@ def register_tools(
     @mcp_server.tool()
     def gs_capabilities():
         ast_backend = browser_session_for_policy(None).ast_backend_status()
+        gui_active = gui_session_is_active()
+        shared_connection_id = None
+        if gui_active:
+            shared_connection_id = integrated_session_state.ide_connection_id()
         return {
             'ok': True,
             'server_name': 'SwordfishMCP',
             'policy': policy_flags(),
+            'shared_ide_connection_id': shared_connection_id,
             'ast_backend': ast_backend,
             'ast_support': {
                 'expected_version': AST_SUPPORT_VERSION,
@@ -1968,7 +2192,11 @@ def register_tools(
             return error_response
         try:
             abort_transaction(gemstone_session)
-            get_metadata(connection_id)['transaction_active'] = False
+            metadata = metadata_for_connection_id(connection_id)
+            if metadata is not None:
+                metadata['transaction_active'] = False
+            if integrated_session_state.is_ide_connection_id(connection_id):
+                integrated_session_state.mark_ide_transaction_inactive()
             return {
                 'ok': True,
                 'connection_id': connection_id,
@@ -2059,7 +2287,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_create_package is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -2110,7 +2338,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_install_package is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -2782,7 +3010,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_ast_install is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -2845,7 +3073,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_tracer_install is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         tracing_error_response = require_tracing_enabled(
@@ -2888,7 +3116,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_tracer_enable is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         tracing_error_response = require_tracing_enabled(
@@ -2941,7 +3169,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_tracer_disable is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         tracing_error_response = require_tracing_enabled(
@@ -2984,7 +3212,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_tracer_uninstall is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         tracing_error_response = require_tracing_enabled(
@@ -3031,7 +3259,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_tracer_trace_selector is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         tracing_error_response = require_tracing_enabled(
@@ -3095,7 +3323,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_tracer_untrace_selector is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         tracing_error_response = require_tracing_enabled(
@@ -3148,7 +3376,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_tracer_clear_observed_senders is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         tracing_error_response = require_tracing_enabled(
@@ -3360,7 +3588,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_collect_sender_evidence is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         tracing_error_response = require_tracing_enabled(
@@ -3591,7 +3819,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_compile_method is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -3675,7 +3903,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_create_class is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -3786,7 +4014,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_create_test_case_class is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -3891,7 +4119,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_delete_class is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -3948,7 +4176,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_delete_method is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4012,7 +4240,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_set_method_category is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4261,7 +4489,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_apply_rename_method is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4400,7 +4628,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_apply_move_method is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4574,7 +4802,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_apply_add_parameter is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4739,7 +4967,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_apply_remove_parameter is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4904,7 +5132,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_apply_extract_method is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5061,7 +5289,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_apply_inline_method is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5190,7 +5418,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_apply_selector_rename is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5275,7 +5503,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_global_set is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5340,7 +5568,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_global_remove is disabled. '
-                    'Start swordfish-mcp with --allow-compile to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5472,7 +5700,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_debug_eval is disabled. '
-                    'Start swordfish-mcp with --allow-eval to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-eval to enable.'
                 ),
             )
         approval_error_response = require_human_approval(
@@ -5496,7 +5724,13 @@ def register_tools(
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
-        metadata = get_metadata(connection_id)
+        metadata = metadata_for_connection_id(connection_id)
+        if metadata is None:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': 'Unknown connection_id.'},
+            }
         try:
             output = browser_session.evaluate_source(source)
             transaction_state_effect = (
@@ -5504,8 +5738,12 @@ def register_tools(
             )
             if transaction_state_effect == 'active':
                 metadata['transaction_active'] = True
+                if integrated_session_state.is_ide_connection_id(connection_id):
+                    integrated_session_state.mark_ide_transaction_active()
             if transaction_state_effect == 'inactive':
                 metadata['transaction_active'] = False
+                if integrated_session_state.is_ide_connection_id(connection_id):
+                    integrated_session_state.mark_ide_transaction_inactive()
             return {
                 'ok': True,
                 'connection_id': connection_id,
@@ -5651,7 +5889,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_eval is disabled. '
-                    'Start swordfish-mcp with --allow-eval to enable.'
+                    'Start swordfish --mode mcp-headless with --allow-eval to enable.'
                 ),
             )
         if not unsafe:
@@ -5674,7 +5912,13 @@ def register_tools(
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
-        metadata = get_metadata(connection_id)
+        metadata = metadata_for_connection_id(connection_id)
+        if metadata is None:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': 'Unknown connection_id.'},
+            }
 
         try:
             source = validated_non_empty_string(source, 'source')
@@ -5685,8 +5929,12 @@ def register_tools(
             )
             if transaction_state_effect == 'active':
                 metadata['transaction_active'] = True
+                if integrated_session_state.is_ide_connection_id(connection_id):
+                    integrated_session_state.mark_ide_transaction_active()
             if transaction_state_effect == 'inactive':
                 metadata['transaction_active'] = False
+                if integrated_session_state.is_ide_connection_id(connection_id):
+                    integrated_session_state.mark_ide_transaction_inactive()
             return {
                 'ok': True,
                 'connection_id': connection_id,

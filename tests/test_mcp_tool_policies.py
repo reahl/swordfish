@@ -7,10 +7,62 @@ from reahl.tofu import with_fixtures
 
 from reahl.swordfish.mcp.session_registry import add_connection
 from reahl.swordfish.mcp.session_registry import clear_connections
+from reahl.swordfish.mcp.integration_state import IntegratedSessionState
 from reahl.swordfish.mcp.tools import register_tools
 
 
 EVAL_APPROVAL_CODE = 'eval-human-approved'
+
+
+class FakeGemstoneValue:
+    def __init__(self, value):
+        self.to_py = value
+
+
+class FakeGemstoneUserProfile:
+    def __init__(self, user_name):
+        self.user_name = user_name
+
+    def userId(self):
+        return FakeGemstoneValue(self.user_name)
+
+
+class FakeGemstoneSystem:
+    def __init__(self, stone_name='gs64stone', host_name='localhost', user_name='DataCurator'):
+        self.selected_stone_name = stone_name
+        self.selected_host_name = host_name
+        self.selected_user_name = user_name
+
+    def stoneName(self):
+        return FakeGemstoneValue(self.selected_stone_name)
+
+    def hostname(self):
+        return FakeGemstoneValue(self.selected_host_name)
+
+    def myUserProfile(self):
+        return FakeGemstoneUserProfile(self.selected_user_name)
+
+
+class FakeGemstoneSession:
+    def __init__(self):
+        self.System = FakeGemstoneSystem()
+        self.commit_count = 0
+        self.abort_count = 0
+        self.begin_count = 0
+
+    def execute(self, source):
+        if source == 'System session':
+            return FakeGemstoneValue(1)
+        return FakeGemstoneValue(None)
+
+    def commit(self):
+        self.commit_count = self.commit_count + 1
+
+    def abort(self):
+        self.abort_count = self.abort_count + 1
+
+    def begin(self):
+        self.begin_count = self.begin_count + 1
 
 
 class McpToolRegistrar:
@@ -678,7 +730,7 @@ def test_gs_eval_is_disabled_by_default(tools_fixture):
     assert not eval_result['ok']
     assert eval_result['error']['message'] == (
         'gs_eval is disabled. '
-        'Start swordfish-mcp with --allow-eval to enable.'
+        'Start swordfish --mode mcp-headless with --allow-eval to enable.'
     )
 
 
@@ -688,7 +740,7 @@ def test_gs_commit_is_disabled_by_default(tools_fixture):
     assert not commit_result['ok']
     assert commit_result['error']['message'] == (
         'gs_commit is disabled. '
-        'Start swordfish-mcp with --allow-commit to enable.'
+        'Start swordfish --mode mcp-headless with --allow-commit to enable.'
     )
 
 
@@ -919,7 +971,7 @@ def test_gs_tracer_install_is_disabled_by_default(tools_fixture):
     assert not tracer_install_result['ok']
     assert tracer_install_result['error']['message'] == (
         'gs_tracer_install is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -930,7 +982,7 @@ def test_gs_ast_install_is_disabled_by_default(tools_fixture):
     assert not ast_install_result['ok']
     assert ast_install_result['error']['message'] == (
         'gs_ast_install is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -942,7 +994,7 @@ def test_gs_tracer_enable_is_disabled_by_default(tools_fixture):
     assert not tracer_enable_result['ok']
     assert tracer_enable_result['error']['message'] == (
         'gs_tracer_enable is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -954,7 +1006,7 @@ def test_gs_tracer_disable_is_disabled_by_default(tools_fixture):
     assert not tracer_disable_result['ok']
     assert tracer_disable_result['error']['message'] == (
         'gs_tracer_disable is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -966,7 +1018,7 @@ def test_gs_tracer_uninstall_is_disabled_by_default(tools_fixture):
     assert not tracer_uninstall_result['ok']
     assert tracer_uninstall_result['error']['message'] == (
         'gs_tracer_uninstall is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -979,7 +1031,7 @@ def test_gs_tracer_trace_selector_is_disabled_by_default(tools_fixture):
     assert not tracer_trace_selector_result['ok']
     assert tracer_trace_selector_result['error']['message'] == (
         'gs_tracer_trace_selector is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -992,7 +1044,7 @@ def test_gs_tracer_untrace_selector_is_disabled_by_default(tools_fixture):
     assert not tracer_untrace_selector_result['ok']
     assert tracer_untrace_selector_result['error']['message'] == (
         'gs_tracer_untrace_selector is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1008,7 +1060,7 @@ def test_gs_tracer_clear_observed_senders_is_disabled_by_default(
     assert not tracer_clear_observed_senders_result['ok']
     assert tracer_clear_observed_senders_result['error']['message'] == (
         'gs_tracer_clear_observed_senders is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1022,7 +1074,7 @@ def test_gs_tracer_install_is_disabled_when_tracing_flag_is_off(
     assert not tracer_install_result['ok']
     assert tracer_install_result['error']['message'] == (
         'gs_tracer_install is disabled. '
-        'Start swordfish-mcp with --allow-tracing to enable.'
+        'Start swordfish --mode mcp-headless with --allow-tracing to enable.'
     )
 
 
@@ -1037,7 +1089,7 @@ def test_gs_tracer_find_observed_senders_is_disabled_when_tracing_flag_is_off(
     assert not observed_senders_result['ok']
     assert observed_senders_result['error']['message'] == (
         'gs_tracer_find_observed_senders is disabled. '
-        'Start swordfish-mcp with --allow-tracing to enable.'
+        'Start swordfish --mode mcp-headless with --allow-tracing to enable.'
     )
 
 
@@ -1052,7 +1104,7 @@ def test_gs_plan_evidence_tests_is_disabled_when_tracing_flag_is_off(
     assert not plan_result['ok']
     assert plan_result['error']['message'] == (
         'gs_plan_evidence_tests is disabled. '
-        'Start swordfish-mcp with --allow-tracing to enable.'
+        'Start swordfish --mode mcp-headless with --allow-tracing to enable.'
     )
 
 
@@ -1067,7 +1119,7 @@ def test_gs_collect_sender_evidence_is_disabled_when_tracing_flag_is_off(
     assert not collect_result['ok']
     assert collect_result['error']['message'] == (
         'gs_collect_sender_evidence is disabled. '
-        'Start swordfish-mcp with --allow-tracing to enable.'
+        'Start swordfish --mode mcp-headless with --allow-tracing to enable.'
     )
 
 
@@ -1082,7 +1134,7 @@ def test_gs_compile_method_is_disabled_by_default(tools_fixture):
     assert not compile_result['ok']
     assert compile_result['error']['message'] == (
         'gs_compile_method is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1095,7 +1147,7 @@ def test_gs_create_class_is_disabled_by_default(tools_fixture):
     assert not create_result['ok']
     assert create_result['error']['message'] == (
         'gs_create_class is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1109,7 +1161,7 @@ def test_gs_create_class_in_package_is_disabled_by_default(tools_fixture):
     assert not create_result['ok']
     assert create_result['error']['message'] == (
         'gs_create_class is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1122,7 +1174,7 @@ def test_gs_create_package_is_disabled_by_default(tools_fixture):
     assert not create_result['ok']
     assert create_result['error']['message'] == (
         'gs_create_package is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1135,7 +1187,7 @@ def test_gs_install_package_is_disabled_by_default(tools_fixture):
     assert not install_result['ok']
     assert install_result['error']['message'] == (
         'gs_install_package is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1148,7 +1200,7 @@ def test_gs_create_test_case_class_is_disabled_by_default(tools_fixture):
     assert not create_result['ok']
     assert create_result['error']['message'] == (
         'gs_create_test_case_class is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1164,7 +1216,7 @@ def test_gs_create_test_case_class_in_package_is_disabled_by_default(
     assert not create_result['ok']
     assert create_result['error']['message'] == (
         'gs_create_test_case_class is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1177,7 +1229,7 @@ def test_gs_delete_class_is_disabled_by_default(tools_fixture):
     assert not delete_result['ok']
     assert delete_result['error']['message'] == (
         'gs_delete_class is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1191,7 +1243,7 @@ def test_gs_delete_method_is_disabled_by_default(tools_fixture):
     assert not delete_result['ok']
     assert delete_result['error']['message'] == (
         'gs_delete_method is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1206,7 +1258,7 @@ def test_gs_set_method_category_is_disabled_by_default(tools_fixture):
     assert not set_result['ok']
     assert set_result['error']['message'] == (
         'gs_set_method_category is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1220,7 +1272,7 @@ def test_gs_global_set_is_disabled_by_default(tools_fixture):
     assert not set_result['ok']
     assert set_result['error']['message'] == (
         'gs_global_set is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1233,7 +1285,7 @@ def test_gs_global_remove_is_disabled_by_default(tools_fixture):
     assert not remove_result['ok']
     assert remove_result['error']['message'] == (
         'gs_global_remove is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1247,7 +1299,7 @@ def test_gs_apply_selector_rename_is_disabled_by_default(tools_fixture):
     assert not rename_result['ok']
     assert rename_result['error']['message'] == (
         'gs_apply_selector_rename is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1262,7 +1314,7 @@ def test_gs_apply_rename_method_is_disabled_by_default(tools_fixture):
     assert not rename_result['ok']
     assert rename_result['error']['message'] == (
         'gs_apply_rename_method is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1277,7 +1329,7 @@ def test_gs_apply_move_method_is_disabled_by_default(tools_fixture):
     assert not move_result['ok']
     assert move_result['error']['message'] == (
         'gs_apply_move_method is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1294,7 +1346,7 @@ def test_gs_apply_add_parameter_is_disabled_by_default(tools_fixture):
     assert not add_result['ok']
     assert add_result['error']['message'] == (
         'gs_apply_add_parameter is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1309,7 +1361,7 @@ def test_gs_apply_remove_parameter_is_disabled_by_default(tools_fixture):
     assert not remove_result['ok']
     assert remove_result['error']['message'] == (
         'gs_apply_remove_parameter is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1325,7 +1377,7 @@ def test_gs_apply_extract_method_is_disabled_by_default(tools_fixture):
     assert not extract_result['ok']
     assert extract_result['error']['message'] == (
         'gs_apply_extract_method is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1340,7 +1392,7 @@ def test_gs_apply_inline_method_is_disabled_by_default(tools_fixture):
     assert not inline_result['ok']
     assert inline_result['error']['message'] == (
         'gs_apply_inline_method is disabled. '
-        'Start swordfish-mcp with --allow-compile to enable.'
+        'Start swordfish --mode mcp-headless with --allow-compile to enable.'
     )
 
 
@@ -1353,7 +1405,7 @@ def test_gs_debug_eval_is_disabled_by_default(tools_fixture):
     assert not debug_eval_result['ok']
     assert debug_eval_result['error']['message'] == (
         'gs_debug_eval is disabled. '
-        'Start swordfish-mcp with --allow-eval to enable.'
+        'Start swordfish --mode mcp-headless with --allow-eval to enable.'
     )
 
 
@@ -3048,3 +3100,133 @@ def test_write_tools_require_active_transaction_for_inline_method(
         'No active transaction. '
         'Call gs_begin before write operations.'
     )
+
+
+def test_gs_connect_attaches_to_active_ide_session():
+    registrar = McpToolRegistrar()
+    shared_state = IntegratedSessionState()
+    shared_state.attach_ide_session(FakeGemstoneSession())
+    register_tools(
+        registrar,
+        allow_eval=True,
+        allow_compile=True,
+        allow_commit=True,
+        allow_tracing=True,
+        eval_approval_code=EVAL_APPROVAL_CODE,
+        integrated_session_state=shared_state,
+    )
+    connect_result = registrar.registered_tools_by_name['gs_connect'](
+        'linked',
+        '',
+        '',
+    )
+    assert connect_result['ok'], connect_result
+    assert connect_result['connection_mode'] == 'ide_attached'
+    assert connect_result['connection_id'] == shared_state.ide_connection_id()
+    capabilities_result = registrar.registered_tools_by_name['gs_capabilities']()
+    assert capabilities_result['ok'], capabilities_result
+    assert capabilities_result['policy']['gui_session_active']
+    assert not capabilities_result['policy']['mcp_can_connect_sessions']
+    assert not capabilities_result['policy']['mcp_can_disconnect_sessions']
+
+
+def test_gs_connect_is_blocked_when_gui_is_active_without_login():
+    registrar = McpToolRegistrar()
+    shared_state = IntegratedSessionState()
+    shared_state.attach_ide_gui()
+    register_tools(
+        registrar,
+        allow_eval=True,
+        allow_compile=True,
+        allow_commit=True,
+        allow_tracing=True,
+        eval_approval_code=EVAL_APPROVAL_CODE,
+        integrated_session_state=shared_state,
+    )
+    connect_result = registrar.registered_tools_by_name['gs_connect'](
+        'linked',
+        '',
+        '',
+    )
+    assert not connect_result['ok']
+    assert connect_result['error']['message'] == (
+        'gs_connect is disabled while the IDE is active without a logged-in '
+        'session. Log in from the IDE first, then attach using gs_connect.'
+    )
+    capabilities_result = registrar.registered_tools_by_name['gs_capabilities']()
+    assert capabilities_result['ok'], capabilities_result
+    assert capabilities_result['policy']['gui_session_active']
+    assert not capabilities_result['policy']['mcp_can_connect_sessions']
+    assert not capabilities_result['policy']['mcp_can_disconnect_sessions']
+
+
+def test_gs_disconnect_is_blocked_for_ide_owned_session():
+    registrar = McpToolRegistrar()
+    shared_state = IntegratedSessionState()
+    shared_state.attach_ide_session(FakeGemstoneSession())
+    register_tools(
+        registrar,
+        allow_eval=True,
+        allow_compile=True,
+        allow_commit=True,
+        allow_tracing=True,
+        eval_approval_code=EVAL_APPROVAL_CODE,
+        integrated_session_state=shared_state,
+    )
+    disconnect_result = registrar.registered_tools_by_name['gs_disconnect'](
+        shared_state.ide_connection_id()
+    )
+    assert not disconnect_result['ok']
+    assert disconnect_result['error']['message'] == (
+        'gs_disconnect is disabled while the IDE owns the active session.'
+    )
+
+
+def test_gs_commit_is_disabled_by_default_when_ide_owns_session():
+    registrar = McpToolRegistrar()
+    shared_state = IntegratedSessionState()
+    shared_state.attach_ide_session(FakeGemstoneSession())
+    register_tools(
+        registrar,
+        allow_eval=True,
+        allow_compile=True,
+        allow_commit=True,
+        allow_tracing=True,
+        eval_approval_code=EVAL_APPROVAL_CODE,
+        integrated_session_state=shared_state,
+    )
+    commit_result = registrar.registered_tools_by_name['gs_commit'](
+        shared_state.ide_connection_id(),
+        approved_by_user=True,
+        approval_note='User explicitly approved this commit.',
+    )
+    assert not commit_result['ok']
+    assert commit_result['error']['message'] == (
+        'gs_commit is disabled while the IDE owns the session. '
+        'Use the IDE commit action or start swordfish --mode mcp-headless with '
+        '--allow-mcp-commit-when-gui.'
+    )
+
+
+def test_gs_commit_can_be_enabled_when_ide_owns_session():
+    registrar = McpToolRegistrar()
+    shared_state = IntegratedSessionState()
+    fake_session = FakeGemstoneSession()
+    shared_state.attach_ide_session(fake_session)
+    register_tools(
+        registrar,
+        allow_eval=True,
+        allow_compile=True,
+        allow_commit=True,
+        allow_commit_when_gui=True,
+        allow_tracing=True,
+        eval_approval_code=EVAL_APPROVAL_CODE,
+        integrated_session_state=shared_state,
+    )
+    commit_result = registrar.registered_tools_by_name['gs_commit'](
+        shared_state.ide_connection_id(),
+        approved_by_user=True,
+        approval_note='User explicitly approved this commit.',
+    )
+    assert commit_result['ok'], commit_result
+    assert fake_session.commit_count == 1
