@@ -308,6 +308,52 @@ def test_selecting_already_open_method_brings_its_tab_to_fore(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_method_editor_back_and_forward_navigate_method_history(fixture):
+    """AI: Back and Forward should move through the selected-method trail like browser navigation."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
+
+    editor = fixture.browser_window.editor_area_widget
+    editor.back_button.invoke()
+    fixture.root.update()
+
+    assert fixture.session_record.selected_method_symbol == 'total'
+    selected_tab = editor.editor_notebook.select()
+    assert editor.editor_notebook.tab(selected_tab, 'text') == 'total'
+
+    editor.forward_button.invoke()
+    fixture.root.update()
+
+    assert fixture.session_record.selected_method_symbol == 'description'
+    selected_tab = editor.editor_notebook.select()
+    assert editor.editor_notebook.tab(selected_tab, 'text') == 'description'
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_editor_history_list_jumps_to_selected_entry(fixture):
+    """AI: Choosing an entry in method history should jump directly to that earlier method."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
+
+    editor = fixture.browser_window.editor_area_widget
+    history_values = editor.history_combobox.cget('values')
+    matching_indices = [
+        index
+        for index, value in enumerate(history_values)
+        if 'OrderLine>>total' in value
+    ]
+    target_index = matching_indices[0]
+
+    editor.history_combobox.current(target_index)
+    editor.history_combobox.event_generate('<<ComboboxSelected>>')
+    fixture.root.update()
+
+    assert fixture.session_record.selected_method_symbol == 'total'
+    selected_tab = editor.editor_notebook.select()
+    assert editor.editor_notebook.tab(selected_tab, 'text') == 'total'
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_saving_method_compiles_to_gemstone(fixture):
     """Saving an open editor tab sends the current source to GemstoneBrowserSession
     for compilation."""
