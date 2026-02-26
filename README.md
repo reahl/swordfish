@@ -269,6 +269,8 @@ Throughout the process, human developers provided domain expertise, drove archit
 
 This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
+GemStone/S is proprietary software by GemTalk Systems and is not distributed as part of this project. You must obtain and use GemStone/S under separate GemTalk license terms. No rights to GemStone/S are granted by this project's GPL license.
+
 ## Development & CI/CD
 
 ### Continuous Integration

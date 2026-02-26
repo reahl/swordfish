@@ -921,6 +921,7 @@ class Swordfish(tk.Tk):
         self.browser_tab = None
         self.debugger_tab = None
         self.run_tab = None
+        self.inspector_tab = None
         
         self.gemstone_session_record = None
 
@@ -958,6 +959,7 @@ class Swordfish(tk.Tk):
         self.browser_tab = None
         self.debugger_tab = None
         self.run_tab = None
+        self.inspector_tab = None
 
     def show_login_screen(self):
         self.clear_widgets()
@@ -1042,6 +1044,28 @@ class Swordfish(tk.Tk):
         self.notebook.select(self.run_tab)
         run_immediately = bool(source and source.strip())
         self.run_tab.present_source(source, run_immediately=run_immediately)
+
+    def open_inspector_for_object(self, inspected_object):
+        self.close_inspector_tab()
+        self.inspector_tab = InspectorTab(
+            self.notebook,
+            self,
+            an_object=inspected_object,
+        )
+        self.notebook.add(self.inspector_tab, text='Inspect')
+        self.notebook.select(self.inspector_tab)
+
+    def close_inspector_tab(self):
+        has_open_tab = self.inspector_tab is not None and self.inspector_tab.winfo_exists()
+        if not has_open_tab:
+            self.inspector_tab = None
+            return
+        try:
+            self.notebook.forget(self.inspector_tab)
+        except tk.TclError:
+            pass
+        self.inspector_tab.destroy()
+        self.inspector_tab = None
         
     def open_find_dialog(self):
         FindDialog(self)
@@ -1160,6 +1184,7 @@ class RunTab(ttk.Frame):
             self.source_text,
             allow_paste=True,
             allow_undo=True,
+            include_run_actions=True,
         )
 
     def open_result_text_menu(self, event):
@@ -1169,9 +1194,52 @@ class RunTab(ttk.Frame):
             self.result_text,
             allow_paste=False,
             allow_undo=False,
+            include_run_actions=False,
         )
 
-    def show_text_menu_for_widget(self, event, text_widget, allow_paste, allow_undo):
+    def selected_source_text(self):
+        start_index, end_index = selected_range_in_text_widget(self.source_text)
+        if start_index is None:
+            return ''
+        return self.source_text.get(start_index, end_index)
+
+    def run_selected_source_text(self):
+        selected_text = self.selected_source_text().strip()
+        if not selected_text:
+            self.status_label.config(text='Select source text to run')
+            return
+        self.status_label.config(text='Running selection...')
+        self.last_exception = None
+        self.clear_source_error_highlight()
+        try:
+            result = self.gemstone_session_record.run_code(selected_text)
+            self.on_run_complete(result)
+        except GemstoneError as gemstone_exception:
+            self.on_run_error(gemstone_exception)
+
+    def inspect_selected_source_text(self):
+        selected_text = self.selected_source_text().strip()
+        if not selected_text:
+            self.status_label.config(text='Select source text to inspect')
+            return
+        self.status_label.config(text='Inspecting selection...')
+        self.last_exception = None
+        self.clear_source_error_highlight()
+        try:
+            result = self.gemstone_session_record.run_code(selected_text)
+            self.on_run_complete(result)
+            self.application.open_inspector_for_object(result)
+        except GemstoneError as gemstone_exception:
+            self.on_run_error(gemstone_exception)
+
+    def show_text_menu_for_widget(
+        self,
+        event,
+        text_widget,
+        allow_paste,
+        allow_undo,
+        include_run_actions,
+    ):
         if self.current_text_menu is not None:
             self.current_text_menu.unpost()
 
@@ -1193,6 +1261,20 @@ class RunTab(ttk.Frame):
             self.current_text_menu.add_command(
                 label='Undo',
                 command=lambda: undo_text_widget_edit(text_widget),
+            )
+        if include_run_actions:
+            has_selection = bool(self.selected_source_text().strip())
+            run_command_state = tk.NORMAL if has_selection else tk.DISABLED
+            self.current_text_menu.add_separator()
+            self.current_text_menu.add_command(
+                label='Run',
+                command=self.run_selected_source_text,
+                state=run_command_state,
+            )
+            self.current_text_menu.add_command(
+                label='Inspect',
+                command=self.inspect_selected_source_text,
+                state=run_command_state,
             )
         self.current_text_menu.post(event.x_root, event.y_root)
 
@@ -1438,21 +1520,37 @@ class RunTab(ttk.Frame):
         return line_number, column_number
 
     def open_debugger(self):
-        if self.last_exception is None:
-            code_to_run = self.source_text.get('1.0', tk.END).strip()
-            if not code_to_run:
-                self.status_label.config(text='No source to debug')
+        code_to_run = self.source_text.get('1.0', tk.END).strip()
+        if not code_to_run:
+            self.status_label.config(text='No source to debug')
+            return
+
+        self.last_exception = None
+        self.clear_source_error_highlight()
+        try:
+            result = self.gemstone_session_record.run_code(code_to_run)
+            self.on_run_complete(result)
+            self.status_label.config(
+                text='Completed successfully; no debugger context',
+            )
+            return
+        except GemstoneError as gemstone_exception:
+            self.on_run_error(gemstone_exception)
+            if self.is_compile_error(gemstone_exception):
                 return
-            try:
-                result = self.gemstone_session_record.run_code(code_to_run)
-                self.on_run_complete(result)
-                self.status_label.config(
-                    text='Completed successfully; no debugger context',
-                )
-                return
-            except GemstoneError as gemstone_exception:
-                self.on_run_error(gemstone_exception)
-        self.application.open_debugger(self.last_exception)
+            self.application.open_debugger(gemstone_exception)
+
+    def is_compile_error(self, exception):
+        error_number = None
+        try:
+            error_number = exception.number
+        except (AttributeError, GemstoneError, TypeError):
+            pass
+        if error_number == 1001:
+            return True
+
+        error_text = str(exception).lower()
+        return 'compileerror' in error_text or 'compile error' in error_text
 
     def close_tab(self):
         if self.application.run_tab is self:
@@ -3959,6 +4057,27 @@ class Explorer(ttk.Notebook):
         # Create a new ObjectInspector for the 'context' tab
         context_frame = ObjectInspector(self, an_object=an_object, values=values)
         self.add(context_frame, text='Context')
+
+
+class InspectorTab(ttk.Frame):
+    def __init__(self, parent, application, an_object=None):
+        super().__init__(parent)
+        self.application = application
+
+        self.explorer = Explorer(self, an_object=an_object)
+        self.explorer.grid(row=0, column=0, sticky='nsew')
+
+        self.button_frame = ttk.Frame(self)
+        self.button_frame.grid(row=1, column=0, sticky='e', padx=10, pady=(0, 10))
+        self.close_button = ttk.Button(
+            self.button_frame,
+            text='Close Inspector',
+            command=self.application.close_inspector_tab,
+        )
+        self.close_button.grid(row=0, column=0)
+
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
 
 
 class DebuggerWindow(ttk.PanedWindow):
