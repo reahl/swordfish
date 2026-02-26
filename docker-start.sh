@@ -101,10 +101,12 @@ sudo -E docker compose --progress=plain build --pull $NO_CACHE
 if [[ "$FOREGROUND" == "true" ]]; then
     if [[ "$NO_ENTRYPOINT" == "true" ]]; then
         # Run in foreground with bypassed entrypoint (debug mode)
-        sudo -E docker compose run --rm --entrypoint /bin/bash swordfish
+        sudo -E docker compose run --rm --service-ports --entrypoint /bin/bash swordfish
     else
-        # Run in foreground with normal entrypoint
-        sudo -E docker compose run --rm swordfish
+        # AI: Run in foreground with normal entrypoint and an interactive shell
+        # AI: that has GemStone and the project venv activated.
+        sudo -E docker compose run --rm --service-ports swordfish bash -lc \
+            'source ~/.profile && if [ -f ~/.local/venv/bin/activate ]; then source ~/.local/venv/bin/activate; fi && exec bash -i'
     fi
 else
     # Run in background with normal entrypoint
@@ -117,7 +119,8 @@ else
         sleep 1
     done
     echo "User ${HOST_USER} is ready, connecting..."
-    sudo docker compose exec --user "${HOST_USER}" -e PATH="/home/${HOST_USER}/.local/venv/bin:\$PATH" swordfish bash
+    sudo docker compose exec --user "${HOST_USER}" swordfish bash -lc \
+        'source ~/.profile && if [ -f ~/.local/venv/bin/activate ]; then source ~/.local/venv/bin/activate; fi && exec bash -i'
     
     # Stop the container when the shell session ends
     echo "Shell session ended, stopping container..."

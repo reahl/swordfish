@@ -83,6 +83,27 @@ pip install reahl-swordfish
 swordfish --mode mcp-headless
 ```
 
+### Attach Claude to a running IDE/MCP process
+
+To let Claude connect to an MCP server hosted inside an already-running IDE
+process, run Swordfish with HTTP transport instead of stdio:
+
+```bash
+# Run inside the container
+swordfish --mode mcp-gui --transport streamable-http --mcp-host 0.0.0.0 --mcp-port 9177 --mcp-http-path /mcp
+```
+
+Then configure Claude outside the container to use that URL:
+
+```bash
+claude mcp remove -s project swordfish 2>/dev/null || true
+claude mcp add -s project --transport http swordfish http://127.0.0.1:9177/mcp
+claude mcp list
+```
+
+If your IDE/MCP runs on a different host/port/path, change the URL
+accordingly. `stdio` mode cannot attach to an already-running process.
+
 ### Add MCP to Claude Code and Codex (Docker-over-SSH)
 
 For Docker and SSH setup details used by this flow, see `How to Develop (Docker)` at the end of this README.
@@ -363,6 +384,8 @@ The Docker setup includes:
 # Optional overrides
 export SF_SSH_PORT=2222
 export SF_SSH_BIND_ADDRESS=127.0.0.1
+export SF_MCP_PORT=9177
+export SF_MCP_BIND_ADDRESS=127.0.0.1
 ```
 
 Run commands from the host (recommended):

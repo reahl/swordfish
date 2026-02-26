@@ -379,6 +379,16 @@ class GemstoneSessionRecord:
         self.gemstone_browser_session.create_and_install_package(package_name)
         self.publish_model_change('packages')
 
+    def delete_package(self, package_name):
+        self.require_write_access('delete_package')
+        self.gemstone_browser_session.delete_package(package_name)
+        if self.selected_package == package_name:
+            self.selected_package = None
+            self.selected_class = None
+            self.selected_method_category = None
+            self.selected_method_symbol = None
+        self.publish_model_change('packages')
+
     def create_class(
         self,
         class_name,
@@ -394,6 +404,21 @@ class GemstoneSessionRecord:
             superclass_name=superclass_name,
             in_dictionary=selected_dictionary,
         )
+        self.publish_model_change('classes')
+
+    def delete_class(self, class_name, in_dictionary=None):
+        self.require_write_access('delete_class')
+        selected_dictionary = in_dictionary
+        if selected_dictionary is None:
+            selected_dictionary = self.selected_package or 'UserGlobals'
+        self.gemstone_browser_session.delete_class(
+            class_name,
+            in_dictionary=selected_dictionary,
+        )
+        if self.selected_class == class_name:
+            self.selected_class = None
+            self.selected_method_category = None
+            self.selected_method_symbol = None
         self.publish_model_change('classes')
         
     def get_classes_in_category(self, category):
@@ -848,6 +873,17 @@ class GemstoneSessionRecord:
             source,
             method_category=method_category,
         )
+        self.publish_model_change('methods')
+
+    def delete_method(self, selected_class, show_instance_side, method_selector):
+        self.require_write_access('delete_method')
+        self.gemstone_browser_session.delete_method(
+            selected_class,
+            method_selector,
+            show_instance_side,
+        )
+        if self.selected_method_symbol == method_selector:
+            self.selected_method_symbol = None
         self.publish_model_change('methods')
 
     def run_code(self, source):
@@ -2650,17 +2686,26 @@ class PackageSelection(FramedWidget):
             self.selection_list.repopulate()
 
     def show_context_menu(self, event):
-        idx = self.selection_list.selection_listbox.nearest(event.y)
-        self.selection_list.selection_listbox.selection_clear(0, 'end')
-        self.selection_list.selection_listbox.selection_set(idx)
+        listbox = self.selection_list.selection_listbox
+        has_selection = listbox.size() > 0
+        if has_selection:
+            idx = listbox.nearest(event.y)
+            listbox.selection_clear(0, 'end')
+            listbox.selection_set(idx)
         menu = tk.Menu(self, tearoff=0)
         command_state = tk.NORMAL
         if self.browser_window.application.integrated_session_state.is_mcp_busy():
             command_state = tk.DISABLED
+        delete_command_state = command_state if has_selection else tk.DISABLED
         menu.add_command(
             label='Add Package',
             command=self.add_package,
             state=command_state,
+        )
+        menu.add_command(
+            label='Delete Package',
+            command=self.delete_package,
+            state=delete_command_state,
         )
         menu.tk_popup(event.x_root, event.y_root)
 
@@ -2678,6 +2723,32 @@ class PackageSelection(FramedWidget):
             self.event_queue.publish('SelectedPackageChanged', origin=self)
         except (GemstoneDomainException, GemstoneError) as error:
             messagebox.showerror('Add Package', str(error))
+
+    def delete_package(self):
+        listbox = self.selection_list.selection_listbox
+        selection = listbox.curselection()
+        if not selection:
+            return
+        package_name = listbox.get(selection[0])
+        should_delete = messagebox.askyesno(
+            'Delete Package',
+            (
+                'Delete package %s and all classes in it? '
+                'This cannot be undone.'
+            )
+            % package_name,
+        )
+        if not should_delete:
+            return
+        try:
+            self.gemstone_session_record.delete_package(package_name)
+            self.selection_list.repopulate()
+            self.event_queue.publish('SelectedPackageChanged', origin=self)
+            self.event_queue.publish('SelectedClassChanged', origin=self)
+            self.event_queue.publish('SelectedCategoryChanged', origin=self)
+            self.event_queue.publish('MethodSelected', origin=self)
+        except (DomainException, GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror('Delete Package', str(error))
 
             
 class ClassSelection(FramedWidget):        
@@ -3009,10 +3080,12 @@ class ClassSelection(FramedWidget):
         self.event_queue.publish('SelectedClassChanged', origin=self)
 
     def show_context_menu(self, event):
-        if self.selection_list.selection_listbox.size():
-            idx = self.selection_list.selection_listbox.nearest(event.y)
-            self.selection_list.selection_listbox.selection_clear(0, 'end')
-            self.selection_list.selection_listbox.selection_set(idx)
+        listbox = self.selection_list.selection_listbox
+        has_selection = listbox.size() > 0
+        if has_selection:
+            idx = listbox.nearest(event.y)
+            listbox.selection_clear(0, 'end')
+            listbox.selection_set(idx)
         menu = tk.Menu(self, tearoff=0)
         read_only = self.browser_window.application.integrated_session_state.is_mcp_busy()
         write_command_state = tk.NORMAL
@@ -3020,10 +3093,18 @@ class ClassSelection(FramedWidget):
         if read_only:
             write_command_state = tk.DISABLED
             run_command_state = tk.DISABLED
+        delete_command_state = (
+            write_command_state if has_selection else tk.DISABLED
+        )
         menu.add_command(
             label='Add Class',
             command=self.add_class,
             state=write_command_state,
+        )
+        menu.add_command(
+            label='Delete Class',
+            command=self.delete_class,
+            state=delete_command_state,
         )
         menu.add_command(
             label='Run All Tests',
@@ -3065,6 +3146,36 @@ class ClassSelection(FramedWidget):
             self.event_queue.publish('SelectedClassChanged', origin=self)
         except (GemstoneDomainException, GemstoneError) as error:
             messagebox.showerror('Add Class', str(error))
+
+    def delete_class(self):
+        listbox = self.selection_list.selection_listbox
+        selection = listbox.curselection()
+        if not selection:
+            return
+        class_name = listbox.get(selection[0])
+        selected_package = self.gemstone_session_record.selected_package
+        should_delete = messagebox.askyesno(
+            'Delete Class',
+            (
+                'Delete class %s from package %s? '
+                'This cannot be undone.'
+            )
+            % (class_name, selected_package or 'UserGlobals'),
+        )
+        if not should_delete:
+            return
+        try:
+            self.gemstone_session_record.delete_class(
+                class_name,
+                in_dictionary=selected_package,
+            )
+            self.selection_list.repopulate()
+            self.refresh_class_definition()
+            self.event_queue.publish('SelectedClassChanged', origin=self)
+            self.event_queue.publish('SelectedCategoryChanged', origin=self)
+            self.event_queue.publish('MethodSelected', origin=self)
+        except (DomainException, GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror('Delete Class', str(error))
 
     def toggle_class_definition(self):
         if self.show_class_definition_var.get():
@@ -3478,7 +3589,8 @@ class MethodSelection(FramedWidget):
 
     def show_context_menu(self, event):
         listbox = self.selection_list.selection_listbox
-        if listbox.size():
+        has_selection = listbox.size() > 0
+        if has_selection:
             idx = listbox.nearest(event.y)
             listbox.selection_clear(0, 'end')
             listbox.selection_set(idx)
@@ -3489,10 +3601,18 @@ class MethodSelection(FramedWidget):
         if read_only:
             write_command_state = tk.DISABLED
             run_command_state = tk.DISABLED
+        delete_command_state = (
+            write_command_state if has_selection else tk.DISABLED
+        )
         menu.add_command(
             label='Add Method',
             command=self.add_method,
             state=write_command_state,
+        )
+        menu.add_command(
+            label='Delete Method',
+            command=self.delete_method,
+            state=delete_command_state,
         )
         menu.add_separator()
         menu.add_command(
@@ -3506,6 +3626,37 @@ class MethodSelection(FramedWidget):
             state=run_command_state,
         )
         menu.tk_popup(event.x_root, event.y_root)
+
+    def delete_method(self):
+        listbox = self.selection_list.selection_listbox
+        selection = listbox.curselection()
+        if not selection:
+            return
+        class_name = self.gemstone_session_record.selected_class
+        show_instance_side = self.gemstone_session_record.show_instance_side
+        method_selector = listbox.get(selection[0])
+        should_delete = messagebox.askyesno(
+            'Delete Method',
+            (
+                'Delete %s>>%s? This cannot be undone.'
+            )
+            % (class_name, method_selector),
+        )
+        if not should_delete:
+            return
+        try:
+            self.gemstone_session_record.delete_method(
+                class_name,
+                show_instance_side,
+                method_selector,
+            )
+            self.selection_list.repopulate()
+            if self.show_method_hierarchy_var.get():
+                self.refresh_method_hierarchy()
+            self.event_queue.publish('SelectedCategoryChanged', origin=self)
+            self.event_queue.publish('MethodSelected', origin=self)
+        except (DomainException, GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror('Delete Method', str(error))
 
     def run_test(self):
         listbox = self.selection_list.selection_listbox
@@ -5492,6 +5643,7 @@ class DebuggerWindow(ttk.PanedWindow):
         
         # Bind item selection to method execution
         self.listbox.bind("<ButtonRelease-1>", self.on_listbox_select)
+        self.listbox.bind("<Double-1>", self.open_method_from_selected_frame)
         
         # Add a Text widget to the bottom frame (text editor)
         self.code_panel = CodePanel(self.code_panel_frame, application=application)
@@ -5553,12 +5705,45 @@ class DebuggerWindow(ttk.PanedWindow):
         if frame:
             self.code_panel.refresh(frame.method_source, mark=frame.step_point_offset)
             self.refresh_explorer(frame)
+
+    def open_method_from_selected_frame(self, event):
+        self.open_selected_frame_method()
             
     def get_selected_stack_frame(self):
         selected_item = self.listbox.focus()
         if selected_item:
             return self.stack_frames[int(selected_item)]
         return None
+
+    def frame_method_context(self, frame):
+        if frame is None:
+            return None
+        class_name = frame.class_name
+        show_instance_side = True
+        class_side_suffix = ' class'
+        if class_name.endswith(class_side_suffix):
+            class_name = class_name[: -len(class_side_suffix)]
+            show_instance_side = False
+        if not class_name or not frame.method_name:
+            return None
+        return class_name, show_instance_side, frame.method_name
+
+    def open_selected_frame_method(self):
+        frame = self.get_selected_stack_frame()
+        method_context = self.frame_method_context(frame)
+        if method_context is None:
+            return
+        class_name, show_instance_side, method_name = method_context
+        try:
+            self.application.handle_sender_selection(
+                class_name,
+                show_instance_side,
+                method_name,
+            )
+            if self.application.browser_tab:
+                self.application.notebook.select(self.application.browser_tab)
+        except (DomainException, GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror('Browse Frame Method', str(error))
 
     def selected_frame_level(self):
         frame = self.get_selected_stack_frame()
@@ -5659,6 +5844,13 @@ class DebuggerControls(ttk.Frame):
         self.stop_button = ttk.Button(self, text="Stop", command=self.handle_stop)
         self.stop_button.grid(row=0, column=4, padx=5, pady=5)
 
+        self.browse_button = ttk.Button(
+            self,
+            text='Browse Method',
+            command=self.handle_browse,
+        )
+        self.browse_button.grid(row=0, column=5, padx=5, pady=5)
+
     def handle_continue(self):
         self.debugger.continue_running()
 
@@ -5673,6 +5865,9 @@ class DebuggerControls(ttk.Frame):
 
     def handle_stop(self):
         self.debugger.stop()
+
+    def handle_browse(self):
+        self.debugger.open_selected_frame_method()
 
 
         
@@ -5788,8 +5983,24 @@ def new_application_argument_parser(default_mode='ide'):
     argument_parser.add_argument(
         '--transport',
         default='stdio',
-        choices=['stdio'],
+        choices=['stdio', 'streamable-http'],
         help='MCP transport type.',
+    )
+    argument_parser.add_argument(
+        '--mcp-host',
+        default='127.0.0.1',
+        help='Host interface for streamable-http MCP transport.',
+    )
+    argument_parser.add_argument(
+        '--mcp-port',
+        default=8000,
+        type=int,
+        help='TCP port for streamable-http MCP transport.',
+    )
+    argument_parser.add_argument(
+        '--mcp-http-path',
+        default='/mcp',
+        help='HTTP path for streamable-http MCP transport.',
     )
     argument_parser.add_argument(
         '--allow-eval',
@@ -5848,6 +6059,9 @@ def run_mcp_server(arguments, integrated_session_state=None):
         allow_commit_when_gui=arguments.allow_mcp_commit_when_gui,
         integrated_session_state=integrated_session_state,
         require_gemstone_ast=arguments.require_gemstone_ast,
+        mcp_host=arguments.mcp_host,
+        mcp_port=arguments.mcp_port,
+        mcp_streamable_http_path=arguments.mcp_http_path,
     )
     mcp_server.run(transport=arguments.transport)
 
@@ -5855,6 +6069,10 @@ def run_mcp_server(arguments, integrated_session_state=None):
 def validate_application_arguments(argument_parser, arguments):
     if arguments.allow_eval and not arguments.eval_approval_code.strip():
         argument_parser.error('--allow-eval requires --eval-approval-code.')
+    if arguments.mcp_port <= 0:
+        argument_parser.error('--mcp-port must be greater than zero.')
+    if not arguments.mcp_http_path.startswith('/'):
+        argument_parser.error('--mcp-http-path must start with /.')
 
 
 def run_application(default_mode='ide'):

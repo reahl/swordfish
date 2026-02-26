@@ -233,3 +233,63 @@ def test_create_server_passes_commit_policy_flags_in_confirmation_mode():
 
     assert captured['allow_commit']
     assert captured['allow_compile']
+
+
+def test_create_server_passes_streamable_http_network_configuration():
+    class FakeServer:
+        pass
+
+    captured = {}
+
+    def fake_fast_mcp(
+        name,
+        version,
+        host='127.0.0.1',
+        port=8000,
+        streamable_http_path='/mcp',
+    ):
+        fake_server = FakeServer()
+        captured['name'] = name
+        captured['version'] = version
+        captured['host'] = host
+        captured['port'] = port
+        captured['streamable_http_path'] = streamable_http_path
+        return fake_server
+
+    def fake_register_tools(
+        mcp_server,
+        allow_eval=False,
+        allow_compile=False,
+        allow_commit=False,
+        allow_tracing=False,
+        eval_approval_code='',
+        allow_commit_when_gui=False,
+        integrated_session_state=None,
+        require_gemstone_ast=False,
+    ):
+        pass
+
+    with patch(
+        'reahl.swordfish.mcp.server.import_fast_mcp',
+        return_value=fake_fast_mcp,
+    ):
+        with patch(
+            'reahl.swordfish.mcp.server.import_tool_registration',
+            return_value=fake_register_tools,
+        ):
+            create_server(
+                allow_eval=False,
+                allow_compile=True,
+                allow_commit=True,
+                allow_tracing=False,
+                eval_approval_code='',
+                mcp_host='127.0.0.1',
+                mcp_port=9177,
+                mcp_streamable_http_path='/running-ide',
+                require_gemstone_ast=False,
+            )
+
+    assert captured['name'] == 'SwordfishMCP'
+    assert captured['host'] == '127.0.0.1'
+    assert captured['port'] == 9177
+    assert captured['streamable_http_path'] == '/running-ide'

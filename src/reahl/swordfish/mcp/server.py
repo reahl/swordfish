@@ -28,6 +28,9 @@ def create_server(
     allow_commit_when_gui=False,
     integrated_session_state=None,
     require_gemstone_ast=False,
+    mcp_host='127.0.0.1',
+    mcp_port=8000,
+    mcp_streamable_http_path='/mcp',
 ):
     if allow_eval and not eval_approval_code.strip():
         raise ValueError('allow_eval requires eval_approval_code.')
@@ -48,6 +51,17 @@ def create_server(
         )
     )
     server_arguments = {'name': 'SwordfishMCP'}
+
+    def add_server_argument(argument_name, argument_value):
+        if supports_keyword_arguments:
+            server_arguments[argument_name] = argument_value
+            return
+        if (
+            constructor_signature
+            and argument_name in constructor_signature.parameters
+        ):
+            server_arguments[argument_name] = argument_value
+
     if (
         supports_keyword_arguments
         or (
@@ -56,6 +70,12 @@ def create_server(
         )
     ):
         server_arguments['version'] = __version__
+    add_server_argument('host', mcp_host)
+    add_server_argument('port', mcp_port)
+    add_server_argument(
+        'streamable_http_path',
+        mcp_streamable_http_path,
+    )
     mcp_server = fast_mcp(**server_arguments)
     register_tools(
         mcp_server,
