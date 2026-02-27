@@ -2,8 +2,10 @@
 
 import argparse
 import asyncio
+from collections import deque
 import json
 import logging
+import os
 import re
 import threading
 import tkinter as tk
@@ -915,28 +917,99 @@ class EventQueue:
     def __init__(self, root):
         self.root = root
         self.events = {}
-        self.queue = []
+        self.queue = deque()
+        self.queue_lock = threading.RLock()
+        self.root_thread_ident = threading.get_ident()
+        self.wakeup_read_descriptor = None
+        self.wakeup_write_descriptor = None
         self.root.bind('<<CustomEventsPublished>>', self.process_events)
+        self.configure_cross_thread_wakeup()
+
+    def configure_cross_thread_wakeup(self):
+        supports_filehandler = hasattr(self.root, 'createfilehandler')
+        if not supports_filehandler:
+            return
+        try:
+            read_descriptor, write_descriptor = os.pipe()
+            os.set_blocking(read_descriptor, False)
+            os.set_blocking(write_descriptor, False)
+            self.root.createfilehandler(
+                read_descriptor,
+                tk.READABLE,
+                self.process_cross_thread_wakeup,
+            )
+            self.wakeup_read_descriptor = read_descriptor
+            self.wakeup_write_descriptor = write_descriptor
+        except (AttributeError, OSError):
+            self.wakeup_read_descriptor = None
+            self.wakeup_write_descriptor = None
+
+    def callback_reference_for(self, callback):
+        try:
+            return weakref.WeakMethod(callback)
+        except TypeError:
+            return weakref.ref(callback)
 
     def subscribe(self, event_name, callback, *args):
         self.events.setdefault(event_name, [])
-        self.events[event_name].append((weakref.WeakMethod(callback), args))
+        self.events[event_name].append((self.callback_reference_for(callback), args))
 
     def publish(self, event_name, *args, **kwargs):
         if event_name in self.events:
-            self.queue.append((event_name, args, kwargs))
-        self.root.event_generate('<<CustomEventsPublished>>')
+            with self.queue_lock:
+                self.queue.append((event_name, args, kwargs))
+        if threading.get_ident() == self.root_thread_ident:
+            try:
+                self.root.event_generate('<<CustomEventsPublished>>')
+            except tk.TclError:
+                pass
+            return
+        self.publish_cross_thread_wakeup()
+
+    def publish_cross_thread_wakeup(self):
+        if self.wakeup_write_descriptor is not None:
+            try:
+                os.write(self.wakeup_write_descriptor, b'1')
+            except OSError:
+                pass
+            return
+        try:
+            self.root.event_generate('<<CustomEventsPublished>>')
+        except tk.TclError:
+            pass
+
+    def process_cross_thread_wakeup(self, file_descriptor, wakeup_mask):
+        if self.wakeup_read_descriptor is not None:
+            while True:
+                try:
+                    wakeup_payload = os.read(self.wakeup_read_descriptor, 1024)
+                except BlockingIOError:
+                    break
+                except OSError:
+                    break
+                if wakeup_payload == b'':
+                    break
+                if len(wakeup_payload) < 1024:
+                    break
+        self.process_events(None)
 
     def process_events(self, event):
-        while self.queue:
-            event_name, args, kwargs = self.queue.pop(0)
+        while True:
+            with self.queue_lock:
+                if not self.queue:
+                    break
+                event_name, args, kwargs = self.queue.popleft()
             if event_name in self.events:
                 logging.getLogger(__name__).debug(f'Processing: {event_name}')
+                retained_callbacks = []
                 for weak_callback, callback_args in self.events[event_name]:
                     callback = weak_callback()
-                    if callback is not None:
-                        logging.getLogger(__name__).debug(f'Calling: {callback}')
-                        callback(*callback_args, *args, **kwargs)
+                    if callback is None:
+                        continue
+                    retained_callbacks.append((weak_callback, callback_args))
+                    logging.getLogger(__name__).debug(f'Calling: {callback}')
+                    callback(*callback_args, *args, **kwargs)
+                self.events[event_name] = retained_callbacks
                     
     def clear_subscribers(self, owner):
         for event_name, registered_callbacks in self.events.copy().items():
@@ -946,10 +1019,32 @@ class EventQueue:
                 callback_is_live = callback is not None
                 owner_matches = False
                 if callback_is_live:
-                    owner_matches = callback.__self__ is owner
+                    owner_matches = getattr(callback, '__self__', None) is owner
                 if callback_is_live and not owner_matches:
                     cleaned_callbacks.append((weak_callback, callback_args))
             self.events[event_name] = cleaned_callbacks
+
+    def close(self):
+        if (
+            self.wakeup_read_descriptor is not None
+            and hasattr(self.root, 'deletefilehandler')
+        ):
+            try:
+                self.root.deletefilehandler(self.wakeup_read_descriptor)
+            except tk.TclError:
+                pass
+        if self.wakeup_read_descriptor is not None:
+            try:
+                os.close(self.wakeup_read_descriptor)
+            except OSError:
+                pass
+            self.wakeup_read_descriptor = None
+        if self.wakeup_write_descriptor is not None:
+            try:
+                os.close(self.wakeup_write_descriptor)
+            except OSError:
+                pass
+            self.wakeup_write_descriptor = None
 
 
 class McpRuntimeConfig:
@@ -1036,8 +1131,10 @@ class EmbeddedMcpServerController:
         self.uvicorn_server = None
         self.last_error_message = ''
         self.starting = False
+        self.stopping = False
         self.running = False
         self.shutdown_requested = False
+        self.server_state_subscribers = []
 
     def current_runtime_config(self):
         with self.lock:
@@ -1052,15 +1149,76 @@ class EmbeddedMcpServerController:
             return {
                 'running': self.running,
                 'starting': self.starting,
+                'stopping': self.stopping,
                 'last_error_message': self.last_error_message,
                 'endpoint_url': self.runtime_config.endpoint_url(),
             }
+
+    def callback_reference_for(self, callback):
+        try:
+            return weakref.WeakMethod(callback)
+        except TypeError:
+            return weakref.ref(callback)
+
+    def subscribe_server_state(self, callback):
+        with self.lock:
+            self.server_state_subscribers.append(
+                self.callback_reference_for(callback)
+            )
+
+    def live_callbacks_from_references(self, callback_references):
+        callbacks = []
+        live_callback_references = []
+        for callback_reference in callback_references:
+            callback = callback_reference()
+            if callback is None:
+                continue
+            callbacks.append(callback)
+            live_callback_references.append(callback_reference)
+        return callbacks, live_callback_references
+
+    def notify_server_state_subscribers(self):
+        callbacks = []
+        status_payload = self.status()
+        with self.lock:
+            callbacks, live_callback_references = self.live_callbacks_from_references(
+                self.server_state_subscribers
+            )
+            self.server_state_subscribers = live_callback_references
+        for callback in callbacks:
+            callback(
+                running=status_payload['running'],
+                starting=status_payload['starting'],
+                stopping=status_payload['stopping'],
+                endpoint_url=status_payload['endpoint_url'],
+                last_error_message=status_payload['last_error_message'],
+            )
+
+    def clear_subscribers(self, owner):
+        with self.lock:
+            self.server_state_subscribers = self.cleaned_subscribers_for_owner(
+                self.server_state_subscribers,
+                owner,
+            )
+
+    def cleaned_subscribers_for_owner(self, callback_references, owner):
+        cleaned_callback_references = []
+        for callback_reference in callback_references:
+            callback = callback_reference()
+            if callback is None:
+                continue
+            callback_owner = getattr(callback, '__self__', None)
+            if callback_owner is owner:
+                continue
+            cleaned_callback_references.append(callback_reference)
+        return cleaned_callback_references
 
     def start(self):
         with self.lock:
             if self.running or self.starting:
                 return False
             self.starting = True
+            self.stopping = False
             self.shutdown_requested = False
             self.last_error_message = ''
             self.server_thread = threading.Thread(
@@ -1069,6 +1227,7 @@ class EmbeddedMcpServerController:
                 name='SwordfishEmbeddedMCP',
             )
             self.server_thread.start()
+        self.notify_server_state_subscribers()
         return True
 
     def stop(self):
@@ -1078,24 +1237,37 @@ class EmbeddedMcpServerController:
             if server is None and not self.running and not self.starting:
                 return False
             self.starting = False
+            self.stopping = True
             self.shutdown_requested = True
             server_thread = self.server_thread
             if server is not None:
                 server.should_exit = True
+        self.notify_server_state_subscribers()
         if (
             server_thread is not None
             and server_thread.is_alive()
             and threading.current_thread() is not server_thread
         ):
-            server_thread.join(timeout=5)
+            wait_thread = threading.Thread(
+                target=self.wait_for_server_thread_exit,
+                args=(server_thread,),
+                daemon=True,
+                name='SwordfishEmbeddedMCPStopWait',
+            )
+            wait_thread.start()
         return True
+
+    def wait_for_server_thread_exit(self, server_thread):
+        server_thread.join(timeout=5)
 
     def run_server(self):
         local_runtime_config = self.current_runtime_config()
         with self.lock:
             if self.shutdown_requested:
                 self.starting = False
+                self.stopping = False
                 self.server_thread = None
+                self.notify_server_state_subscribers()
                 return
         try:
             mcp_server = create_server(
@@ -1129,6 +1301,7 @@ class EmbeddedMcpServerController:
                 self.last_error_message = ''
                 if self.shutdown_requested:
                     server.should_exit = True
+            self.notify_server_state_subscribers()
             asyncio.run(server.serve())
         except (
             McpDependencyNotInstalled,
@@ -1140,12 +1313,15 @@ class EmbeddedMcpServerController:
         ) as error:
             with self.lock:
                 self.last_error_message = str(error)
+            self.notify_server_state_subscribers()
         finally:
             with self.lock:
                 self.running = False
                 self.starting = False
+                self.stopping = False
                 self.uvicorn_server = None
                 self.server_thread = None
+            self.notify_server_state_subscribers()
 
 
 class McpConfigurationDialog(tk.Toplevel):
@@ -1376,13 +1552,22 @@ class MainMenu(tk.Menu):
         self.mcp_menu.delete(0, tk.END)
         mcp_state = self.parent.embedded_mcp_server_status()
         start_state = tk.NORMAL
-        if mcp_state['running'] or mcp_state['starting']:
+        if mcp_state['running'] or mcp_state['starting'] or mcp_state['stopping']:
             start_state = tk.DISABLED
         stop_state = tk.NORMAL
-        if not mcp_state['running'] and not mcp_state['starting']:
+        if (
+            not mcp_state['running']
+            and not mcp_state['starting']
+            and not mcp_state['stopping']
+        ):
+            stop_state = tk.DISABLED
+        if mcp_state['stopping']:
             stop_state = tk.DISABLED
         if self.parent.integrated_session_state.is_mcp_busy():
             stop_state = tk.DISABLED
+        configure_state = tk.NORMAL
+        if mcp_state['starting'] or mcp_state['stopping']:
+            configure_state = tk.DISABLED
         self.mcp_menu.add_command(
             label='Start MCP',
             command=self.start_mcp_server,
@@ -1397,6 +1582,7 @@ class MainMenu(tk.Menu):
         self.mcp_menu.add_command(
             label='Configure MCP',
             command=self.configure_mcp_server,
+            state=configure_state,
         )
             
     def update_file_menu(self):
@@ -2043,15 +2229,19 @@ class Swordfish(tk.Tk):
         self.debugger_tab = None
         self.run_tab = None
         self.inspector_tab = None
+        self.collaboration_status_frame = None
         self.collaboration_status_label = None
         self.collaboration_status_text = tk.StringVar(value='')
+        self.mcp_activity_indicator = None
+        self.mcp_activity_indicator_visible = False
+        self.foreground_activity_message = ''
 
         self.gemstone_session_record = None
         self.last_mcp_busy_state = None
         self.last_mcp_server_running_state = None
         self.last_mcp_server_starting_state = None
+        self.last_mcp_server_stopping_state = None
         self.last_mcp_server_error_message = None
-        self.collaboration_sync_after_id = None
         if mcp_runtime_config is None:
             mcp_runtime_config = McpRuntimeConfig(
                 allow_compile=True,
@@ -2065,12 +2255,40 @@ class Swordfish(tk.Tk):
 
         self.event_queue.subscribe('LoggedInSuccessfully', self.show_main_app)
         self.event_queue.subscribe('LoggedOut', self.show_login_screen)
+        self.event_queue.subscribe(
+            'McpBusyStateChanged',
+            self.handle_mcp_busy_state_changed,
+        )
+        self.event_queue.subscribe(
+            'McpServerStateChanged',
+            self.handle_mcp_server_state_changed,
+        )
+        self.event_queue.subscribe(
+            'ModelRefreshRequested',
+            self.handle_model_refresh_requested,
+        )
+        self.integrated_session_state.subscribe_mcp_busy_state(
+            self.publish_mcp_busy_state_event,
+        )
+        self.integrated_session_state.subscribe_model_refresh_requests(
+            self.publish_model_refresh_requested_event,
+        )
+        self.embedded_mcp_server_controller.subscribe_server_state(
+            self.publish_mcp_server_state_event,
+        )
 
         self.create_menu()
+        self.publish_mcp_busy_state_event(
+            is_busy=self.integrated_session_state.is_mcp_busy(),
+            operation_name=self.integrated_session_state.current_mcp_operation_name(),
+        )
+        self.publish_mcp_server_state_event(
+            **self.embedded_mcp_server_controller.status()
+        )
         if start_embedded_mcp:
             self.start_mcp_server(report_errors=False)
         self.show_login_screen()
-        self.schedule_collaboration_sync()
+        self.refresh_collaboration_status()
 
     @property
     def is_logged_in(self):
@@ -2102,8 +2320,12 @@ class Swordfish(tk.Tk):
         return stopped
 
     def start_mcp_server_from_menu(self):
-        self.start_mcp_server(report_errors=True)
-        self.menu_bar.update_menus()
+        self.begin_foreground_activity('Starting MCP server...')
+        try:
+            self.start_mcp_server(report_errors=True)
+            self.menu_bar.update_menus()
+        finally:
+            self.end_foreground_activity()
 
     def stop_mcp_server_from_menu(self):
         if self.integrated_session_state.is_mcp_busy():
@@ -2112,8 +2334,12 @@ class Swordfish(tk.Tk):
                 'Stop MCP after the current MCP operation finishes.',
             )
             return
-        self.stop_mcp_server()
-        self.menu_bar.update_menus()
+        self.begin_foreground_activity('Stopping MCP server...')
+        try:
+            self.stop_mcp_server()
+            self.menu_bar.update_menus()
+        finally:
+            self.end_foreground_activity()
 
     def configure_mcp_server_from_menu(self):
         dialog = McpConfigurationDialog(self, self.mcp_runtime_config)
@@ -2162,11 +2388,16 @@ class Swordfish(tk.Tk):
         self.debugger_tab = None
         self.run_tab = None
         self.inspector_tab = None
+        self.collaboration_status_frame = None
         self.collaboration_status_label = None
+        self.mcp_activity_indicator = None
+        self.mcp_activity_indicator_visible = False
 
     def show_login_screen(self):
         self.clear_widgets()
         self.collaboration_status_text.set('')
+        self.foreground_activity_message = ''
+        self.last_mcp_server_stopping_state = None
 
         self.login_frame = LoginFrame(
             self,
@@ -2220,25 +2451,127 @@ class Swordfish(tk.Tk):
         self.columnconfigure(0, weight=1)
 
     def create_collaboration_status_bar(self):
-        self.collaboration_status_label = ttk.Label(
-            self,
-            textvariable=self.collaboration_status_text,
-            anchor='w',
-        )
-        self.collaboration_status_label.grid(
+        self.collaboration_status_frame = ttk.Frame(self)
+        self.collaboration_status_frame.grid(
             row=1,
             column=0,
             sticky='ew',
             padx=6,
             pady=(2, 4),
         )
+        self.collaboration_status_frame.columnconfigure(0, weight=1)
+        self.collaboration_status_label = ttk.Label(
+            self.collaboration_status_frame,
+            textvariable=self.collaboration_status_text,
+            anchor='w',
+        )
+        self.collaboration_status_label.grid(
+            row=0,
+            column=0,
+            sticky='ew',
+        )
+        self.mcp_activity_indicator = ttk.Progressbar(
+            self.collaboration_status_frame,
+            mode='indeterminate',
+            length=110,
+        )
+        self.mcp_activity_indicator.grid(
+            row=0,
+            column=1,
+            sticky='e',
+            padx=(8, 0),
+        )
+        self.set_mcp_activity_indicator_visibility(False)
         self.rowconfigure(1, weight=0)
 
-    def schedule_collaboration_sync(self):
-        self.collaboration_sync_after_id = self.after(
-            150,
-            self.synchronise_collaboration_state,
+    def set_mcp_activity_indicator_visibility(self, visible):
+        if self.mcp_activity_indicator is None:
+            self.mcp_activity_indicator_visible = False
+            return
+        if visible and not self.mcp_activity_indicator_visible:
+            self.mcp_activity_indicator.grid()
+            self.mcp_activity_indicator.start(10)
+            self.mcp_activity_indicator_visible = True
+            self.event_queue.publish(
+                'UiActivityIndicatorChanged',
+                is_visible=True,
+            )
+            return
+        if not visible and self.mcp_activity_indicator_visible:
+            self.mcp_activity_indicator.stop()
+            self.mcp_activity_indicator.grid_remove()
+            self.mcp_activity_indicator_visible = False
+            self.event_queue.publish(
+                'UiActivityIndicatorChanged',
+                is_visible=False,
+            )
+
+    def begin_foreground_activity(self, message):
+        self.foreground_activity_message = message
+        self.event_queue.publish(
+            'UiActivityChanged',
+            is_active=True,
+            message=message,
         )
+        self.collaboration_status_text.set(message)
+        self.set_mcp_activity_indicator_visibility(True)
+        try:
+            self.config(cursor='watch')
+        except tk.TclError:
+            pass
+        self.update_idletasks()
+
+    def end_foreground_activity(self):
+        self.foreground_activity_message = ''
+        self.event_queue.publish(
+            'UiActivityChanged',
+            is_active=False,
+            message='',
+        )
+        try:
+            self.config(cursor='')
+        except tk.TclError:
+            pass
+        self.refresh_collaboration_status()
+
+    def publish_mcp_busy_state_event(self, is_busy=False, operation_name=''):
+        self.event_queue.publish(
+            'McpBusyStateChanged',
+            is_busy=is_busy,
+            operation_name=operation_name,
+        )
+
+    def publish_mcp_server_state_event(
+        self,
+        running=False,
+        starting=False,
+        stopping=False,
+        endpoint_url='',
+        last_error_message='',
+    ):
+        self.event_queue.publish(
+            'McpServerStateChanged',
+            running=running,
+            starting=starting,
+            stopping=stopping,
+            endpoint_url=endpoint_url,
+            last_error_message=last_error_message,
+        )
+
+    def publish_model_refresh_requested_event(self, change_kind=''):
+        self.event_queue.publish(
+            'ModelRefreshRequested',
+            change_kind=change_kind,
+        )
+
+    def process_pending_model_refresh_requests(self):
+        pending_change_kinds = (
+            self.integrated_session_state.consume_model_refresh_requests()
+        )
+        if not self.is_logged_in:
+            return
+        for change_kind in pending_change_kinds:
+            self.publish_model_change_events(change_kind)
 
     def apply_collaboration_read_only_state(self, read_only):
         if self.browser_tab is not None and self.browser_tab.winfo_exists():
@@ -2246,59 +2579,24 @@ class Swordfish(tk.Tk):
         if self.run_tab is not None and self.run_tab.winfo_exists():
             self.run_tab.set_read_only(read_only)
 
-    def synchronise_collaboration_state(self):
+    def refresh_collaboration_status(self):
         if not self.winfo_exists():
             return
         mcp_busy = self.integrated_session_state.is_mcp_busy()
         mcp_server_status = self.embedded_mcp_server_controller.status()
         mcp_server_running = mcp_server_status['running']
         mcp_server_starting = mcp_server_status['starting']
-        mcp_server_error_message = mcp_server_status['last_error_message']
-        if self.is_logged_in:
-            pending_change_kinds = (
-                self.integrated_session_state.consume_model_refresh_requests()
-            )
-            for change_kind in pending_change_kinds:
-                self.publish_model_change_events(change_kind)
-        else:
-            self.integrated_session_state.consume_model_refresh_requests()
-        if self.last_mcp_busy_state != mcp_busy:
-            self.last_mcp_busy_state = mcp_busy
-            self.menu_bar.update_menus()
-            self.event_queue.publish(
-                'McpBusyStateChanged',
-                is_busy=mcp_busy,
-                operation_name=(
-                    self.integrated_session_state.current_mcp_operation_name()
-                ),
-            )
-        server_state_changed = (
-            self.last_mcp_server_running_state != mcp_server_running
-            or self.last_mcp_server_starting_state != mcp_server_starting
-        )
-        if server_state_changed:
-            self.last_mcp_server_running_state = mcp_server_running
-            self.last_mcp_server_starting_state = mcp_server_starting
-            self.menu_bar.update_menus()
-            self.event_queue.publish(
-                'McpServerStateChanged',
-                running=mcp_server_running,
-                starting=mcp_server_starting,
-                endpoint_url=mcp_server_status['endpoint_url'],
-            )
-        if (
-            mcp_server_error_message
-            and mcp_server_error_message != self.last_mcp_server_error_message
-        ):
-            self.last_mcp_server_error_message = mcp_server_error_message
-            messagebox.showerror(
-                'MCP Startup Failed',
-                mcp_server_error_message,
-            )
-        if not mcp_server_error_message:
-            self.last_mcp_server_error_message = None
+        mcp_server_stopping = mcp_server_status['stopping']
         self.apply_collaboration_read_only_state(mcp_busy)
-        if mcp_busy:
+        self.set_mcp_activity_indicator_visibility(
+            bool(self.foreground_activity_message)
+            or mcp_busy
+            or mcp_server_starting
+            or mcp_server_stopping
+        )
+        if self.foreground_activity_message:
+            self.collaboration_status_text.set(self.foreground_activity_message)
+        elif mcp_busy:
             operation_name = (
                 self.integrated_session_state.current_mcp_operation_name()
                 or 'unknown'
@@ -2307,6 +2605,8 @@ class Swordfish(tk.Tk):
                 'MCP busy: %s. IDE write/run/debug actions are read-only.'
                 % operation_name
             )
+        elif mcp_server_stopping:
+            self.collaboration_status_text.set('Stopping MCP server...')
         elif mcp_server_starting:
             self.collaboration_status_text.set('Starting MCP server...')
         elif mcp_server_running:
@@ -2320,17 +2620,59 @@ class Swordfish(tk.Tk):
             )
         else:
             self.collaboration_status_text.set('')
-        self.schedule_collaboration_sync()
+
+    def handle_mcp_busy_state_changed(self, is_busy=False, operation_name=''):
+        self.last_mcp_busy_state = is_busy
+        self.refresh_collaboration_status()
+
+    def handle_mcp_server_state_changed(
+        self,
+        running=False,
+        starting=False,
+        stopping=False,
+        endpoint_url='',
+        last_error_message='',
+    ):
+        self.last_mcp_server_running_state = running
+        self.last_mcp_server_starting_state = starting
+        self.last_mcp_server_stopping_state = stopping
+        if (
+            last_error_message
+            and last_error_message != self.last_mcp_server_error_message
+        ):
+            self.last_mcp_server_error_message = last_error_message
+            messagebox.showerror(
+                'MCP Startup Failed',
+                last_error_message,
+            )
+        if not last_error_message:
+            self.last_mcp_server_error_message = None
+        self.refresh_collaboration_status()
+
+    def handle_model_refresh_requested(self, change_kind=''):
+        self.process_pending_model_refresh_requests()
+        self.refresh_collaboration_status()
+
+    def synchronise_collaboration_state(self):
+        if not self.winfo_exists():
+            return
+        self.process_pending_model_refresh_requests()
+        self.publish_mcp_busy_state_event(
+            is_busy=self.integrated_session_state.is_mcp_busy(),
+            operation_name=self.integrated_session_state.current_mcp_operation_name(),
+        )
+        self.publish_mcp_server_state_event(
+            **self.embedded_mcp_server_controller.status()
+        )
+        self.refresh_collaboration_status()
 
     def destroy(self):
+        self.embedded_mcp_server_controller.clear_subscribers(self)
+        self.integrated_session_state.clear_subscribers(self)
+        self.event_queue.clear_subscribers(self)
         self.embedded_mcp_server_controller.stop()
         self.integrated_session_state.detach_ide_gui()
-        if self.collaboration_sync_after_id is not None:
-            try:
-                self.after_cancel(self.collaboration_sync_after_id)
-            except tk.TclError:
-                pass
-            self.collaboration_sync_after_id = None
+        self.event_queue.close()
         super().destroy()
 
     def add_browser_tab(self):
@@ -2636,14 +2978,18 @@ class RunTab(ttk.Frame):
         self.status_label.config(text='Running selection...')
         self.last_exception = None
         self.clear_source_error_highlight()
+        self.application.begin_foreground_activity('Running selected source...')
         try:
-            result = self.gemstone_session_record.run_code(selected_text)
-            self.on_run_complete(result)
-        except (DomainException, GemstoneDomainException) as domain_exception:
-            self.status_label.config(text=str(domain_exception))
-            self.show_error_in_result_panel(str(domain_exception), None, None)
-        except GemstoneError as gemstone_exception:
-            self.on_run_error(gemstone_exception)
+            try:
+                result = self.gemstone_session_record.run_code(selected_text)
+                self.on_run_complete(result)
+            except (DomainException, GemstoneDomainException) as domain_exception:
+                self.status_label.config(text=str(domain_exception))
+                self.show_error_in_result_panel(str(domain_exception), None, None)
+            except GemstoneError as gemstone_exception:
+                self.on_run_error(gemstone_exception)
+        finally:
+            self.application.end_foreground_activity()
 
     def inspect_selected_source_text(self):
         if self.is_read_only():
@@ -2656,15 +3002,19 @@ class RunTab(ttk.Frame):
         self.status_label.config(text='Inspecting selection...')
         self.last_exception = None
         self.clear_source_error_highlight()
+        self.application.begin_foreground_activity('Inspecting selected source...')
         try:
-            result = self.gemstone_session_record.run_code(selected_text)
-            self.on_run_complete(result)
-            self.application.open_inspector_for_object(result)
-        except (DomainException, GemstoneDomainException) as domain_exception:
-            self.status_label.config(text=str(domain_exception))
-            self.show_error_in_result_panel(str(domain_exception), None, None)
-        except GemstoneError as gemstone_exception:
-            self.on_run_error(gemstone_exception)
+            try:
+                result = self.gemstone_session_record.run_code(selected_text)
+                self.on_run_complete(result)
+                self.application.open_inspector_for_object(result)
+            except (DomainException, GemstoneDomainException) as domain_exception:
+                self.status_label.config(text=str(domain_exception))
+                self.show_error_in_result_panel(str(domain_exception), None, None)
+            except GemstoneError as gemstone_exception:
+                self.on_run_error(gemstone_exception)
+        finally:
+            self.application.end_foreground_activity()
 
     def show_text_menu_for_widget(
         self,
@@ -2751,15 +3101,19 @@ class RunTab(ttk.Frame):
         self.status_label.config(text='Running...')
         self.last_exception = None
         self.clear_source_error_highlight()
+        self.application.begin_foreground_activity('Running source...')
         try:
-            code_to_run = self.source_text.get('1.0', 'end-1c')
-            result = self.gemstone_session_record.run_code(code_to_run)
-            self.on_run_complete(result)
-        except (DomainException, GemstoneDomainException) as domain_exception:
-            self.status_label.config(text=str(domain_exception))
-            self.show_error_in_result_panel(str(domain_exception), None, None)
-        except GemstoneError as gemstone_exception:
-            self.on_run_error(gemstone_exception)
+            try:
+                code_to_run = self.source_text.get('1.0', 'end-1c')
+                result = self.gemstone_session_record.run_code(code_to_run)
+                self.on_run_complete(result)
+            except (DomainException, GemstoneDomainException) as domain_exception:
+                self.status_label.config(text=str(domain_exception))
+                self.show_error_in_result_panel(str(domain_exception), None, None)
+            except GemstoneError as gemstone_exception:
+                self.on_run_error(gemstone_exception)
+        finally:
+            self.application.end_foreground_activity()
 
     def on_run_complete(self, result):
         self.status_label.config(text='Completed successfully')
@@ -2999,22 +3353,26 @@ class RunTab(ttk.Frame):
 
         self.last_exception = None
         self.clear_source_error_highlight()
+        self.application.begin_foreground_activity('Debugging source...')
         try:
-            result = self.gemstone_session_record.run_code(code_to_run)
-            self.on_run_complete(result)
-            self.status_label.config(
-                text='Completed successfully; no debugger context',
-            )
-            return
-        except (DomainException, GemstoneDomainException) as domain_exception:
-            self.status_label.config(text=str(domain_exception))
-            self.show_error_in_result_panel(str(domain_exception), None, None)
-            return
-        except GemstoneError as gemstone_exception:
-            self.on_run_error(gemstone_exception)
-            if self.is_compile_error(gemstone_exception):
+            try:
+                result = self.gemstone_session_record.run_code(code_to_run)
+                self.on_run_complete(result)
+                self.status_label.config(
+                    text='Completed successfully; no debugger context',
+                )
                 return
-            self.application.open_debugger(gemstone_exception)
+            except (DomainException, GemstoneDomainException) as domain_exception:
+                self.status_label.config(text=str(domain_exception))
+                self.show_error_in_result_panel(str(domain_exception), None, None)
+                return
+            except GemstoneError as gemstone_exception:
+                self.on_run_error(gemstone_exception)
+                if self.is_compile_error(gemstone_exception):
+                    return
+                self.application.open_debugger(gemstone_exception)
+        finally:
+            self.application.end_foreground_activity()
 
     def is_compile_error(self, exception):
         error_number = None
@@ -3750,13 +4108,19 @@ class ClassSelection(FramedWidget):
         if not selection:
             return
         class_name = listbox.get(selection[0])
+        self.browser_window.application.begin_foreground_activity(
+            'Running tests in %s...' % class_name
+        )
         try:
-            result = self.gemstone_session_record.run_gemstone_tests(class_name)
-            self.show_test_result(result)
-        except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Run All Tests', str(domain_exception))
-        except GemstoneError as e:
-            self.browser_window.application.open_debugger(e)
+            try:
+                result = self.gemstone_session_record.run_gemstone_tests(class_name)
+                self.show_test_result(result)
+            except (DomainException, GemstoneDomainException) as domain_exception:
+                messagebox.showerror('Run All Tests', str(domain_exception))
+            except GemstoneError as e:
+                self.browser_window.application.open_debugger(e)
+        finally:
+            self.browser_window.application.end_foreground_activity()
 
                     
 class CategorySelection(FramedWidget):        
@@ -4177,13 +4541,22 @@ class MethodSelection(FramedWidget):
             return
         class_name = self.gemstone_session_record.selected_class
         method_selector = listbox.get(selection[0])
+        self.browser_window.application.begin_foreground_activity(
+            'Running test %s>>%s...' % (class_name, method_selector)
+        )
         try:
-            result = self.gemstone_session_record.run_test_method(class_name, method_selector)
-            self.show_test_result(result)
-        except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Run Test', str(domain_exception))
-        except GemstoneError as e:
-            self.browser_window.application.open_debugger(e)
+            try:
+                result = self.gemstone_session_record.run_test_method(
+                    class_name,
+                    method_selector,
+                )
+                self.show_test_result(result)
+            except (DomainException, GemstoneDomainException) as domain_exception:
+                messagebox.showerror('Run Test', str(domain_exception))
+            except GemstoneError as e:
+                self.browser_window.application.open_debugger(e)
+        finally:
+            self.browser_window.application.end_foreground_activity()
 
     def debug_test(self):
         listbox = self.selection_list.selection_listbox
@@ -4192,12 +4565,21 @@ class MethodSelection(FramedWidget):
             return
         class_name = self.gemstone_session_record.selected_class
         method_selector = listbox.get(selection[0])
+        self.browser_window.application.begin_foreground_activity(
+            'Debugging test %s>>%s...' % (class_name, method_selector)
+        )
         try:
-            self.gemstone_session_record.debug_test_method(class_name, method_selector)
-        except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Debug Test', str(domain_exception))
-        except GemstoneError as e:
-            self.browser_window.application.open_debugger(e)
+            try:
+                self.gemstone_session_record.debug_test_method(
+                    class_name,
+                    method_selector,
+                )
+            except (DomainException, GemstoneDomainException) as domain_exception:
+                messagebox.showerror('Debug Test', str(domain_exception))
+            except GemstoneError as e:
+                self.browser_window.application.open_debugger(e)
+        finally:
+            self.browser_window.application.end_foreground_activity()
 
         
 class MethodNavigationHistory:
