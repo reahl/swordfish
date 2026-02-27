@@ -6026,14 +6026,6 @@ def new_application_argument_parser(default_mode='ide'):
         ),
     )
     argument_parser.add_argument(
-        '--eval-approval-code',
-        default='',
-        help=(
-            'Human approval code required by gs_eval and gs_debug_eval. '
-            'Required when --allow-eval is enabled.'
-        ),
-    )
-    argument_parser.add_argument(
         '--allow-tracing',
         action='store_true',
         help='Enable gs_tracer_* and evidence tools (disabled by default).',
@@ -6055,7 +6047,6 @@ def run_mcp_server(arguments, integrated_session_state=None):
         allow_compile=arguments.allow_compile,
         allow_commit=arguments.allow_commit,
         allow_tracing=arguments.allow_tracing,
-        eval_approval_code=arguments.eval_approval_code,
         allow_commit_when_gui=arguments.allow_mcp_commit_when_gui,
         integrated_session_state=integrated_session_state,
         require_gemstone_ast=arguments.require_gemstone_ast,
@@ -6067,8 +6058,6 @@ def run_mcp_server(arguments, integrated_session_state=None):
 
 
 def validate_application_arguments(argument_parser, arguments):
-    if arguments.allow_eval and not arguments.eval_approval_code.strip():
-        argument_parser.error('--allow-eval requires --eval-approval-code.')
     if arguments.mcp_port <= 0:
         argument_parser.error('--mcp-port must be greater than zero.')
     if not arguments.mcp_http_path.startswith('/'):
