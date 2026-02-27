@@ -63,6 +63,12 @@ class FakeApplication:
         self.event_queue.publish('SelectedCategoryChanged')
         self.event_queue.publish('MethodSelected')
 
+    def begin_foreground_activity(self, message):
+        pass
+
+    def end_foreground_activity(self):
+        pass
+
 
 class SwordfishGuiFixture(Fixture):
     @set_up
@@ -1323,6 +1329,98 @@ def test_mcp_menu_reflects_embedded_server_running_state(fixture):
     mcp_menu = fixture.app.menu_bar.mcp_menu
     assert mcp_menu.entrycget(0, 'state') == tk.DISABLED
     assert mcp_menu.entrycget(1, 'state') == tk.NORMAL
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_mcp_menu_reflects_embedded_server_stopping_state(fixture):
+    """AI: MCP menu should disable start/stop/configure while embedded MCP is stopping."""
+    with fixture.app.embedded_mcp_server_controller.lock:
+        fixture.app.embedded_mcp_server_controller.running = True
+        fixture.app.embedded_mcp_server_controller.stopping = True
+    fixture.app.menu_bar.update_menus()
+    mcp_menu = fixture.app.menu_bar.mcp_menu
+    assert mcp_menu.entrycget(0, 'state') == tk.DISABLED
+    assert mcp_menu.entrycget(1, 'state') == tk.DISABLED
+    assert mcp_menu.entrycget(3, 'state') == tk.DISABLED
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_start_mcp_menu_action_uses_foreground_activity_feedback(fixture):
+    """AI: Starting MCP from menu should use the shared foreground activity feedback path."""
+    with patch.object(fixture.app, 'start_mcp_server', return_value=True):
+        with patch.object(fixture.app, 'begin_foreground_activity') as begin_activity:
+            with patch.object(fixture.app, 'end_foreground_activity') as end_activity:
+                fixture.app.start_mcp_server_from_menu()
+    begin_activity.assert_called_once_with('Starting MCP server...')
+    end_activity.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_stop_mcp_menu_action_uses_foreground_activity_feedback(fixture):
+    """AI: Stopping MCP from menu should use the shared foreground activity feedback path."""
+    with patch.object(fixture.app, 'stop_mcp_server', return_value=True):
+        with patch.object(fixture.app, 'begin_foreground_activity') as begin_activity:
+            with patch.object(fixture.app, 'end_foreground_activity') as end_activity:
+                fixture.app.stop_mcp_server_from_menu()
+    begin_activity.assert_called_once_with('Stopping MCP server...')
+    end_activity.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_foreground_activity_feedback_controls_status_and_indicator(fixture):
+    """AI: Foreground activity helper should show/hide progress feedback for non-MCP long actions."""
+    fixture.simulate_login()
+
+    class ActivityListener:
+        def __init__(self):
+            self.activity_events = []
+            self.indicator_events = []
+
+        def on_activity_changed(self, is_active=False, message=''):
+            self.activity_events.append((is_active, message))
+
+        def on_indicator_changed(self, is_visible=False):
+            self.indicator_events.append(is_visible)
+
+    listener = ActivityListener()
+    fixture.app.event_queue.subscribe(
+        'UiActivityChanged',
+        listener.on_activity_changed,
+    )
+    fixture.app.event_queue.subscribe(
+        'UiActivityIndicatorChanged',
+        listener.on_indicator_changed,
+    )
+
+    fixture.app.begin_foreground_activity('Running long action...')
+    fixture.app.update()
+    assert fixture.app.collaboration_status_text.get() == 'Running long action...'
+    assert fixture.app.mcp_activity_indicator_visible is True
+    assert listener.activity_events[-1] == (True, 'Running long action...')
+    assert listener.indicator_events[-1] is True
+
+    fixture.app.end_foreground_activity()
+    fixture.app.update()
+    assert fixture.app.foreground_activity_message == ''
+    assert fixture.app.mcp_activity_indicator_visible is False
+    assert listener.activity_events[-1] == (False, '')
+    assert listener.indicator_events[-1] is False
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_tab_run_action_uses_foreground_activity_feedback(fixture):
+    """AI: Run action should trigger shared foreground activity feedback while code executes."""
+    fixture.simulate_login()
+    fixture.app.run_code('3 + 4')
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+
+    with patch.object(fixture.app, 'begin_foreground_activity') as begin_activity:
+        with patch.object(fixture.app, 'end_foreground_activity') as end_activity:
+            run_tab.run_code_from_editor()
+
+    begin_activity.assert_called_once_with('Running source...')
+    end_activity.assert_called_once()
 
 
 @with_fixtures(SwordfishAppFixture)

@@ -1,4 +1,5 @@
 import threading
+import weakref
 
 
 class IntegratedSessionState:
@@ -11,6 +12,8 @@ class IntegratedSessionState:
         self.active_mcp_operation = ''
         self.pending_model_changes = []
         self.ide_connection_identifier = 'ide-session'
+        self.mcp_busy_state_subscribers = []
+        self.model_refresh_subscribers = []
 
     def attach_ide_gui(self):
         with self.lock:
@@ -72,16 +75,24 @@ class IntegratedSessionState:
             self.ide_transaction_active = False
 
     def begin_mcp_operation(self, operation_name):
+        active_operation_name = ''
         with self.lock:
             self.mcp_operation_depth = self.mcp_operation_depth + 1
             self.active_mcp_operation = operation_name
+            active_operation_name = self.active_mcp_operation
+        self.notify_mcp_busy_state_subscribers(True, active_operation_name)
 
     def end_mcp_operation(self):
+        is_busy = False
+        active_operation_name = ''
         with self.lock:
             if self.mcp_operation_depth > 0:
                 self.mcp_operation_depth = self.mcp_operation_depth - 1
             if self.mcp_operation_depth == 0:
                 self.active_mcp_operation = ''
+            is_busy = self.mcp_operation_depth > 0
+            active_operation_name = self.active_mcp_operation
+        self.notify_mcp_busy_state_subscribers(is_busy, active_operation_name)
 
     def is_mcp_busy(self):
         with self.lock:
@@ -94,12 +105,85 @@ class IntegratedSessionState:
     def request_model_refresh(self, change_kind):
         with self.lock:
             self.pending_model_changes.append(change_kind)
+        self.notify_model_refresh_subscribers(change_kind)
 
     def consume_model_refresh_requests(self):
         with self.lock:
             change_kinds = list(self.pending_model_changes)
             self.pending_model_changes = []
             return change_kinds
+
+    def callback_reference_for(self, callback):
+        try:
+            return weakref.WeakMethod(callback)
+        except TypeError:
+            return weakref.ref(callback)
+
+    def subscribe_mcp_busy_state(self, callback):
+        with self.lock:
+            self.mcp_busy_state_subscribers.append(
+                self.callback_reference_for(callback)
+            )
+
+    def subscribe_model_refresh_requests(self, callback):
+        with self.lock:
+            self.model_refresh_subscribers.append(
+                self.callback_reference_for(callback)
+            )
+
+    def live_callbacks_from_references(self, callback_references):
+        callbacks = []
+        live_callback_references = []
+        for callback_reference in callback_references:
+            callback = callback_reference()
+            if callback is None:
+                continue
+            callbacks.append(callback)
+            live_callback_references.append(callback_reference)
+        return callbacks, live_callback_references
+
+    def notify_mcp_busy_state_subscribers(self, is_busy, operation_name):
+        callbacks = []
+        with self.lock:
+            callbacks, live_callback_references = self.live_callbacks_from_references(
+                self.mcp_busy_state_subscribers
+            )
+            self.mcp_busy_state_subscribers = live_callback_references
+        for callback in callbacks:
+            callback(is_busy=is_busy, operation_name=operation_name)
+
+    def notify_model_refresh_subscribers(self, change_kind):
+        callbacks = []
+        with self.lock:
+            callbacks, live_callback_references = self.live_callbacks_from_references(
+                self.model_refresh_subscribers
+            )
+            self.model_refresh_subscribers = live_callback_references
+        for callback in callbacks:
+            callback(change_kind=change_kind)
+
+    def clear_subscribers(self, owner):
+        with self.lock:
+            self.mcp_busy_state_subscribers = self.cleaned_subscribers_for_owner(
+                self.mcp_busy_state_subscribers,
+                owner,
+            )
+            self.model_refresh_subscribers = self.cleaned_subscribers_for_owner(
+                self.model_refresh_subscribers,
+                owner,
+            )
+
+    def cleaned_subscribers_for_owner(self, callback_references, owner):
+        cleaned_callback_references = []
+        for callback_reference in callback_references:
+            callback = callback_reference()
+            if callback is None:
+                continue
+            callback_owner = getattr(callback, '__self__', None)
+            if callback_owner is owner:
+                continue
+            cleaned_callback_references.append(callback_reference)
+        return cleaned_callback_references
 
 
 integrated_session_state = IntegratedSessionState()
