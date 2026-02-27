@@ -3626,14 +3626,23 @@ class ClassSelection(FramedWidget):
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
         super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
 
-        self.classes_notebook = ttk.Notebook(self)
-        self.classes_notebook.grid(row=0, column=0, columnspan=2, sticky='nsew')
+        self.class_content_paned = ttk.PanedWindow(self, orient=tk.VERTICAL)
+        self.class_content_paned.grid(row=0, column=0, columnspan=2, sticky='nsew')
+        self.class_definition_sash_fraction = 0.65
 
-        self.rowconfigure(0, weight=3, minsize=180)
+        self.class_selection_frame = ttk.Frame(self.class_content_paned)
+        self.class_selection_frame.rowconfigure(0, weight=1)
+        self.class_selection_frame.columnconfigure(0, weight=1)
+        self.class_content_paned.add(self.class_selection_frame, weight=3)
+
+        self.classes_notebook = ttk.Notebook(self.class_selection_frame)
+        self.classes_notebook.grid(row=0, column=0, sticky='nsew')
+
+        self.rowconfigure(0, weight=1, minsize=180)
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=1)
 
-        self.selection_list = InteractiveSelectionList(self, self.get_all_classes, self.get_selected_class, self.select_class)
+        self.selection_list = InteractiveSelectionList(self.classes_notebook, self.get_all_classes, self.get_selected_class, self.select_class)
         self.selection_list.grid(row=0, column=0, sticky='nsew')
         self.classes_notebook.add(self.selection_list, text='List')
 
@@ -3663,12 +3672,12 @@ class ClassSelection(FramedWidget):
         self.selection_var = tk.StringVar(value='instance' if self.gemstone_session_record.show_instance_side else 'class')
         self.syncing_side_selection = False
         self.selection_var.trace_add('write', lambda name, index, operation: self.switch_side())
-        self.class_controls_frame = ttk.Frame(self)
+        self.class_controls_frame = ttk.Frame(self.class_selection_frame)
         self.class_controls_frame.grid(
             column=0,
-            row=2,
-            columnspan=2,
+            row=1,
             sticky='ew',
+            pady=(4, 0),
         )
         self.class_controls_frame.columnconfigure(0, weight=0)
         self.class_controls_frame.columnconfigure(1, weight=0)
@@ -3699,13 +3708,7 @@ class ClassSelection(FramedWidget):
             row=0,
             sticky='e',
         )
-        self.class_definition_frame = ttk.Frame(self)
-        self.class_definition_frame.grid(
-            column=0,
-            row=3,
-            columnspan=2,
-            sticky='nsew',
-        )
+        self.class_definition_frame = ttk.Frame(self.class_content_paned)
         self.class_definition_frame.rowconfigure(0, weight=1)
         self.class_definition_frame.columnconfigure(1, weight=1)
         self.class_definition_text = tk.Text(
@@ -3744,10 +3747,6 @@ class ClassSelection(FramedWidget):
             )
         )
         self.class_definition_text.config(state='disabled')
-        self.class_definition_frame.grid_remove()
-
-        self.rowconfigure(1, weight=0)
-        self.rowconfigure(3, weight=0, minsize=0)
 
         self.event_queue.subscribe('SelectedPackageChanged', self.repopulate)
         self.event_queue.subscribe('PackagesChanged', self.repopulate)
@@ -4067,17 +4066,57 @@ class ClassSelection(FramedWidget):
         except (DomainException, GemstoneDomainException, GemstoneError) as error:
             messagebox.showerror('Delete Class', str(error))
 
+    def class_definition_is_visible(self):
+        return str(self.class_definition_frame) in self.class_content_paned.panes()
+
+    def remember_class_definition_sash_position(self):
+        if not self.class_definition_is_visible():
+            return
+        paned_height = self.class_content_paned.winfo_height()
+        if paned_height <= 0:
+            return
+        sash_position = self.class_content_paned.sashpos(0)
+        sash_fraction = sash_position / paned_height
+        self.class_definition_sash_fraction = max(0.2, min(0.8, sash_fraction))
+
+    def restore_class_definition_sash_position(self):
+        if not self.class_definition_is_visible():
+            return
+        paned_height = self.class_content_paned.winfo_height()
+        if paned_height <= 0:
+            return
+        minimum_pane_height = 120
+        desired_sash_position = int(paned_height * self.class_definition_sash_fraction)
+        maximum_sash_position = paned_height - minimum_pane_height
+        if maximum_sash_position < minimum_pane_height:
+            desired_sash_position = paned_height // 2
+        else:
+            desired_sash_position = max(
+                minimum_pane_height,
+                min(maximum_sash_position, desired_sash_position),
+            )
+        self.class_content_paned.sashpos(0, desired_sash_position)
+
+    def ensure_class_definition_is_visible(self):
+        if not self.class_definition_is_visible():
+            return
+        self.class_content_paned.update_idletasks()
+        self.restore_class_definition_sash_position()
+        self.after(20, self.restore_class_definition_sash_position)
+
     def toggle_class_definition(self):
         if self.show_class_definition_var.get():
-            self.rowconfigure(3, weight=2, minsize=120)
-            self.class_definition_frame.grid()
+            if not self.class_definition_is_visible():
+                self.class_content_paned.add(self.class_definition_frame, weight=2)
+            self.ensure_class_definition_is_visible()
             self.refresh_class_definition()
             return
         self.class_definition_text.config(state='normal')
         self.class_definition_text.delete('1.0', tk.END)
         self.class_definition_text.config(state='disabled')
-        self.class_definition_frame.grid_remove()
-        self.rowconfigure(3, weight=0, minsize=0)
+        self.remember_class_definition_sash_position()
+        if self.class_definition_is_visible():
+            self.class_content_paned.forget(self.class_definition_frame)
 
     def formatted_class_definition(self, class_definition):
         class_name = class_definition.get('class_name') or ''
