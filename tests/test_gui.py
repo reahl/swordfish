@@ -798,12 +798,18 @@ def test_show_class_definition_displays_and_updates_for_selected_class(fixture):
     )
     classes_widget = fixture.browser_window.classes_widget
     assert int(classes_widget.grid_rowconfigure(0)['weight']) == 3
-    assert int(classes_widget.grid_rowconfigure(4)['weight']) == 0
+    assert int(classes_widget.grid_rowconfigure(3)['weight']) == 0
+    assert (
+        classes_widget.class_radiobutton.grid_info()['row']
+        == classes_widget.instance_radiobutton.grid_info()['row']
+        == classes_widget.show_class_definition_checkbox.grid_info()['row']
+        == 0
+    )
     classes_widget.show_class_definition_var.set(True)
     classes_widget.toggle_class_definition()
     fixture.root.update()
-    assert int(classes_widget.grid_rowconfigure(4)['weight']) == 2
-    assert int(classes_widget.grid_rowconfigure(4)['minsize']) == 120
+    assert int(classes_widget.grid_rowconfigure(3)['weight']) == 2
+    assert int(classes_widget.grid_rowconfigure(3)['minsize']) == 120
 
     rendered_definition = classes_widget.class_definition_text.get(
         '1.0',
@@ -845,8 +851,8 @@ def test_show_class_definition_displays_and_updates_for_selected_class(fixture):
     classes_widget.show_class_definition_var.set(False)
     classes_widget.toggle_class_definition()
     fixture.root.update()
-    assert int(classes_widget.grid_rowconfigure(4)['weight']) == 0
-    assert int(classes_widget.grid_rowconfigure(4)['minsize']) == 0
+    assert int(classes_widget.grid_rowconfigure(3)['weight']) == 0
+    assert int(classes_widget.grid_rowconfigure(3)['minsize']) == 0
 
 
 @with_fixtures(SwordfishGuiFixture)

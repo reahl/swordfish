@@ -3663,27 +3663,46 @@ class ClassSelection(FramedWidget):
         self.selection_var = tk.StringVar(value='instance' if self.gemstone_session_record.show_instance_side else 'class')
         self.syncing_side_selection = False
         self.selection_var.trace_add('write', lambda name, index, operation: self.switch_side())
-        self.class_radiobutton = tk.Radiobutton(self, text='Class', variable=self.selection_var, value='class')
-        self.instance_radiobutton = tk.Radiobutton(self, text='Instance', variable=self.selection_var, value='instance')
-        self.class_radiobutton.grid(column=0, row=2, sticky='w')
-        self.instance_radiobutton.grid(column=1, row=2, sticky='w')
+        self.class_controls_frame = ttk.Frame(self)
+        self.class_controls_frame.grid(
+            column=0,
+            row=2,
+            columnspan=2,
+            sticky='ew',
+        )
+        self.class_controls_frame.columnconfigure(0, weight=0)
+        self.class_controls_frame.columnconfigure(1, weight=0)
+        self.class_controls_frame.columnconfigure(2, weight=1)
+        self.class_radiobutton = tk.Radiobutton(
+            self.class_controls_frame,
+            text='Class',
+            variable=self.selection_var,
+            value='class',
+        )
+        self.instance_radiobutton = tk.Radiobutton(
+            self.class_controls_frame,
+            text='Instance',
+            variable=self.selection_var,
+            value='instance',
+        )
+        self.class_radiobutton.grid(column=0, row=0, sticky='w')
+        self.instance_radiobutton.grid(column=1, row=0, sticky='w')
         self.show_class_definition_var = tk.BooleanVar(value=False)
         self.show_class_definition_checkbox = tk.Checkbutton(
-            self,
+            self.class_controls_frame,
             text='Show Class Definition',
             variable=self.show_class_definition_var,
             command=self.toggle_class_definition,
         )
         self.show_class_definition_checkbox.grid(
-            column=0,
-            row=3,
-            columnspan=2,
-            sticky='w',
+            column=2,
+            row=0,
+            sticky='e',
         )
         self.class_definition_frame = ttk.Frame(self)
         self.class_definition_frame.grid(
             column=0,
-            row=4,
+            row=3,
             columnspan=2,
             sticky='nsew',
         )
@@ -3728,7 +3747,7 @@ class ClassSelection(FramedWidget):
         self.class_definition_frame.grid_remove()
 
         self.rowconfigure(1, weight=0)
-        self.rowconfigure(4, weight=0, minsize=0)
+        self.rowconfigure(3, weight=0, minsize=0)
 
         self.event_queue.subscribe('SelectedPackageChanged', self.repopulate)
         self.event_queue.subscribe('PackagesChanged', self.repopulate)
@@ -4050,7 +4069,7 @@ class ClassSelection(FramedWidget):
 
     def toggle_class_definition(self):
         if self.show_class_definition_var.get():
-            self.rowconfigure(4, weight=2, minsize=120)
+            self.rowconfigure(3, weight=2, minsize=120)
             self.class_definition_frame.grid()
             self.refresh_class_definition()
             return
@@ -4058,7 +4077,7 @@ class ClassSelection(FramedWidget):
         self.class_definition_text.delete('1.0', tk.END)
         self.class_definition_text.config(state='disabled')
         self.class_definition_frame.grid_remove()
-        self.rowconfigure(4, weight=0, minsize=0)
+        self.rowconfigure(3, weight=0, minsize=0)
 
     def formatted_class_definition(self, class_definition):
         class_name = class_definition.get('class_name') or ''
