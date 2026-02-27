@@ -797,8 +797,8 @@ def test_show_class_definition_displays_and_updates_for_selected_class(fixture):
         'OrderLine',
     )
     classes_widget = fixture.browser_window.classes_widget
-    assert int(classes_widget.grid_rowconfigure(0)['weight']) == 3
-    assert int(classes_widget.grid_rowconfigure(3)['weight']) == 0
+    assert str(classes_widget.class_definition_frame) not in classes_widget.class_content_paned.panes()
+    assert str(classes_widget.selection_list.master) == str(classes_widget.classes_notebook)
     assert (
         classes_widget.class_radiobutton.grid_info()['row']
         == classes_widget.instance_radiobutton.grid_info()['row']
@@ -808,8 +808,10 @@ def test_show_class_definition_displays_and_updates_for_selected_class(fixture):
     classes_widget.show_class_definition_var.set(True)
     classes_widget.toggle_class_definition()
     fixture.root.update()
-    assert int(classes_widget.grid_rowconfigure(3)['weight']) == 2
-    assert int(classes_widget.grid_rowconfigure(3)['minsize']) == 120
+    assert str(classes_widget.class_definition_frame) in classes_widget.class_content_paned.panes()
+    classes_widget.class_content_paned.sashpos(0, 150)
+    fixture.root.update()
+    sash_position_after_drag = classes_widget.class_content_paned.sashpos(0)
 
     rendered_definition = classes_widget.class_definition_text.get(
         '1.0',
@@ -851,8 +853,13 @@ def test_show_class_definition_displays_and_updates_for_selected_class(fixture):
     classes_widget.show_class_definition_var.set(False)
     classes_widget.toggle_class_definition()
     fixture.root.update()
-    assert int(classes_widget.grid_rowconfigure(3)['weight']) == 0
-    assert int(classes_widget.grid_rowconfigure(3)['minsize']) == 0
+    assert str(classes_widget.class_definition_frame) not in classes_widget.class_content_paned.panes()
+
+    classes_widget.show_class_definition_var.set(True)
+    classes_widget.toggle_class_definition()
+    fixture.root.update()
+    restored_sash_position = classes_widget.class_content_paned.sashpos(0)
+    assert abs(restored_sash_position - sash_position_after_drag) <= 5
 
 
 @with_fixtures(SwordfishGuiFixture)
