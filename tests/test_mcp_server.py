@@ -39,7 +39,6 @@ def test_create_server_passes_policy_flags_to_tool_registration():
         allow_compile=False,
         allow_commit=False,
         allow_tracing=False,
-        eval_approval_code='',
         allow_commit_when_gui=False,
         integrated_session_state=None,
         require_gemstone_ast=False,
@@ -49,7 +48,6 @@ def test_create_server_passes_policy_flags_to_tool_registration():
         captured['allow_compile'] = allow_compile
         captured['allow_commit'] = allow_commit
         captured['allow_tracing'] = allow_tracing
-        captured['eval_approval_code'] = eval_approval_code
         captured['allow_commit_when_gui'] = allow_commit_when_gui
         captured['integrated_session_state'] = integrated_session_state
         captured['require_gemstone_ast'] = require_gemstone_ast
@@ -67,7 +65,6 @@ def test_create_server_passes_policy_flags_to_tool_registration():
                 allow_compile=True,
                 allow_commit=True,
                 allow_tracing=True,
-                eval_approval_code='eval-approval',
                 allow_commit_when_gui=True,
                 require_gemstone_ast=True,
             )
@@ -77,7 +74,6 @@ def test_create_server_passes_policy_flags_to_tool_registration():
     assert captured['allow_compile']
     assert captured['allow_commit']
     assert captured['allow_tracing']
-    assert captured['eval_approval_code'] == 'eval-approval'
     assert captured['allow_commit_when_gui']
     assert captured['integrated_session_state'] is not None
     assert captured['require_gemstone_ast']
@@ -101,7 +97,6 @@ def test_create_server_supports_fast_mcp_without_version_argument():
         allow_compile=False,
         allow_commit=False,
         allow_tracing=False,
-        eval_approval_code='',
         allow_commit_when_gui=False,
         integrated_session_state=None,
         require_gemstone_ast=False,
@@ -111,7 +106,6 @@ def test_create_server_supports_fast_mcp_without_version_argument():
         captured['allow_compile'] = allow_compile
         captured['allow_commit'] = allow_commit
         captured['allow_tracing'] = allow_tracing
-        captured['eval_approval_code'] = eval_approval_code
         captured['require_gemstone_ast'] = require_gemstone_ast
 
     with patch(
@@ -127,7 +121,6 @@ def test_create_server_supports_fast_mcp_without_version_argument():
                 allow_compile=False,
                 allow_commit=False,
                 allow_tracing=False,
-                eval_approval_code='',
                 require_gemstone_ast=False,
             )
 
@@ -136,17 +129,15 @@ def test_create_server_supports_fast_mcp_without_version_argument():
     assert not captured['allow_commit']
     assert not captured['allow_tracing']
     assert not captured['require_gemstone_ast']
-    assert captured['eval_approval_code'] == ''
 
 
-def test_create_server_rejects_eval_enabled_without_eval_approval_code():
-    with expected(ValueError):
+def test_create_server_allows_eval_without_extra_approval_configuration():
+    with expected(NoException):
         create_server(
             allow_eval=True,
             allow_compile=True,
             allow_commit=True,
             allow_tracing=False,
-            eval_approval_code='',
             require_gemstone_ast=False,
         )
 
@@ -164,7 +155,6 @@ def test_create_server_allows_commit_enabled_without_extra_approval_configuratio
         allow_compile=False,
         allow_commit=False,
         allow_tracing=False,
-        eval_approval_code='',
         allow_commit_when_gui=False,
         integrated_session_state=None,
         require_gemstone_ast=False,
@@ -185,7 +175,6 @@ def test_create_server_allows_commit_enabled_without_extra_approval_configuratio
                     allow_compile=True,
                     allow_commit=True,
                     allow_tracing=False,
-                    eval_approval_code='',
                     require_gemstone_ast=False,
                 )
 
@@ -205,7 +194,6 @@ def test_create_server_passes_commit_policy_flags_in_confirmation_mode():
         allow_compile=False,
         allow_commit=False,
         allow_tracing=False,
-        eval_approval_code='',
         allow_commit_when_gui=False,
         integrated_session_state=None,
         require_gemstone_ast=False,
@@ -227,7 +215,6 @@ def test_create_server_passes_commit_policy_flags_in_confirmation_mode():
                     allow_compile=True,
                     allow_commit=True,
                     allow_tracing=False,
-                    eval_approval_code='',
                     require_gemstone_ast=False,
                 )
 
@@ -262,7 +249,6 @@ def test_create_server_passes_streamable_http_network_configuration():
         allow_compile=False,
         allow_commit=False,
         allow_tracing=False,
-        eval_approval_code='',
         allow_commit_when_gui=False,
         integrated_session_state=None,
         require_gemstone_ast=False,
@@ -282,7 +268,6 @@ def test_create_server_passes_streamable_http_network_configuration():
                 allow_compile=True,
                 allow_commit=True,
                 allow_tracing=False,
-                eval_approval_code='',
                 mcp_host='127.0.0.1',
                 mcp_port=9177,
                 mcp_streamable_http_path='/running-ide',

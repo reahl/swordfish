@@ -10,10 +10,6 @@ from reahl.swordfish.mcp.session_registry import clear_connections
 from reahl.swordfish.mcp.integration_state import IntegratedSessionState
 from reahl.swordfish.mcp.tools import register_tools
 
-
-EVAL_APPROVAL_CODE = 'eval-human-approved'
-
-
 class FakeGemstoneValue:
     def __init__(self, value):
         self.to_py = value
@@ -261,7 +257,6 @@ class AllowedToolsFixture(Fixture):
             allow_compile=True,
             allow_commit=True,
             allow_tracing=True,
-            eval_approval_code=EVAL_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -443,7 +438,6 @@ class AllowedToolsWithCommitConfirmationFixture(Fixture):
             allow_compile=True,
             allow_commit=True,
             allow_tracing=True,
-            eval_approval_code=EVAL_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -471,7 +465,6 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
             allow_compile=True,
             allow_commit=True,
             allow_tracing=True,
-            eval_approval_code=EVAL_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -611,7 +604,6 @@ class AllowedToolsWithNoActiveTransactionAndStrictAstFixture(Fixture):
             allow_commit=True,
             allow_tracing=True,
             require_gemstone_ast=True,
-            eval_approval_code=EVAL_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -648,7 +640,6 @@ class AllowedToolsWithActiveTransactionFixture(Fixture):
             allow_compile=True,
             allow_commit=True,
             allow_tracing=True,
-            eval_approval_code=EVAL_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -707,7 +698,6 @@ class AllowedToolsWithTracingDisabledFixture(Fixture):
             allow_compile=True,
             allow_commit=True,
             allow_tracing=False,
-            eval_approval_code=EVAL_APPROVAL_CODE,
         )
         return registrar.registered_tools_by_name
 
@@ -1409,16 +1399,15 @@ def test_gs_debug_eval_is_disabled_by_default(tools_fixture):
     )
 
 
-def test_register_tools_rejects_eval_without_eval_approval_code():
+def test_register_tools_allows_eval_without_extra_approval_configuration():
     registrar = McpToolRegistrar()
-    with expected(ValueError):
+    with expected(NoException):
         register_tools(
             registrar,
             allow_eval=True,
             allow_compile=True,
             allow_commit=True,
             allow_tracing=False,
-            eval_approval_code='',
         )
 
 
@@ -1431,7 +1420,6 @@ def test_register_tools_allows_commit_with_explicit_confirmation_policy():
             allow_compile=True,
             allow_commit=True,
             allow_tracing=False,
-            eval_approval_code='',
         )
 
 
@@ -1440,7 +1428,7 @@ def test_gs_eval_requires_unsafe_flag_when_allowed(tools_fixture):
     eval_result = tools_fixture.gs_eval(
         'missing-connection-id',
         '3 + 4',
-        approval_code=EVAL_APPROVAL_CODE,
+        approved_by_user=True,
         reason='connection check',
     )
     assert not eval_result['ok']
@@ -1456,7 +1444,7 @@ def test_gs_eval_checks_connection_when_allowed(tools_fixture):
         'missing-connection-id',
         '3 + 4',
         unsafe=True,
-        approval_code=EVAL_APPROVAL_CODE,
+        approved_by_user=True,
         reason='connection check',
     )
     assert not eval_result['ok']
@@ -1469,7 +1457,7 @@ def test_gs_eval_requires_non_empty_reason_when_approved(tools_fixture):
         tools_fixture.connection_id,
         '3 + 4',
         unsafe=True,
-        approval_code=EVAL_APPROVAL_CODE,
+        approved_by_user=True,
         reason='',
     )
     assert not eval_result['ok']
@@ -1511,11 +1499,12 @@ def test_gs_capabilities_reports_strict_ast_mode_policy(tools_fixture):
 
 
 @with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
-def test_gs_eval_requires_human_approval_code(tools_fixture):
+def test_gs_eval_requires_explicit_confirmation(tools_fixture):
     eval_result = tools_fixture.gs_eval(
         tools_fixture.connection_id,
         'System commit',
         unsafe=True,
+        reason='policy-check',
     )
     assert not eval_result['ok']
     assert (
@@ -1525,10 +1514,11 @@ def test_gs_eval_requires_human_approval_code(tools_fixture):
 
 
 @with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
-def test_gs_debug_eval_requires_human_approval_code(tools_fixture):
+def test_gs_debug_eval_requires_explicit_confirmation(tools_fixture):
     eval_result = tools_fixture.gs_debug_eval(
         tools_fixture.connection_id,
         'System commit',
+        reason='policy-check',
     )
     assert not eval_result['ok']
     assert (
@@ -2182,7 +2172,7 @@ def test_gs_debug_eval_checks_connection_when_allowed(tools_fixture):
     debug_eval_result = tools_fixture.gs_debug_eval(
         'missing-connection-id',
         '3 + 4',
-        approval_code=EVAL_APPROVAL_CODE,
+        approved_by_user=True,
         reason='connection check',
     )
     assert not debug_eval_result['ok']
@@ -3112,7 +3102,6 @@ def test_gs_connect_attaches_to_active_ide_session():
         allow_compile=True,
         allow_commit=True,
         allow_tracing=True,
-        eval_approval_code=EVAL_APPROVAL_CODE,
         integrated_session_state=shared_state,
     )
     connect_result = registrar.registered_tools_by_name['gs_connect'](
@@ -3140,7 +3129,6 @@ def test_gs_connect_is_blocked_when_gui_is_active_without_login():
         allow_compile=True,
         allow_commit=True,
         allow_tracing=True,
-        eval_approval_code=EVAL_APPROVAL_CODE,
         integrated_session_state=shared_state,
     )
     connect_result = registrar.registered_tools_by_name['gs_connect'](
@@ -3170,7 +3158,6 @@ def test_gs_disconnect_is_blocked_for_ide_owned_session():
         allow_compile=True,
         allow_commit=True,
         allow_tracing=True,
-        eval_approval_code=EVAL_APPROVAL_CODE,
         integrated_session_state=shared_state,
     )
     disconnect_result = registrar.registered_tools_by_name['gs_disconnect'](
@@ -3192,7 +3179,6 @@ def test_gs_commit_is_disabled_by_default_when_ide_owns_session():
         allow_compile=True,
         allow_commit=True,
         allow_tracing=True,
-        eval_approval_code=EVAL_APPROVAL_CODE,
         integrated_session_state=shared_state,
     )
     commit_result = registrar.registered_tools_by_name['gs_commit'](
@@ -3220,7 +3206,6 @@ def test_gs_commit_can_be_enabled_when_ide_owns_session():
         allow_commit=True,
         allow_commit_when_gui=True,
         allow_tracing=True,
-        eval_approval_code=EVAL_APPROVAL_CODE,
         integrated_session_state=shared_state,
     )
     commit_result = registrar.registered_tools_by_name['gs_commit'](

@@ -134,13 +134,13 @@ codex mcp list --json
 To enable eval/commit with human-approval handshakes, add:
 
 ```bash
---allow-eval --eval-approval-code "<eval-approval>" --allow-commit
+--allow-eval --allow-commit
 ```
 
 Add `--allow-eval` to enable `gs_eval` and `gs_debug_eval`.
-When enabled, you must also set `--eval-approval-code` and provide the same
-`approval_code` on each eval call (with `unsafe=True` and a non-empty
-`reason`).
+When enabled, each eval call requires explicit human confirmation:
+- Provide `approved_by_user=true` and a non-empty `approval_note`.
+- Keep `unsafe=True` and a non-empty `reason`.
 Add `--allow-commit` only when you explicitly want transactions to persist.
 When enabled, `gs_commit` always requires explicit human approval:
 - Provide `approved_by_user=true` and a non-empty `approval_note` on each
@@ -188,12 +188,12 @@ then query `gs_tracer_find_observed_senders`.
 Tracer and evidence tools require MCP startup with `--allow-tracing`.
 Use `gs_plan_evidence_tests` to build a static candidate test superset and
 `gs_collect_sender_evidence` to run that plan and collect observed callers.
-When you do use `gs_eval`, pass `unsafe=True`, `approval_code`, and a
-non-empty `reason`.
+When you do use `gs_eval`, pass `unsafe=True`, `approved_by_user=true`,
+a non-empty `approval_note`, and a non-empty `reason`.
 Write tools require an explicit transaction: call `gs_begin` before writes,
 then `gs_commit` (or `gs_abort`) when done. With default policy,
 `gs_commit` is disabled unless the MCP server is started with
-`--allow-commit` and the matching `approval_code` is supplied.
+`--allow-commit` and explicit confirmation is supplied.
 
 The server identifies itself as `SwordfishMCP` and currently supports:
 

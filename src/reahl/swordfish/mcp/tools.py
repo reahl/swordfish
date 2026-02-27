@@ -43,14 +43,10 @@ def register_tools(
     allow_compile=False,
     allow_commit=False,
     allow_tracing=False,
-    eval_approval_code='',
     allow_commit_when_gui=False,
     integrated_session_state=None,
     require_gemstone_ast=False,
 ):
-    eval_approval_code = eval_approval_code.strip()
-    if allow_eval and not eval_approval_code:
-        raise ValueError('allow_eval requires eval_approval_code.')
     if not isinstance(allow_commit_when_gui, bool):
         raise ValueError('allow_commit_when_gui must be a boolean.')
     if integrated_session_state is None:
@@ -249,27 +245,22 @@ def register_tools(
         connection_id,
         tool_name,
         action_name,
-        approval_mode='approval_code',
+        approval_mode='explicit_confirmation',
         resolution_hint='',
     ):
         message = '%s requires human approval for %s.' % (
             tool_name,
             action_name,
         )
-        retry_arguments = {}
-        if approval_mode == 'approval_code':
-            message = message + ' Provide a valid approval_code.'
-            retry_arguments = {'approval_code': '<approval-code>'}
-        elif approval_mode == 'explicit_confirmation':
-            message = (
-                message
-                + ' Retry with approved_by_user=true and '
-                + 'a non-empty approval_note.'
-            )
-            retry_arguments = {
-                'approved_by_user': True,
-                'approval_note': '<human-approval-note>',
-            }
+        message = (
+            message
+            + ' Retry with approved_by_user=true and '
+            + 'a non-empty approval_note.'
+        )
+        retry_arguments = {
+            'approved_by_user': True,
+            'approval_note': '<human-approval-note>',
+        }
         if resolution_hint:
             message = message + ' ' + resolution_hint
         response = disabled_tool_response(
@@ -284,39 +275,6 @@ def register_tools(
             'retry_arguments': retry_arguments,
         }
         return response
-
-    def approval_rejected_tool_response(connection_id, tool_name):
-        return disabled_tool_response(
-            connection_id,
-            '%s approval_code was rejected.' % tool_name,
-        )
-
-    def require_human_approval(
-        connection_id,
-        tool_name,
-        action_name,
-        approval_code,
-        expected_approval_code,
-        resolution_hint='',
-    ):
-        if not isinstance(approval_code, str):
-            return approval_required_tool_response(
-                connection_id,
-                tool_name,
-                action_name,
-                resolution_hint=resolution_hint,
-            )
-        normalized_approval_code = approval_code.strip()
-        if not normalized_approval_code:
-            return approval_required_tool_response(
-                connection_id,
-                tool_name,
-                action_name,
-                resolution_hint=resolution_hint,
-            )
-        if normalized_approval_code != expected_approval_code:
-            return approval_rejected_tool_response(connection_id, tool_name)
-        return None
 
     def require_explicit_user_confirmation(
         connection_id,
@@ -337,7 +295,6 @@ def register_tools(
                 connection_id,
                 tool_name,
                 action_name,
-                approval_mode='explicit_confirmation',
             )
         try:
             validated_non_empty_string_stripped(
@@ -655,7 +612,8 @@ def register_tools(
             )
             cautions.append(
                 (
-                    'gs_eval and gs_debug_eval require approval_code and reason. '
+                    'gs_eval and gs_debug_eval require approved_by_user=true '
+                    'with a non-empty approval_note and reason. '
                     'Prefer structured tools for routine work.'
                 )
             )
@@ -5692,8 +5650,9 @@ def register_tools(
     def gs_debug_eval(
         connection_id,
         source,
-        approval_code='',
         reason='',
+        approved_by_user=False,
+        approval_note='',
     ):
         if not allow_eval:
             return disabled_tool_response(
@@ -5703,15 +5662,6 @@ def register_tools(
                     'Start swordfish --mode mcp-headless with --allow-eval to enable.'
                 ),
             )
-        approval_error_response = require_human_approval(
-            connection_id,
-            'gs_debug_eval',
-            'eval bypass',
-            approval_code,
-            eval_approval_code,
-        )
-        if approval_error_response:
-            return approval_error_response
         try:
             source = validated_non_empty_string(source, 'source')
             reason = validated_non_empty_string_stripped(reason, 'reason')
@@ -5721,6 +5671,15 @@ def register_tools(
                 'connection_id': connection_id,
                 'error': {'message': str(error)},
             }
+        approval_error_response = require_explicit_user_confirmation(
+            connection_id,
+            'gs_debug_eval',
+            'eval bypass',
+            approved_by_user,
+            approval_note or reason,
+        )
+        if approval_error_response:
+            return approval_error_response
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -5882,7 +5841,8 @@ def register_tools(
         source,
         unsafe=False,
         reason='',
-        approval_code='',
+        approved_by_user=False,
+        approval_note='',
     ):
         if not allow_eval:
             return disabled_tool_response(
@@ -5900,12 +5860,21 @@ def register_tools(
                     'Prefer explicit gs_* tools when possible.'
                 ),
             )
-        approval_error_response = require_human_approval(
+        try:
+            source = validated_non_empty_string(source, 'source')
+            reason = validated_non_empty_string_stripped(reason, 'reason')
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        approval_error_response = require_explicit_user_confirmation(
             connection_id,
             'gs_eval',
             'eval bypass',
-            approval_code,
-            eval_approval_code,
+            approved_by_user,
+            approval_note or reason,
         )
         if approval_error_response:
             return approval_error_response
@@ -5921,8 +5890,6 @@ def register_tools(
             }
 
         try:
-            source = validated_non_empty_string(source, 'source')
-            reason = validated_non_empty_string_stripped(reason, 'reason')
             output = browser_session.evaluate_source(source)
             transaction_state_effect = (
                 transaction_state_effect_for_eval_source(source)
@@ -5941,7 +5908,6 @@ def register_tools(
                 'connection_mode': metadata['connection_mode'],
                 'unsafe': unsafe,
                 'reason': reason,
-                'approval_code_used': True,
                 'eval_mode': current_eval_mode(),
                 'output': output,
             }
@@ -5956,12 +5922,6 @@ def register_tools(
                 },
             }
         except GemstoneApiError as error:
-            return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
-            }
-        except DomainException as error:
             return {
                 'ok': False,
                 'connection_id': connection_id,
