@@ -797,9 +797,13 @@ def test_show_class_definition_displays_and_updates_for_selected_class(fixture):
         'OrderLine',
     )
     classes_widget = fixture.browser_window.classes_widget
+    assert int(classes_widget.grid_rowconfigure(0)['weight']) == 3
+    assert int(classes_widget.grid_rowconfigure(4)['weight']) == 0
     classes_widget.show_class_definition_var.set(True)
     classes_widget.toggle_class_definition()
     fixture.root.update()
+    assert int(classes_widget.grid_rowconfigure(4)['weight']) == 2
+    assert int(classes_widget.grid_rowconfigure(4)['minsize']) == 120
 
     rendered_definition = classes_widget.class_definition_text.get(
         '1.0',
@@ -837,6 +841,12 @@ def test_show_class_definition_displays_and_updates_for_selected_class(fixture):
     ).strip()
     assert "Object subclass: 'Order'" in updated_definition
     assert 'instVarNames: #(lines)' in updated_definition
+
+    classes_widget.show_class_definition_var.set(False)
+    classes_widget.toggle_class_definition()
+    fixture.root.update()
+    assert int(classes_widget.grid_rowconfigure(4)['weight']) == 0
+    assert int(classes_widget.grid_rowconfigure(4)['minsize']) == 0
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -1208,6 +1218,26 @@ def test_logout_returns_to_login_screen(fixture):
     assert not fixture.app.is_logged_in
     assert fixture.app.login_frame is not None
     assert fixture.app.login_frame.winfo_exists()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_login_layout_is_consistent_before_and_after_logout(fixture):
+    """AI: The login form layout should stay compact and anchored after returning from the main app."""
+    initial_login_frame = fixture.app.login_frame
+    assert int(initial_login_frame.grid_rowconfigure(0)['weight']) == 1
+    assert int(initial_login_frame.grid_rowconfigure(1)['weight']) == 0
+    assert initial_login_frame.form_frame.grid_info()['sticky'] == 'n'
+    assert int(initial_login_frame.form_frame.grid_columnconfigure(1)['weight']) == 1
+
+    fixture.simulate_login()
+    fixture.app.logout()
+    fixture.app.update()
+
+    returned_login_frame = fixture.app.login_frame
+    assert int(returned_login_frame.grid_rowconfigure(0)['weight']) == 1
+    assert int(returned_login_frame.grid_rowconfigure(1)['weight']) == 0
+    assert returned_login_frame.form_frame.grid_info()['sticky'] == 'n'
+    assert int(returned_login_frame.form_frame.grid_columnconfigure(1)['weight']) == 1
 
 
 @with_fixtures(SwordfishAppFixture)
