@@ -695,7 +695,7 @@ def test_live_workflow_without_commit_permission_requires_abort(
     assert not commit_result['ok']
     assert commit_result['error']['message'] == (
         'gs_commit is disabled. '
-        'Start swordfish --mode mcp-headless with --allow-commit to enable.'
+        'Start swordfish --headless-mcp with --allow-commit to enable.'
     )
     active_status_result = live_connection.gs_transaction_status(
         live_connection.connection_id

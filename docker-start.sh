@@ -91,8 +91,14 @@ else
     export HTTP_PROXY=""
 fi
 
-# Allow X11 connections from localhost
-xhost +local:docker
+# Allow X11 connections for this exact local user (more reliable than local:docker)
+XHOST_CLEANUP_RULE=""
+if xhost +SI:localuser:"$HOST_USER"; then
+    XHOST_CLEANUP_RULE="-SI:localuser:$HOST_USER"
+else
+    echo "Failed to allow X11 access via xhost for local user $HOST_USER."
+    exit 1
+fi
 
 # Build with verbose output first
 sudo -E docker compose --progress=plain build --pull $NO_CACHE
@@ -128,4 +134,6 @@ else
 fi
 
 # Clean up X11 permissions when done
-xhost -local:docker
+if [[ -n "$XHOST_CLEANUP_RULE" ]]; then
+    xhost "$XHOST_CLEANUP_RULE" >/dev/null 2>&1 || true
+fi

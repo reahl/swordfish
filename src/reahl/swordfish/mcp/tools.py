@@ -231,7 +231,7 @@ def register_tools(
             connection_id,
             (
                 '%s is disabled. '
-                'Start swordfish --mode mcp-headless with --allow-tracing to enable.'
+                'Start swordfish --headless-mcp with --allow-tracing to enable.'
             )
             % tool_name,
         )
@@ -661,7 +661,7 @@ def register_tools(
                         'gs_create_package',
                         'gs_install_package',
                         'gs_create_class_in_package',
-                        'gs_create_test_case_class_in_package',
+                        'gs_create_test_case_class',
                     ],
                 },
             ]
@@ -830,7 +830,7 @@ def register_tools(
             cautions.append(
                 (
                     'Runtime evidence tools are disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-tracing '
+                    'Start swordfish --headless-mcp with --allow-tracing '
                     'for observed caller evidence.'
                 )
             )
@@ -1950,7 +1950,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_commit is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-commit to enable.'
+                    'Start swordfish --headless-mcp with --allow-commit to enable.'
                 ),
             )
         if (
@@ -1961,7 +1961,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_commit is disabled while the IDE owns the session. '
-                    'Use the IDE commit action or start swordfish --mode mcp-headless with '
+                    'Use the IDE commit action or start swordfish --headless-mcp with '
                     '--allow-mcp-commit-when-gui.'
                 ),
             )
@@ -2070,7 +2070,6 @@ def register_tools(
                     'gs_create_class',
                     'gs_create_class_in_package',
                     'gs_create_test_case_class',
-                    'gs_create_test_case_class_in_package',
                     'gs_apply_selector_rename',
                     'gs_apply_rename_method',
                     'gs_apply_move_method',
@@ -2245,7 +2244,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_create_package is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -2296,7 +2295,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_install_package is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -2968,7 +2967,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_ast_install is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -3031,7 +3030,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_tracer_install is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         tracing_error_response = require_tracing_enabled(
@@ -3074,7 +3073,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_tracer_enable is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         tracing_error_response = require_tracing_enabled(
@@ -3127,7 +3126,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_tracer_disable is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         tracing_error_response = require_tracing_enabled(
@@ -3170,7 +3169,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_tracer_uninstall is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         tracing_error_response = require_tracing_enabled(
@@ -3217,7 +3216,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_tracer_trace_selector is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         tracing_error_response = require_tracing_enabled(
@@ -3281,7 +3280,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_tracer_untrace_selector is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         tracing_error_response = require_tracing_enabled(
@@ -3334,7 +3333,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_tracer_clear_observed_senders is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         tracing_error_response = require_tracing_enabled(
@@ -3546,7 +3545,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_collect_sender_evidence is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         tracing_error_response = require_tracing_enabled(
@@ -3777,7 +3776,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_compile_method is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -3861,7 +3860,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_create_class is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -3972,7 +3971,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_create_test_case_class is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4021,18 +4020,6 @@ def register_tools(
             }
 
     @mcp_server.tool()
-    def gs_create_test_case_class_in_package(
-        connection_id,
-        class_name,
-        package_name,
-    ):
-        return gs_create_test_case_class(
-            connection_id=connection_id,
-            class_name=class_name,
-            package_name=package_name,
-        )
-
-    @mcp_server.tool()
     def gs_get_class_definition(connection_id, class_name):
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
@@ -4077,7 +4064,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_delete_class is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4134,7 +4121,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_delete_method is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4198,7 +4185,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_set_method_category is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4447,7 +4434,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_apply_rename_method is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4586,7 +4573,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_apply_move_method is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4760,7 +4747,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_apply_add_parameter is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4925,7 +4912,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_apply_remove_parameter is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5090,7 +5077,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_apply_extract_method is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5247,7 +5234,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_apply_inline_method is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5376,7 +5363,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_apply_selector_rename is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5461,7 +5448,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_global_set is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5526,7 +5513,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_global_remove is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-compile to enable.'
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5659,7 +5646,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_debug_eval is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-eval to enable.'
+                    'Start swordfish --headless-mcp with --allow-eval to enable.'
                 ),
             )
         try:
@@ -5849,7 +5836,7 @@ def register_tools(
                 connection_id,
                 (
                     'gs_eval is disabled. '
-                    'Start swordfish --mode mcp-headless with --allow-eval to enable.'
+                    'Start swordfish --headless-mcp with --allow-eval to enable.'
                 ),
             )
         if not unsafe:
