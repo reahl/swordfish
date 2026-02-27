@@ -2398,14 +2398,15 @@ class Swordfish(tk.Tk):
         self.collaboration_status_text.set('')
         self.foreground_activity_message = ''
         self.last_mcp_server_stopping_state = None
+        self.rowconfigure(0, weight=1)
+        self.rowconfigure(1, weight=0)
+        self.columnconfigure(0, weight=1)
 
         self.login_frame = LoginFrame(
             self,
             default_stone_name=self.default_stone_name,
         )
         self.login_frame.grid(row=0, column=0, sticky='nsew')
-        self.login_frame.rowconfigure(0, weight=1)
-        self.login_frame.columnconfigure(0, weight=1)
 
     def show_main_app(self, gemstone_session_record):
         self.gemstone_session_record = gemstone_session_record
@@ -3628,7 +3629,7 @@ class ClassSelection(FramedWidget):
         self.classes_notebook = ttk.Notebook(self)
         self.classes_notebook.grid(row=0, column=0, columnspan=2, sticky='nsew')
 
-        self.rowconfigure(0, weight=1)
+        self.rowconfigure(0, weight=3, minsize=180)
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=1)
 
@@ -3727,7 +3728,7 @@ class ClassSelection(FramedWidget):
         self.class_definition_frame.grid_remove()
 
         self.rowconfigure(1, weight=0)
-        self.rowconfigure(4, weight=1)
+        self.rowconfigure(4, weight=0, minsize=0)
 
         self.event_queue.subscribe('SelectedPackageChanged', self.repopulate)
         self.event_queue.subscribe('PackagesChanged', self.repopulate)
@@ -4049,6 +4050,7 @@ class ClassSelection(FramedWidget):
 
     def toggle_class_definition(self):
         if self.show_class_definition_var.get():
+            self.rowconfigure(4, weight=2, minsize=120)
             self.class_definition_frame.grid()
             self.refresh_class_definition()
             return
@@ -4056,6 +4058,7 @@ class ClassSelection(FramedWidget):
         self.class_definition_text.delete('1.0', tk.END)
         self.class_definition_text.config(state='disabled')
         self.class_definition_frame.grid_remove()
+        self.rowconfigure(4, weight=0, minsize=0)
 
     def formatted_class_definition(self, class_definition):
         class_name = class_definition.get('class_name') or ''
@@ -6772,50 +6775,98 @@ class LoginFrame(ttk.Frame):
         self.error_label = None
 
         self.columnconfigure(0, weight=1)
-        self.columnconfigure(1, weight=1)
         self.rowconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
-        self.rowconfigure(2, weight=1)
-        self.rowconfigure(3, weight=1)
-        self.rowconfigure(4, weight=1)
-        self.rowconfigure(5, weight=1)
-        self.rowconfigure(6, weight=1)
-        self.rowconfigure(7, weight=1)
-        self.rowconfigure(8, weight=1)
-        
+        self.rowconfigure(1, weight=0)
+
+        self.form_frame = ttk.Frame(self, padding=24)
+        self.form_frame.grid(
+            row=0,
+            column=0,
+            sticky='n',
+            padx=20,
+            pady=20,
+        )
+        self.form_frame.columnconfigure(0, weight=0)
+        self.form_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(
+            self.form_frame,
+            text='Connect to GemStone',
+        ).grid(
+            column=0,
+            row=0,
+            columnspan=2,
+            sticky='w',
+            pady=(0, 12),
+        )
+
         # Username label and entry
-        ttk.Label(self, text="Username:").grid(column=0,row=0)
-        self.username_entry = ttk.Entry(self)
+        ttk.Label(self.form_frame, text='Username:').grid(
+            column=0,
+            row=1,
+            sticky='e',
+            padx=(0, 8),
+            pady=2,
+        )
+        self.username_entry = ttk.Entry(self.form_frame)
         self.username_entry.insert(0, 'DataCurator')
-        self.username_entry.grid(column=1,row=0)
+        self.username_entry.grid(column=1, row=1, sticky='ew', pady=2)
 
         # Password label and entry
-        ttk.Label(self, text="Password:").grid(column=0,row=1)
-        self.password_entry = ttk.Entry(self, show='*')
+        ttk.Label(self.form_frame, text='Password:').grid(
+            column=0,
+            row=2,
+            sticky='e',
+            padx=(0, 8),
+            pady=2,
+        )
+        self.password_entry = ttk.Entry(self.form_frame, show='*')
         self.password_entry.insert(0, 'swordfish')
-        self.password_entry.grid(column=1,row=1)
+        self.password_entry.grid(column=1, row=2, sticky='ew', pady=2)
 
-        ttk.Label(self, text="Stone name:").grid(column=0,row=2)
-        self.stone_name_entry = ttk.Entry(self)
+        ttk.Label(self.form_frame, text='Stone name:').grid(
+            column=0,
+            row=3,
+            sticky='e',
+            padx=(0, 8),
+            pady=2,
+        )
+        self.stone_name_entry = ttk.Entry(self.form_frame)
         self.stone_name_entry.insert(0, default_stone_name)
-        self.stone_name_entry.grid(column=1,row=2)
+        self.stone_name_entry.grid(column=1, row=3, sticky='ew', pady=2)
 
         # Remote checkbox
         self.remote_var = tk.BooleanVar()
-        self.remote_checkbox = ttk.Checkbutton(self, text="Login RPC?", variable=self.remote_var, command=self.toggle_remote_widgets)
-        self.remote_checkbox.grid(column=0, row=3)
+        self.remote_checkbox = ttk.Checkbutton(
+            self.form_frame,
+            text='Login RPC?',
+            variable=self.remote_var,
+            command=self.toggle_remote_widgets,
+        )
+        self.remote_checkbox.grid(
+            column=0,
+            row=4,
+            columnspan=2,
+            sticky='w',
+            pady=(8, 2),
+        )
 
         # Remote widgets (initially hidden)
-        self.netldi_name_label = ttk.Label(self, text="Netldi name:")
-        self.netldi_name_entry = ttk.Entry(self)
+        self.netldi_name_label = ttk.Label(self.form_frame, text='Netldi name:')
+        self.netldi_name_entry = ttk.Entry(self.form_frame)
         self.netldi_name_entry.insert(0, 'gs64-ldi')
 
-        self.rpc_hostname_label = ttk.Label(self, text="RPC host name:")
-        self.rpc_hostname_entry = ttk.Entry(self)
+        self.rpc_hostname_label = ttk.Label(self.form_frame, text='RPC host name:')
+        self.rpc_hostname_entry = ttk.Entry(self.form_frame)
         self.rpc_hostname_entry.insert(0, 'localhost')
 
         # Login button
-        ttk.Button(self, text="Login", command=self.attempt_login).grid(column=0,row=8,columnspan=2)
+        ttk.Button(self.form_frame, text='Login', command=self.attempt_login).grid(
+            column=1,
+            row=8,
+            sticky='e',
+            pady=(10, 0),
+        )
         
     @property
     def login_rpc(self):
@@ -6824,10 +6875,22 @@ class LoginFrame(ttk.Frame):
     def toggle_remote_widgets(self):
         if self.remote_var.get():
             # Show the remote widgets
-            self.netldi_name_label.grid(column=0, row=4)
-            self.netldi_name_entry.grid(column=1, row=4)
-            self.rpc_hostname_label.grid(column=0, row=5)
-            self.rpc_hostname_entry.grid(column=1, row=5)
+            self.netldi_name_label.grid(
+                column=0,
+                row=5,
+                sticky='e',
+                padx=(0, 8),
+                pady=2,
+            )
+            self.netldi_name_entry.grid(column=1, row=5, sticky='ew', pady=2)
+            self.rpc_hostname_label.grid(
+                column=0,
+                row=6,
+                sticky='e',
+                padx=(0, 8),
+                pady=2,
+            )
+            self.rpc_hostname_entry.grid(column=1, row=6, sticky='ew', pady=2)
         else:
             # Hide the remote widgets
             self.netldi_name_label.grid_remove()
@@ -6851,8 +6914,18 @@ class LoginFrame(ttk.Frame):
                 gemstone_session_record = GemstoneSessionRecord.log_in_linked(username, password, stone_name)
             self.parent.event_queue.publish('LoggedInSuccessfully', gemstone_session_record)
         except DomainException as ex:
-            self.error_label = ttk.Label(self, text=str(ex), foreground="red")
-            self.error_label.grid(column=0,row=6,columnspan=2)           
+            self.error_label = ttk.Label(
+                self.form_frame,
+                text=str(ex),
+                foreground='red',
+            )
+            self.error_label.grid(
+                column=0,
+                row=7,
+                columnspan=2,
+                sticky='w',
+                pady=(8, 0),
+            )
 
 
 def new_application_argument_parser(default_mode='ide'):
