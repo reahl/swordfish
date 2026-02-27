@@ -1067,47 +1067,53 @@ def test_swordfish_custom_default_stone_name_prefills_login_field(fixture):
 
 
 def test_run_application_uses_default_stone_name_when_arg_not_given():
-    """AI: run_application should construct Swordfish with gs64stone by default."""
+    """AI: run_application should construct Swordfish with gs64stone by default and start embedded MCP."""
     with patch('reahl.swordfish.main.Swordfish') as mock_swordfish:
         app_instance = Mock()
         mock_swordfish.return_value = app_instance
         with patch('sys.argv', ['swordfish']):
             run_application()
-        mock_swordfish.assert_called_once_with(default_stone_name='gs64stone')
+        mock_swordfish.assert_called_once()
+        swordfish_call_arguments = mock_swordfish.call_args.kwargs
+        assert swordfish_call_arguments['default_stone_name'] == 'gs64stone'
+        assert swordfish_call_arguments['start_embedded_mcp']
+        assert swordfish_call_arguments['mcp_runtime_config'].mcp_host == '127.0.0.1'
         app_instance.mainloop.assert_called_once()
 
 
 def test_run_application_uses_cli_stone_name_when_given():
-    """AI: run_application should pass an explicitly provided stone name into Swordfish."""
+    """AI: run_application should pass an explicitly provided stone name into Swordfish with embedded MCP enabled."""
     with patch('reahl.swordfish.main.Swordfish') as mock_swordfish:
         app_instance = Mock()
         mock_swordfish.return_value = app_instance
         with patch('sys.argv', ['swordfish', 'myStone']):
             run_application()
-        mock_swordfish.assert_called_once_with(default_stone_name='myStone')
+        mock_swordfish.assert_called_once()
+        swordfish_call_arguments = mock_swordfish.call_args.kwargs
+        assert swordfish_call_arguments['default_stone_name'] == 'myStone'
+        assert swordfish_call_arguments['start_embedded_mcp']
         app_instance.mainloop.assert_called_once()
 
 
-def test_run_application_starts_headless_mcp_when_mode_is_mcp_headless():
-    """AI: mcp-headless mode should run only the MCP server and not construct the GUI."""
+def test_run_application_starts_headless_mcp_when_headless_flag_is_set():
+    """AI: --headless-mcp should run only the MCP server and not construct the GUI."""
     with patch('reahl.swordfish.main.Swordfish') as mock_swordfish:
         with patch('reahl.swordfish.main.run_mcp_server') as mock_run_mcp_server:
-            with patch('sys.argv', ['swordfish', '--mode', 'mcp-headless']):
+            with patch('sys.argv', ['swordfish', '--headless-mcp']):
                 run_application()
     mock_swordfish.assert_not_called()
     mock_run_mcp_server.assert_called_once()
 
 
 def test_run_application_passes_streamable_http_configuration_to_mcp():
-    """AI: mcp-headless mode should pass streamable-http host/port/path options into MCP startup arguments."""
+    """AI: headless mode should pass streamable-http host/port/path options into MCP startup arguments."""
     with patch('reahl.swordfish.main.Swordfish') as mock_swordfish:
         with patch('reahl.swordfish.main.run_mcp_server') as mock_run_mcp_server:
             with patch(
                 'sys.argv',
                 [
                     'swordfish',
-                    '--mode',
-                    'mcp-headless',
+                    '--headless-mcp',
                     '--transport',
                     'streamable-http',
                     '--mcp-host',
@@ -1127,29 +1133,14 @@ def test_run_application_passes_streamable_http_configuration_to_mcp():
     assert application_arguments.mcp_http_path == '/running-ide'
 
 
-def test_run_application_starts_gui_and_mcp_when_mode_is_mcp_gui():
-    """AI: mcp-gui mode should launch the GUI and start MCP in a background thread."""
-    with patch('reahl.swordfish.main.run_mcp_server') as mock_run_mcp_server:
-        with patch('reahl.swordfish.main.threading.Thread') as mock_thread_class:
-            with patch('reahl.swordfish.main.Swordfish') as mock_swordfish:
-                app_instance = Mock()
-                mock_swordfish.return_value = app_instance
-                thread_instance = Mock()
-                mock_thread_class.return_value = thread_instance
-                with patch(
-                    'sys.argv',
-                    ['swordfish', '--mode', 'mcp-gui', 'myStone'],
-                ):
-                    run_application()
-    mock_swordfish.assert_called_once_with(default_stone_name='myStone')
-    thread_call_arguments = mock_thread_class.call_args.kwargs
-    assert thread_call_arguments['target'] == mock_run_mcp_server
-    assert thread_call_arguments['daemon']
-    assert thread_call_arguments['kwargs']['arguments'].mode == 'mcp-gui'
-    assert thread_call_arguments['kwargs']['arguments'].stone_name == 'myStone'
-    thread_instance.start.assert_called_once()
-    app_instance.mainloop.assert_called_once()
-    mock_run_mcp_server.assert_not_called()
+def test_run_application_supports_legacy_headless_mode_argument():
+    """AI: Legacy --mode mcp-headless still maps to headless MCP startup."""
+    with patch('reahl.swordfish.main.Swordfish') as mock_swordfish:
+        with patch('reahl.swordfish.main.run_mcp_server') as mock_run_mcp_server:
+            with patch('sys.argv', ['swordfish', '--mode', 'mcp-headless']):
+                run_application()
+    mock_swordfish.assert_not_called()
+    mock_run_mcp_server.assert_called_once()
 
 
 def test_run_mcp_server_passes_streamable_http_options_to_create_server():
@@ -1293,6 +1284,45 @@ def test_mcp_busy_state_disables_run_and_session_controls(fixture):
     assert str(fixture.app.run_tab.debug_button.cget('state')) == tk.NORMAL
     assert fixture.app.run_tab.source_text.cget('state') == tk.NORMAL
     assert fixture.app.menu_bar.session_menu.entrycget(0, 'state') == tk.NORMAL
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_mcp_menu_contains_start_stop_and_config_commands(fixture):
+    """AI: MCP menu should expose start/stop/configure commands for runtime control."""
+    mcp_menu = fixture.app.menu_bar.mcp_menu
+    labels = menu_command_labels(mcp_menu)
+    assert labels == ['Start MCP', 'Stop MCP', 'Configure MCP']
+    assert mcp_menu.entrycget(0, 'state') == tk.NORMAL
+    assert mcp_menu.entrycget(1, 'state') == tk.DISABLED
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_mcp_menu_commands_delegate_to_swordfish_handlers(fixture):
+    """AI: Selecting MCP menu actions should call corresponding Swordfish command handlers."""
+    mcp_menu = fixture.app.menu_bar.mcp_menu
+    with patch.object(fixture.app, 'start_mcp_server_from_menu') as start_mcp:
+        invoke_menu_command_by_label(mcp_menu, 'Start MCP')
+    start_mcp.assert_called_once()
+    with patch.object(fixture.app, 'stop_mcp_server_from_menu') as stop_mcp:
+        with fixture.app.embedded_mcp_server_controller.lock:
+            fixture.app.embedded_mcp_server_controller.running = True
+        fixture.app.menu_bar.update_menus()
+        invoke_menu_command_by_label(mcp_menu, 'Stop MCP')
+    stop_mcp.assert_called_once()
+    with patch.object(fixture.app, 'configure_mcp_server_from_menu') as configure_mcp:
+        invoke_menu_command_by_label(mcp_menu, 'Configure MCP')
+    configure_mcp.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_mcp_menu_reflects_embedded_server_running_state(fixture):
+    """AI: MCP menu should disable start and enable stop while embedded MCP is running."""
+    with fixture.app.embedded_mcp_server_controller.lock:
+        fixture.app.embedded_mcp_server_controller.running = True
+    fixture.app.menu_bar.update_menus()
+    mcp_menu = fixture.app.menu_bar.mcp_menu
+    assert mcp_menu.entrycget(0, 'state') == tk.DISABLED
+    assert mcp_menu.entrycget(1, 'state') == tk.NORMAL
 
 
 @with_fixtures(SwordfishAppFixture)

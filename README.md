@@ -80,17 +80,17 @@ pip install reahl-swordfish
 ### Run the server
 
 ```bash
-swordfish --mode mcp-headless
+swordfish --headless-mcp
 ```
 
 ### Attach Claude to a running IDE/MCP process
 
 To let Claude connect to an MCP server hosted inside an already-running IDE
-process, run Swordfish with HTTP transport instead of stdio:
+process, start the GUI (it now starts embedded MCP automatically):
 
 ```bash
-# Run inside the container
-swordfish --mode mcp-gui --transport streamable-http --mcp-host 0.0.0.0 --mcp-port 9177 --mcp-http-path /mcp
+# Run inside the container (GUI + embedded MCP)
+swordfish --mcp-host 0.0.0.0 --mcp-port 9177 --mcp-http-path /mcp
 ```
 
 Then configure Claude outside the container to use that URL:
@@ -103,6 +103,8 @@ claude mcp list
 
 If your IDE/MCP runs on a different host/port/path, change the URL
 accordingly. `stdio` mode cannot attach to an already-running process.
+In the GUI, use the `MCP` menu to start/stop the embedded server and edit
+runtime MCP policy/network settings.
 
 ### Add MCP to Claude Code and Codex (Docker-over-SSH)
 
@@ -115,19 +117,19 @@ Start the development container with SSH enabled in one terminal and keep it run
 ```
 
 In another terminal, from the project root, configure MCP clients to launch
-`swordfish --mode mcp-headless` through `docker-run-over-ssh.sh`:
+`swordfish --headless-mcp` through `docker-run-over-ssh.sh`:
 
 ```bash
 PROJECT_DIR="$(pwd)"
 
 # Claude Code
 claude mcp remove -s project swordfish 2>/dev/null || true
-claude mcp add -s project swordfish -- "$PROJECT_DIR/docker-run-over-ssh.sh" swordfish --mode mcp-headless --allow-compile --allow-tracing
+claude mcp add -s project swordfish -- "$PROJECT_DIR/docker-run-over-ssh.sh" swordfish --headless-mcp --allow-compile --allow-tracing
 claude mcp list
 
 # Codex
 codex mcp remove swordfish 2>/dev/null || true
-codex mcp add swordfish -- "$PROJECT_DIR/docker-run-over-ssh.sh" swordfish --mode mcp-headless --allow-compile --allow-tracing
+codex mcp add swordfish -- "$PROJECT_DIR/docker-run-over-ssh.sh" swordfish --headless-mcp --allow-compile --allow-tracing
 codex mcp list --json
 ```
 
@@ -154,7 +156,7 @@ switches and available workflows, then call `gs_guidance` for task-specific
 tool selection and sequencing.
 For normal browse/edit/test workflows, prefer explicit tools like:
 `gs_create_class`, `gs_create_class_in_package`,
-`gs_create_test_case_class`, `gs_create_test_case_class_in_package`,
+`gs_create_test_case_class`,
 `gs_compile_method`, and `gs_run_gemstone_tests`.
 For selector exploration, use `gs_find_implementors` and `gs_find_senders`
 instead of free-form evaluation. Both support `max_results` and `count_only`.

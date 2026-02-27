@@ -1,6 +1,7 @@
 #!/var/local/gemstone/venv/wonka/bin/python
 
 import argparse
+import asyncio
 import json
 import logging
 import re
@@ -17,6 +18,7 @@ from reahl.swordfish.gemstone import GemstoneDebugSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.mcp.integration_state import current_integrated_session_state
 from reahl.swordfish.mcp.server import create_server
+from reahl.swordfish.mcp.server import McpDependencyNotInstalled
 
 
 class DomainException(Exception):
@@ -950,6 +952,368 @@ class EventQueue:
             self.events[event_name] = cleaned_callbacks
 
 
+class McpRuntimeConfig:
+    def __init__(
+        self,
+        allow_eval=False,
+        allow_compile=False,
+        allow_commit=False,
+        allow_tracing=False,
+        allow_mcp_commit_when_gui=False,
+        require_gemstone_ast=False,
+        mcp_host='127.0.0.1',
+        mcp_port=8000,
+        mcp_http_path='/mcp',
+    ):
+        self.allow_eval = allow_eval
+        self.allow_compile = allow_compile
+        self.allow_commit = allow_commit
+        self.allow_tracing = allow_tracing
+        self.allow_mcp_commit_when_gui = allow_mcp_commit_when_gui
+        self.require_gemstone_ast = require_gemstone_ast
+        self.mcp_host = mcp_host
+        self.mcp_port = mcp_port
+        self.mcp_http_path = mcp_http_path
+
+    def copy(self):
+        return McpRuntimeConfig(
+            allow_eval=self.allow_eval,
+            allow_compile=self.allow_compile,
+            allow_commit=self.allow_commit,
+            allow_tracing=self.allow_tracing,
+            allow_mcp_commit_when_gui=self.allow_mcp_commit_when_gui,
+            require_gemstone_ast=self.require_gemstone_ast,
+            mcp_host=self.mcp_host,
+            mcp_port=self.mcp_port,
+            mcp_http_path=self.mcp_http_path,
+        )
+
+    def endpoint_url(self):
+        return 'http://%s:%s%s' % (
+            self.mcp_host,
+            self.mcp_port,
+            self.mcp_http_path,
+        )
+
+    def update_with(
+        self,
+        allow_eval=None,
+        allow_compile=None,
+        allow_commit=None,
+        allow_tracing=None,
+        allow_mcp_commit_when_gui=None,
+        require_gemstone_ast=None,
+        mcp_host=None,
+        mcp_port=None,
+        mcp_http_path=None,
+    ):
+        if allow_eval is not None:
+            self.allow_eval = bool(allow_eval)
+        if allow_compile is not None:
+            self.allow_compile = bool(allow_compile)
+        if allow_commit is not None:
+            self.allow_commit = bool(allow_commit)
+        if allow_tracing is not None:
+            self.allow_tracing = bool(allow_tracing)
+        if allow_mcp_commit_when_gui is not None:
+            self.allow_mcp_commit_when_gui = bool(allow_mcp_commit_when_gui)
+        if require_gemstone_ast is not None:
+            self.require_gemstone_ast = bool(require_gemstone_ast)
+        if mcp_host is not None:
+            self.mcp_host = mcp_host
+        if mcp_port is not None:
+            self.mcp_port = mcp_port
+        if mcp_http_path is not None:
+            self.mcp_http_path = mcp_http_path
+
+
+class EmbeddedMcpServerController:
+    def __init__(self, integrated_session_state, runtime_config):
+        self.integrated_session_state = integrated_session_state
+        self.runtime_config = runtime_config.copy()
+        self.lock = threading.RLock()
+        self.server_thread = None
+        self.uvicorn_server = None
+        self.last_error_message = ''
+        self.starting = False
+        self.running = False
+        self.shutdown_requested = False
+
+    def current_runtime_config(self):
+        with self.lock:
+            return self.runtime_config.copy()
+
+    def update_runtime_config(self, runtime_config):
+        with self.lock:
+            self.runtime_config = runtime_config.copy()
+
+    def status(self):
+        with self.lock:
+            return {
+                'running': self.running,
+                'starting': self.starting,
+                'last_error_message': self.last_error_message,
+                'endpoint_url': self.runtime_config.endpoint_url(),
+            }
+
+    def start(self):
+        with self.lock:
+            if self.running or self.starting:
+                return False
+            self.starting = True
+            self.shutdown_requested = False
+            self.last_error_message = ''
+            self.server_thread = threading.Thread(
+                target=self.run_server,
+                daemon=True,
+                name='SwordfishEmbeddedMCP',
+            )
+            self.server_thread.start()
+        return True
+
+    def stop(self):
+        server_thread = None
+        with self.lock:
+            server = self.uvicorn_server
+            if server is None and not self.running and not self.starting:
+                return False
+            self.starting = False
+            self.shutdown_requested = True
+            server_thread = self.server_thread
+            if server is not None:
+                server.should_exit = True
+        if (
+            server_thread is not None
+            and server_thread.is_alive()
+            and threading.current_thread() is not server_thread
+        ):
+            server_thread.join(timeout=5)
+        return True
+
+    def run_server(self):
+        local_runtime_config = self.current_runtime_config()
+        with self.lock:
+            if self.shutdown_requested:
+                self.starting = False
+                self.server_thread = None
+                return
+        try:
+            mcp_server = create_server(
+                allow_eval=local_runtime_config.allow_eval,
+                allow_compile=local_runtime_config.allow_compile,
+                allow_commit=local_runtime_config.allow_commit,
+                allow_tracing=local_runtime_config.allow_tracing,
+                allow_commit_when_gui=(
+                    local_runtime_config.allow_mcp_commit_when_gui
+                ),
+                integrated_session_state=self.integrated_session_state,
+                require_gemstone_ast=local_runtime_config.require_gemstone_ast,
+                mcp_host=local_runtime_config.mcp_host,
+                mcp_port=local_runtime_config.mcp_port,
+                mcp_streamable_http_path=local_runtime_config.mcp_http_path,
+            )
+            import uvicorn
+
+            streamable_http_application = mcp_server.streamable_http_app()
+            uvicorn_config = uvicorn.Config(
+                streamable_http_application,
+                host=local_runtime_config.mcp_host,
+                port=local_runtime_config.mcp_port,
+                log_level=mcp_server.settings.log_level.lower(),
+            )
+            server = uvicorn.Server(uvicorn_config)
+            with self.lock:
+                self.uvicorn_server = server
+                self.running = True
+                self.starting = False
+                self.last_error_message = ''
+                if self.shutdown_requested:
+                    server.should_exit = True
+            asyncio.run(server.serve())
+        except (
+            McpDependencyNotInstalled,
+            ImportError,
+            ModuleNotFoundError,
+            OSError,
+            RuntimeError,
+            ValueError,
+        ) as error:
+            with self.lock:
+                self.last_error_message = str(error)
+        finally:
+            with self.lock:
+                self.running = False
+                self.starting = False
+                self.uvicorn_server = None
+                self.server_thread = None
+
+
+class McpConfigurationDialog(tk.Toplevel):
+    def __init__(self, parent, current_runtime_config):
+        super().__init__(parent)
+        self.parent = parent
+        self.current_runtime_config = current_runtime_config.copy()
+        self.result = None
+        self.title('MCP Configuration')
+        self.geometry('500x390')
+        self.transient(parent)
+        self.wait_visibility()
+        self.grab_set()
+
+        self.host_variable = tk.StringVar(
+            value=self.current_runtime_config.mcp_host
+        )
+        self.port_variable = tk.StringVar(
+            value=str(self.current_runtime_config.mcp_port)
+        )
+        self.path_variable = tk.StringVar(
+            value=self.current_runtime_config.mcp_http_path
+        )
+        self.allow_eval_variable = tk.BooleanVar(
+            value=self.current_runtime_config.allow_eval
+        )
+        self.allow_compile_variable = tk.BooleanVar(
+            value=self.current_runtime_config.allow_compile
+        )
+        self.allow_commit_variable = tk.BooleanVar(
+            value=self.current_runtime_config.allow_commit
+        )
+        self.allow_commit_when_gui_variable = tk.BooleanVar(
+            value=self.current_runtime_config.allow_mcp_commit_when_gui
+        )
+        self.allow_tracing_variable = tk.BooleanVar(
+            value=self.current_runtime_config.allow_tracing
+        )
+        self.require_gemstone_ast_variable = tk.BooleanVar(
+            value=self.current_runtime_config.require_gemstone_ast
+        )
+
+        self.create_widgets()
+
+    def create_widgets(self):
+        body_frame = ttk.Frame(self, padding=12)
+        body_frame.grid(row=0, column=0, sticky='nsew')
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+
+        ttk.Label(body_frame, text='Host').grid(
+            row=0, column=0, sticky='w', pady=(0, 4)
+        )
+        ttk.Entry(body_frame, textvariable=self.host_variable).grid(
+            row=1, column=0, sticky='ew', pady=(0, 10)
+        )
+
+        ttk.Label(body_frame, text='Port').grid(
+            row=2, column=0, sticky='w', pady=(0, 4)
+        )
+        ttk.Entry(body_frame, textvariable=self.port_variable).grid(
+            row=3, column=0, sticky='ew', pady=(0, 10)
+        )
+
+        ttk.Label(body_frame, text='HTTP Path').grid(
+            row=4, column=0, sticky='w', pady=(0, 4)
+        )
+        ttk.Entry(body_frame, textvariable=self.path_variable).grid(
+            row=5, column=0, sticky='ew', pady=(0, 12)
+        )
+
+        ttk.Checkbutton(
+            body_frame,
+            text='Enable eval tools',
+            variable=self.allow_eval_variable,
+        ).grid(row=6, column=0, sticky='w')
+        ttk.Checkbutton(
+            body_frame,
+            text='Enable compile/refactor tools',
+            variable=self.allow_compile_variable,
+        ).grid(row=7, column=0, sticky='w')
+        ttk.Checkbutton(
+            body_frame,
+            text='Enable commit tool',
+            variable=self.allow_commit_variable,
+        ).grid(row=8, column=0, sticky='w')
+        ttk.Checkbutton(
+            body_frame,
+            text='Allow MCP commit while IDE owns session',
+            variable=self.allow_commit_when_gui_variable,
+        ).grid(row=9, column=0, sticky='w')
+        ttk.Checkbutton(
+            body_frame,
+            text='Enable tracing tools',
+            variable=self.allow_tracing_variable,
+        ).grid(row=10, column=0, sticky='w')
+        ttk.Checkbutton(
+            body_frame,
+            text='Require GemStone AST backend',
+            variable=self.require_gemstone_ast_variable,
+        ).grid(row=11, column=0, sticky='w')
+
+        button_frame = ttk.Frame(body_frame)
+        button_frame.grid(row=12, column=0, sticky='e', pady=(16, 0))
+        ttk.Button(
+            button_frame,
+            text='Cancel',
+            command=self.cancel_dialog,
+        ).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(
+            button_frame,
+            text='Apply',
+            command=self.apply_configuration,
+        ).grid(row=0, column=1)
+        body_frame.columnconfigure(0, weight=1)
+
+    def apply_configuration(self):
+        port_text = self.port_variable.get().strip()
+        if not port_text:
+            messagebox.showerror('Invalid MCP configuration', 'Port cannot be empty.')
+            return
+        if not port_text.isdigit():
+            messagebox.showerror(
+                'Invalid MCP configuration',
+                'Port must be a positive integer.',
+            )
+            return
+        mcp_port = int(port_text)
+        if mcp_port <= 0:
+            messagebox.showerror(
+                'Invalid MCP configuration',
+                'Port must be greater than zero.',
+            )
+            return
+        mcp_host = self.host_variable.get().strip()
+        if not mcp_host:
+            messagebox.showerror(
+                'Invalid MCP configuration',
+                'Host cannot be empty.',
+            )
+            return
+        mcp_http_path = self.path_variable.get().strip()
+        if not mcp_http_path.startswith('/'):
+            messagebox.showerror(
+                'Invalid MCP configuration',
+                'HTTP path must start with /.',
+            )
+            return
+        self.result = McpRuntimeConfig(
+            allow_eval=self.allow_eval_variable.get(),
+            allow_compile=self.allow_compile_variable.get(),
+            allow_commit=self.allow_commit_variable.get(),
+            allow_tracing=self.allow_tracing_variable.get(),
+            allow_mcp_commit_when_gui=(
+                self.allow_commit_when_gui_variable.get()
+            ),
+            require_gemstone_ast=self.require_gemstone_ast_variable.get(),
+            mcp_host=mcp_host,
+            mcp_port=mcp_port,
+            mcp_http_path=mcp_http_path,
+        )
+        self.destroy()
+
+    def cancel_dialog(self):
+        self.result = None
+        self.destroy()
+
+
 class MainMenu(tk.Menu):
     def __init__(self, parent, event_queue, **kwargs):
         super().__init__(parent, **kwargs)
@@ -957,6 +1321,7 @@ class MainMenu(tk.Menu):
         self.event_queue = event_queue
         self.file_menu = tk.Menu(self, tearoff=0)
         self.session_menu = tk.Menu(self, tearoff=0)
+        self.mcp_menu = tk.Menu(self, tearoff=0)
 
         self._create_menus()
         self._subscribe_events()
@@ -967,17 +1332,21 @@ class MainMenu(tk.Menu):
         self.update_file_menu()
 
         # Session Menu
-        self.add_cascade(label="Session", menu=self.session_menu)
+        self.add_cascade(label='Session', menu=self.session_menu)
         self.update_session_menu()
+        self.add_cascade(label='MCP', menu=self.mcp_menu)
+        self.update_mcp_menu()
 
     def _subscribe_events(self):
         self.event_queue.subscribe('LoggedInSuccessfully', self.update_menus)
         self.event_queue.subscribe('LoggedOut', self.update_menus)
         self.event_queue.subscribe('McpBusyStateChanged', self.update_menus)
+        self.event_queue.subscribe('McpServerStateChanged', self.update_menus)
 
     def update_menus(self, gemstone_session_record=None, **kwargs):
         self.update_session_menu()
         self.update_file_menu()
+        self.update_mcp_menu()
         
     def update_session_menu(self):
         self.session_menu.delete(0, tk.END)
@@ -1002,6 +1371,33 @@ class MainMenu(tk.Menu):
             )
         else:
             self.session_menu.add_command(label="Login", command=self.parent.show_login_screen)
+
+    def update_mcp_menu(self):
+        self.mcp_menu.delete(0, tk.END)
+        mcp_state = self.parent.embedded_mcp_server_status()
+        start_state = tk.NORMAL
+        if mcp_state['running'] or mcp_state['starting']:
+            start_state = tk.DISABLED
+        stop_state = tk.NORMAL
+        if not mcp_state['running'] and not mcp_state['starting']:
+            stop_state = tk.DISABLED
+        if self.parent.integrated_session_state.is_mcp_busy():
+            stop_state = tk.DISABLED
+        self.mcp_menu.add_command(
+            label='Start MCP',
+            command=self.start_mcp_server,
+            state=start_state,
+        )
+        self.mcp_menu.add_command(
+            label='Stop MCP',
+            command=self.stop_mcp_server,
+            state=stop_state,
+        )
+        self.mcp_menu.add_separator()
+        self.mcp_menu.add_command(
+            label='Configure MCP',
+            command=self.configure_mcp_server,
+        )
             
     def update_file_menu(self):
         self.file_menu.delete(0, tk.END)
@@ -1031,6 +1427,15 @@ class MainMenu(tk.Menu):
 
     def show_run_dialog(self):
         self.parent.run_code()
+
+    def start_mcp_server(self):
+        self.parent.start_mcp_server_from_menu()
+
+    def stop_mcp_server(self):
+        self.parent.stop_mcp_server_from_menu()
+
+    def configure_mcp_server(self):
+        self.parent.configure_mcp_server_from_menu()
 
 
 class FindDialog(tk.Toplevel):
@@ -1619,15 +2024,20 @@ class SendersDialog(tk.Toplevel):
 
 
 class Swordfish(tk.Tk):
-    def __init__(self, default_stone_name='gs64stone'):
+    def __init__(
+        self,
+        default_stone_name='gs64stone',
+        start_embedded_mcp=False,
+        mcp_runtime_config=None,
+    ):
         super().__init__()
         self.event_queue = EventQueue(self)
         self.integrated_session_state = current_integrated_session_state()
         self.integrated_session_state.attach_ide_gui()
-        self.title("Swordfish")
-        self.geometry("800x600")
+        self.title('Swordfish')
+        self.geometry('800x600')
         self.default_stone_name = default_stone_name
-        
+
         self.notebook = None
         self.browser_tab = None
         self.debugger_tab = None
@@ -1635,15 +2045,30 @@ class Swordfish(tk.Tk):
         self.inspector_tab = None
         self.collaboration_status_label = None
         self.collaboration_status_text = tk.StringVar(value='')
-        
+
         self.gemstone_session_record = None
         self.last_mcp_busy_state = None
+        self.last_mcp_server_running_state = None
+        self.last_mcp_server_starting_state = None
+        self.last_mcp_server_error_message = None
         self.collaboration_sync_after_id = None
+        if mcp_runtime_config is None:
+            mcp_runtime_config = McpRuntimeConfig(
+                allow_compile=True,
+                allow_tracing=True,
+            )
+        self.mcp_runtime_config = mcp_runtime_config.copy()
+        self.embedded_mcp_server_controller = EmbeddedMcpServerController(
+            self.integrated_session_state,
+            self.mcp_runtime_config,
+        )
 
         self.event_queue.subscribe('LoggedInSuccessfully', self.show_main_app)
         self.event_queue.subscribe('LoggedOut', self.show_login_screen)
-        
+
         self.create_menu()
+        if start_embedded_mcp:
+            self.start_mcp_server(report_errors=False)
         self.show_login_screen()
         self.schedule_collaboration_sync()
 
@@ -1654,6 +2079,56 @@ class Swordfish(tk.Tk):
     def create_menu(self):
         self.menu_bar = MainMenu(self, self.event_queue)
         self.config(menu=self.menu_bar)
+
+    def embedded_mcp_server_status(self):
+        return self.embedded_mcp_server_controller.status()
+
+    def start_mcp_server(self, report_errors=True):
+        started = self.embedded_mcp_server_controller.start()
+        if not started and report_errors:
+            messagebox.showinfo(
+                'MCP',
+                'MCP is already running or starting.',
+            )
+        return started
+
+    def stop_mcp_server(self):
+        stopped = self.embedded_mcp_server_controller.stop()
+        if not stopped:
+            messagebox.showinfo(
+                'MCP',
+                'MCP is already stopped.',
+            )
+        return stopped
+
+    def start_mcp_server_from_menu(self):
+        self.start_mcp_server(report_errors=True)
+        self.menu_bar.update_menus()
+
+    def stop_mcp_server_from_menu(self):
+        if self.integrated_session_state.is_mcp_busy():
+            messagebox.showwarning(
+                'MCP Busy',
+                'Stop MCP after the current MCP operation finishes.',
+            )
+            return
+        self.stop_mcp_server()
+        self.menu_bar.update_menus()
+
+    def configure_mcp_server_from_menu(self):
+        dialog = McpConfigurationDialog(self, self.mcp_runtime_config)
+        self.wait_window(dialog)
+        if dialog.result is None:
+            return
+        self.mcp_runtime_config = dialog.result.copy()
+        mcp_was_running = self.embedded_mcp_server_controller.status()['running']
+        self.embedded_mcp_server_controller.update_runtime_config(
+            self.mcp_runtime_config
+        )
+        if mcp_was_running:
+            self.embedded_mcp_server_controller.stop()
+            self.start_mcp_server(report_errors=True)
+        self.menu_bar.update_menus()
 
     def commit(self):
         self.gemstone_session_record.commit()
@@ -1697,7 +2172,7 @@ class Swordfish(tk.Tk):
             self,
             default_stone_name=self.default_stone_name,
         )
-        self.login_frame.grid(row=0, column=0, sticky="nsew")
+        self.login_frame.grid(row=0, column=0, sticky='nsew')
         self.login_frame.rowconfigure(0, weight=1)
         self.login_frame.columnconfigure(0, weight=1)
 
@@ -1740,7 +2215,7 @@ class Swordfish(tk.Tk):
 
     def create_notebook(self):
         self.notebook = ttk.Notebook(self)
-        self.notebook.grid(row=0, column=0, sticky="nsew")
+        self.notebook.grid(row=0, column=0, sticky='nsew')
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
@@ -1775,6 +2250,10 @@ class Swordfish(tk.Tk):
         if not self.winfo_exists():
             return
         mcp_busy = self.integrated_session_state.is_mcp_busy()
+        mcp_server_status = self.embedded_mcp_server_controller.status()
+        mcp_server_running = mcp_server_status['running']
+        mcp_server_starting = mcp_server_status['starting']
+        mcp_server_error_message = mcp_server_status['last_error_message']
         if self.is_logged_in:
             pending_change_kinds = (
                 self.integrated_session_state.consume_model_refresh_requests()
@@ -1793,6 +2272,31 @@ class Swordfish(tk.Tk):
                     self.integrated_session_state.current_mcp_operation_name()
                 ),
             )
+        server_state_changed = (
+            self.last_mcp_server_running_state != mcp_server_running
+            or self.last_mcp_server_starting_state != mcp_server_starting
+        )
+        if server_state_changed:
+            self.last_mcp_server_running_state = mcp_server_running
+            self.last_mcp_server_starting_state = mcp_server_starting
+            self.menu_bar.update_menus()
+            self.event_queue.publish(
+                'McpServerStateChanged',
+                running=mcp_server_running,
+                starting=mcp_server_starting,
+                endpoint_url=mcp_server_status['endpoint_url'],
+            )
+        if (
+            mcp_server_error_message
+            and mcp_server_error_message != self.last_mcp_server_error_message
+        ):
+            self.last_mcp_server_error_message = mcp_server_error_message
+            messagebox.showerror(
+                'MCP Startup Failed',
+                mcp_server_error_message,
+            )
+        if not mcp_server_error_message:
+            self.last_mcp_server_error_message = None
         self.apply_collaboration_read_only_state(mcp_busy)
         if mcp_busy:
             operation_name = (
@@ -1803,15 +2307,23 @@ class Swordfish(tk.Tk):
                 'MCP busy: %s. IDE write/run/debug actions are read-only.'
                 % operation_name
             )
+        elif mcp_server_starting:
+            self.collaboration_status_text.set('Starting MCP server...')
+        elif mcp_server_running:
+            self.collaboration_status_text.set(
+                'IDE ready. MCP running at %s.'
+                % mcp_server_status['endpoint_url']
+            )
         elif self.is_logged_in:
             self.collaboration_status_text.set(
-                'IDE ready. MCP can attach to this session.'
+                'IDE ready. Embedded MCP is stopped.'
             )
         else:
             self.collaboration_status_text.set('')
         self.schedule_collaboration_sync()
 
     def destroy(self):
+        self.embedded_mcp_server_controller.stop()
         self.integrated_session_state.detach_ide_gui()
         if self.collaboration_sync_after_id is not None:
             try:
@@ -5965,6 +6477,7 @@ def new_application_argument_parser(default_mode='ide'):
     argument_parser = argparse.ArgumentParser(
         description='Run Swordfish IDE and MCP server.'
     )
+    default_headless_mcp = default_mode == 'mcp-headless'
     argument_parser.add_argument(
         'stone_name',
         nargs='?',
@@ -5972,35 +6485,38 @@ def new_application_argument_parser(default_mode='ide'):
         help='GemStone stone name to prefill in login form.',
     )
     argument_parser.add_argument(
+        '--headless-mcp',
+        action='store_true',
+        default=default_headless_mcp,
+        help='Run MCP only (headless, no GUI).',
+    )
+    argument_parser.add_argument(
         '--mode',
-        default=default_mode,
-        choices=['ide', 'mcp-headless', 'mcp-gui'],
-        help=(
-            'Run mode: ide (GUI only), mcp-headless (MCP only), '
-            'or mcp-gui (MCP with GUI).'
-        ),
+        default=None,
+        choices=['ide', 'mcp-headless'],
+        help=argparse.SUPPRESS,
     )
     argument_parser.add_argument(
         '--transport',
         default='stdio',
         choices=['stdio', 'streamable-http'],
-        help='MCP transport type.',
+        help='MCP transport type for --headless-mcp mode.',
     )
     argument_parser.add_argument(
         '--mcp-host',
         default='127.0.0.1',
-        help='Host interface for streamable-http MCP transport.',
+        help='Host interface for embedded MCP and streamable-http mode.',
     )
     argument_parser.add_argument(
         '--mcp-port',
         default=8000,
         type=int,
-        help='TCP port for streamable-http MCP transport.',
+        help='TCP port for embedded MCP and streamable-http mode.',
     )
     argument_parser.add_argument(
         '--mcp-http-path',
         default='/mcp',
-        help='HTTP path for streamable-http MCP transport.',
+        help='HTTP path for embedded MCP and streamable-http mode.',
     )
     argument_parser.add_argument(
         '--allow-eval',
@@ -6064,29 +6580,38 @@ def validate_application_arguments(argument_parser, arguments):
         argument_parser.error('--mcp-http-path must start with /.')
 
 
+def runtime_mcp_config_from_arguments(arguments):
+    return McpRuntimeConfig(
+        allow_eval=arguments.allow_eval,
+        allow_compile=arguments.allow_compile,
+        allow_commit=arguments.allow_commit,
+        allow_tracing=arguments.allow_tracing,
+        allow_mcp_commit_when_gui=arguments.allow_mcp_commit_when_gui,
+        require_gemstone_ast=arguments.require_gemstone_ast,
+        mcp_host=arguments.mcp_host,
+        mcp_port=arguments.mcp_port,
+        mcp_http_path=arguments.mcp_http_path,
+    )
+
+
 def run_application(default_mode='ide'):
     argument_parser = new_application_argument_parser(default_mode=default_mode)
     arguments = argument_parser.parse_args()
     validate_application_arguments(argument_parser, arguments)
+    run_headless_mcp = arguments.headless_mcp
+    if arguments.mode == 'mcp-headless':
+        run_headless_mcp = True
     if arguments.mode == 'ide':
-        app = Swordfish(default_stone_name=arguments.stone_name)
-        app.mainloop()
+        run_headless_mcp = False
+    if run_headless_mcp:
+        run_mcp_server(arguments)
         return
-    if arguments.mode == 'mcp-gui':
-        integrated_session_state = current_integrated_session_state()
-        app = Swordfish(default_stone_name=arguments.stone_name)
-        mcp_server_thread = threading.Thread(
-            target=run_mcp_server,
-            kwargs={
-                'arguments': arguments,
-                'integrated_session_state': integrated_session_state,
-            },
-            daemon=True,
-        )
-        mcp_server_thread.start()
-        app.mainloop()
-        return
-    run_mcp_server(arguments)
+    app = Swordfish(
+        default_stone_name=arguments.stone_name,
+        start_embedded_mcp=True,
+        mcp_runtime_config=runtime_mcp_config_from_arguments(arguments),
+    )
+    app.mainloop()
 
 if __name__ == "__main__":
     run_application()
