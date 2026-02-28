@@ -2489,23 +2489,30 @@ class Swordfish(tk.Tk):
         if self.mcp_activity_indicator is None:
             self.mcp_activity_indicator_visible = False
             return
-        if visible and not self.mcp_activity_indicator_visible:
-            self.mcp_activity_indicator.grid()
+        indicator_is_managed = self.mcp_activity_indicator.winfo_manager() == 'grid'
+        if visible:
+            if not indicator_is_managed:
+                self.mcp_activity_indicator.grid()
             self.mcp_activity_indicator.start(10)
+            if not self.mcp_activity_indicator_visible:
+                self.event_queue.publish(
+                    'UiActivityIndicatorChanged',
+                    is_visible=True,
+                )
             self.mcp_activity_indicator_visible = True
-            self.event_queue.publish(
-                'UiActivityIndicatorChanged',
-                is_visible=True,
-            )
             return
-        if not visible and self.mcp_activity_indicator_visible:
+        if indicator_is_managed:
             self.mcp_activity_indicator.stop()
+            self.mcp_activity_indicator.configure(value=0)
             self.mcp_activity_indicator.grid_remove()
+        if self.mcp_activity_indicator_visible:
             self.mcp_activity_indicator_visible = False
             self.event_queue.publish(
                 'UiActivityIndicatorChanged',
                 is_visible=False,
             )
+            return
+        self.mcp_activity_indicator_visible = False
 
     def begin_foreground_activity(self, message):
         self.foreground_activity_message = message
@@ -3639,6 +3646,7 @@ class ClassSelection(FramedWidget):
         self.classes_notebook.grid(row=0, column=0, sticky='nsew')
 
         self.rowconfigure(0, weight=1, minsize=180)
+        self.rowconfigure(1, weight=0)
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=1)
 
@@ -3672,10 +3680,11 @@ class ClassSelection(FramedWidget):
         self.selection_var = tk.StringVar(value='instance' if self.gemstone_session_record.show_instance_side else 'class')
         self.syncing_side_selection = False
         self.selection_var.trace_add('write', lambda name, index, operation: self.switch_side())
-        self.class_controls_frame = ttk.Frame(self.class_selection_frame)
+        self.class_controls_frame = ttk.Frame(self)
         self.class_controls_frame.grid(
             column=0,
             row=1,
+            columnspan=2,
             sticky='ew',
             pady=(4, 0),
         )
@@ -3699,7 +3708,7 @@ class ClassSelection(FramedWidget):
         self.show_class_definition_var = tk.BooleanVar(value=False)
         self.show_class_definition_checkbox = tk.Checkbutton(
             self.class_controls_frame,
-            text='Show Class Definition',
+            text='Definition',
             variable=self.show_class_definition_var,
             command=self.toggle_class_definition,
         )
@@ -3714,6 +3723,7 @@ class ClassSelection(FramedWidget):
         self.class_definition_text = tk.Text(
             self.class_definition_frame,
             wrap='word',
+            width=1,
             height=8,
         )
         self.class_definition_line_number_column = CodeLineNumberColumn(
@@ -4242,43 +4252,46 @@ class MethodSelection(FramedWidget):
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
         super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
 
-        # Create InteractiveSelectionList for methods
-        self.selection_list = InteractiveSelectionList(self, self.get_all_methods, self.get_selected_method, self.select_method)
-        self.selection_list.grid(row=0, column=0, sticky="nsew")
+        self.method_content_paned = ttk.PanedWindow(self, orient=tk.VERTICAL)
+        self.method_content_paned.grid(row=0, column=0, sticky='nsew')
+        self.method_hierarchy_sash_fraction = 0.65
+
+        self.method_selection_frame = ttk.Frame(self.method_content_paned)
+        self.method_selection_frame.rowconfigure(0, weight=1)
+        self.method_selection_frame.columnconfigure(0, weight=1)
+        self.method_content_paned.add(self.method_selection_frame, weight=3)
+
+        self.selection_list = InteractiveSelectionList(self.method_selection_frame, self.get_all_methods, self.get_selected_method, self.select_method)
+        self.selection_list.grid(row=0, column=0, sticky='nsew')
         self.controls_frame = ttk.Frame(self)
         self.controls_frame.grid(row=1, column=0, sticky='ew')
         self.controls_frame.columnconfigure(0, weight=1)
         self.show_method_hierarchy_var = tk.BooleanVar(value=False)
         self.show_method_hierarchy_checkbox = tk.Checkbutton(
             self.controls_frame,
-            text='Show Method Inheritance',
+            text='Inheritance',
             variable=self.show_method_hierarchy_var,
             command=self.toggle_method_hierarchy,
         )
         self.show_method_hierarchy_checkbox.grid(row=0, column=0, sticky='w')
-        self.add_method_button = tk.Button(
-            self.controls_frame,
-            text='Add Method',
-            command=self.add_method,
-        )
-        self.add_method_button.grid(row=0, column=1, sticky='e')
+        self.method_hierarchy_frame = ttk.Frame(self.method_content_paned)
+        self.method_hierarchy_frame.rowconfigure(0, weight=1)
+        self.method_hierarchy_frame.columnconfigure(0, weight=1)
         self.method_hierarchy_tree = ttk.Treeview(
-            self,
+            self.method_hierarchy_frame,
             show='tree',
         )
         self.method_hierarchy_tree.heading('#0', text='Class')
         self.method_hierarchy_tree.column('#0', width=240, anchor='w')
-        self.method_hierarchy_tree.grid(row=2, column=0, sticky='nsew')
-        self.method_hierarchy_tree.grid_remove()
+        self.method_hierarchy_tree.grid(row=0, column=0, sticky='nsew')
         self.method_hierarchy_tree.bind(
             '<<TreeviewSelect>>',
             self.method_hierarchy_selected,
         )
         self.syncing_method_hierarchy_selection = False
 
-        # Configure the grid layout to expand properly
         self.rowconfigure(0, weight=1)
-        self.rowconfigure(2, weight=1)
+        self.rowconfigure(1, weight=0)
         self.columnconfigure(0, weight=1)
 
         # Subscribe to event_queue events
@@ -4412,13 +4425,55 @@ class MethodSelection(FramedWidget):
 
     def toggle_method_hierarchy(self):
         if self.show_method_hierarchy_var.get():
-            self.method_hierarchy_tree.grid()
+            if not self.method_hierarchy_is_visible():
+                self.method_content_paned.add(self.method_hierarchy_frame, weight=2)
+            self.ensure_method_hierarchy_is_visible()
             self.refresh_method_hierarchy()
+            return
+        self.method_hierarchy_tree.delete(
+            *self.method_hierarchy_tree.get_children(),
+        )
+        self.remember_method_hierarchy_sash_position()
+        if self.method_hierarchy_is_visible():
+            self.method_content_paned.forget(self.method_hierarchy_frame)
+
+    def method_hierarchy_is_visible(self):
+        return str(self.method_hierarchy_frame) in self.method_content_paned.panes()
+
+    def remember_method_hierarchy_sash_position(self):
+        if not self.method_hierarchy_is_visible():
+            return
+        paned_height = self.method_content_paned.winfo_height()
+        if paned_height <= 0:
+            return
+        sash_position = self.method_content_paned.sashpos(0)
+        sash_fraction = sash_position / paned_height
+        self.method_hierarchy_sash_fraction = max(0.2, min(0.8, sash_fraction))
+
+    def restore_method_hierarchy_sash_position(self):
+        if not self.method_hierarchy_is_visible():
+            return
+        paned_height = self.method_content_paned.winfo_height()
+        if paned_height <= 0:
+            return
+        minimum_pane_height = 120
+        desired_sash_position = int(paned_height * self.method_hierarchy_sash_fraction)
+        maximum_sash_position = paned_height - minimum_pane_height
+        if maximum_sash_position < minimum_pane_height:
+            desired_sash_position = paned_height // 2
         else:
-            self.method_hierarchy_tree.delete(
-                *self.method_hierarchy_tree.get_children(),
+            desired_sash_position = max(
+                minimum_pane_height,
+                min(maximum_sash_position, desired_sash_position),
             )
-            self.method_hierarchy_tree.grid_remove()
+        self.method_content_paned.sashpos(0, desired_sash_position)
+
+    def ensure_method_hierarchy_is_visible(self):
+        if not self.method_hierarchy_is_visible():
+            return
+        self.method_content_paned.update_idletasks()
+        self.restore_method_hierarchy_sash_position()
+        self.after(20, self.restore_method_hierarchy_sash_position)
 
     def refresh_method_hierarchy(self):
         self.method_hierarchy_tree.delete(
@@ -5192,23 +5247,6 @@ class CodePanel(tk.Frame):
         self.current_context_menu.add_command(
             label='Find Senders',
             command=self.open_senders_from_source,
-        )
-        self.current_context_menu.add_separator()
-        self.current_context_menu.add_command(
-            label='Method Sends',
-            command=self.show_method_sends,
-        )
-        self.current_context_menu.add_command(
-            label='Method Structure',
-            command=self.show_method_structure,
-        )
-        self.current_context_menu.add_command(
-            label='Method Control Flow',
-            command=self.show_method_control_flow,
-        )
-        self.current_context_menu.add_command(
-            label='Method AST',
-            command=self.show_method_ast,
         )
         self.current_context_menu.add_separator()
         self.current_context_menu.add_command(

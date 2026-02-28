@@ -573,6 +573,10 @@ def test_text_context_menu_includes_save_and_close_for_open_tab(fixture):
     assert 'Preview Remove Parameter' not in command_labels
     assert 'Preview Extract Method' not in command_labels
     assert 'Preview Inline Method' not in command_labels
+    assert 'Method Sends' not in command_labels
+    assert 'Method Structure' not in command_labels
+    assert 'Method Control Flow' not in command_labels
+    assert 'Method AST' not in command_labels
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -799,6 +803,9 @@ def test_show_class_definition_displays_and_updates_for_selected_class(fixture):
     classes_widget = fixture.browser_window.classes_widget
     assert str(classes_widget.class_definition_frame) not in classes_widget.class_content_paned.panes()
     assert str(classes_widget.selection_list.master) == str(classes_widget.classes_notebook)
+    assert str(classes_widget.class_controls_frame.master) == str(classes_widget)
+    assert int(classes_widget.class_controls_frame.grid_info()['row']) == 1
+    initial_requested_width = classes_widget.winfo_reqwidth()
     assert (
         classes_widget.class_radiobutton.grid_info()['row']
         == classes_widget.instance_radiobutton.grid_info()['row']
@@ -809,6 +816,9 @@ def test_show_class_definition_displays_and_updates_for_selected_class(fixture):
     classes_widget.toggle_class_definition()
     fixture.root.update()
     assert str(classes_widget.class_definition_frame) in classes_widget.class_content_paned.panes()
+    shown_requested_width = classes_widget.winfo_reqwidth()
+    assert shown_requested_width <= initial_requested_width + 10
+    assert int(classes_widget.class_controls_frame.grid_info()['row']) == 1
     classes_widget.class_content_paned.sashpos(0, 150)
     fixture.root.update()
     sash_position_after_drag = classes_widget.class_content_paned.sashpos(0)
@@ -854,6 +864,7 @@ def test_show_class_definition_displays_and_updates_for_selected_class(fixture):
     classes_widget.toggle_class_definition()
     fixture.root.update()
     assert str(classes_widget.class_definition_frame) not in classes_widget.class_content_paned.panes()
+    assert int(classes_widget.class_controls_frame.grid_info()['row']) == 1
 
     classes_widget.show_class_definition_var.set(True)
     classes_widget.toggle_class_definition()
@@ -867,8 +878,13 @@ def test_method_inheritance_checkbox_shows_class_hierarchy(fixture):
     """AI: Enabling method inheritance view should show the selected method's superclass chain as class names only."""
     fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
     methods_widget = fixture.browser_window.methods_widget
+    assert str(methods_widget.controls_frame.master) == str(methods_widget)
+    assert int(methods_widget.controls_frame.grid_info()['row']) == 1
+    assert str(methods_widget.method_hierarchy_frame) not in methods_widget.method_content_paned.panes()
     methods_widget.show_method_hierarchy_var.set(True)
     methods_widget.toggle_method_hierarchy()
+    assert str(methods_widget.method_hierarchy_frame) in methods_widget.method_content_paned.panes()
+    assert int(methods_widget.controls_frame.grid_info()['row']) == 1
     assert fixture.session_record.selected_method_symbol == 'total'
     method_hierarchy_tree = methods_widget.method_hierarchy_tree
     root_item_ids = method_hierarchy_tree.get_children('')
@@ -891,6 +907,18 @@ def test_method_inheritance_checkbox_shows_class_hierarchy(fixture):
     assert tree.item(order_item, 'text') == 'Order'
     assert tree.item(order_line_item, 'text') == 'OrderLine'
     assert tree.selection() == (order_line_item,)
+    methods_widget.show_method_hierarchy_var.set(False)
+    methods_widget.toggle_method_hierarchy()
+    fixture.root.update()
+    assert str(methods_widget.method_hierarchy_frame) not in methods_widget.method_content_paned.panes()
+    assert int(methods_widget.controls_frame.grid_info()['row']) == 1
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_methods_pane_does_not_show_add_method_button(fixture):
+    """AI: Method creation should be offered through context menu actions, not a permanent button in the methods pane."""
+    methods_widget = fixture.browser_window.methods_widget
+    assert not hasattr(methods_widget, 'add_method_button')
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -1448,6 +1476,27 @@ def test_foreground_activity_feedback_controls_status_and_indicator(fixture):
     assert fixture.app.mcp_activity_indicator_visible is False
     assert listener.activity_events[-1] == (False, '')
     assert listener.indicator_events[-1] is False
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_indicator_is_hidden_when_mcp_server_is_running_but_idle(fixture):
+    """AI: Idle startup status should not show a partially-filled progress indicator when MCP is merely running."""
+    with fixture.app.embedded_mcp_server_controller.lock:
+        fixture.app.embedded_mcp_server_controller.running = True
+        fixture.app.embedded_mcp_server_controller.endpoint_url = (
+            'http://127.0.0.1:9177/mcp'
+        )
+    fixture.simulate_login()
+    fixture.app.refresh_collaboration_status()
+    fixture.app.update()
+
+    assert fixture.app.mcp_activity_indicator_visible is False
+    assert fixture.app.mcp_activity_indicator.winfo_manager() == ''
+    assert (
+        fixture.app.collaboration_status_text.get().startswith(
+            'IDE ready. MCP running at http://127.0.0.1:'
+        )
+    )
 
 
 @with_fixtures(SwordfishAppFixture)
