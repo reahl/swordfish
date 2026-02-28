@@ -2003,6 +2003,7 @@ class SendersDialog(tk.Toplevel):
         self.parent = parent
         self.sender_results = []
         self.static_sender_results = []
+        self.static_sender_method_name = None
         self.status_var = tk.StringVar(value='')
 
         self.grid_columnconfigure(1, weight=1)
@@ -2100,6 +2101,7 @@ class SendersDialog(tk.Toplevel):
                 self.gemstone_session_record.find_senders_of_method(method_name)
             )
         self.static_sender_results = static_sender_results
+        self.static_sender_method_name = method_name
         self.populate_sender_results(self.static_sender_results)
         self.status_var.set(
             'Static senders: %s' % len(self.static_sender_results)
@@ -2130,7 +2132,10 @@ class SendersDialog(tk.Toplevel):
                 parent=self,
             )
             return
-        if not self.static_sender_results:
+        static_results_match_selector = (
+            self.static_sender_method_name == method_name
+        )
+        if not static_results_match_selector:
             self.find_senders()
         try:
             test_plan = self.gemstone_session_record.plan_sender_evidence_tests(

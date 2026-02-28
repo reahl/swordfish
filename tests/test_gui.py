@@ -2579,6 +2579,173 @@ def test_senders_dialog_narrow_with_tracing_stops_when_no_candidate_tests(
     dialog.destroy()
 
 
+@with_fixtures(SwordfishAppFixture)
+def test_senders_dialog_narrow_with_tracing_reloads_static_senders_after_selector_change(
+    fixture,
+):
+    """AI: Changing selector after tracing should refresh static sender candidates before narrowing again."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_senders.side_effect = [
+        {
+            'senders': [
+                {
+                    'class_name': 'OrderLine',
+                    'show_instance_side': True,
+                    'method_selector': 'recalculateTotal',
+                },
+            ],
+            'total_count': 1,
+            'returned_count': 1,
+        },
+        {
+            'senders': [
+                {
+                    'class_name': 'Invoice',
+                    'show_instance_side': True,
+                    'method_selector': 'recalculateSubtotal',
+                },
+            ],
+            'total_count': 1,
+            'returned_count': 1,
+        },
+    ]
+    fixture.mock_browser.sender_test_plan_for_selector.side_effect = [
+        {
+            'candidate_test_count': 1,
+            'candidate_tests': [
+                {
+                    'test_case_class_name': 'OrderLineTest',
+                    'test_method_selector': 'testRecalculateTotal',
+                    'depth': 1,
+                    'reached_from_selector': 'recalculateTotal',
+                },
+            ],
+            'visited_selector_count': 1,
+            'sender_search_truncated': False,
+            'selector_limit_reached': False,
+            'elapsed_limit_reached': False,
+        },
+        {
+            'candidate_test_count': 1,
+            'candidate_tests': [
+                {
+                    'test_case_class_name': 'InvoiceTest',
+                    'test_method_selector': 'testRecalculateSubtotal',
+                    'depth': 1,
+                    'reached_from_selector': 'recalculateSubtotal',
+                },
+            ],
+            'visited_selector_count': 1,
+            'sender_search_truncated': False,
+            'selector_limit_reached': False,
+            'elapsed_limit_reached': False,
+        },
+    ]
+    fixture.mock_browser.run_test_method.return_value = {
+        'run_count': 1,
+        'failure_count': 0,
+        'error_count': 0,
+        'has_passed': True,
+        'failures': [],
+        'errors': [],
+    }
+    fixture.mock_browser.trace_selector.side_effect = [
+        {
+            'method_name': 'total',
+            'total_sender_count': 1,
+            'targeted_sender_count': 1,
+            'traced_sender_count': 1,
+            'skipped_sender_count': 0,
+            'traced_senders': [],
+            'skipped_senders': [],
+        },
+        {
+            'method_name': 'subtotal',
+            'total_sender_count': 1,
+            'targeted_sender_count': 1,
+            'traced_sender_count': 1,
+            'skipped_sender_count': 0,
+            'traced_senders': [],
+            'skipped_senders': [],
+        },
+    ]
+    fixture.mock_browser.observed_senders_for_selector.side_effect = [
+        {
+            'total_count': 1,
+            'returned_count': 1,
+            'total_observed_calls': 1,
+            'observed_senders': [
+                {
+                    'caller_class_name': 'OrderLine',
+                    'caller_show_instance_side': True,
+                    'caller_method_selector': 'recalculateTotal',
+                    'method_selector': 'total',
+                    'observed_count': 1,
+                },
+            ],
+        },
+        {
+            'total_count': 1,
+            'returned_count': 1,
+            'total_observed_calls': 1,
+            'observed_senders': [
+                {
+                    'caller_class_name': 'Invoice',
+                    'caller_show_instance_side': True,
+                    'caller_method_selector': 'recalculateSubtotal',
+                    'method_selector': 'subtotal',
+                    'observed_count': 1,
+                },
+            ],
+        },
+    ]
+
+    selected_tests_by_method = {
+        'total': [
+            {
+                'test_case_class_name': 'OrderLineTest',
+                'test_method_selector': 'testRecalculateTotal',
+                'depth': 1,
+                'reached_from_selector': 'recalculateTotal',
+            },
+        ],
+        'subtotal': [
+            {
+                'test_case_class_name': 'InvoiceTest',
+                'test_method_selector': 'testRecalculateSubtotal',
+                'depth': 1,
+                'reached_from_selector': 'recalculateSubtotal',
+            },
+        ],
+    }
+
+    def selected_tests_for_method(method_name, test_plan):
+        return selected_tests_by_method[method_name]
+
+    with patch.object(SendersDialog, 'wait_visibility'):
+        with patch.object(
+            SendersDialog,
+            'choose_tests_for_tracing',
+            side_effect=selected_tests_for_method,
+        ):
+            dialog = SendersDialog(fixture.app, method_name='total')
+            dialog.narrow_senders_with_tracing()
+            first_results = list(dialog.results_listbox.get(0, 'end'))
+
+            dialog.method_entry.delete(0, tk.END)
+            dialog.method_entry.insert(0, 'subtotal')
+            dialog.narrow_senders_with_tracing()
+            second_results = list(dialog.results_listbox.get(0, 'end'))
+
+    assert first_results == ['OrderLine>>recalculateTotal']
+    assert second_results == ['Invoice>>recalculateSubtotal']
+    assert fixture.mock_browser.find_senders.call_args_list == [
+        call('total'),
+        call('subtotal'),
+    ]
+    dialog.destroy()
+
+
 def make_mock_gemstone_object(class_name='OrderLine', string_repr='anObject', oop=None):
     """AI: Minimal GemStone object mock satisfying ObjectInspector's full protocol.
     allInstVarNames() returns [] so sub-inspectors are created empty (no recursion needed).
