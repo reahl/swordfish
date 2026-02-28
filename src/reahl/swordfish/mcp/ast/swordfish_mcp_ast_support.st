@@ -1,8 +1,8 @@
 | symbolList swordfishDictionary astClass |
 symbolList := System myUserProfile symbolList.
-swordfishDictionary := symbolList objectNamed: #Swordfish.
+swordfishDictionary := symbolList objectNamed: #'Reahl-Swordfish'.
 swordfishDictionary ifNil: [
-    Error signal: 'Swordfish package is not installed.'
+    Error signal: 'Reahl-Swordfish package is not installed.'
 ].
 (swordfishDictionary includesKey: #SwordfishMcpAstSupport)
     ifFalse: [

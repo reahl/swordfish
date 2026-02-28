@@ -6,6 +6,7 @@ from collections import deque
 import json
 import logging
 import os
+import queue
 import re
 import threading
 import tkinter as tk
@@ -547,6 +548,8 @@ class GemstoneSessionRecord:
         max_senders_per_selector=200,
         max_test_methods=200,
         max_elapsed_ms=1500,
+        should_stop=None,
+        on_candidate_test=None,
     ):
         return self.gemstone_browser_session.sender_test_plan_for_selector(
             method_name,
@@ -555,6 +558,8 @@ class GemstoneSessionRecord:
             max_senders_per_selector,
             max_test_methods,
             max_elapsed_ms=max_elapsed_ms,
+            should_stop=should_stop,
+            on_candidate_test=on_candidate_test,
         )
 
     def collect_sender_evidence_from_tests(
@@ -1815,8 +1820,243 @@ class ImplementorsDialog(tk.Toplevel):
             pass
 
 
-class SenderEvidenceTestsDialog(tk.Toplevel):
-    def __init__(self, parent, method_name, test_plan):
+def merged_sender_test_plan(current_plan, new_plan, max_elapsed_ms):
+    def candidate_test_key(candidate_test):
+        return (
+            candidate_test['test_case_class_name'],
+            candidate_test['test_method_selector'],
+        )
+
+    if current_plan is None:
+        merged_plan = dict(new_plan)
+        merged_plan['candidate_tests'] = list(
+            new_plan.get('candidate_tests', [])
+        )
+        merged_plan['sender_edges'] = list(
+            new_plan.get('sender_edges', [])
+        )
+        merged_plan['candidate_test_count'] = len(
+            merged_plan['candidate_tests']
+        )
+        merged_plan['sender_edge_count'] = len(merged_plan['sender_edges'])
+        return merged_plan
+
+    merged_plan = dict(current_plan)
+    candidate_tests_by_key = {}
+    for candidate_test in current_plan.get('candidate_tests', []):
+        candidate_tests_by_key[candidate_test_key(candidate_test)] = dict(
+            candidate_test
+        )
+    for candidate_test in new_plan.get('candidate_tests', []):
+        current_candidate_test_key = candidate_test_key(candidate_test)
+        if current_candidate_test_key in candidate_tests_by_key:
+            existing_candidate_test = candidate_tests_by_key[
+                current_candidate_test_key
+            ]
+            if (
+                candidate_test.get('depth', 0)
+                < existing_candidate_test.get('depth', 0)
+            ):
+                candidate_tests_by_key[current_candidate_test_key] = dict(
+                    candidate_test
+                )
+        if current_candidate_test_key not in candidate_tests_by_key:
+            candidate_tests_by_key[current_candidate_test_key] = dict(
+                candidate_test
+            )
+    merged_candidate_tests = sorted(
+        candidate_tests_by_key.values(),
+        key=lambda candidate_test: (
+            candidate_test.get('depth', 0),
+            candidate_test['test_case_class_name'],
+            candidate_test['test_method_selector'],
+        ),
+    )
+
+    sender_edges_by_key = {}
+    for sender_edge in (
+        current_plan.get('sender_edges', [])
+        + new_plan.get('sender_edges', [])
+    ):
+        sender_edge_key = (
+            sender_edge['from_selector'],
+            sender_edge['to_class_name'],
+            sender_edge['to_method_selector'],
+            sender_edge['to_show_instance_side'],
+            sender_edge['depth'],
+        )
+        sender_edges_by_key[sender_edge_key] = dict(sender_edge)
+    merged_sender_edges = list(sender_edges_by_key.values())
+
+    merged_plan['candidate_tests'] = merged_candidate_tests
+    merged_plan['candidate_test_count'] = len(merged_candidate_tests)
+    merged_plan['sender_edges'] = merged_sender_edges
+    merged_plan['sender_edge_count'] = len(merged_sender_edges)
+    merged_plan['visited_selector_count'] = max(
+        current_plan.get('visited_selector_count', 0),
+        new_plan.get('visited_selector_count', 0),
+    )
+    merged_plan['sender_search_truncated'] = (
+        current_plan.get('sender_search_truncated', False)
+        or new_plan.get('sender_search_truncated', False)
+    )
+    merged_plan['selector_limit_reached'] = (
+        current_plan.get('selector_limit_reached', False)
+        or new_plan.get('selector_limit_reached', False)
+    )
+    merged_plan['elapsed_limit_reached'] = new_plan.get(
+        'elapsed_limit_reached',
+        False,
+    )
+    merged_plan['elapsed_ms'] = (
+        current_plan.get('elapsed_ms', 0) + new_plan.get('elapsed_ms', 0)
+    )
+    merged_plan['max_elapsed_ms'] = max_elapsed_ms
+    merged_plan['stopped_by_user'] = new_plan.get('stopped_by_user', False)
+    return merged_plan
+
+
+class CoveringTestsDiscoveryWorkflow:
+    def __init__(
+        self,
+        gemstone_session_record,
+        method_name,
+        max_elapsed_ms,
+    ):
+        self.gemstone_session_record = gemstone_session_record
+        self.method_name = method_name
+        self.max_elapsed_ms = max_elapsed_ms
+        self.should_stop = threading.Event()
+        self.pending_candidate_tests = queue.Queue()
+        self.accumulated_plan = None
+        self.search_state = {
+            'is_searching': False,
+            'latest_result': None,
+            'latest_error': None,
+            'attempt_processed': False,
+            'cancel_requested': False,
+            'use_results_requested_for_attempt': False,
+            'search_started': False,
+        }
+
+    def record_discovered_test(self, candidate_test):
+        self.pending_candidate_tests.put(dict(candidate_test))
+
+    def run_search_attempt(self):
+        self.search_state['is_searching'] = True
+        self.search_state['latest_result'] = None
+        self.search_state['latest_error'] = None
+        self.search_state['attempt_processed'] = False
+        self.search_state['cancel_requested'] = False
+        self.search_state['use_results_requested_for_attempt'] = False
+        self.search_state['search_started'] = True
+        self.should_stop.clear()
+
+        def discover_tests():
+            try:
+                self.search_state['latest_result'] = (
+                    self.gemstone_session_record.plan_sender_evidence_tests(
+                        self.method_name,
+                        max_depth=2,
+                        max_nodes=500,
+                        max_senders_per_selector=200,
+                        max_test_methods=200,
+                        max_elapsed_ms=self.max_elapsed_ms,
+                        should_stop=self.should_stop.is_set,
+                        on_candidate_test=self.record_discovered_test,
+                    )
+                )
+            except (GemstoneDomainException, GemstoneError) as error:
+                self.search_state['latest_error'] = error
+            finally:
+                self.search_state['is_searching'] = False
+
+        search_thread = threading.Thread(
+            target=discover_tests,
+            daemon=True,
+        )
+        search_thread.start()
+
+    def flush_discovered_tests(self, on_candidate_test):
+        keep_flushing = True
+        while keep_flushing:
+            discovered_test = None
+            try:
+                discovered_test = self.pending_candidate_tests.get_nowait()
+            except queue.Empty:
+                keep_flushing = False
+            if discovered_test is not None:
+                on_candidate_test(discovered_test)
+
+    def request_cancel(self):
+        self.search_state['cancel_requested'] = True
+        self.should_stop.set()
+
+    def request_use_results(self):
+        self.search_state['use_results_requested_for_attempt'] = True
+        self.should_stop.set()
+
+    def searching(self):
+        return self.search_state['is_searching']
+
+    def latest_error(self):
+        return self.search_state['latest_error']
+
+    def cancelled(self):
+        return self.search_state['cancel_requested']
+
+    def advance(self, stop_requested, use_results_requested, on_candidate_test):
+        self.flush_discovered_tests(on_candidate_test)
+        if stop_requested:
+            self.request_cancel()
+        if use_results_requested:
+            self.request_use_results()
+
+        if self.search_state['is_searching']:
+            return {'phase': 'searching'}
+        if not self.search_state['search_started']:
+            return {'phase': 'idle'}
+        if self.search_state['attempt_processed']:
+            return {'phase': 'idle'}
+        self.search_state['attempt_processed'] = True
+
+        if self.search_state['cancel_requested']:
+            return {'phase': 'cancelled'}
+        if self.search_state['latest_error'] is not None:
+            return {
+                'phase': 'error',
+                'error': self.search_state['latest_error'],
+            }
+        if self.search_state['latest_result'] is None:
+            return {'phase': 'empty'}
+
+        self.accumulated_plan = merged_sender_test_plan(
+            self.accumulated_plan,
+            self.search_state['latest_result'],
+            self.max_elapsed_ms,
+        )
+        result_stopped_by_user = self.search_state['latest_result'].get(
+            'stopped_by_user',
+            False,
+        )
+        used_results_requested = self.search_state[
+            'use_results_requested_for_attempt'
+        ]
+        if result_stopped_by_user and not used_results_requested:
+            return {'phase': 'cancelled'}
+        return {
+            'phase': 'ready',
+            'plan': self.accumulated_plan,
+            'timed_out': self.search_state['latest_result'].get(
+                'elapsed_limit_reached',
+                False,
+            ),
+            'used_results': used_results_requested,
+        }
+
+
+class CoveringTestsSearchDialog(tk.Toplevel):
+    def __init__(self, parent, method_name, max_elapsed_ms):
         super().__init__(parent)
         self.title('Trace Narrowing Tests')
         self.geometry('760x520')
@@ -1825,34 +2065,61 @@ class SenderEvidenceTestsDialog(tk.Toplevel):
         self.grab_set()
 
         self.selected_tests = None
-        self.candidate_tests = test_plan.get('candidate_tests', [])
-        self.checkbox_variables = []
+        self.was_cancelled = True
+        self.stop_search_requested = False
+        self.use_results_requested = False
+        self.search_further_requested = False
+        self.is_searching = False
+        self.is_timed_out = False
+        self.method_name = method_name
+        self.max_elapsed_ms = max_elapsed_ms
+        self.candidate_tests_by_key = {}
+        self.candidate_test_order = []
+        self.checkbox_variables_by_key = {}
+        self.checkbox_widgets_by_key = {}
+        self.visited_selector_count = 0
+        self.elapsed_ms = 0
+        self.summary_message = ''
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=1)
 
-        summary_text = self.plan_summary_text(method_name, test_plan)
         self.summary_label = ttk.Label(
             self,
-            text=summary_text,
+            text='',
             justify='left',
         )
         self.summary_label.grid(
             row=0,
             column=0,
+            columnspan=2,
             padx=10,
             pady=(10, 6),
             sticky='w',
         )
 
+        self.progress_bar = ttk.Progressbar(
+            self,
+            mode='indeterminate',
+            length=360,
+        )
+        self.progress_bar.grid(
+            row=1,
+            column=0,
+            columnspan=2,
+            sticky='ew',
+            padx=10,
+            pady=(0, 6),
+        )
+
         self.canvas = tk.Canvas(self, borderwidth=0, highlightthickness=0)
-        self.canvas.grid(row=1, column=0, sticky='nsew', padx=10)
+        self.canvas.grid(row=2, column=0, sticky='nsew', padx=10)
         self.scrollbar = ttk.Scrollbar(
             self,
             orient='vertical',
             command=self.canvas.yview,
         )
-        self.scrollbar.grid(row=1, column=1, sticky='ns', padx=(0, 10))
+        self.scrollbar.grid(row=2, column=1, sticky='ns', padx=(0, 10))
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
         self.tests_frame = ttk.Frame(self.canvas)
@@ -1864,10 +2131,8 @@ class SenderEvidenceTestsDialog(tk.Toplevel):
         self.tests_frame.bind('<Configure>', self.update_scroll_region)
         self.canvas.bind('<Configure>', self.update_canvas_window_width)
 
-        self.populate_test_checkboxes()
-
         self.buttons = ttk.Frame(self)
-        self.buttons.grid(row=2, column=0, columnspan=2, sticky='e', pady=10)
+        self.buttons.grid(row=3, column=0, columnspan=2, sticky='e', pady=10)
         self.select_all_button = ttk.Button(
             self.buttons,
             text='Select All',
@@ -1886,47 +2151,72 @@ class SenderEvidenceTestsDialog(tk.Toplevel):
             command=self.run_selected_tests,
         )
         self.run_selected_button.grid(row=0, column=2, padx=(0, 4))
+        self.use_results_button = ttk.Button(
+            self.buttons,
+            text='Use Results So Far',
+            command=self.request_use_results,
+        )
+        self.use_results_button.grid(row=0, column=3, padx=(0, 4))
+        self.stop_search_button = ttk.Button(
+            self.buttons,
+            text='Stop Searching For Tests',
+            command=self.request_stop_search,
+        )
+        self.stop_search_button.grid(row=0, column=4, padx=(0, 4))
+        self.search_further_button = ttk.Button(
+            self.buttons,
+            text='Search Further',
+            command=self.request_search_further,
+        )
+        self.search_further_button.grid(row=0, column=5, padx=(0, 4))
         self.cancel_button = ttk.Button(
             self.buttons,
             text='Cancel',
-            command=self.destroy,
+            command=self.cancel_dialog,
         )
-        self.cancel_button.grid(row=0, column=3)
+        self.cancel_button.grid(row=0, column=6)
+        self.protocol('WM_DELETE_WINDOW', self.cancel_dialog)
+        self.set_searching_state()
 
-    def plan_summary_text(self, method_name, test_plan):
-        candidate_count = test_plan.get('candidate_test_count', 0)
-        visited_selector_count = test_plan.get('visited_selector_count', 0)
-        summary_parts = [
-            (
-                'Suggested tests for tracing callers of %s '
-                '(candidates: %s, explored selectors: %s).'
-            )
-            % (
-                method_name,
+    def candidate_test_key(self, candidate_test):
+        return (
+            candidate_test['test_case_class_name'],
+            candidate_test['test_method_selector'],
+        )
+
+    def summary_text(self):
+        candidate_count = len(self.candidate_test_order)
+        if self.is_searching:
+            return (
+                'Searching for candidate tests for %s... '
+                'Found: %s, explored selectors: %s.'
+            ) % (
+                self.method_name,
                 candidate_count,
-                visited_selector_count,
+                self.visited_selector_count,
             )
-        ]
-        if test_plan.get('elapsed_limit_reached'):
-            summary_parts.append(
-                (
-                    'Discovery hit time limit (%sms) and returned partial '
-                    'suggestions.'
-                )
-                % test_plan.get('max_elapsed_ms')
+        if self.is_timed_out:
+            return (
+                'Search reached %ss timeout. Found: %s, explored selectors: %s. '
+                'Select tests to run now or choose Search Further.'
+            ) % (
+                int(self.max_elapsed_ms / 1000),
+                candidate_count,
+                self.visited_selector_count,
             )
-        if test_plan.get('sender_search_truncated'):
-            summary_parts.append(
-                (
-                    'Some sender searches were truncated, so this is an '
-                    'incomplete subset.'
-                )
-            )
-        if test_plan.get('selector_limit_reached'):
-            summary_parts.append(
-                'Selector traversal limit was reached.'
-            )
-        return ' '.join(summary_parts)
+        return (
+            'Candidate tests for %s: %s (explored selectors: %s).'
+        ) % (
+            self.method_name,
+            candidate_count,
+            self.visited_selector_count,
+        )
+
+    def refresh_summary(self):
+        summary_text = self.summary_text()
+        if self.summary_message:
+            summary_text = '%s %s' % (summary_text, self.summary_message)
+        self.summary_label.configure(text=summary_text)
 
     def format_test_label(self, candidate_test):
         return (
@@ -1939,25 +2229,6 @@ class SenderEvidenceTestsDialog(tk.Toplevel):
             )
         )
 
-    def populate_test_checkboxes(self):
-        default_checked_count = 20
-        for index, candidate_test in enumerate(self.candidate_tests):
-            is_default_checked = index < default_checked_count
-            selected = tk.BooleanVar(value=is_default_checked)
-            self.checkbox_variables.append(selected)
-            checkbutton = ttk.Checkbutton(
-                self.tests_frame,
-                text=self.format_test_label(candidate_test),
-                variable=selected,
-            )
-            checkbutton.grid(
-                row=index,
-                column=0,
-                sticky='w',
-                padx=4,
-                pady=2,
-            )
-
     def update_scroll_region(self, event=None):
         self.canvas.configure(scrollregion=self.canvas.bbox('all'))
 
@@ -1967,19 +2238,156 @@ class SenderEvidenceTestsDialog(tk.Toplevel):
             width=event.width,
         )
 
+    def selection_controls_enabled(self):
+        has_tests = len(self.candidate_test_order) > 0
+        return has_tests and not self.is_searching
+
+    def update_button_states(self):
+        selection_controls_enabled = self.selection_controls_enabled()
+        select_button_state = (
+            tk.NORMAL if selection_controls_enabled else tk.DISABLED
+        )
+        run_button_state = (
+            tk.NORMAL if selection_controls_enabled else tk.DISABLED
+        )
+        self.select_all_button.configure(state=select_button_state)
+        self.select_none_button.configure(state=select_button_state)
+        self.run_selected_button.configure(state=run_button_state)
+        use_results_state = tk.NORMAL if self.is_searching else tk.DISABLED
+        stop_search_state = tk.NORMAL if self.is_searching else tk.DISABLED
+        self.use_results_button.configure(state=use_results_state)
+        self.stop_search_button.configure(state=stop_search_state)
+        search_further_state = tk.DISABLED
+        if self.is_timed_out and not self.is_searching:
+            search_further_state = tk.NORMAL
+        self.search_further_button.configure(state=search_further_state)
+        checkbox_state = tk.NORMAL if selection_controls_enabled else tk.DISABLED
+        for checkbox_widget in self.checkbox_widgets_by_key.values():
+            checkbox_widget.configure(state=checkbox_state)
+
+    def set_searching_state(self):
+        self.is_searching = True
+        self.is_timed_out = False
+        self.stop_search_requested = False
+        self.use_results_requested = False
+        self.search_further_requested = False
+        self.summary_message = ''
+        self.progress_bar.start(10)
+        self.update_button_states()
+        self.refresh_summary()
+
+    def set_stopping_for_use_results_state(self):
+        self.summary_message = (
+            'Stopping search to use the current results...'
+        )
+        self.refresh_summary()
+
+    def set_stopping_for_cancel_state(self):
+        self.summary_message = (
+            'Stopping search and cancelling...'
+        )
+        self.refresh_summary()
+
+    def set_ready_state(self, timed_out=False, summary_message=''):
+        self.is_searching = False
+        self.is_timed_out = timed_out
+        self.summary_message = summary_message
+        self.progress_bar.stop()
+        self.update_button_states()
+        self.refresh_summary()
+
+    def set_metrics_from_test_plan(self, test_plan):
+        self.visited_selector_count = test_plan.get(
+            'visited_selector_count',
+            self.visited_selector_count,
+        )
+        self.elapsed_ms = test_plan.get('elapsed_ms', self.elapsed_ms)
+        self.refresh_summary()
+
+    def add_or_update_candidate_test(self, candidate_test):
+        candidate_key = self.candidate_test_key(candidate_test)
+        has_candidate = candidate_key in self.candidate_tests_by_key
+        if has_candidate:
+            existing_candidate = self.candidate_tests_by_key[candidate_key]
+            candidate_depth = candidate_test.get('depth', 0)
+            existing_depth = existing_candidate.get('depth', 0)
+            if candidate_depth < existing_depth:
+                self.candidate_tests_by_key[candidate_key] = dict(candidate_test)
+                checkbutton = self.checkbox_widgets_by_key[candidate_key]
+                checkbutton.configure(
+                    text=self.format_test_label(candidate_test)
+                )
+        if not has_candidate:
+            self.candidate_tests_by_key[candidate_key] = dict(candidate_test)
+            self.candidate_test_order.append(candidate_key)
+            row_index = len(self.candidate_test_order) - 1
+            default_checked_count = 20
+            is_default_checked = row_index < default_checked_count
+            selected = tk.BooleanVar(value=is_default_checked)
+            self.checkbox_variables_by_key[candidate_key] = selected
+            checkbutton = ttk.Checkbutton(
+                self.tests_frame,
+                text=self.format_test_label(candidate_test),
+                variable=selected,
+            )
+            self.checkbox_widgets_by_key[candidate_key] = checkbutton
+            checkbutton.grid(
+                row=row_index,
+                column=0,
+                sticky='w',
+                padx=4,
+                pady=2,
+            )
+            self.update_scroll_region()
+        self.update_button_states()
+        self.refresh_summary()
+
+    def add_candidate_tests(self, candidate_tests):
+        for candidate_test in candidate_tests:
+            self.add_or_update_candidate_test(candidate_test)
+
+    def selected_candidate_tests(self):
+        selected_tests = []
+        for candidate_key in self.candidate_test_order:
+            selected_variable = self.checkbox_variables_by_key[candidate_key]
+            if selected_variable.get():
+                selected_tests.append(
+                    dict(self.candidate_tests_by_key[candidate_key])
+                )
+        return selected_tests
+
     def select_all_tests(self):
-        for selected in self.checkbox_variables:
+        for selected in self.checkbox_variables_by_key.values():
             selected.set(True)
 
     def select_no_tests(self):
-        for selected in self.checkbox_variables:
+        for selected in self.checkbox_variables_by_key.values():
             selected.set(False)
 
+    def request_use_results(self):
+        if self.is_searching:
+            self.use_results_requested = True
+            self.set_stopping_for_use_results_state()
+
+    def request_stop_search(self):
+        if self.is_searching:
+            self.stop_search_requested = True
+            self.set_stopping_for_cancel_state()
+
+    def request_search_further(self):
+        if not self.is_searching and self.is_timed_out:
+            self.search_further_requested = True
+            self.summary_message = ''
+            self.refresh_summary()
+
+    def cancel_dialog(self):
+        if self.is_searching:
+            self.request_stop_search()
+        if not self.is_searching:
+            self.destroy()
+
     def run_selected_tests(self):
-        selected_tests = []
-        for index, selected in enumerate(self.checkbox_variables):
-            if selected.get():
-                selected_tests.append(self.candidate_tests[index])
+        selected_tests = self.selected_candidate_tests()
         if not selected_tests:
             messagebox.showwarning(
                 'Trace Narrowing',
@@ -1988,7 +2396,336 @@ class SenderEvidenceTestsDialog(tk.Toplevel):
             )
             return
         self.selected_tests = selected_tests
+        self.was_cancelled = False
         self.destroy()
+
+
+class CoveringTestsBrowseDialog(tk.Toplevel):
+    def __init__(self, browser_window, method_name, max_elapsed_ms=120000):
+        super().__init__(browser_window)
+        self.title('Covering Tests')
+        self.geometry('760x520')
+        self.transient(browser_window)
+        self.wait_visibility()
+        self.grab_set()
+
+        self.browser_window = browser_window
+        self.method_name = method_name
+        self.max_elapsed_ms = max_elapsed_ms
+        self.candidate_tests_by_key = {}
+        self.candidate_test_keys_in_order = []
+        self.candidate_test_index_by_key = {}
+        self.visited_selector_count = 0
+        self.summary_message = ''
+        self.discovery_workflow = CoveringTestsDiscoveryWorkflow(
+            browser_window.gemstone_session_record,
+            method_name,
+            max_elapsed_ms,
+        )
+        self.is_searching = False
+        self.is_timed_out = False
+        self.stop_search_requested = False
+        self.use_results_requested = False
+        self.search_further_requested = False
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)
+
+        self.summary_label = ttk.Label(
+            self,
+            text='',
+            justify='left',
+        )
+        self.summary_label.grid(
+            row=0,
+            column=0,
+            columnspan=2,
+            padx=10,
+            pady=(10, 6),
+            sticky='w',
+        )
+
+        self.progress_bar = ttk.Progressbar(
+            self,
+            mode='indeterminate',
+            length=360,
+        )
+        self.progress_bar.grid(
+            row=1,
+            column=0,
+            columnspan=2,
+            sticky='ew',
+            padx=10,
+            pady=(0, 6),
+        )
+
+        self.results_listbox = tk.Listbox(self)
+        self.results_listbox.bind('<Double-Button-1>', self.on_result_double_click)
+        self.results_listbox.grid(
+            row=2,
+            column=0,
+            sticky='nsew',
+            padx=(10, 0),
+            pady=(0, 8),
+        )
+        self.scrollbar = ttk.Scrollbar(
+            self,
+            orient='vertical',
+            command=self.results_listbox.yview,
+        )
+        self.scrollbar.grid(
+            row=2,
+            column=1,
+            sticky='ns',
+            padx=(0, 10),
+            pady=(0, 8),
+        )
+        self.results_listbox.configure(yscrollcommand=self.scrollbar.set)
+
+        self.buttons = ttk.Frame(self)
+        self.buttons.grid(row=3, column=0, columnspan=2, sticky='e', pady=(0, 10))
+        self.use_results_button = ttk.Button(
+            self.buttons,
+            text='Use Results So Far',
+            command=self.request_use_results,
+        )
+        self.use_results_button.grid(row=0, column=0, padx=(0, 4))
+        self.stop_search_button = ttk.Button(
+            self.buttons,
+            text='Stop Searching For Tests',
+            command=self.request_stop_search,
+        )
+        self.stop_search_button.grid(row=0, column=1, padx=(0, 4))
+        self.search_further_button = ttk.Button(
+            self.buttons,
+            text='Search Further',
+            command=self.request_search_further,
+        )
+        self.search_further_button.grid(row=0, column=2, padx=(0, 4))
+        self.close_button = ttk.Button(
+            self.buttons,
+            text='Close',
+            command=self.close_dialog,
+        )
+        self.close_button.grid(row=0, column=3)
+        self.protocol('WM_DELETE_WINDOW', self.close_dialog)
+
+        self.run_search_attempt()
+        self.after(50, self.monitor_search)
+
+    def candidate_test_key(self, candidate_test):
+        return (
+            candidate_test['test_case_class_name'],
+            candidate_test['test_method_selector'],
+        )
+
+    def format_test_label(self, candidate_test):
+        return (
+            '%s>>%s (depth %s via %s)'
+            % (
+                candidate_test['test_case_class_name'],
+                candidate_test['test_method_selector'],
+                candidate_test.get('depth', '?'),
+                candidate_test.get('reached_from_selector', '?'),
+            )
+        )
+
+    def summary_text(self):
+        candidate_count = len(self.candidate_test_keys_in_order)
+        if self.is_searching:
+            return (
+                'Searching for covering tests for %s... '
+                'Found: %s, explored selectors: %s.'
+            ) % (
+                self.method_name,
+                candidate_count,
+                self.visited_selector_count,
+            )
+        if self.is_timed_out:
+            return (
+                'Search reached %ss timeout. Found: %s, explored selectors: %s.'
+            ) % (
+                int(self.max_elapsed_ms / 1000),
+                candidate_count,
+                self.visited_selector_count,
+            )
+        return (
+            'Covering tests for %s: %s (explored selectors: %s).'
+        ) % (
+            self.method_name,
+            candidate_count,
+            self.visited_selector_count,
+        )
+
+    def refresh_summary(self):
+        summary_text = self.summary_text()
+        if self.summary_message:
+            summary_text = '%s %s' % (summary_text, self.summary_message)
+        self.summary_label.configure(text=summary_text)
+
+    def update_button_states(self):
+        use_results_state = tk.NORMAL if self.is_searching else tk.DISABLED
+        stop_search_state = tk.NORMAL if self.is_searching else tk.DISABLED
+        search_further_state = (
+            tk.NORMAL if self.is_timed_out and not self.is_searching else tk.DISABLED
+        )
+        self.use_results_button.configure(state=use_results_state)
+        self.stop_search_button.configure(state=stop_search_state)
+        self.search_further_button.configure(state=search_further_state)
+        self.results_listbox.configure(state=tk.NORMAL)
+
+    def add_or_update_candidate_test(self, candidate_test):
+        candidate_key = self.candidate_test_key(candidate_test)
+        has_candidate = candidate_key in self.candidate_tests_by_key
+        if has_candidate:
+            existing_candidate = self.candidate_tests_by_key[candidate_key]
+            candidate_depth = candidate_test.get('depth', 0)
+            existing_depth = existing_candidate.get('depth', 0)
+            if candidate_depth < existing_depth:
+                self.candidate_tests_by_key[candidate_key] = dict(candidate_test)
+                candidate_index = self.candidate_test_index_by_key[candidate_key]
+                self.results_listbox.delete(candidate_index)
+                self.results_listbox.insert(
+                    candidate_index,
+                    self.format_test_label(candidate_test),
+                )
+        if not has_candidate:
+            candidate_index = len(self.candidate_test_keys_in_order)
+            self.candidate_tests_by_key[candidate_key] = dict(candidate_test)
+            self.candidate_test_keys_in_order.append(candidate_key)
+            self.candidate_test_index_by_key[candidate_key] = candidate_index
+            self.results_listbox.insert(
+                tk.END,
+                self.format_test_label(candidate_test),
+            )
+        self.refresh_summary()
+
+    def run_search_attempt(self):
+        self.is_searching = True
+        self.is_timed_out = False
+        self.stop_search_requested = False
+        self.use_results_requested = False
+        self.search_further_requested = False
+        self.summary_message = ''
+        self.progress_bar.start(10)
+        self.update_button_states()
+        self.refresh_summary()
+        self.discovery_workflow.run_search_attempt()
+
+    def set_ready_state(self, timed_out=False, summary_message=''):
+        self.is_searching = False
+        self.is_timed_out = timed_out
+        self.summary_message = summary_message
+        self.progress_bar.stop()
+        self.update_button_states()
+        self.refresh_summary()
+
+    def add_candidate_tests(self, candidate_tests):
+        for candidate_test in candidate_tests:
+            self.add_or_update_candidate_test(candidate_test)
+
+    def monitor_search(self):
+        if not self.winfo_exists():
+            return
+        if self.stop_search_requested and self.discovery_workflow.searching():
+            self.summary_message = 'Stopping search and closing...'
+            self.refresh_summary()
+        if self.use_results_requested and self.discovery_workflow.searching():
+            self.summary_message = (
+                'Stopping search to use the current results...'
+            )
+            self.refresh_summary()
+
+        search_outcome = self.discovery_workflow.advance(
+            self.stop_search_requested,
+            self.use_results_requested,
+            self.add_or_update_candidate_test,
+        )
+
+        if search_outcome['phase'] == 'searching':
+            self.after(50, self.monitor_search)
+            return
+        if search_outcome['phase'] == 'cancelled':
+            self.destroy()
+            return
+        if search_outcome['phase'] == 'error':
+            messagebox.showerror(
+                'Covering Tests',
+                str(search_outcome['error']),
+                parent=self,
+            )
+            self.set_ready_state(
+                timed_out=False,
+                summary_message='Search failed.',
+            )
+        if search_outcome['phase'] == 'empty':
+            self.set_ready_state(
+                timed_out=False,
+                summary_message='Search finished without results.',
+            )
+        if search_outcome['phase'] == 'ready':
+            accumulated_plan = search_outcome['plan']
+            self.visited_selector_count = max(
+                self.visited_selector_count,
+                accumulated_plan.get('visited_selector_count', 0),
+            )
+            self.add_candidate_tests(
+                accumulated_plan.get('candidate_tests', [])
+            )
+            summary_message = ''
+            if search_outcome['used_results']:
+                summary_message = 'Using the results found so far.'
+            if search_outcome['timed_out']:
+                summary_message = (
+                    'Search timed out. You can continue with Search Further.'
+                )
+            self.set_ready_state(
+                timed_out=search_outcome['timed_out'],
+                summary_message=summary_message,
+            )
+
+        if self.winfo_exists():
+            if self.search_further_requested:
+                self.search_further_requested = False
+                self.run_search_attempt()
+            self.after(50, self.monitor_search)
+
+    def request_use_results(self):
+        if self.is_searching:
+            self.use_results_requested = True
+
+    def request_stop_search(self):
+        if self.is_searching:
+            self.stop_search_requested = True
+        if not self.is_searching:
+            self.destroy()
+
+    def request_search_further(self):
+        if not self.is_searching and self.is_timed_out:
+            self.search_further_requested = True
+            self.summary_message = ''
+            self.refresh_summary()
+
+    def close_dialog(self):
+        if self.is_searching:
+            self.stop_search_requested = True
+        if not self.is_searching:
+            self.destroy()
+
+    def on_result_double_click(self, event):
+        if self.is_searching:
+            return
+        selection = self.results_listbox.curselection()
+        if not selection:
+            return
+        selected_index = selection[0]
+        candidate_key = self.candidate_test_keys_in_order[selected_index]
+        candidate_test = self.candidate_tests_by_key[candidate_key]
+        self.browser_window.application.handle_sender_selection(
+            candidate_test['test_case_class_name'],
+            True,
+            candidate_test['test_method_selector'],
+        )
 
 
 class SendersDialog(tk.Toplevel):
@@ -2004,6 +2741,7 @@ class SendersDialog(tk.Toplevel):
         self.sender_results = []
         self.static_sender_results = []
         self.static_sender_method_name = None
+        self.max_test_discovery_elapsed_ms = 120000
         self.status_var = tk.StringVar(value='')
 
         self.grid_columnconfigure(1, weight=1)
@@ -2107,13 +2845,87 @@ class SendersDialog(tk.Toplevel):
             'Static senders: %s' % len(self.static_sender_results)
         )
 
-    def choose_tests_for_tracing(self, method_name, test_plan):
-        test_selection_dialog = SenderEvidenceTestsDialog(
+    def choose_tests_for_tracing(self, method_name):
+        test_selection_dialog = CoveringTestsSearchDialog(
             self,
             method_name,
-            test_plan,
+            self.max_test_discovery_elapsed_ms,
         )
+        discovery_workflow = CoveringTestsDiscoveryWorkflow(
+            self.gemstone_session_record,
+            method_name,
+            self.max_test_discovery_elapsed_ms,
+        )
+
+        def run_search_attempt():
+            test_selection_dialog.set_searching_state()
+            discovery_workflow.run_search_attempt()
+
+        def monitor_search():
+            if not test_selection_dialog.winfo_exists():
+                return
+            if test_selection_dialog.stop_search_requested:
+                if not discovery_workflow.cancelled():
+                    test_selection_dialog.set_stopping_for_cancel_state()
+            if test_selection_dialog.use_results_requested:
+                if discovery_workflow.searching():
+                    test_selection_dialog.set_stopping_for_use_results_state()
+
+            search_outcome = discovery_workflow.advance(
+                test_selection_dialog.stop_search_requested,
+                test_selection_dialog.use_results_requested,
+                test_selection_dialog.add_or_update_candidate_test,
+            )
+            if search_outcome['phase'] == 'searching':
+                self.after(50, monitor_search)
+                return
+            if search_outcome['phase'] == 'cancelled':
+                test_selection_dialog.destroy()
+                return
+            if search_outcome['phase'] == 'error':
+                test_selection_dialog.destroy()
+                return
+            if search_outcome['phase'] == 'empty':
+                test_selection_dialog.set_ready_state(
+                    timed_out=False,
+                    summary_message='Search finished without results.',
+                )
+            if search_outcome['phase'] == 'ready':
+                accumulated_plan = search_outcome['plan']
+                test_selection_dialog.add_candidate_tests(
+                    accumulated_plan.get('candidate_tests', [])
+                )
+                test_selection_dialog.set_metrics_from_test_plan(
+                    accumulated_plan
+                )
+                summary_message = ''
+                if search_outcome['used_results']:
+                    summary_message = 'Using the results found so far.'
+                if search_outcome['timed_out']:
+                    summary_message = (
+                        'Search timed out. You can continue with Search Further.'
+                    )
+                test_selection_dialog.set_ready_state(
+                    timed_out=search_outcome['timed_out'],
+                    summary_message=summary_message,
+                )
+            if test_selection_dialog.winfo_exists():
+                if test_selection_dialog.search_further_requested:
+                    test_selection_dialog.search_further_requested = False
+                    run_search_attempt()
+                self.after(50, monitor_search)
+
+        run_search_attempt()
+        self.after(50, monitor_search)
         self.wait_window(test_selection_dialog)
+
+        if discovery_workflow.latest_error() is not None:
+            raise discovery_workflow.latest_error()
+        if discovery_workflow.cancelled():
+            self.status_var.set('Test discovery stopped.')
+            return None
+        if test_selection_dialog.selected_tests is None:
+            return None
         return test_selection_dialog.selected_tests
 
     def observed_sender_key(self, observed_sender):
@@ -2121,6 +2933,19 @@ class SendersDialog(tk.Toplevel):
             observed_sender['caller_class_name'],
             observed_sender['caller_show_instance_side'],
             observed_sender['caller_method_selector'],
+        )
+
+    def candidate_test_key(self, candidate_test):
+        return (
+            candidate_test['test_case_class_name'],
+            candidate_test['test_method_selector'],
+        )
+
+    def merge_sender_test_plans(self, current_plan, new_plan):
+        return merged_sender_test_plan(
+            current_plan,
+            new_plan,
+            self.max_test_discovery_elapsed_ms,
         )
 
     def narrow_senders_with_tracing(self):
@@ -2138,14 +2963,7 @@ class SendersDialog(tk.Toplevel):
         if not static_results_match_selector:
             self.find_senders()
         try:
-            test_plan = self.gemstone_session_record.plan_sender_evidence_tests(
-                method_name,
-                max_depth=2,
-                max_nodes=500,
-                max_senders_per_selector=200,
-                max_test_methods=200,
-                max_elapsed_ms=1500,
-            )
+            selected_tests = self.choose_tests_for_tracing(method_name)
         except (GemstoneDomainException, GemstoneError) as error:
             messagebox.showerror(
                 'Narrow Senders',
@@ -2153,17 +2971,6 @@ class SendersDialog(tk.Toplevel):
                 parent=self,
             )
             return
-        if test_plan.get('candidate_test_count', 0) == 0:
-            messagebox.showinfo(
-                'Narrow Senders',
-                (
-                    'No candidate tests were found for this selector. '
-                    'Run relevant tests manually, then retry narrowing.'
-                ),
-                parent=self,
-            )
-            return
-        selected_tests = self.choose_tests_for_tracing(method_name, test_plan)
         if selected_tests is None:
             return
         self.status_var.set(
@@ -4730,6 +5537,14 @@ class MethodSelection(FramedWidget):
             command=self.debug_test,
             state=run_command_state,
         )
+        covering_tests_state = (
+            run_command_state if has_selection else tk.DISABLED
+        )
+        menu.add_command(
+            label='Covering Tests',
+            command=self.open_covering_tests,
+            state=covering_tests_state,
+        )
         menu.tk_popup(event.x_root, event.y_root)
 
     def delete_method(self):
@@ -4809,6 +5624,17 @@ class MethodSelection(FramedWidget):
                 self.browser_window.application.open_debugger(e)
         finally:
             self.browser_window.application.end_foreground_activity()
+
+    def open_covering_tests(self):
+        listbox = self.selection_list.selection_listbox
+        selection = listbox.curselection()
+        if not selection:
+            return
+        method_selector = listbox.get(selection[0])
+        CoveringTestsBrowseDialog(
+            self.browser_window,
+            method_selector,
+        )
 
         
 class NavigationHistory:
