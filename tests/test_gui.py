@@ -2272,6 +2272,60 @@ def test_debugger_browse_button_dispatches_to_browse_selected_frame_method(fixtu
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_debugger_variable_inspect_opens_main_inspector_tab(fixture):
+    """AI: Inspecting a debugger variable from its context menu opens the main Inspector tab for that object."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+
+    fixture.app.run_code('1/0')
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    debugger_tab = fixture.app.debugger_tab
+    frame_self = make_mock_gemstone_object('OrderLine', 'anOrderLine', oop=3001)
+    frame_variable = make_mock_gemstone_object('Integer', '42', oop=3002)
+    frame = types.SimpleNamespace(
+        self=frame_self,
+        vars={'x': frame_variable},
+    )
+    debugger_tab.refresh_explorer(frame)
+    fixture.app.update()
+
+    context_tab_id = debugger_tab.explorer.tabs()[0]
+    context_inspector = debugger_tab.explorer.nametowidget(context_tab_id)
+    variable_row = None
+    for row_id in context_inspector.treeview.get_children():
+        row_name = context_inspector.treeview.item(row_id, 'values')[0]
+        if row_name == 'x' and variable_row is None:
+            variable_row = row_id
+    assert variable_row is not None
+
+    context_inspector.treeview.focus(variable_row)
+    context_inspector.treeview.selection_set(variable_row)
+    context_inspector.open_object_menu(
+        types.SimpleNamespace(
+            x=-1,
+            y=-1,
+            x_root=1,
+            y_root=1,
+        ),
+    )
+    menu_labels = menu_command_labels(context_inspector.current_object_menu)
+    assert 'Inspect' in menu_labels
+    invoke_menu_command_by_label(context_inspector.current_object_menu, 'Inspect')
+    fixture.app.update()
+
+    assert fixture.app.inspector_tab is not None
+    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+    assert selected_tab_text == 'Inspect'
+    root_tab_id = fixture.app.inspector_tab.explorer.tabs()[0]
+    root_tab_label = fixture.app.inspector_tab.explorer.tab(root_tab_id, 'text')
+    assert root_tab_label == '3002:Integer 42'
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_file_run_command_opens_run_tab_in_notebook(fixture):
     """Choosing File > Run should open and select a Run tab in the main notebook."""
     fixture.simulate_login()
