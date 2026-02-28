@@ -2822,15 +2822,40 @@ class RunTab(ttk.Frame):
         self.current_text_menu = None
 
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
+        self.rowconfigure(2, weight=1)
         self.rowconfigure(5, weight=1)
 
+        self.button_frame = ttk.Frame(self)
+        self.button_frame.grid(row=0, column=0, sticky='ew', padx=10, pady=(10, 5))
+        self.button_frame.columnconfigure(2, weight=1)
+
+        self.run_button = ttk.Button(
+            self.button_frame,
+            text='Run',
+            command=self.run_code_from_editor,
+        )
+        self.run_button.grid(row=0, column=0, padx=(0, 5))
+
+        self.debug_button = ttk.Button(
+            self.button_frame,
+            text='Debug',
+            command=self.open_debugger,
+        )
+        self.debug_button.grid(row=0, column=1, sticky='w', padx=(0, 5))
+
+        self.close_button = ttk.Button(
+            self.button_frame,
+            text='Close',
+            command=self.close_tab,
+        )
+        self.close_button.grid(row=0, column=3, sticky='e')
+
         self.source_label = ttk.Label(self, text='Source Code:')
-        self.source_label.grid(row=0, column=0, sticky='w', padx=10, pady=(10, 0))
+        self.source_label.grid(row=1, column=0, sticky='w', padx=10, pady=(5, 0))
 
         self.source_editor_frame = ttk.Frame(self)
         self.source_editor_frame.grid(
-            row=1,
+            row=2,
             column=0,
             sticky='nsew',
             padx=10,
@@ -2857,31 +2882,6 @@ class RunTab(ttk.Frame):
             column=1,
             sticky='nsew',
         )
-
-        self.button_frame = ttk.Frame(self)
-        self.button_frame.grid(row=2, column=0, sticky='ew', padx=10, pady=(0, 10))
-        self.button_frame.columnconfigure(3, weight=1)
-
-        self.run_button = ttk.Button(
-            self.button_frame,
-            text='Run',
-            command=self.run_code_from_editor,
-        )
-        self.run_button.grid(row=0, column=0, padx=(0, 5))
-
-        self.close_button = ttk.Button(
-            self.button_frame,
-            text='Close Tab',
-            command=self.close_tab,
-        )
-        self.close_button.grid(row=0, column=1, padx=(0, 5))
-
-        self.debug_button = ttk.Button(
-            self.button_frame,
-            text='Debug',
-            command=self.open_debugger,
-        )
-        self.debug_button.grid(row=0, column=2, sticky='w')
 
         self.status_bar = ttk.Frame(self)
         self.status_bar.grid(row=3, column=0, sticky='ew', padx=10)
@@ -6423,19 +6423,80 @@ class ObjectInspector(ttk.Frame):
         class_name = 'Unknown'
         if an_object is not None:
             try:
-                class_name = an_object.gemstone_class().asString().to_py
+                class_name_candidate = an_object.gemstone_class().asString().to_py
+                normalized_class_name = self.normalized_text(class_name_candidate)
+                if normalized_class_name:
+                    class_name = normalized_class_name
             except GemstoneError:
                 pass
         return class_name
 
+    def normalized_text(self, text_value):
+        if isinstance(text_value, str):
+            return ' '.join(text_value.split())
+        return ''
+
+    def string_value_via_as_string(self, an_object):
+        if an_object is None:
+            return ''
+        try:
+            return self.normalized_text(an_object.asString().to_py)
+        except GemstoneError:
+            return ''
+
+    def string_value_via_print_string(self, an_object):
+        if an_object is None:
+            return ''
+        try:
+            return self.normalized_text(an_object.printString().to_py)
+        except GemstoneError:
+            return ''
+
+    def oop_label_of(self, an_object):
+        if an_object is None:
+            return ''
+        oop_label = ''
+        try:
+            oop_value = an_object.oop
+            if isinstance(oop_value, int):
+                oop_label = str(oop_value)
+            if isinstance(oop_value, str):
+                oop_label = oop_value.strip()
+        except GemstoneError:
+            pass
+        return oop_label
+
     def value_label(self, an_object):
         label = '<unavailable>'
         if an_object is not None:
-            try:
-                label = an_object.asString().to_py
-            except GemstoneError:
+            as_string_value = self.string_value_via_as_string(an_object)
+            if as_string_value:
+                label = as_string_value
+            if not as_string_value:
+                print_string_value = self.string_value_via_print_string(an_object)
+                if print_string_value:
+                    label = print_string_value
+            if label == '<unavailable>':
                 label = f'<{self.class_name_of(an_object)}>'
         return label
+
+    def tab_label_for(self, an_object):
+        if an_object is None:
+            return 'Context'
+
+        class_name = self.class_name_of(an_object)
+        value = self.value_label(an_object)
+        value_placeholder = f'<{class_name}>'
+        include_value = value not in ('<unavailable>', value_placeholder, class_name)
+
+        tab_label = class_name
+        if include_value:
+            tab_label = f'{class_name} {value}'
+
+        oop_label = self.oop_label_of(an_object)
+        if oop_label:
+            tab_label = f'{oop_label}:{tab_label}'
+        return tab_label
 
     def class_name_has_dictionary_semantics(self, class_name):
         dictionary_markers = ('Dictionary', 'KeyValue')
@@ -6680,12 +6741,14 @@ class ObjectInspector(ttk.Frame):
 
 
 class Explorer(ttk.Notebook):
-    def __init__(self, parent, an_object=None, values=None):
+    def __init__(self, parent, an_object=None, values=None, root_tab_label=None):
         super().__init__(parent)
 
-        # Create a new ObjectInspector for the 'context' tab
         context_frame = ObjectInspector(self, an_object=an_object, values=values)
-        self.add(context_frame, text='Context')
+        tab_label = root_tab_label
+        if tab_label is None:
+            tab_label = context_frame.tab_label_for(an_object)
+        self.add(context_frame, text=tab_label)
 
 
 class InspectorTab(ttk.Frame):
@@ -6693,19 +6756,20 @@ class InspectorTab(ttk.Frame):
         super().__init__(parent)
         self.application = application
 
-        self.explorer = Explorer(self, an_object=an_object)
-        self.explorer.grid(row=0, column=0, sticky='nsew')
-
-        self.button_frame = ttk.Frame(self)
-        self.button_frame.grid(row=1, column=0, sticky='e', padx=10, pady=(0, 10))
+        self.actions_frame = ttk.Frame(self)
+        self.actions_frame.grid(row=0, column=0, sticky='ew', padx=10, pady=(10, 5))
+        self.actions_frame.columnconfigure(0, weight=1)
         self.close_button = ttk.Button(
-            self.button_frame,
-            text='Close Inspector',
+            self.actions_frame,
+            text='Close',
             command=self.application.close_inspector_tab,
         )
-        self.close_button.grid(row=0, column=0)
+        self.close_button.grid(row=0, column=1, sticky='e')
 
-        self.rowconfigure(0, weight=1)
+        self.explorer = Explorer(self, an_object=an_object)
+        self.explorer.grid(row=1, column=0, sticky='nsew', padx=10, pady=(0, 10))
+
+        self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=1)
 
 
@@ -6731,6 +6795,7 @@ class DebuggerWindow(ttk.PanedWindow):
         # Add DebuggerControls to the top of the call_stack_frame
         self.debugger_controls = DebuggerControls(self.call_stack_frame, self, self.event_queue)
         self.debugger_controls.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        self.close_button = self.debugger_controls.close_button
 
         # Add a Treeview widget to the top frame, below DebuggerControls, to represent the three-column list
         self.listbox = ttk.Treeview(self.call_stack_frame, columns=('Level', 'Column1', 'Column2'), show='headings')
@@ -6798,7 +6863,12 @@ class DebuggerWindow(ttk.PanedWindow):
             widget.destroy()
 
         # Create an Explorer widget in the explorer_frame
-        explorer = Explorer(self.explorer_frame, frame, values=dict([('self', frame.self)] + list(frame.vars.items())))
+        explorer = Explorer(
+            self.explorer_frame,
+            frame,
+            values=dict([('self', frame.self)] + list(frame.vars.items())),
+            root_tab_label='Context',
+        )
         explorer.grid(row=0, column=0, sticky="nsew")
     
     def on_listbox_select(self, event):
@@ -6911,16 +6981,25 @@ class DebuggerWindow(ttk.PanedWindow):
         self.forget(self.code_panel_frame)
         self.forget(self.explorer_frame)
 
-        # Create and add a Text widget to display the result
-        self.result_text = tk.Text(self)
-        self.result_text.insert('1.0', result.asString().to_py)
-        self.result_text.pack(fill='both', expand=True)
+        self.finished_frame = ttk.Frame(self)
+        self.finished_frame.columnconfigure(0, weight=1)
+        self.finished_frame.rowconfigure(1, weight=1)
+        self.add(self.finished_frame, weight=1)
+
+        self.finished_actions = ttk.Frame(self.finished_frame)
+        self.finished_actions.grid(row=0, column=0, sticky='ew', padx=5, pady=(5, 0))
+        self.finished_actions.columnconfigure(0, weight=1)
+
         self.close_button = ttk.Button(
-            self,
-            text='Close Debugger',
+            self.finished_actions,
+            text='Close',
             command=self.dismiss,
         )
-        self.close_button.pack(anchor='e', padx=5, pady=5)
+        self.close_button.grid(row=0, column=1, sticky='e')
+
+        self.result_text = tk.Text(self.finished_frame)
+        self.result_text.insert('1.0', result.asString().to_py)
+        self.result_text.grid(row=1, column=0, sticky='nsew', padx=5, pady=(5, 5))
         
             
 class DebuggerControls(ttk.Frame):
@@ -6952,6 +7031,14 @@ class DebuggerControls(ttk.Frame):
         )
         self.browse_button.grid(row=0, column=5, padx=5, pady=5)
 
+        self.columnconfigure(6, weight=1)
+        self.close_button = ttk.Button(
+            self,
+            text='Close',
+            command=self.handle_close,
+        )
+        self.close_button.grid(row=0, column=7, padx=5, pady=5, sticky='e')
+
     def handle_continue(self):
         self.debugger.continue_running()
 
@@ -6969,6 +7056,9 @@ class DebuggerControls(ttk.Frame):
 
     def handle_browse(self):
         self.debugger.open_selected_frame_method()
+
+    def handle_close(self):
+        self.debugger.dismiss()
 
 
         
