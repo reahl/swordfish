@@ -4869,6 +4869,69 @@ class MethodNavigationHistory:
         return entry_details
 
 
+class ObjectNavigationHistory:
+    def __init__(self, maximum_entries=200):
+        self.maximum_entries = maximum_entries
+        self.entries = []
+        self.current_index = -1
+
+    def current_object(self):
+        if 0 <= self.current_index < len(self.entries):
+            return self.entries[self.current_index]
+        return None
+
+    def record(self, object_context):
+        if object_context is None:
+            return
+        if self.current_object() == object_context:
+            return
+        if self.current_index < len(self.entries) - 1:
+            self.entries = self.entries[: self.current_index + 1]
+        self.entries.append(object_context)
+        overflow = len(self.entries) - self.maximum_entries
+        if overflow > 0:
+            self.entries = self.entries[overflow:]
+        self.current_index = len(self.entries) - 1
+
+    def can_go_back(self):
+        return self.current_index > 0
+
+    def can_go_forward(self):
+        return 0 <= self.current_index < len(self.entries) - 1
+
+    def go_back(self):
+        if not self.can_go_back():
+            return None
+        self.current_index -= 1
+        return self.current_object()
+
+    def go_forward(self):
+        if not self.can_go_forward():
+            return None
+        self.current_index += 1
+        return self.current_object()
+
+    def jump_to(self, history_index):
+        if history_index < 0:
+            return None
+        if history_index >= len(self.entries):
+            return None
+        self.current_index = history_index
+        return self.current_object()
+
+    def entries_with_current_marker(self):
+        entry_details = []
+        for index, object_context in enumerate(self.entries):
+            entry_details.append(
+                {
+                    'history_index': index,
+                    'object_context': object_context,
+                    'is_current': index == self.current_index,
+                },
+            )
+        return entry_details
+
+
 class MethodEditor(FramedWidget):
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
         super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
@@ -6722,55 +6785,234 @@ class ObjectInspector(ttk.Frame):
             if value is None:
                 return
 
-            for tab_id in self.master.tabs():
-                inspected_widget = self.master.nametowidget(tab_id)
-                tab_matches_object = isinstance(inspected_widget, ObjectInspector) and inspected_widget.inspected_object is value
-                if tab_matches_object:
-                    self.master.select(tab_id)
-                    return
+            if hasattr(self.master, 'open_or_select_object'):
+                self.master.open_or_select_object(value)
+                return
 
-            tab_label = self.class_name_of(value)
+            tab_label = self.tab_label_for(value)
             try:
                 new_tab = ObjectInspector(self.master, an_object=value)
             except GemstoneError as e:
                 messagebox.showerror('Inspector', f'Cannot inspect this object:\n{e}')
                 return
             self.master.add(new_tab, text=tab_label)
-            self.master.select(new_tab)                
+            self.master.select(new_tab)
 
 
 
 class Explorer(ttk.Notebook):
     def __init__(self, parent, an_object=None, values=None, root_tab_label=None):
         super().__init__(parent)
+        self.object_tab_by_key = {}
+        self.object_key_by_tab_id = {}
+        self.object_label_by_key = {}
 
         context_frame = ObjectInspector(self, an_object=an_object, values=values)
         tab_label = root_tab_label
         if tab_label is None:
             tab_label = context_frame.tab_label_for(an_object)
         self.add(context_frame, text=tab_label)
+        context_key = None
+        if values is not None and an_object is None:
+            context_key = ('context', str(id(context_frame)))
+        self.register_object_tab(context_frame, an_object, tab_label, object_key=context_key)
+
+    def object_key_for(self, an_object):
+        if an_object is None:
+            return ('none',)
+
+        oop_label = ''
+        try:
+            oop_value = an_object.oop
+            if isinstance(oop_value, int):
+                oop_label = str(oop_value)
+            if isinstance(oop_value, str):
+                oop_label = oop_value.strip()
+        except GemstoneError:
+            pass
+
+        if oop_label:
+            return ('oop', oop_label)
+        return ('identity', str(id(an_object)))
+
+    def register_object_tab(self, tab_widget, an_object, tab_label, object_key=None):
+        if object_key is None:
+            object_key = self.object_key_for(an_object)
+        tab_id = str(tab_widget)
+        self.object_tab_by_key[object_key] = tab_widget
+        self.object_key_by_tab_id[tab_id] = object_key
+        self.object_label_by_key[object_key] = tab_label
+        return object_key
+
+    def open_or_select_object(self, an_object):
+        object_key = self.object_key_for(an_object)
+        if object_key in self.object_tab_by_key:
+            self.select(self.object_tab_by_key[object_key])
+            return
+
+        try:
+            new_tab = ObjectInspector(self, an_object=an_object)
+        except GemstoneError as e:
+            messagebox.showerror('Inspector', f'Cannot inspect this object:\n{e}')
+            return
+        tab_label = new_tab.tab_label_for(an_object)
+        self.add(new_tab, text=tab_label)
+        self.register_object_tab(new_tab, an_object, tab_label, object_key=object_key)
+        self.select(new_tab)
+
+    def selected_object_key(self):
+        selected_tab_id = self.select()
+        if selected_tab_id in self.object_key_by_tab_id:
+            return self.object_key_by_tab_id[selected_tab_id]
+        return None
+
+    def select_object_key(self, object_key):
+        if object_key not in self.object_tab_by_key:
+            return False
+        self.select(self.object_tab_by_key[object_key])
+        return True
+
+    def label_for_object_key(self, object_key):
+        if object_key in self.object_label_by_key:
+            return self.object_label_by_key[object_key]
+        return ''
 
 
 class InspectorTab(ttk.Frame):
     def __init__(self, parent, application, an_object=None):
         super().__init__(parent)
         self.application = application
+        self.object_navigation_history = ObjectNavigationHistory()
+        self.history_choice_indices = []
+        self.navigation_selection_in_progress = False
 
         self.actions_frame = ttk.Frame(self)
         self.actions_frame.grid(row=0, column=0, sticky='ew', padx=10, pady=(10, 5))
-        self.actions_frame.columnconfigure(0, weight=1)
+        self.actions_frame.columnconfigure(4, weight=1)
+
+        self.title_label = ttk.Label(self.actions_frame, text='Inspector')
+        self.title_label.grid(row=0, column=0, sticky='w')
+
+        self.back_button = ttk.Button(
+            self.actions_frame,
+            text='Back',
+            command=self.go_to_previous_object,
+        )
+        self.back_button.grid(row=0, column=1, padx=(6, 0))
+
+        self.forward_button = ttk.Button(
+            self.actions_frame,
+            text='Forward',
+            command=self.go_to_next_object,
+        )
+        self.forward_button.grid(row=0, column=2, padx=(4, 0))
+
+        self.history_combobox = ttk.Combobox(
+            self.actions_frame,
+            state='readonly',
+            width=44,
+        )
+        self.history_combobox.grid(row=0, column=3, padx=(6, 0), sticky='e')
+        self.history_combobox.bind(
+            '<<ComboboxSelected>>',
+            self.jump_to_selected_history_entry,
+        )
+
         self.close_button = ttk.Button(
             self.actions_frame,
             text='Close',
             command=self.application.close_inspector_tab,
         )
-        self.close_button.grid(row=0, column=1, sticky='e')
+        self.close_button.grid(row=0, column=5, sticky='e')
 
         self.explorer = Explorer(self, an_object=an_object)
         self.explorer.grid(row=1, column=0, sticky='nsew', padx=10, pady=(0, 10))
+        self.explorer.bind(
+            '<<NotebookTabChanged>>',
+            self.handle_explorer_tab_changed,
+        )
 
         self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=1)
+        self.record_object_navigation()
+
+    def current_object_context(self):
+        return self.explorer.selected_object_key()
+
+    def object_context_label(self, object_context):
+        return self.explorer.label_for_object_key(object_context)
+
+    def record_object_navigation(self):
+        self.object_navigation_history.record(self.current_object_context())
+        self.refresh_navigation_controls()
+
+    def refresh_navigation_controls(self):
+        back_button_state = (
+            tk.NORMAL if self.object_navigation_history.can_go_back() else tk.DISABLED
+        )
+        self.back_button.configure(state=back_button_state)
+
+        forward_button_state = (
+            tk.NORMAL
+            if self.object_navigation_history.can_go_forward()
+            else tk.DISABLED
+        )
+        self.forward_button.configure(state=forward_button_state)
+
+        history_entries = self.object_navigation_history.entries_with_current_marker()
+        self.history_choice_indices = []
+        history_labels = []
+        for history_entry in reversed(history_entries):
+            history_index = history_entry['history_index']
+            object_context = history_entry['object_context']
+            history_labels.append(self.object_context_label(object_context))
+            self.history_choice_indices.append(history_index)
+        self.history_combobox['values'] = history_labels
+
+        if len(history_labels) > 0:
+            current_history_index = self.object_navigation_history.current_index
+            selected_index = len(history_labels) - current_history_index - 1
+            self.history_combobox.current(selected_index)
+        if len(history_labels) == 0:
+            self.history_combobox.set('')
+
+    def jump_to_object_context(self, object_context):
+        if object_context is None:
+            self.refresh_navigation_controls()
+            return
+        if object_context == self.current_object_context():
+            self.refresh_navigation_controls()
+            return
+        self.navigation_selection_in_progress = True
+        selected = self.explorer.select_object_key(object_context)
+        if not selected:
+            self.navigation_selection_in_progress = False
+        self.refresh_navigation_controls()
+
+    def go_to_previous_object(self):
+        object_context = self.object_navigation_history.go_back()
+        self.jump_to_object_context(object_context)
+
+    def go_to_next_object(self):
+        object_context = self.object_navigation_history.go_forward()
+        self.jump_to_object_context(object_context)
+
+    def jump_to_selected_history_entry(self, event):
+        combobox_index = self.history_combobox.current()
+        if combobox_index < 0:
+            return
+        if combobox_index >= len(self.history_choice_indices):
+            return
+        history_index = self.history_choice_indices[combobox_index]
+        object_context = self.object_navigation_history.jump_to(history_index)
+        self.jump_to_object_context(object_context)
+
+    def handle_explorer_tab_changed(self, event=None):
+        if self.navigation_selection_in_progress:
+            self.navigation_selection_in_progress = False
+            self.refresh_navigation_controls()
+            return
+        self.record_object_navigation()
 
 
 class DebuggerWindow(ttk.PanedWindow):
