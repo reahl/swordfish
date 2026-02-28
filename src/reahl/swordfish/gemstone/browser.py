@@ -3091,6 +3091,59 @@ class GemstoneBrowserSession:
             method_category=method_category,
         )
 
+    def create_method_category(self, class_name, method_category, show_instance_side):
+        method_category = method_category.strip()
+        if not method_category:
+            raise DomainException('method_category cannot be empty.')
+        if method_category == 'all':
+            raise DomainException('method_category all is reserved.')
+        class_reference = self.class_reference_expression(
+            class_name,
+            show_instance_side,
+        )
+        category_literal = self.smalltalk_string_literal(method_category)
+        return self.run_code(
+            (
+                '| classToQuery categoryName categorySymbol |\n'
+                'classToQuery := %s.\n'
+                'categoryName := %s.\n'
+                'categorySymbol := categoryName asSymbol.\n'
+                '(classToQuery categoryNames includes: categorySymbol) ifFalse: [\n'
+                '    classToQuery addCategory: categorySymbol\n'
+                '].'
+            )
+            % (class_reference, category_literal)
+        )
+
+    def delete_method_category(self, class_name, method_category, show_instance_side):
+        method_category = method_category.strip()
+        if not method_category:
+            raise DomainException('method_category cannot be empty.')
+        if method_category == 'all':
+            raise DomainException('method_category all is reserved.')
+        class_reference = self.class_reference_expression(
+            class_name,
+            show_instance_side,
+        )
+        category_literal = self.smalltalk_string_literal(method_category)
+        return self.run_code(
+            (
+                '| classToQuery categoryName categorySymbol selectors |\n'
+                'classToQuery := %s.\n'
+                'categoryName := %s.\n'
+                'categorySymbol := categoryName asSymbol.\n'
+                '(classToQuery categoryNames includes: categorySymbol) ifFalse: [\n'
+                "    Error signal: 'Unknown method category.'\n"
+                '].\n'
+                'selectors := classToQuery selectorsIn: categorySymbol.\n'
+                'selectors isEmpty ifFalse: [\n'
+                "    Error signal: 'Cannot delete non-empty method category.'\n"
+                '].\n'
+                'classToQuery removeCategory: categorySymbol.'
+            )
+            % (class_reference, category_literal)
+        )
+
     def class_inherits_from(self, class_name, ancestor_class_name):
         source = '%s inheritsFrom: %s' % (class_name, ancestor_class_name)
         return self.run_code(source).to_py

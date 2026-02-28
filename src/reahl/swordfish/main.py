@@ -437,6 +437,37 @@ class GemstoneSessionRecord:
             categories = categories[1:]
         yield from categories
 
+    def create_method_category(
+        self,
+        class_name,
+        show_instance_side,
+        method_category,
+    ):
+        self.require_write_access('create_method_category')
+        self.gemstone_browser_session.create_method_category(
+            class_name,
+            method_category,
+            show_instance_side,
+        )
+        self.publish_model_change('methods')
+
+    def delete_method_category(
+        self,
+        class_name,
+        show_instance_side,
+        method_category,
+    ):
+        self.require_write_access('delete_method_category')
+        self.gemstone_browser_session.delete_method_category(
+            class_name,
+            method_category,
+            show_instance_side,
+        )
+        if self.selected_method_category == method_category:
+            self.selected_method_category = None
+            self.selected_method_symbol = None
+        self.publish_model_change('methods')
+
     def get_selectors_in_class(self, class_name, method_category, show_instance_side):
         yield from self.gemstone_browser_session.list_methods(
             class_name,
@@ -4198,32 +4229,19 @@ class CategorySelection(FramedWidget):
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
         super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
 
-        # Create InteractiveSelectionList for categories
         self.selection_list = InteractiveSelectionList(self, self.get_all_categories, self.get_selected_category, self.select_category)
-        self.selection_list.grid(row=0, column=0, sticky="nsew")
+        self.selection_list.grid(row=0, column=0, sticky='nsew')
 
-        # Configure the grid layout to expand properly
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
-        # Subscribe to event_queue events
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
         self.event_queue.subscribe('SelectedPackageChanged', self.repopulate)
         self.event_queue.subscribe('ClassesChanged', self.repopulate)
         self.event_queue.subscribe('MethodsChanged', self.repopulate)
         self.event_queue.subscribe('Committed', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
-
-    def repopulate_class_and_instance(self, event):
-        selected_listbox = event.widget
-        try:
-            selected_index = selected_listbox.curselection()[0]
-            self.selected_category = selected_listbox.get(selected_index)
-
-            self.gemstone_session_record.select_method_category(self.selected_category)
-            self.event_queue.publish('SelectedCategoryChanged', origin=self)
-        except IndexError:
-            pass
+        self.selection_list.selection_listbox.bind('<Button-3>', self.show_context_menu)
         
     def repopulate(self, origin=None):
         if origin is self:
@@ -4232,13 +4250,11 @@ class CategorySelection(FramedWidget):
 
     def get_all_categories(self):
         if self.gemstone_session_record.selected_class:
-            # Repopulate InteractiveSelectionList with new options based on the selected class
             return ['all'] + list(self.gemstone_session_record.get_categories_in_class(
                 self.gemstone_session_record.selected_class, 
                 self.gemstone_session_record.show_instance_side
             ))
-        else:
-            return  []
+        return []
 
     def get_selected_category(self):
         return self.gemstone_session_record.selected_method_category
@@ -4246,6 +4262,98 @@ class CategorySelection(FramedWidget):
     def select_category(self, selected_category):
         self.gemstone_session_record.select_method_category(selected_category)
         self.event_queue.publish('SelectedCategoryChanged', origin=self)
+
+    def show_context_menu(self, event):
+        listbox = self.selection_list.selection_listbox
+        has_selection = listbox.size() > 0
+        if has_selection:
+            selected_index = listbox.nearest(event.y)
+            listbox.selection_clear(0, 'end')
+            listbox.selection_set(selected_index)
+        menu = tk.Menu(self, tearoff=0)
+        read_only = self.browser_window.application.integrated_session_state.is_mcp_busy()
+        write_command_state = tk.DISABLED if read_only else tk.NORMAL
+        delete_command_state = write_command_state if has_selection else tk.DISABLED
+        menu.add_command(
+            label='Add Category',
+            command=self.add_category,
+            state=write_command_state,
+        )
+        menu.add_command(
+            label='Delete Category',
+            command=self.delete_category,
+            state=delete_command_state,
+        )
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def add_category(self):
+        selected_class = self.gemstone_session_record.selected_class
+        if not selected_class:
+            messagebox.showerror('Add Category', 'Select a class first.')
+            return
+        category_name = simpledialog.askstring('Add Category', 'Category name:')
+        if category_name is None:
+            return
+        category_name = category_name.strip()
+        if not category_name:
+            return
+        try:
+            self.gemstone_session_record.create_method_category(
+                selected_class,
+                self.gemstone_session_record.show_instance_side,
+                category_name,
+            )
+            self.gemstone_session_record.select_method_category(category_name)
+            self.selection_list.repopulate()
+            self.event_queue.publish('SelectedCategoryChanged', origin=self)
+        except (DomainException, GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror('Add Category', str(error))
+
+    def delete_category(self):
+        selected_class = self.gemstone_session_record.selected_class
+        if not selected_class:
+            return
+        listbox = self.selection_list.selection_listbox
+        selected_indices = listbox.curselection()
+        if not selected_indices:
+            return
+        selected_category = listbox.get(selected_indices[0])
+        if selected_category == 'all':
+            messagebox.showerror('Delete Category', 'The all category cannot be deleted.')
+            return
+        should_delete = messagebox.askyesno(
+            'Delete Category',
+            (
+                'Delete category %s from class %s? '
+                'This cannot be undone.'
+            )
+            % (selected_category, selected_class),
+        )
+        if not should_delete:
+            return
+        try:
+            self.gemstone_session_record.delete_method_category(
+                selected_class,
+                self.gemstone_session_record.show_instance_side,
+                selected_category,
+            )
+            remaining_categories = list(
+                self.gemstone_session_record.get_categories_in_class(
+                    selected_class,
+                    self.gemstone_session_record.show_instance_side,
+                )
+            )
+            if remaining_categories:
+                self.gemstone_session_record.select_method_category(
+                    remaining_categories[0]
+                )
+            else:
+                self.gemstone_session_record.select_method_category(None)
+                self.gemstone_session_record.select_method_symbol(None)
+            self.selection_list.repopulate()
+            self.event_queue.publish('SelectedCategoryChanged', origin=self)
+        except (DomainException, GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror('Delete Category', str(error))
 
         
 class MethodSelection(FramedWidget):        

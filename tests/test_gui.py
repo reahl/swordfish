@@ -347,6 +347,73 @@ def test_delete_class_removes_selected_class_and_clears_method_selection(fixture
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_add_category_creates_category_for_selected_class_side(fixture):
+    """AI: Adding a category from the category pane should create it on the selected class side and select it."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        'Kernel',
+    )
+    fixture.select_in_listbox(
+        fixture.browser_window.classes_widget.selection_list.selection_listbox,
+        'OrderLine',
+    )
+    fixture.mock_browser.list_method_categories.return_value = [
+        'accessing',
+        'testing',
+        'validation',
+    ]
+
+    with patch(
+        'reahl.swordfish.main.simpledialog.askstring',
+        return_value='validation',
+    ):
+        fixture.browser_window.categories_widget.add_category()
+        fixture.root.update()
+
+    fixture.mock_browser.create_method_category.assert_called_once_with(
+        'OrderLine',
+        'validation',
+        True,
+    )
+    assert fixture.session_record.selected_method_category == 'validation'
+    assert fixture.selected_listbox_entry(
+        fixture.browser_window.categories_widget.selection_list.selection_listbox
+    ) == 'validation'
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_delete_category_removes_selected_category_and_selects_remaining(fixture):
+    """AI: Deleting a selected category should remove it from the current class side and select a remaining category."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        'Kernel',
+    )
+    fixture.select_in_listbox(
+        fixture.browser_window.classes_widget.selection_list.selection_listbox,
+        'OrderLine',
+    )
+    fixture.select_in_listbox(
+        fixture.browser_window.categories_widget.selection_list.selection_listbox,
+        'accessing',
+    )
+    fixture.mock_browser.list_method_categories.return_value = ['testing']
+
+    with patch('reahl.swordfish.main.messagebox.askyesno', return_value=True):
+        fixture.browser_window.categories_widget.delete_category()
+        fixture.root.update()
+
+    fixture.mock_browser.delete_method_category.assert_called_once_with(
+        'OrderLine',
+        'accessing',
+        True,
+    )
+    assert fixture.session_record.selected_method_category == 'testing'
+    assert fixture.selected_listbox_entry(
+        fixture.browser_window.categories_widget.selection_list.selection_listbox
+    ) == 'testing'
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_add_method_compiles_template_in_as_yet_unclassified_and_opens_tab(fixture):
     """AI: Adding a method compiles a starter template in as yet unclassified and opens that method in the editor."""
     fixture.select_in_listbox(
