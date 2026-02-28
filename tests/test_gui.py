@@ -1858,6 +1858,64 @@ def test_inspector_tab_uses_top_action_row_with_close_button(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_inspector_tab_navigates_object_history_with_back_and_forward(fixture):
+    """AI: Inspector tracks selected inspected objects and supports back/forward navigation through that history."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete('1.0', 'end')
+    run_tab.source_text.insert('1.0', 'anObject')
+    run_tab.source_text.tag_add(tk.SEL, '1.0', '1.8')
+
+    nested_object = make_mock_gemstone_object('Integer', '7', oop=2002)
+    inspected_result = make_mock_instance_with_inst_vars(
+        'OrderLine',
+        'anOrderLine',
+        {'child': nested_object},
+        oop=2001,
+    )
+    fixture.mock_browser.run_code.return_value = inspected_result
+
+    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    invoke_menu_command_by_label(run_tab.current_text_menu, 'Inspect')
+    fixture.app.update()
+
+    inspector_tab = fixture.app.inspector_tab
+    assert inspector_tab is not None
+    assert str(inspector_tab.back_button.cget('state')) == tk.DISABLED
+    assert str(inspector_tab.forward_button.cget('state')) == tk.DISABLED
+
+    context_tab_id = inspector_tab.explorer.tabs()[0]
+    context_inspector = inspector_tab.explorer.nametowidget(context_tab_id)
+    context_row = context_inspector.treeview.get_children()[0]
+    context_inspector.treeview.focus(context_row)
+    context_inspector.on_item_double_click(None)
+    fixture.app.update()
+
+    context_label = inspector_tab.explorer.tab(context_tab_id, 'text')
+    nested_label = inspector_tab.explorer.tab(inspector_tab.explorer.select(), 'text')
+    assert context_label == '2001:OrderLine anOrderLine'
+    assert nested_label == '2002:Integer 7'
+    assert str(inspector_tab.back_button.cget('state')) == tk.NORMAL
+    assert str(inspector_tab.forward_button.cget('state')) == tk.DISABLED
+
+    inspector_tab.back_button.invoke()
+    fixture.app.update()
+
+    assert inspector_tab.explorer.tab(inspector_tab.explorer.select(), 'text') == context_label
+    assert str(inspector_tab.forward_button.cget('state')) == tk.NORMAL
+
+    inspector_tab.forward_button.invoke()
+    fixture.app.update()
+
+    assert inspector_tab.explorer.tab(inspector_tab.explorer.select(), 'text') == nested_label
+    history_labels = list(inspector_tab.history_combobox['values'])
+    assert nested_label in history_labels
+    assert context_label in history_labels
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_run_result_text_supports_copy_and_has_result_context_menu(fixture):
     """Run result text supports selecting/copying output via shortcuts and context menu actions."""
     fixture.simulate_login()
@@ -2467,15 +2525,18 @@ def test_senders_dialog_narrow_with_tracing_stops_when_no_candidate_tests(
     dialog.destroy()
 
 
-def make_mock_gemstone_object(class_name='OrderLine', string_repr='anObject'):
+def make_mock_gemstone_object(class_name='OrderLine', string_repr='anObject', oop=None):
     """AI: Minimal GemStone object mock satisfying ObjectInspector's full protocol.
     allInstVarNames() returns [] so sub-inspectors are created empty (no recursion needed).
     isBehavior() returns False so instances are inspected via inspect_instance, not inspect_class."""
     obj = Mock()
     obj.gemstone_class.return_value.asString.return_value.to_py = class_name
     obj.asString.return_value.to_py = string_repr
+    obj.printString.return_value.to_py = string_repr
     obj.gemstone_class.return_value.allInstVarNames.return_value = []
     obj.isBehavior.return_value.to_py = False
+    if oop is not None:
+        obj.oop = oop
     return obj
 
 
@@ -2511,6 +2572,25 @@ def make_mock_array(values):
 
     array.at.side_effect = at_index
     return array
+
+
+def make_mock_instance_with_inst_vars(class_name, string_repr, inst_vars, oop=None):
+    instance = make_mock_gemstone_object(class_name, string_repr, oop=oop)
+    inst_var_names = []
+    values_by_name = {}
+    for inst_var_name, inst_var_value in inst_vars.items():
+        inst_var_symbol = Mock()
+        inst_var_symbol.to_py = inst_var_name
+        inst_var_names.append(inst_var_symbol)
+        values_by_name[inst_var_name] = inst_var_value
+
+    instance.gemstone_class.return_value.allInstVarNames.return_value = inst_var_names
+
+    def value_for_inst_var(inst_var_name):
+        return values_by_name[inst_var_name.to_py]
+
+    instance.instVarNamed.side_effect = value_for_inst_var
+    return instance
 
 
 class ObjectInspectorFixture(Fixture):
@@ -2555,8 +2635,19 @@ def test_double_clicking_value_opens_new_inspector_tab_and_selects_it(fixture):
     fixture.root.update()
 
     tab_labels = [fixture.explorer.tab(t, 'text') for t in fixture.explorer.tabs()]
-    assert 'OrderLine' in tab_labels
-    assert fixture.explorer.tab(fixture.explorer.select(), 'text') == 'OrderLine'
+    assert 'OrderLine anOrderLine' in tab_labels
+    assert fixture.explorer.tab(fixture.explorer.select(), 'text') == 'OrderLine anOrderLine'
+
+
+@with_fixtures(ObjectInspectorFixture)
+def test_double_clicking_value_labels_nested_tab_with_oop_class_and_value(fixture):
+    """AI: Nested inspector tabs should mirror the root summary format when oop is available."""
+    fixture.mock_self.oop = 2003
+    fixture.focus_item('self')
+    fixture.context_inspector.on_item_double_click(None)
+    fixture.root.update()
+
+    assert fixture.explorer.tab(fixture.explorer.select(), 'text') == '2003:OrderLine anOrderLine'
 
 
 @with_fixtures(ObjectInspectorFixture)
@@ -2575,8 +2666,33 @@ def test_double_clicking_same_value_again_reuses_existing_tab(fixture):
     fixture.root.update()
 
     tab_labels = [fixture.explorer.tab(t, 'text') for t in fixture.explorer.tabs()]
-    assert tab_labels.count('OrderLine') == 1
-    assert fixture.explorer.tab(fixture.explorer.select(), 'text') == 'OrderLine'
+    assert tab_labels.count('OrderLine anOrderLine') == 1
+    assert fixture.explorer.tab(fixture.explorer.select(), 'text') == 'OrderLine anOrderLine'
+
+
+@with_fixtures(ObjectInspectorFixture)
+def test_double_clicking_equivalent_oop_reuses_existing_tab(fixture):
+    """AI: Objects with the same oop should reuse an existing inspector tab even if represented by a different proxy."""
+    fixture.mock_self.oop = 2003
+    fixture.focus_item('self')
+    fixture.context_inspector.on_item_double_click(None)
+    fixture.root.update()
+
+    same_object_different_proxy = make_mock_gemstone_object(
+        'OrderLine',
+        'anOrderLine',
+        oop=2003,
+    )
+    context_row = fixture.context_inspector.treeview.get_children()[0]
+    context_row_index = fixture.context_inspector.treeview.index(context_row)
+    fixture.context_inspector.actual_values[context_row_index] = same_object_different_proxy
+    fixture.context_inspector.treeview.focus(context_row)
+    fixture.context_inspector.on_item_double_click(None)
+    fixture.root.update()
+
+    tab_labels = [fixture.explorer.tab(t, 'text') for t in fixture.explorer.tabs()]
+    assert tab_labels.count('2003:OrderLine anOrderLine') == 1
+    assert fixture.explorer.tab(fixture.explorer.select(), 'text') == '2003:OrderLine anOrderLine'
 
 
 @with_fixtures(ObjectInspectorFixture)
@@ -2603,7 +2719,7 @@ def test_dictionary_inspector_shows_key_value_rows_and_drills_into_value(fixture
     dictionary_inspector.on_item_double_click(None)
     fixture.root.update()
 
-    assert fixture.explorer.tab(fixture.explorer.select(), 'text') == 'Integer'
+    assert fixture.explorer.tab(fixture.explorer.select(), 'text') == 'Integer 1'
 
 
 @with_fixtures(ObjectInspectorFixture)
