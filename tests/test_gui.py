@@ -1,6 +1,7 @@
 import tkinter as tk
 import types
 from tkinter import ttk
+from unittest.mock import ANY
 from unittest.mock import Mock
 from unittest.mock import call
 from unittest.mock import patch
@@ -21,11 +22,13 @@ from reahl.swordfish.main import DomainException
 from reahl.swordfish.main import EventQueue
 from reahl.swordfish.main import Explorer
 from reahl.swordfish.main import FindDialog
+from reahl.swordfish.main import CoveringTestsBrowseDialog
 from reahl.swordfish.main import GemstoneSessionRecord
 from reahl.swordfish.main import InspectorTab
 from reahl.swordfish.main import ObjectInspector
 from reahl.swordfish.main import run_application
 from reahl.swordfish.main import run_mcp_server
+from reahl.swordfish.main import CoveringTestsSearchDialog
 from reahl.swordfish.main import SendersDialog
 from reahl.swordfish.main import Swordfish
 
@@ -2505,23 +2508,27 @@ def test_senders_dialog_narrow_with_tracing_filters_to_observed_senders(fixture)
             },
         ],
     }
-    selected_tests = [
-        {
-            'test_case_class_name': 'OrderLineTest',
-            'test_method_selector': 'testRecalculateTotal',
-            'depth': 1,
-            'reached_from_selector': 'recalculateTotal',
-        },
-    ]
+    original_set_ready_state = CoveringTestsSearchDialog.set_ready_state
+
+    def set_ready_then_run(dialog, timed_out=False, summary_message=''):
+        original_set_ready_state(
+            dialog,
+            timed_out=timed_out,
+            summary_message=summary_message,
+        )
+        if dialog.selected_tests is None:
+            dialog.run_selected_tests()
 
     with patch.object(SendersDialog, 'wait_visibility'):
-        with patch.object(
-            SendersDialog,
-            'choose_tests_for_tracing',
-            return_value=selected_tests,
-        ):
-            dialog = SendersDialog(fixture.app, method_name='total')
-            dialog.narrow_senders_with_tracing()
+        with patch.object(CoveringTestsSearchDialog, 'wait_visibility'):
+            with patch.object(
+                CoveringTestsSearchDialog,
+                'set_ready_state',
+                autospec=True,
+                side_effect=set_ready_then_run,
+            ):
+                dialog = SendersDialog(fixture.app, method_name='total')
+                dialog.narrow_senders_with_tracing()
 
     results = list(dialog.results_listbox.get(0, 'end'))
     assert results == ['OrderLine>>recalculateTotal']
@@ -2531,7 +2538,9 @@ def test_senders_dialog_narrow_with_tracing_filters_to_observed_senders(fixture)
         500,
         200,
         200,
-        max_elapsed_ms=1500,
+        max_elapsed_ms=120000,
+        should_stop=ANY,
+        on_candidate_test=ANY,
     )
     fixture.mock_browser.trace_selector.assert_called_once_with(
         'total',
@@ -2548,7 +2557,7 @@ def test_senders_dialog_narrow_with_tracing_filters_to_observed_senders(fixture)
 def test_senders_dialog_narrow_with_tracing_stops_when_no_candidate_tests(
     fixture,
 ):
-    """AI: Narrowing should inform the user and skip tracing when no candidate tests are found."""
+    """AI: If discovery yields no candidate tests, narrowing should not proceed to tracing."""
     fixture.simulate_login()
     fixture.mock_browser.find_senders.return_value = {
         'senders': [
@@ -2565,16 +2574,223 @@ def test_senders_dialog_narrow_with_tracing_stops_when_no_candidate_tests(
         'candidate_test_count': 0,
         'candidate_tests': [],
         'visited_selector_count': 1,
-        'elapsed_limit_reached': True,
+        'elapsed_limit_reached': False,
         'sender_search_truncated': True,
     }
+    original_set_ready_state = CoveringTestsSearchDialog.set_ready_state
+
+    def set_ready_then_cancel(dialog, timed_out=False, summary_message=''):
+        original_set_ready_state(
+            dialog,
+            timed_out=timed_out,
+            summary_message=summary_message,
+        )
+        dialog.cancel_dialog()
 
     with patch.object(SendersDialog, 'wait_visibility'):
-        with patch('reahl.swordfish.main.messagebox.showinfo') as showinfo:
-            dialog = SendersDialog(fixture.app, method_name='total')
-            dialog.narrow_senders_with_tracing()
+        with patch.object(CoveringTestsSearchDialog, 'wait_visibility'):
+            with patch.object(
+                CoveringTestsSearchDialog,
+                'set_ready_state',
+                autospec=True,
+                side_effect=set_ready_then_cancel,
+            ):
+                dialog = SendersDialog(fixture.app, method_name='total')
+                dialog.narrow_senders_with_tracing()
 
-    assert showinfo.called
+    fixture.mock_browser.trace_selector.assert_not_called()
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_senders_dialog_narrow_with_tracing_can_search_more_after_timeout(
+    fixture,
+):
+    """AI: When timed out, choosing Search More should continue test discovery and merge newly found candidates."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_senders.return_value = {
+        'senders': [
+            {
+                'class_name': 'OrderLine',
+                'show_instance_side': True,
+                'method_selector': 'recalculateTotal',
+            },
+        ],
+        'total_count': 1,
+        'returned_count': 1,
+    }
+    fixture.mock_browser.sender_test_plan_for_selector.side_effect = [
+        {
+            'candidate_test_count': 1,
+            'candidate_tests': [
+                {
+                    'test_case_class_name': 'OrderLineTest',
+                    'test_method_selector': 'testRecalculateTotal',
+                    'depth': 1,
+                    'reached_from_selector': 'recalculateTotal',
+                },
+            ],
+            'sender_edges': [
+                {
+                    'from_selector': 'total',
+                    'to_class_name': 'OrderLine',
+                    'to_method_selector': 'recalculateTotal',
+                    'to_show_instance_side': True,
+                    'depth': 1,
+                },
+            ],
+            'visited_selector_count': 1,
+            'sender_search_truncated': False,
+            'selector_limit_reached': False,
+            'elapsed_limit_reached': True,
+            'elapsed_ms': 120000,
+            'max_elapsed_ms': 120000,
+            'stopped_by_user': False,
+        },
+        {
+            'candidate_test_count': 1,
+            'candidate_tests': [
+                {
+                    'test_case_class_name': 'InvoiceTest',
+                    'test_method_selector': 'testRecalculateSubtotal',
+                    'depth': 1,
+                    'reached_from_selector': 'recalculateSubtotal',
+                },
+            ],
+            'sender_edges': [
+                {
+                    'from_selector': 'total',
+                    'to_class_name': 'Invoice',
+                    'to_method_selector': 'recalculateSubtotal',
+                    'to_show_instance_side': True,
+                    'depth': 1,
+                },
+            ],
+            'visited_selector_count': 1,
+            'sender_search_truncated': False,
+            'selector_limit_reached': False,
+            'elapsed_limit_reached': False,
+            'elapsed_ms': 100,
+            'max_elapsed_ms': 120000,
+            'stopped_by_user': False,
+        },
+    ]
+    fixture.mock_browser.run_test_method.return_value = {
+        'run_count': 1,
+        'failure_count': 0,
+        'error_count': 0,
+        'has_passed': True,
+        'failures': [],
+        'errors': [],
+    }
+    fixture.mock_browser.trace_selector.return_value = {
+        'method_name': 'total',
+        'total_sender_count': 1,
+        'targeted_sender_count': 1,
+        'traced_sender_count': 1,
+        'skipped_sender_count': 0,
+        'traced_senders': [],
+        'skipped_senders': [],
+    }
+    fixture.mock_browser.observed_senders_for_selector.return_value = {
+        'total_count': 1,
+        'returned_count': 1,
+        'total_observed_calls': 1,
+        'observed_senders': [
+            {
+                'caller_class_name': 'OrderLine',
+                'caller_show_instance_side': True,
+                'caller_method_selector': 'recalculateTotal',
+                'method_selector': 'total',
+                'observed_count': 1,
+            },
+        ],
+    }
+
+    original_set_ready_state = CoveringTestsSearchDialog.set_ready_state
+
+    def set_ready_then_search_more_or_run(
+        dialog,
+        timed_out=False,
+        summary_message='',
+    ):
+        original_set_ready_state(
+            dialog,
+            timed_out=timed_out,
+            summary_message=summary_message,
+        )
+        if timed_out:
+            dialog.request_search_further()
+        if not timed_out:
+            dialog.run_selected_tests()
+
+    with patch.object(SendersDialog, 'wait_visibility'):
+        with patch.object(CoveringTestsSearchDialog, 'wait_visibility'):
+            with patch.object(
+                CoveringTestsSearchDialog,
+                'set_ready_state',
+                autospec=True,
+                side_effect=set_ready_then_search_more_or_run,
+            ):
+                dialog = SendersDialog(fixture.app, method_name='total')
+                dialog.narrow_senders_with_tracing()
+
+    assert fixture.mock_browser.sender_test_plan_for_selector.call_count == 2
+    assert fixture.mock_browser.run_test_method.call_count == 2
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_senders_dialog_stop_search_cancels_narrowing_instead_of_using_partial_results(
+    fixture,
+):
+    """AI: Stopping discovery should cancel narrowing and never continue with partially found tests."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_senders.return_value = {
+        'senders': [
+            {
+                'class_name': 'OrderLine',
+                'show_instance_side': True,
+                'method_selector': 'recalculateTotal',
+            },
+        ],
+        'total_count': 1,
+        'returned_count': 1,
+    }
+    fixture.mock_browser.sender_test_plan_for_selector.return_value = {
+        'candidate_test_count': 1,
+        'candidate_tests': [
+            {
+                'test_case_class_name': 'OrderLineTest',
+                'test_method_selector': 'testRecalculateTotal',
+                'depth': 1,
+                'reached_from_selector': 'recalculateTotal',
+            },
+        ],
+        'visited_selector_count': 1,
+        'sender_search_truncated': False,
+        'selector_limit_reached': False,
+        'elapsed_limit_reached': False,
+        'stopped_by_user': False,
+    }
+    original_set_searching_state = CoveringTestsSearchDialog.set_searching_state
+
+    def set_searching_then_stop(dialog):
+        original_set_searching_state(dialog)
+        dialog.request_stop_search()
+
+    with patch.object(SendersDialog, 'wait_visibility'):
+        with patch.object(CoveringTestsSearchDialog, 'wait_visibility'):
+            with patch.object(
+                CoveringTestsSearchDialog,
+                'set_searching_state',
+                autospec=True,
+                side_effect=set_searching_then_stop,
+            ):
+                dialog = SendersDialog(fixture.app, method_name='total')
+                dialog.narrow_senders_with_tracing()
+
+    assert dialog.status_var.get() == 'Test discovery stopped.'
     fixture.mock_browser.trace_selector.assert_not_called()
     dialog.destroy()
 
@@ -2719,7 +2935,7 @@ def test_senders_dialog_narrow_with_tracing_reloads_static_senders_after_selecto
         ],
     }
 
-    def selected_tests_for_method(method_name, test_plan):
+    def selected_tests_for_method(method_name):
         return selected_tests_by_method[method_name]
 
     with patch.object(SendersDialog, 'wait_visibility'):
@@ -2986,6 +3202,73 @@ def test_right_click_on_method_runs_test_and_shows_pass_result(fixture):
 
     fixture.mock_browser.run_test_method.assert_called_once_with('OrderLine', 'total')
     mock_msgbox.showinfo.assert_called_once()
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_context_menu_covering_tests_opens_browse_dialog(fixture):
+    """AI: Covering Tests action should open the browse dialog for the selected method."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    methods_widget = fixture.browser_window.methods_widget
+
+    with patch('reahl.swordfish.main.CoveringTestsBrowseDialog') as dialog_class:
+        methods_widget.open_covering_tests()
+
+    dialog_class.assert_called_once_with(
+        fixture.browser_window,
+        'total',
+    )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_covering_tests_browse_dialog_navigates_to_selected_test_method(fixture):
+    """AI: Double-clicking a discovered covering test should navigate browser selection to that test method."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+
+    with patch.object(CoveringTestsBrowseDialog, 'wait_visibility'):
+        with patch.object(
+            CoveringTestsBrowseDialog,
+            'run_search_attempt',
+            autospec=True,
+        ):
+            with patch.object(
+                CoveringTestsBrowseDialog,
+                'monitor_search',
+                autospec=True,
+            ):
+                dialog = CoveringTestsBrowseDialog(
+                    fixture.browser_window,
+                    'total',
+                )
+                dialog.add_or_update_candidate_test(
+                    {
+                        'test_case_class_name': 'OrderLineTest',
+                        'test_method_selector': 'testRecalculateTotal',
+                        'depth': 1,
+                        'reached_from_selector': 'recalculateTotal',
+                    },
+                )
+                assert dialog.results_listbox.size() == 1
+                dialog.set_ready_state(
+                    timed_out=False,
+                    summary_message='',
+                )
+                fixture.root.update()
+
+        with patch.object(
+            fixture.browser_window.application,
+            'handle_sender_selection',
+        ) as handle_sender_selection:
+            assert dialog.results_listbox.cget('state') == tk.NORMAL
+            dialog.results_listbox.selection_set(0)
+            dialog.on_result_double_click(None)
+            fixture.root.update()
+
+    handle_sender_selection.assert_called_once_with(
+        'OrderLineTest',
+        True,
+        'testRecalculateTotal',
+    )
+    dialog.destroy()
 
 
 @with_fixtures(SwordfishGuiFixture)

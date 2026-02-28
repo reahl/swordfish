@@ -95,8 +95,8 @@ class GemstoneBrowserSession:
         )
 
     def install_or_refresh_ast_support(self):
-        if not self.package_exists('Swordfish'):
-            self.create_and_install_package('Swordfish')
+        if not self.package_exists('Reahl-Swordfish'):
+            self.create_and_install_package('Reahl-Swordfish')
         self.run_code(ast_support_source())
         self.run_code(self.ast_support_manifest_install_script())
         self.real_gemstone_ast_backend_available = None
@@ -120,7 +120,7 @@ class GemstoneBrowserSession:
                         '| swordfishDictionary |\n'
                         'swordfishDictionary := '
                         'System myUserProfile symbolList '
-                        'objectNamed: #Swordfish.\n'
+                        "objectNamed: #'Reahl-Swordfish'.\n"
                         'swordfishDictionary notNil and: [\n'
                         '    swordfishDictionary includesKey: '
                         '#SwordfishMcpAstSupport\n'
@@ -2319,7 +2319,18 @@ class GemstoneBrowserSession:
         )
 
     def tracer_alias_selector(self, method_name):
+        if self.is_binary_selector(method_name):
+            escaped_binary_selector = ''.join(
+                ['~%s' % character for character in method_name]
+            )
+            return '~~%s' % escaped_binary_selector
         return 'swordfishMcpTracerOriginal__' + method_name
+
+    def is_binary_selector(self, selector):
+        return bool(selector) and all(
+            self.is_binary_selector_character(character)
+            for character in selector
+        )
 
     def selector_tokens_for_method(self, method_name):
         if ':' in method_name:
@@ -2392,6 +2403,9 @@ class GemstoneBrowserSession:
             ]
             method_header = ' '.join(method_header_tokens)
             alias_send = ' '.join(alias_send_tokens)
+        elif self.is_binary_selector(sender_method_selector):
+            method_header = '%s argument1' % sender_method_selector
+            alias_send = '%s argument1' % alias_selector
         else:
             method_header = sender_method_selector
             alias_send = alias_selector
@@ -2558,8 +2572,8 @@ class GemstoneBrowserSession:
             )
 
     def install_or_refresh_tracer(self):
-        if not self.package_exists('Swordfish'):
-            self.create_and_install_package('Swordfish')
+        if not self.package_exists('Reahl-Swordfish'):
+            self.create_and_install_package('Reahl-Swordfish')
         self.run_code(tracer_source())
         self.install_tracer_methods()
         self.run_code(self.tracer_manifest_install_script())
@@ -2616,50 +2630,116 @@ class GemstoneBrowserSession:
                 'all',
                 show_instance_side,
             )
-            if alias_selector in selectors:
-                skipped_senders.append(
-                    {
-                        'class_name': class_name,
-                        'show_instance_side': show_instance_side,
-                        'method_selector': sender_method_selector,
-                        'alias_selector': alias_selector,
-                    }
-                )
-            else:
-                method_source = self.get_method_source(
-                    class_name,
-                    sender_method_selector,
-                    show_instance_side,
-                )
-                method_category = self.get_method_category(
-                    class_name,
-                    sender_method_selector,
-                    show_instance_side,
-                )
-                alias_method_source = self.source_with_rewritten_method_header(
-                    method_source,
-                    sender_method_selector,
-                    alias_selector,
-                )
-                self.compile_method(
-                    class_name,
-                    show_instance_side,
-                    alias_method_source,
-                    method_category,
-                )
-                wrapper_method_source = self.tracer_sender_wrapper_source(
-                    sender_method_selector,
-                    alias_selector,
-                    method_name,
-                    class_name,
-                    show_instance_side,
-                )
-                self.compile_method(
-                    class_name,
-                    show_instance_side,
-                    wrapper_method_source,
-                    method_category,
-                )
+            alias_already_exists = alias_selector in selectors
+            alias_method_source = None
+            method_category = None
+            wrapper_was_compiled = False
+            can_register_instrumentation = alias_already_exists
+            skip_error_message = None
+            skip_error_number = None
+            skip_reason = ''
+
+            if alias_already_exists:
+                skip_reason = 'Alias selector already exists.'
+            if not alias_already_exists:
+                try:
+                    method_source = self.get_method_source(
+                        class_name,
+                        sender_method_selector,
+                        show_instance_side,
+                    )
+                    method_category = self.get_method_category(
+                        class_name,
+                        sender_method_selector,
+                        show_instance_side,
+                    )
+                    alias_method_source = (
+                        self.source_with_rewritten_method_header(
+                            method_source,
+                            sender_method_selector,
+                            alias_selector,
+                        )
+                    )
+                    self.compile_method(
+                        class_name,
+                        show_instance_side,
+                        alias_method_source,
+                        method_category,
+                    )
+                    wrapper_method_source = self.tracer_sender_wrapper_source(
+                        sender_method_selector,
+                        alias_selector,
+                        method_name,
+                        class_name,
+                        show_instance_side,
+                    )
+                    self.compile_method(
+                        class_name,
+                        show_instance_side,
+                        wrapper_method_source,
+                        method_category,
+                    )
+                    wrapper_was_compiled = True
+                    can_register_instrumentation = True
+                except (
+                    DomainException,
+                    GemstoneError,
+                    GemstoneApiError,
+                ) as error:
+                    skip_error_message = str(error)
+                    skip_error_number = getattr(error, 'number', None)
+                    self.rollback_traced_sender(
+                        class_name,
+                        sender_method_selector,
+                        show_instance_side,
+                        alias_selector,
+                        alias_method_source,
+                        method_category,
+                        wrapper_was_compiled,
+                    )
+
+            instrumentation_was_registered = False
+            if can_register_instrumentation:
+                try:
+                    self.run_code(
+                        (
+                            'SwordfishMcpTracer '
+                            'registerInstrumentationForTarget: %s '
+                            'callerClassName: %s '
+                            'callerMethodSelector: %s '
+                            'callerShowInstanceSide: %s '
+                            'aliasSelector: %s'
+                        )
+                        % (
+                            self.selector_reference_expression(method_name),
+                            self.smalltalk_string_literal(class_name),
+                            self.selector_reference_expression(
+                                sender_method_selector
+                            ),
+                            'true' if show_instance_side else 'false',
+                            self.selector_reference_expression(alias_selector),
+                        )
+                    )
+                    instrumentation_was_registered = True
+                except (
+                    DomainException,
+                    GemstoneError,
+                    GemstoneApiError,
+                ) as error:
+                    skip_error_message = str(error)
+                    skip_error_number = getattr(error, 'number', None)
+                    if not alias_already_exists:
+                        self.rollback_traced_sender(
+                            class_name,
+                            sender_method_selector,
+                            show_instance_side,
+                            alias_selector,
+                            alias_method_source,
+                            method_category,
+                            wrapper_was_compiled,
+                        )
+
+            if instrumentation_was_registered:
                 traced_senders.append(
                     {
                         'class_name': class_name,
@@ -2668,23 +2748,20 @@ class GemstoneBrowserSession:
                         'alias_selector': alias_selector,
                     }
                 )
-            self.run_code(
-                (
-                    'SwordfishMcpTracer '
-                    'registerInstrumentationForTarget: %s '
-                    'callerClassName: %s '
-                    'callerMethodSelector: %s '
-                    'callerShowInstanceSide: %s '
-                    'aliasSelector: %s'
-                )
-                % (
-                    self.selector_reference_expression(method_name),
-                    self.smalltalk_string_literal(class_name),
-                    self.selector_reference_expression(sender_method_selector),
-                    'true' if show_instance_side else 'false',
-                    self.selector_reference_expression(alias_selector),
-                )
-            )
+            if not instrumentation_was_registered:
+                skipped_sender_entry = {
+                    'class_name': class_name,
+                    'show_instance_side': show_instance_side,
+                    'method_selector': sender_method_selector,
+                    'alias_selector': alias_selector,
+                }
+                if skip_reason:
+                    skipped_sender_entry['reason'] = skip_reason
+                if skip_error_message:
+                    skipped_sender_entry['error_message'] = skip_error_message
+                if skip_error_number is not None:
+                    skipped_sender_entry['error_number'] = skip_error_number
+                skipped_senders.append(skipped_sender_entry)
         return {
             'method_name': method_name,
             'max_results': max_results,
@@ -2695,6 +2772,48 @@ class GemstoneBrowserSession:
             'traced_senders': traced_senders,
             'skipped_senders': skipped_senders,
         }
+
+    def rollback_traced_sender(
+        self,
+        class_name,
+        sender_method_selector,
+        show_instance_side,
+        alias_selector,
+        alias_method_source,
+        method_category,
+        wrapper_was_compiled,
+    ):
+        if wrapper_was_compiled and alias_method_source and method_category:
+            try:
+                restored_method_source = self.source_with_rewritten_method_header(
+                    alias_method_source,
+                    alias_selector,
+                    sender_method_selector,
+                )
+                self.compile_method(
+                    class_name,
+                    show_instance_side,
+                    restored_method_source,
+                    method_category,
+                )
+            except (
+                DomainException,
+                GemstoneError,
+                GemstoneApiError,
+            ):
+                pass
+        try:
+            self.delete_method(
+                class_name,
+                alias_selector,
+                show_instance_side,
+            )
+        except (
+            DomainException,
+            GemstoneError,
+            GemstoneApiError,
+        ):
+            pass
 
     def untrace_selector(self, method_name):
         instrumentation_entries_report = self.run_code(
@@ -2860,6 +2979,8 @@ class GemstoneBrowserSession:
         max_senders_per_selector,
         max_test_methods,
         max_elapsed_ms=None,
+        should_stop=None,
+        on_candidate_test=None,
     ):
         if max_depth < 0:
             raise DomainException('max_depth must be non-negative.')
@@ -2885,11 +3006,18 @@ class GemstoneBrowserSession:
         started_at = time.perf_counter()
         elapsed_limit_reached = False
         elapsed_ms = 0
-        while queue_index < len(selector_queue) and not elapsed_limit_reached:
+        stopped_by_user = False
+        while (
+            queue_index < len(selector_queue)
+            and not elapsed_limit_reached
+            and not stopped_by_user
+        ):
+            if should_stop is not None:
+                stopped_by_user = bool(should_stop())
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             if max_elapsed_ms is not None:
                 elapsed_limit_reached = elapsed_ms >= max_elapsed_ms
-            if not elapsed_limit_reached:
+            if not elapsed_limit_reached and not stopped_by_user:
                 selector_item = selector_queue[queue_index]
                 queue_index += 1
                 can_visit_more_selectors = visited_selector_count < max_nodes
@@ -2954,7 +3082,7 @@ class GemstoneBrowserSession:
                                     sender_key not in candidate_tests_by_key
                                     and has_capacity_for_new_test
                                 ):
-                                    candidate_tests_by_key[sender_key] = {
+                                    candidate_test = {
                                         'test_case_class_name': (
                                             sender_class_name
                                         ),
@@ -2966,6 +3094,9 @@ class GemstoneBrowserSession:
                                             selector_name
                                         ),
                                     }
+                                    candidate_tests_by_key[sender_key] = candidate_test
+                                    if on_candidate_test is not None:
+                                        on_candidate_test(dict(candidate_test))
                         can_expand_depth = selector_depth < max_depth
                         can_enqueue_more_selectors = (
                             len(queued_selector_names) < max_nodes
@@ -3004,6 +3135,7 @@ class GemstoneBrowserSession:
             'max_elapsed_ms': max_elapsed_ms,
             'elapsed_ms': elapsed_ms,
             'elapsed_limit_reached': elapsed_limit_reached,
+            'stopped_by_user': stopped_by_user,
             'visited_selector_count': visited_selector_count,
             'sender_edge_count': len(sender_edges),
             'sender_search_truncated': sender_search_truncated,

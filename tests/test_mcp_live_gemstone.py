@@ -905,7 +905,7 @@ def test_live_gs_tracer_lifecycle_tracks_manifest_and_hash(live_connection):
         live_connection.connection_id
     )
     assert package_result['ok'], package_result
-    assert 'Swordfish' in package_result['packages']
+    assert 'Reahl-Swordfish' in package_result['packages']
     assert install_result['hashes_match']
     assert install_result['versions_match']
     assert install_result['manifest_matches']
@@ -945,7 +945,7 @@ def test_live_gs_ast_install_tracks_manifest_and_hash(live_connection):
         live_connection.connection_id
     )
     assert package_result['ok'], package_result
-    assert 'Swordfish' in package_result['packages']
+    assert 'Reahl-Swordfish' in package_result['packages']
     assert install_result['ast_manifest_installed']
     assert install_result['hashes_match']
     assert install_result['versions_match']
