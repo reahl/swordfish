@@ -4806,25 +4806,25 @@ class MethodSelection(FramedWidget):
             self.browser_window.application.end_foreground_activity()
 
         
-class MethodNavigationHistory:
+class NavigationHistory:
     def __init__(self, maximum_entries=200):
         self.maximum_entries = maximum_entries
         self.entries = []
         self.current_index = -1
 
-    def current_method(self):
+    def current_entry(self):
         if 0 <= self.current_index < len(self.entries):
             return self.entries[self.current_index]
         return None
 
-    def record(self, method_context):
-        if method_context is None:
+    def record(self, entry):
+        if entry is None:
             return
-        if self.current_method() == method_context:
+        if self.current_entry() == entry:
             return
         if self.current_index < len(self.entries) - 1:
             self.entries = self.entries[: self.current_index + 1]
-        self.entries.append(method_context)
+        self.entries.append(entry)
         overflow = len(self.entries) - self.maximum_entries
         if overflow > 0:
             self.entries = self.entries[overflow:]
@@ -4840,13 +4840,13 @@ class MethodNavigationHistory:
         if not self.can_go_back():
             return None
         self.current_index -= 1
-        return self.current_method()
+        return self.current_entry()
 
     def go_forward(self):
         if not self.can_go_forward():
             return None
         self.current_index += 1
-        return self.current_method()
+        return self.current_entry()
 
     def jump_to(self, history_index):
         if history_index < 0:
@@ -4854,82 +4854,60 @@ class MethodNavigationHistory:
         if history_index >= len(self.entries):
             return None
         self.current_index = history_index
-        return self.current_method()
+        return self.current_entry()
 
     def entries_with_current_marker(self):
         entry_details = []
-        for index, method_context in enumerate(self.entries):
+        for index, entry in enumerate(self.entries):
             entry_details.append(
                 {
                     'history_index': index,
-                    'method_context': method_context,
+                    'entry': entry,
                     'is_current': index == self.current_index,
                 },
             )
         return entry_details
 
 
-class ObjectNavigationHistory:
-    def __init__(self, maximum_entries=200):
-        self.maximum_entries = maximum_entries
-        self.entries = []
-        self.current_index = -1
+class DeduplicatedTabRegistry:
+    def __init__(self, notebook):
+        self.notebook = notebook
+        self.tabs_by_key = {}
+        self.key_by_tab_id = {}
+        self.label_by_key = {}
 
-    def current_object(self):
-        if 0 <= self.current_index < len(self.entries):
-            return self.entries[self.current_index]
+    def register_tab(self, tab_key, tab_widget, tab_label=''):
+        tab_id = str(tab_widget)
+        self.tabs_by_key[tab_key] = tab_widget
+        self.key_by_tab_id[tab_id] = tab_key
+        self.label_by_key[tab_key] = tab_label
+
+    def remove_key(self, tab_key):
+        if tab_key not in self.tabs_by_key:
+            return
+        tab_widget = self.tabs_by_key.pop(tab_key)
+        tab_id = str(tab_widget)
+        if tab_id in self.key_by_tab_id:
+            del self.key_by_tab_id[tab_id]
+        if tab_key in self.label_by_key:
+            del self.label_by_key[tab_key]
+
+    def select_key(self, tab_key):
+        if tab_key not in self.tabs_by_key:
+            return False
+        self.notebook.select(self.tabs_by_key[tab_key])
+        return True
+
+    def selected_key(self):
+        selected_tab_id = self.notebook.select()
+        if selected_tab_id in self.key_by_tab_id:
+            return self.key_by_tab_id[selected_tab_id]
         return None
 
-    def record(self, object_context):
-        if object_context is None:
-            return
-        if self.current_object() == object_context:
-            return
-        if self.current_index < len(self.entries) - 1:
-            self.entries = self.entries[: self.current_index + 1]
-        self.entries.append(object_context)
-        overflow = len(self.entries) - self.maximum_entries
-        if overflow > 0:
-            self.entries = self.entries[overflow:]
-        self.current_index = len(self.entries) - 1
-
-    def can_go_back(self):
-        return self.current_index > 0
-
-    def can_go_forward(self):
-        return 0 <= self.current_index < len(self.entries) - 1
-
-    def go_back(self):
-        if not self.can_go_back():
-            return None
-        self.current_index -= 1
-        return self.current_object()
-
-    def go_forward(self):
-        if not self.can_go_forward():
-            return None
-        self.current_index += 1
-        return self.current_object()
-
-    def jump_to(self, history_index):
-        if history_index < 0:
-            return None
-        if history_index >= len(self.entries):
-            return None
-        self.current_index = history_index
-        return self.current_object()
-
-    def entries_with_current_marker(self):
-        entry_details = []
-        for index, object_context in enumerate(self.entries):
-            entry_details.append(
-                {
-                    'history_index': index,
-                    'object_context': object_context,
-                    'is_current': index == self.current_index,
-                },
-            )
-        return entry_details
+    def label_for_key(self, tab_key):
+        if tab_key in self.label_by_key:
+            return self.label_by_key[tab_key]
+        return ''
 
 
 class MethodEditor(FramedWidget):
@@ -4937,7 +4915,7 @@ class MethodEditor(FramedWidget):
         super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
 
         self.current_menu = None
-        self.method_navigation_history = MethodNavigationHistory()
+        self.method_navigation_history = NavigationHistory()
         self.history_choice_indices = []
 
         self.navigation_bar = ttk.Frame(self)
@@ -4980,7 +4958,8 @@ class MethodEditor(FramedWidget):
         self.editor_notebook.bind('<Motion>', self.on_tab_motion)
         self.editor_notebook.bind('<Leave>', self.on_tab_leave)
 
-        self.open_tabs = {}
+        self.open_tab_registry = DeduplicatedTabRegistry(self.editor_notebook)
+        self.open_tabs = self.open_tab_registry.tabs_by_key
 
         self.event_queue.subscribe('MethodSelected', self.open_method)
         self.event_queue.subscribe(
@@ -5011,10 +4990,10 @@ class MethodEditor(FramedWidget):
         return None
 
     def close_tab(self, tab):
-        tab_id = self.open_tabs[tab.tab_key]
-        self.editor_notebook.forget(tab_id)
-        if tab.tab_key in self.open_tabs:
-            del self.open_tabs[tab.tab_key]
+        if tab.tab_key not in self.open_tabs:
+            return
+        self.editor_notebook.forget(self.open_tabs[tab.tab_key])
+        self.open_tab_registry.remove_key(tab.tab_key)
 
     def current_method_context(self):
         selected_class = self.gemstone_session_record.selected_class
@@ -5057,7 +5036,7 @@ class MethodEditor(FramedWidget):
         history_labels = []
         for history_entry in reversed(history_entries):
             history_index = history_entry['history_index']
-            method_context = history_entry['method_context']
+            method_context = history_entry['entry']
             history_labels.append(self.method_context_label(method_context))
             self.history_choice_indices.append(history_index)
         self.history_combobox['values'] = history_labels
@@ -5108,8 +5087,7 @@ class MethodEditor(FramedWidget):
             return
         selected_method_symbol = method_context[2]
 
-        if method_context in self.open_tabs:
-            self.editor_notebook.select(self.open_tabs[method_context])
+        if self.open_tab_registry.select_key(method_context):
             return
 
         new_tab = EditorTab(
@@ -5120,7 +5098,11 @@ class MethodEditor(FramedWidget):
         )
         self.editor_notebook.add(new_tab, text=selected_method_symbol)
         self.editor_notebook.select(new_tab)
-        self.open_tabs[method_context] = new_tab
+        self.open_tab_registry.register_tab(
+            method_context,
+            new_tab,
+            selected_method_symbol,
+        )
         new_tab.code_panel.set_read_only(
             self.browser_window.application.integrated_session_state.is_mcp_busy()
         )
@@ -6442,9 +6424,17 @@ class BrowserWindow(ttk.PanedWindow):
 
 
 class ObjectInspector(ttk.Frame):
-    def __init__(self, parent, an_object=None, values=None):
+    def __init__(
+        self,
+        parent,
+        an_object=None,
+        values=None,
+        external_inspect_action=None,
+    ):
         super().__init__(parent)
         self.inspected_object = an_object
+        self.external_inspect_action = external_inspect_action
+        self.current_object_menu = None
         self.page_size = 100
         self.current_page = 0
         self.total_items = 0
@@ -6481,6 +6471,8 @@ class ObjectInspector(ttk.Frame):
 
         # Bind double-click event to open nested inspectors
         self.treeview.bind('<Double-1>', self.on_item_double_click)
+        self.treeview.bind('<Button-3>', self.open_object_menu)
+        self.treeview.bind('<Button-1>', self.close_object_menu, add='+')
 
     def class_name_of(self, an_object):
         class_name = 'Unknown'
@@ -6525,7 +6517,7 @@ class ObjectInspector(ttk.Frame):
                 oop_label = str(oop_value)
             if isinstance(oop_value, str):
                 oop_label = oop_value.strip()
-        except GemstoneError:
+        except (GemstoneError, AttributeError):
             pass
         return oop_label
 
@@ -6711,7 +6703,7 @@ class ObjectInspector(ttk.Frame):
                     values[key.to_py] = class_pool.at(key)
                 except GemstoneError:
                     pass
-        except GemstoneError:
+        except (GemstoneError, AttributeError):
             pass
         for i, instvar_name in enumerate(an_object.gemstone_class().allInstVarNames(), start=1):
             try:
@@ -6776,38 +6768,94 @@ class ObjectInspector(ttk.Frame):
             self.refresh_rows_for_current_page()
 
     def on_item_double_click(self, event):
+        value = self.selected_row_value()
+        if value is None:
+            return
+
+        if hasattr(self.master, 'open_or_select_object'):
+            self.master.open_or_select_object(value)
+            return
+
+        tab_label = self.tab_label_for(value)
+        try:
+            new_tab = ObjectInspector(self.master, an_object=value)
+        except GemstoneError as e:
+            messagebox.showerror('Inspector', f'Cannot inspect this object:\n{e}')
+            return
+        self.master.add(new_tab, text=tab_label)
+        self.master.select(new_tab)
+
+    def selected_row_value(self):
         selected_item = self.treeview.focus()
+        if not selected_item:
+            return None
+        index = self.treeview.index(selected_item)
+        if index < len(self.actual_values):
+            return self.actual_values[index]
+        return None
+
+    def select_row_at_coordinates(self, event):
+        selected_item = self.treeview.identify_row(event.y)
         if selected_item:
-            index = self.treeview.index(selected_item)
-            value = None
-            if index < len(self.actual_values):
-                value = self.actual_values[index]
-            if value is None:
-                return
+            self.treeview.focus(selected_item)
+            self.treeview.selection_set(selected_item)
 
-            if hasattr(self.master, 'open_or_select_object'):
-                self.master.open_or_select_object(value)
-                return
+    def inspect_selected_row_in_external_inspector(self):
+        if self.external_inspect_action is None:
+            return
+        value = self.selected_row_value()
+        if value is None:
+            return
+        self.external_inspect_action(value)
 
-            tab_label = self.tab_label_for(value)
-            try:
-                new_tab = ObjectInspector(self.master, an_object=value)
-            except GemstoneError as e:
-                messagebox.showerror('Inspector', f'Cannot inspect this object:\n{e}')
-                return
-            self.master.add(new_tab, text=tab_label)
-            self.master.select(new_tab)
+    def open_object_menu(self, event):
+        self.close_object_menu()
+        self.select_row_at_coordinates(event)
+        selected_value = self.selected_row_value()
+        if selected_value is None:
+            return
+        object_menu = tk.Menu(self, tearoff=0)
+        if self.external_inspect_action is not None:
+            object_menu.add_command(
+                label='Inspect',
+                command=self.inspect_selected_row_in_external_inspector,
+            )
+        has_menu_entries = object_menu.index('end') is not None
+        if not has_menu_entries:
+            return
+        try:
+            object_menu.tk_popup(event.x_root, event.y_root)
+            self.current_object_menu = object_menu
+        finally:
+            object_menu.grab_release()
+
+    def close_object_menu(self, event=None):
+        if self.current_object_menu is None:
+            return
+        self.current_object_menu.destroy()
+        self.current_object_menu = None
 
 
 
 class Explorer(ttk.Notebook):
-    def __init__(self, parent, an_object=None, values=None, root_tab_label=None):
+    def __init__(
+        self,
+        parent,
+        an_object=None,
+        values=None,
+        root_tab_label=None,
+        external_inspect_action=None,
+    ):
         super().__init__(parent)
-        self.object_tab_by_key = {}
-        self.object_key_by_tab_id = {}
-        self.object_label_by_key = {}
+        self.tab_registry = DeduplicatedTabRegistry(self)
+        self.external_inspect_action = external_inspect_action
 
-        context_frame = ObjectInspector(self, an_object=an_object, values=values)
+        context_frame = ObjectInspector(
+            self,
+            an_object=an_object,
+            values=values,
+            external_inspect_action=self.external_inspect_action,
+        )
         tab_label = root_tab_label
         if tab_label is None:
             tab_label = context_frame.tab_label_for(an_object)
@@ -6828,7 +6876,7 @@ class Explorer(ttk.Notebook):
                 oop_label = str(oop_value)
             if isinstance(oop_value, str):
                 oop_label = oop_value.strip()
-        except GemstoneError:
+        except (GemstoneError, AttributeError):
             pass
 
         if oop_label:
@@ -6838,20 +6886,20 @@ class Explorer(ttk.Notebook):
     def register_object_tab(self, tab_widget, an_object, tab_label, object_key=None):
         if object_key is None:
             object_key = self.object_key_for(an_object)
-        tab_id = str(tab_widget)
-        self.object_tab_by_key[object_key] = tab_widget
-        self.object_key_by_tab_id[tab_id] = object_key
-        self.object_label_by_key[object_key] = tab_label
+        self.tab_registry.register_tab(object_key, tab_widget, tab_label)
         return object_key
 
     def open_or_select_object(self, an_object):
         object_key = self.object_key_for(an_object)
-        if object_key in self.object_tab_by_key:
-            self.select(self.object_tab_by_key[object_key])
+        if self.tab_registry.select_key(object_key):
             return
 
         try:
-            new_tab = ObjectInspector(self, an_object=an_object)
+            new_tab = ObjectInspector(
+                self,
+                an_object=an_object,
+                external_inspect_action=self.external_inspect_action,
+            )
         except GemstoneError as e:
             messagebox.showerror('Inspector', f'Cannot inspect this object:\n{e}')
             return
@@ -6861,28 +6909,20 @@ class Explorer(ttk.Notebook):
         self.select(new_tab)
 
     def selected_object_key(self):
-        selected_tab_id = self.select()
-        if selected_tab_id in self.object_key_by_tab_id:
-            return self.object_key_by_tab_id[selected_tab_id]
-        return None
+        return self.tab_registry.selected_key()
 
     def select_object_key(self, object_key):
-        if object_key not in self.object_tab_by_key:
-            return False
-        self.select(self.object_tab_by_key[object_key])
-        return True
+        return self.tab_registry.select_key(object_key)
 
     def label_for_object_key(self, object_key):
-        if object_key in self.object_label_by_key:
-            return self.object_label_by_key[object_key]
-        return ''
+        return self.tab_registry.label_for_key(object_key)
 
 
 class InspectorTab(ttk.Frame):
     def __init__(self, parent, application, an_object=None):
         super().__init__(parent)
         self.application = application
-        self.object_navigation_history = ObjectNavigationHistory()
+        self.object_navigation_history = NavigationHistory()
         self.history_choice_indices = []
         self.navigation_selection_in_progress = False
 
@@ -6964,7 +7004,7 @@ class InspectorTab(ttk.Frame):
         history_labels = []
         for history_entry in reversed(history_entries):
             history_index = history_entry['history_index']
-            object_context = history_entry['object_context']
+            object_context = history_entry['entry']
             history_labels.append(self.object_context_label(object_context))
             self.history_choice_indices.append(history_index)
         self.history_combobox['values'] = history_labels
@@ -7110,7 +7150,9 @@ class DebuggerWindow(ttk.PanedWindow):
             frame,
             values=dict([('self', frame.self)] + list(frame.vars.items())),
             root_tab_label='Context',
+            external_inspect_action=self.application.open_inspector_for_object,
         )
+        self.explorer = explorer
         explorer.grid(row=0, column=0, sticky="nsew")
     
     def on_listbox_select(self, event):
