@@ -2,7 +2,6 @@
 
 import argparse
 import asyncio
-from collections import deque
 import json
 import logging
 import os
@@ -13,15 +12,15 @@ import tkinter as tk
 import tkinter.messagebox as messagebox
 import tkinter.simpledialog as simpledialog
 import weakref
+from collections import deque
 from tkinter import ttk
 
 from reahl.ptongue import GemstoneError, LinkedSession, RPCSession
-from reahl.swordfish.gemstone import GemstoneBrowserSession
-from reahl.swordfish.gemstone import GemstoneDebugSession
+
+from reahl.swordfish.gemstone import GemstoneBrowserSession, GemstoneDebugSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.mcp.integration_state import current_integrated_session_state
-from reahl.swordfish.mcp.server import create_server
-from reahl.swordfish.mcp.server import McpDependencyNotInstalled
+from reahl.swordfish.mcp.server import McpDependencyNotInstalled, create_server
 
 
 class DomainException(Exception):

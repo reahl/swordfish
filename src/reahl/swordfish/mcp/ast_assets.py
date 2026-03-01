@@ -1,7 +1,6 @@
 from hashlib import sha256
 from pkgutil import get_data
 
-
 AST_SUPPORT_VERSION = '1'
 AST_SUPPORT_RESOURCE_PACKAGE = 'reahl.swordfish.mcp.ast'
 AST_SUPPORT_RESOURCE_NAME = 'swordfish_mcp_ast_support.st'

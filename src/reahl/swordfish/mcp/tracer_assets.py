@@ -1,7 +1,6 @@
 from hashlib import sha256
 from pkgutil import get_data
 
-
 TRACER_VERSION = '2'
 TRACER_RESOURCE_PACKAGE = 'reahl.swordfish.mcp.tracing'
 TRACER_RESOURCE_NAME = 'swordfish_mcp_tracer.st'

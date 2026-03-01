@@ -3,38 +3,47 @@ import re
 import time
 import uuid
 
-from reahl.ptongue import GemstoneApiError
-from reahl.ptongue import GemstoneError
+from reahl.ptongue import GemstoneApiError, GemstoneError
 
-from reahl.swordfish.gemstone import abort_transaction
-from reahl.swordfish.gemstone import begin_transaction
-from reahl.swordfish.gemstone import commit_transaction
-from reahl.swordfish.gemstone import DomainException
-from reahl.swordfish.gemstone import GemstoneBrowserSession
-from reahl.swordfish.gemstone import GemstoneDebugSession
-from reahl.swordfish.gemstone import close_session
-from reahl.swordfish.gemstone import create_linked_session
-from reahl.swordfish.gemstone import create_rpc_session
-from reahl.swordfish.gemstone import gemstone_error_payload
-from reahl.swordfish.gemstone import session_summary
-from reahl.swordfish.mcp.debug_registry import add_debug_session
-from reahl.swordfish.mcp.debug_registry import get_debug_metadata
-from reahl.swordfish.mcp.debug_registry import get_debug_session
-from reahl.swordfish.mcp.debug_registry import has_debug_session
-from reahl.swordfish.mcp.debug_registry import remove_debug_session
-from reahl.swordfish.mcp.debug_registry import remove_debug_sessions_for_connection
-from reahl.swordfish.mcp.session_registry import add_connection
-from reahl.swordfish.mcp.session_registry import get_metadata
-from reahl.swordfish.mcp.session_registry import get_session
-from reahl.swordfish.mcp.session_registry import has_connection
-from reahl.swordfish.mcp.session_registry import remove_connection
+from reahl.swordfish.gemstone import (
+    DomainException,
+    GemstoneBrowserSession,
+    GemstoneDebugSession,
+    abort_transaction,
+    begin_transaction,
+    close_session,
+    commit_transaction,
+    create_linked_session,
+    create_rpc_session,
+    gemstone_error_payload,
+    session_summary,
+)
+from reahl.swordfish.mcp.ast_assets import (
+    AST_SUPPORT_VERSION,
+    ast_support_source,
+    ast_support_source_hash,
+)
+from reahl.swordfish.mcp.debug_registry import (
+    add_debug_session,
+    get_debug_metadata,
+    get_debug_session,
+    has_debug_session,
+    remove_debug_session,
+    remove_debug_sessions_for_connection,
+)
 from reahl.swordfish.mcp.integration_state import IntegratedSessionState
-from reahl.swordfish.mcp.ast_assets import ast_support_source
-from reahl.swordfish.mcp.ast_assets import ast_support_source_hash
-from reahl.swordfish.mcp.ast_assets import AST_SUPPORT_VERSION
-from reahl.swordfish.mcp.tracer_assets import tracer_source
-from reahl.swordfish.mcp.tracer_assets import tracer_source_hash
-from reahl.swordfish.mcp.tracer_assets import TRACER_VERSION
+from reahl.swordfish.mcp.session_registry import (
+    add_connection,
+    get_metadata,
+    get_session,
+    has_connection,
+    remove_connection,
+)
+from reahl.swordfish.mcp.tracer_assets import (
+    TRACER_VERSION,
+    tracer_source,
+    tracer_source_hash,
+)
 
 
 def register_tools(

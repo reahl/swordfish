@@ -3,11 +3,13 @@ import logging
 import os
 import threading
 
-from reahl.ptongue import GemstoneApiError
-from reahl.ptongue import GemstoneError
-from reahl.ptongue import LinkedSession
-from reahl.ptongue import NotSupported
-from reahl.ptongue import RPCSession
+from reahl.ptongue import (
+    GemstoneApiError,
+    GemstoneError,
+    LinkedSession,
+    NotSupported,
+    RPCSession,
+)
 
 
 class DomainException(Exception):

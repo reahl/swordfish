@@ -1,6 +1,5 @@
 import uuid
 
-
 sessions_by_connection_id = {}
 metadata_by_connection_id = {}
 

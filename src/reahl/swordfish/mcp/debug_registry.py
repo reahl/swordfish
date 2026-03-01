@@ -1,6 +1,5 @@
 import uuid
 
-
 debug_sessions_by_id = {}
 debug_metadata_by_id = {}
 debug_ids_by_connection_id = {}

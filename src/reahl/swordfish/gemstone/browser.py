@@ -2,17 +2,19 @@ import os
 import re
 import time
 
-from reahl.ptongue import GemstoneApiError
-from reahl.ptongue import GemstoneError
-from reahl.swordfish.mcp.ast_assets import ast_support_source
-from reahl.swordfish.mcp.ast_assets import ast_support_source_hash
-from reahl.swordfish.mcp.ast_assets import AST_SUPPORT_VERSION
-from reahl.swordfish.mcp.tracer_assets import tracer_source
-from reahl.swordfish.mcp.tracer_assets import tracer_source_hash
-from reahl.swordfish.mcp.tracer_assets import TRACER_VERSION
+from reahl.ptongue import GemstoneApiError, GemstoneError
 
-from reahl.swordfish.gemstone.session import DomainException
-from reahl.swordfish.gemstone.session import render_result
+from reahl.swordfish.gemstone.session import DomainException, render_result
+from reahl.swordfish.mcp.ast_assets import (
+    AST_SUPPORT_VERSION,
+    ast_support_source,
+    ast_support_source_hash,
+)
+from reahl.swordfish.mcp.tracer_assets import (
+    TRACER_VERSION,
+    tracer_source,
+    tracer_source_hash,
+)
 
 
 class GemstoneBrowserSession:
