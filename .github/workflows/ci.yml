@@ -37,7 +37,7 @@ jobs:
         run: python -c "import reahl.swordfish.main; print('Package import successful')"
 
       - name: Verify entry point
-        run: python -c "import pkg_resources; print([ep.name for ep in pkg_resources.iter_entry_points('console_scripts') if 'swordfish' in ep.name])"
+        run: python -c "from importlib.metadata import entry_points; print([ep.name for ep in entry_points(group='console_scripts') if 'swordfish' in ep.name])"
 
       - name: Build wheel
         run: python -m build --wheel
