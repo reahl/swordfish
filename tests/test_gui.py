@@ -650,6 +650,47 @@ def test_text_context_menu_includes_save_and_close_for_open_tab(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_text_context_menu_includes_run_and_inspect_for_selected_text_in_open_tab(
+    fixture,
+):
+    """AI: Selecting method source text should expose Run and Inspect in the editor context menu."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+    tab.code_panel.text_editor.delete('1.0', 'end')
+    tab.code_panel.text_editor.insert('1.0', '3 + 4\n5 + 6')
+    tab.code_panel.text_editor.tag_add(tk.SEL, '1.0', '1.5')
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    command_labels = menu_command_labels(menu)
+
+    assert 'Run' in command_labels
+    assert 'Inspect' in command_labels
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_inspect_command_from_method_source_context_menu_opens_inspector_for_selection(
+    fixture,
+):
+    """AI: Choosing Inspect from method source context menu should evaluate selected source and open Inspector."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+    tab.code_panel.text_editor.delete('1.0', 'end')
+    tab.code_panel.text_editor.insert('1.0', '3 + 4')
+    tab.code_panel.text_editor.tag_add(tk.SEL, '1.0', '1.5')
+    inspected_object = make_mock_gemstone_object('Integer', '7', oop=3004)
+    fixture.mock_browser.run_code.return_value = inspected_object
+    tab.code_panel.application.open_inspector_for_object = Mock()
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    fixture.invoke_menu_command(menu, 'Inspect')
+
+    fixture.mock_browser.run_code.assert_called_with('3 + 4')
+    tab.code_panel.application.open_inspector_for_object.assert_called_with(
+        inspected_object,
+    )
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_save_command_from_text_context_menu_compiles_to_gemstone(fixture):
     """AI: Choosing Save from text context menu compiles the current editor contents."""
     fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
@@ -2326,6 +2367,60 @@ def test_debugger_variable_inspect_opens_main_inspector_tab(fixture):
     root_tab_id = fixture.app.inspector_tab.explorer.tabs()[0]
     root_tab_label = fixture.app.inspector_tab.explorer.tab(root_tab_id, 'text')
     assert root_tab_label == '3002:Integer 42'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugger_source_context_menu_inspect_evaluates_selected_expression_in_frame(fixture):
+    """AI: Inspect from debugger source menu evaluates selected expression in the active frame and opens Inspector."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+
+    fixture.app.run_code('1/0')
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    debugger_tab = fixture.app.debugger_tab
+    evaluated_value = make_mock_gemstone_object('Integer', '3', oop=3003)
+    mock_var_context = Mock()
+    mock_var_context.perform.return_value = evaluated_value
+    mock_gemstone_session = Mock()
+    mock_gemstone_session.from_py.side_effect = lambda source: source
+    frame = types.SimpleNamespace(
+        self=make_mock_gemstone_object('OrderLine', 'anOrderLine', oop=3001),
+        vars={'x': make_mock_gemstone_object('Integer', '2', oop=3002)},
+        var_context=mock_var_context,
+        gemstone_session=mock_gemstone_session,
+    )
+
+    debugger_tab.code_panel.text_editor.delete('1.0', 'end')
+    debugger_tab.code_panel.text_editor.insert('1.0', 'x + 1')
+    debugger_tab.code_panel.text_editor.tag_add(tk.SEL, '1.0', '1.5')
+    with patch.object(
+        debugger_tab,
+        'get_selected_stack_frame',
+        return_value=frame,
+    ):
+        debugger_tab.code_panel.open_text_menu(
+            types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1),
+        )
+        menu_labels = menu_command_labels(debugger_tab.code_panel.current_context_menu)
+        assert 'Inspect' in menu_labels
+        invoke_menu_command_by_label(
+            debugger_tab.code_panel.current_context_menu,
+            'Inspect',
+        )
+        fixture.app.update()
+
+    mock_gemstone_session.from_py.assert_called_once_with('x + 1')
+    mock_var_context.perform.assert_called_once_with('evaluate:', 'x + 1')
+    assert fixture.app.inspector_tab is not None
+    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+    assert selected_tab_text == 'Inspect'
+    root_tab_id = fixture.app.inspector_tab.explorer.tabs()[0]
+    root_tab_label = fixture.app.inspector_tab.explorer.tab(root_tab_id, 'text')
+    assert root_tab_label == '3003:Integer 3'
 
 
 @with_fixtures(SwordfishAppFixture)

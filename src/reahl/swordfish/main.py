@@ -6222,6 +6222,11 @@ class CodePanel(tk.Frame):
                 command=lambda: self.run_selected_text(selected_text),
                 state=run_command_state,
             )
+            self.current_context_menu.add_command(
+                label='Inspect',
+                command=lambda: self.inspect_selected_text(selected_text),
+                state=run_command_state,
+            )
             self.current_context_menu.add_separator()
         self.current_context_menu.add_command(
             label='Find Implementors',
@@ -6275,6 +6280,12 @@ class CodePanel(tk.Frame):
             return None
         return parent_widget
 
+    def is_debugger_source_panel(self):
+        debugger_tab = getattr(self.application, 'debugger_tab', None)
+        if debugger_tab is None:
+            return False
+        return debugger_tab.code_panel is self
+
     def save_current_tab(self):
         active_editor_tab = self.active_editor_tab()
         if active_editor_tab is None:
@@ -6315,6 +6326,28 @@ class CodePanel(tk.Frame):
             )
             return
         self.application.run_code(selected_text)
+
+    def inspect_selected_text(self, selected_text):
+        if self.is_read_only():
+            messagebox.showwarning(
+                'Read Only',
+                'MCP is busy. Inspect is disabled until MCP finishes.',
+            )
+            return
+        if self.is_debugger_source_panel():
+            debugger_tab = self.application.debugger_tab
+            debugger_tab.inspect_selected_source_expression(selected_text)
+            return
+        try:
+            inspected_object = self.gemstone_session_record.run_code(selected_text)
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            messagebox.showerror('Inspect Selection', str(domain_exception))
+            return
+        except GemstoneError as gemstone_exception:
+            messagebox.showerror('Inspect Selection', str(gemstone_exception))
+            return
+        if hasattr(self.application, 'open_inspector_for_object'):
+            self.application.open_inspector_for_object(inspected_object)
 
     def open_implementors_from_source(self):
         selector = self.selector_for_navigation()
@@ -7999,6 +8032,43 @@ class DebuggerWindow(ttk.PanedWindow):
         if selected_item:
             return self.stack_frames[int(selected_item)]
         return None
+
+    def value_for_source_expression(self, frame, source_expression):
+        expression = source_expression.strip()
+        if expression == 'self':
+            return frame.self
+        frame_vars = frame.vars
+        if expression in frame_vars:
+            return frame_vars[expression]
+        return frame.var_context.perform(
+            'evaluate:',
+            frame.gemstone_session.from_py(expression),
+        )
+
+    def inspect_selected_source_expression(self, source_expression):
+        expression = source_expression.strip()
+        if not expression:
+            messagebox.showwarning(
+                'No Selection',
+                'Select source text in the debugger method pane to inspect it.',
+            )
+            return
+        frame = self.get_selected_stack_frame()
+        if frame is None:
+            messagebox.showwarning(
+                'No Stack Frame',
+                'Select a stack frame before inspecting source text.',
+            )
+            return
+        try:
+            inspected_object = self.value_for_source_expression(
+                frame,
+                expression,
+            )
+        except (DomainException, GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror('Inspect Expression', str(error))
+            return
+        self.application.open_inspector_for_object(inspected_object)
 
     def frame_method_context(self, frame):
         if frame is None:
