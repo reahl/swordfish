@@ -80,8 +80,22 @@ class SwordfishGuiFixture(Fixture):
         self.root.withdraw()
 
         self.mock_browser = Mock(spec=GemstoneBrowserSession)
-        self.mock_browser.list_packages.return_value = ['Kernel', 'Collections']
-        self.mock_browser.list_classes.return_value = ['OrderLine', 'Order']
+        self.mock_browser.list_categories.return_value = ['Kernel', 'Collections']
+        self.mock_browser.list_dictionaries.return_value = [
+            'Kernel',
+            'Collections',
+        ]
+        self.mock_browser.list_classes_in_category.return_value = [
+            'OrderLine',
+            'Order',
+        ]
+        self.mock_browser.list_classes_in_dictionary.return_value = [
+            'OrderLine',
+            'Order',
+        ]
+        self.mock_browser.rowan_installed.return_value = False
+        self.mock_browser.list_rowan_packages.return_value = []
+        self.mock_browser.list_classes_in_rowan_package.return_value = []
         self.mock_browser.list_method_categories.return_value = ['accessing', 'testing']
         self.mock_browser.list_methods.return_value = ['total', 'description']
         self.mock_browser.get_method_category.return_value = 'accessing'
@@ -233,72 +247,133 @@ def invoke_menu_command_by_label(menu, label):
 
 
 @with_fixtures(SwordfishGuiFixture)
-def test_selecting_package_fetches_and_shows_classes(fixture):
-    """Selecting a package causes GemstoneBrowserSession to fetch classes
-    for that package and populates the class listbox with the results."""
+def test_selecting_group_fetches_and_shows_classes(fixture):
+    """AI: Selecting a left-pane group should fetch classes for the active browse mode."""
     fixture.select_in_listbox(
         fixture.browser_window.packages_widget.selection_list.selection_listbox,
         'Kernel',
     )
 
-    fixture.mock_browser.list_classes.assert_called_with('Kernel')
+    fixture.mock_browser.list_classes_in_dictionary.assert_called_with('Kernel')
     class_listbox = fixture.browser_window.classes_widget.selection_list.selection_listbox
     assert list(class_listbox.get(0, 'end')) == ['OrderLine', 'Order']
 
 
 @with_fixtures(SwordfishGuiFixture)
-def test_add_package_creates_installs_and_selects_package(fixture):
-    """AI: Adding a package from the package pane should create/install it and select it in the package list."""
-    fixture.mock_browser.list_packages.return_value = [
-        'Kernel',
-        'Collections',
-        'Stuff',
+def test_switching_left_pane_to_dictionaries_shows_dictionary_names(fixture):
+    """AI: Switching the left pane to dictionaries should repopulate it from symbolList dictionary names."""
+    fixture.mock_browser.list_dictionaries.return_value = [
+        'SessionGlobals',
+        'UserGlobals',
     ]
 
-    with patch('reahl.swordfish.main.simpledialog.askstring', return_value='Stuff'):
-        fixture.browser_window.packages_widget.add_package()
-        fixture.root.update()
+    fixture.browser_window.packages_widget.browse_mode_var.set('dictionaries')
+    fixture.browser_window.packages_widget.change_browse_mode()
+    fixture.root.update()
 
-    fixture.mock_browser.create_and_install_package.assert_called_with('Stuff')
-    assert fixture.session_record.selected_package == 'Stuff'
-    assert fixture.selected_listbox_entry(
-        fixture.browser_window.packages_widget.selection_list.selection_listbox
-    ) == 'Stuff'
-
-
-@with_fixtures(SwordfishGuiFixture)
-def test_delete_package_removes_selected_package_and_clears_selection(fixture):
-    """AI: Deleting a selected package should invoke browser deletion and clear package/class/method selection."""
-    fixture.select_in_listbox(
-        fixture.browser_window.packages_widget.selection_list.selection_listbox,
-        'Kernel',
-    )
-    fixture.mock_browser.list_packages.return_value = ['Collections']
-
-    with patch('reahl.swordfish.main.messagebox.askyesno', return_value=True):
-        fixture.browser_window.packages_widget.delete_package()
-        fixture.root.update()
-
-    fixture.mock_browser.delete_package.assert_called_once_with('Kernel')
-    assert fixture.session_record.selected_package is None
-    assert fixture.session_record.selected_class is None
-    assert fixture.session_record.selected_method_symbol is None
-    assert list(
+    assert fixture.session_record.browse_mode == 'dictionaries'
+    left_pane_entries = list(
         fixture.browser_window.packages_widget.selection_list.selection_listbox.get(
             0,
             'end',
         )
-    ) == ['Collections']
+    )
+    assert left_pane_entries == ['SessionGlobals', 'UserGlobals']
 
 
 @with_fixtures(SwordfishGuiFixture)
-def test_add_class_creates_in_selected_package_and_selects_it(fixture):
-    """AI: Adding a class from the class pane should create it in the selected package and make it the selected class."""
+def test_selecting_dictionary_fetches_and_shows_classes_in_dictionary(fixture):
+    """AI: In dictionary browse mode, selecting a dictionary should populate classes from that dictionary."""
+    fixture.mock_browser.list_dictionaries.return_value = ['UserGlobals']
+    fixture.mock_browser.list_classes_in_dictionary.return_value = [
+        'OrderLine',
+    ]
+
+    fixture.browser_window.packages_widget.browse_mode_var.set('dictionaries')
+    fixture.browser_window.packages_widget.change_browse_mode()
+    fixture.root.update()
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        'UserGlobals',
+    )
+
+    fixture.mock_browser.list_classes_in_dictionary.assert_called_with(
+        'UserGlobals',
+    )
+    class_listbox = fixture.browser_window.classes_widget.selection_list.selection_listbox
+    assert list(class_listbox.get(0, 'end')) == ['OrderLine']
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_switching_left_pane_to_categories_shows_category_names(fixture):
+    """AI: Switching to categories mode should repopulate the left pane from ClassOrganizer categories."""
+    fixture.mock_browser.list_categories.return_value = [
+        'Kernel',
+        'Collections',
+        'Stuff',
+    ]
+    fixture.browser_window.packages_widget.browse_mode_var.set('categories')
+    fixture.browser_window.packages_widget.change_browse_mode()
+    fixture.root.update()
+
+    assert fixture.session_record.browse_mode == 'categories'
+    left_pane_entries = list(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox.get(
+            0,
+            'end',
+        )
+    )
+    assert left_pane_entries == ['Kernel', 'Collections', 'Stuff']
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_rowan_mode_button_is_disabled_when_rowan_is_not_installed(fixture):
+    """AI: Rowan mode should be unavailable when Rowan is not installed on the connected stone."""
+    fixture.mock_browser.rowan_installed.return_value = False
+    fixture.browser_window.packages_widget.handle_browse_mode_changed()
+    fixture.root.update()
+
+    rowan_state = fixture.browser_window.packages_widget.rowan_radiobutton.cget(
+        'state'
+    )
+    assert rowan_state == tk.DISABLED
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_selecting_category_fetches_and_shows_classes_in_category(fixture):
+    """AI: In categories mode, selecting a category should populate classes from that category only."""
+    fixture.mock_browser.list_categories.return_value = ['Kernel']
+    fixture.mock_browser.list_classes_in_category.return_value = [
+        'OrderLine',
+    ]
+    fixture.browser_window.packages_widget.browse_mode_var.set('categories')
+    fixture.browser_window.packages_widget.change_browse_mode()
+    fixture.root.update()
     fixture.select_in_listbox(
         fixture.browser_window.packages_widget.selection_list.selection_listbox,
         'Kernel',
     )
-    fixture.mock_browser.list_classes.return_value = ['OrderLine', 'Order', 'Invoice']
+
+    fixture.mock_browser.list_classes_in_category.assert_called_with('Kernel')
+    class_listbox = fixture.browser_window.classes_widget.selection_list.selection_listbox
+    assert list(class_listbox.get(0, 'end')) == ['OrderLine']
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_add_class_creates_in_selected_package_and_selects_it(fixture):
+    """AI: Adding a class in categories mode should create it in UserGlobals."""
+    fixture.browser_window.packages_widget.browse_mode_var.set('categories')
+    fixture.browser_window.packages_widget.change_browse_mode()
+    fixture.root.update()
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        'Kernel',
+    )
+    fixture.mock_browser.list_classes_in_category.return_value = [
+        'OrderLine',
+        'Order',
+        'Invoice',
+    ]
 
     with patch(
         'reahl.swordfish.main.simpledialog.askstring',
@@ -310,8 +385,9 @@ def test_add_class_creates_in_selected_package_and_selects_it(fixture):
     fixture.mock_browser.create_class.assert_called_with(
         class_name='Invoice',
         superclass_name='Object',
-        in_dictionary='Kernel',
+        in_dictionary='UserGlobals',
     )
+    assert not fixture.mock_browser.assign_class_to_package.called
     assert fixture.session_record.selected_class == 'Invoice'
     assert fixture.selected_listbox_entry(
         fixture.browser_window.classes_widget.selection_list.selection_listbox
@@ -319,8 +395,39 @@ def test_add_class_creates_in_selected_package_and_selects_it(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_add_class_in_dictionary_mode_creates_in_selected_dictionary(fixture):
+    """AI: Adding a class in dictionary mode should create it directly in the selected dictionary."""
+    fixture.mock_browser.list_dictionaries.return_value = ['UserGlobals']
+    fixture.mock_browser.list_classes_in_dictionary.return_value = ['Invoice']
+    fixture.browser_window.packages_widget.browse_mode_var.set('dictionaries')
+    fixture.browser_window.packages_widget.change_browse_mode()
+    fixture.root.update()
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        'UserGlobals',
+    )
+
+    with patch(
+        'reahl.swordfish.main.simpledialog.askstring',
+        side_effect=['Invoice', 'Object'],
+    ):
+        fixture.browser_window.classes_widget.add_class()
+        fixture.root.update()
+
+    fixture.mock_browser.create_class.assert_called_with(
+        class_name='Invoice',
+        superclass_name='Object',
+        in_dictionary='UserGlobals',
+    )
+    assert not fixture.mock_browser.assign_class_to_package.called
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_delete_class_removes_selected_class_and_clears_method_selection(fixture):
-    """AI: Deleting a selected class should remove it from the package and clear class/method selection state."""
+    """AI: Deleting a selected class in categories mode should target UserGlobals and clear class/method selection state."""
+    fixture.browser_window.packages_widget.browse_mode_var.set('categories')
+    fixture.browser_window.packages_widget.change_browse_mode()
+    fixture.root.update()
     fixture.select_in_listbox(
         fixture.browser_window.packages_widget.selection_list.selection_listbox,
         'Kernel',
@@ -329,7 +436,7 @@ def test_delete_class_removes_selected_class_and_clears_method_selection(fixture
         fixture.browser_window.classes_widget.selection_list.selection_listbox,
         'OrderLine',
     )
-    fixture.mock_browser.list_classes.return_value = ['Order']
+    fixture.mock_browser.list_classes_in_category.return_value = ['Order']
 
     with patch('reahl.swordfish.main.messagebox.askyesno', return_value=True):
         fixture.browser_window.classes_widget.delete_class()
@@ -337,7 +444,7 @@ def test_delete_class_removes_selected_class_and_clears_method_selection(fixture
 
     fixture.mock_browser.delete_class.assert_called_once_with(
         'OrderLine',
-        in_dictionary='Kernel',
+        in_dictionary='UserGlobals',
     )
     assert fixture.session_record.selected_class is None
     assert fixture.session_record.selected_method_symbol is None
@@ -721,6 +828,9 @@ def test_jump_to_class_command_from_text_context_menu_syncs_browser_selection(
     fixture,
 ):
     """AI: Choosing Jump to Class from a method tab synchronizes package/class/side/category/method browser selections to that method context."""
+    fixture.browser_window.packages_widget.browse_mode_var.set('categories')
+    fixture.browser_window.packages_widget.change_browse_mode()
+    fixture.root.update()
     fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
     tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
 
@@ -1061,6 +1171,9 @@ def test_method_inheritance_updates_after_explicit_method_click_from_hierarchy_c
     fixture,
 ):
     """AI: With class selected from hierarchy view and no method selected, clicking a method should refresh method inheritance for that method."""
+    fixture.browser_window.packages_widget.browse_mode_var.set('categories')
+    fixture.browser_window.packages_widget.change_browse_mode()
+    fixture.root.update()
     fixture.select_in_listbox(
         fixture.browser_window.packages_widget.selection_list.selection_listbox,
         'Kernel',
@@ -1167,8 +1280,22 @@ class SwordfishAppFixture(Fixture):
     def create_app(self):
         self.mock_gemstone_session = Mock()
         self.mock_browser = Mock(spec=GemstoneBrowserSession)
-        self.mock_browser.list_packages.return_value = ['Kernel', 'Collections']
-        self.mock_browser.list_classes.return_value = ['OrderLine', 'Order']
+        self.mock_browser.list_categories.return_value = ['Kernel', 'Collections']
+        self.mock_browser.list_dictionaries.return_value = [
+            'Kernel',
+            'Collections',
+        ]
+        self.mock_browser.list_classes_in_category.return_value = [
+            'OrderLine',
+            'Order',
+        ]
+        self.mock_browser.list_classes_in_dictionary.return_value = [
+            'OrderLine',
+            'Order',
+        ]
+        self.mock_browser.rowan_installed.return_value = False
+        self.mock_browser.list_rowan_packages.return_value = []
+        self.mock_browser.list_classes_in_rowan_package.return_value = []
         self.mock_browser.list_method_categories.return_value = ['accessing']
         self.mock_browser.list_methods.return_value = ['total']
         self.mock_browser.get_method_category.return_value = 'accessing'
@@ -1185,10 +1312,12 @@ class SwordfishAppFixture(Fixture):
         self.session_record.gemstone_session = self.mock_gemstone_session
         self.session_record.gemstone_browser_session = self.mock_browser
         self.session_record.selected_package = None
+        self.session_record.selected_dictionary = None
         self.session_record.selected_class = None
         self.session_record.selected_method_category = None
         self.session_record.selected_method_symbol = None
         self.session_record.show_instance_side = True
+        self.session_record.browse_mode = 'dictionaries'
 
         self.app = Swordfish()
         self.app.withdraw()

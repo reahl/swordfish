@@ -30,6 +30,7 @@ class GemstoneBrowserSession:
             )
         self.require_gemstone_ast = require_gemstone_ast
         self.real_gemstone_ast_backend_available = None
+        self.rowan_installed_cache = None
 
     def boolean_flag_from_environment(self, environment_name):
         environment_value = os.environ.get(environment_name, '')
@@ -97,7 +98,7 @@ class GemstoneBrowserSession:
         )
 
     def install_or_refresh_ast_support(self):
-        if not self.package_exists('Reahl-Swordfish'):
+        if not self.installed_package_named('Reahl-Swordfish'):
             self.create_and_install_package('Reahl-Swordfish')
         self.run_code(ast_support_source())
         self.run_code(self.ast_support_manifest_install_script())
@@ -188,36 +189,50 @@ class GemstoneBrowserSession:
     def package_library(self):
         return self.gemstone_session.execute('GsPackageLibrary packageLibrary')
 
-    def list_packages(self):
-        package_names_from_categories = []
-        package_names_from_library = []
+    def installed_package_named(self, package_name):
         try:
-            package_names_from_categories = [
+            package = self.package_library.objectNamed(package_name)
+        except GemstoneError:
+            return False
+        except GemstoneApiError:
+            return False
+        except KeyError:
+            return False
+        has_is_nil = hasattr(package, 'isNil')
+        if has_is_nil:
+            try:
+                return not package.isNil().to_py
+            except GemstoneError:
+                return False
+            except GemstoneApiError:
+                return False
+        return True
+
+    def list_categories(self):
+        category_names = []
+        try:
+            category_names = [
                 gemstone_package.to_py
                 for gemstone_package in self.class_organizer.categories().keys()
             ]
         except GemstoneError:
-            package_names_from_categories = []
+            category_names = []
         except GemstoneApiError:
-            package_names_from_categories = []
+            category_names = []
+        return sorted(category_names)
 
-        try:
-            package_names_from_library = [
-                gemstone_package.name().to_py
-                for gemstone_package in self.package_library
-            ]
-        except GemstoneError:
-            package_names_from_library = []
-        except GemstoneApiError:
-            package_names_from_library = []
-
-        all_package_names = (
-            set(package_names_from_categories) | set(package_names_from_library)
+    def list_dictionaries(self):
+        dictionary_names = self.run_code(
+            (
+                '| names |\n'
+                'names := OrderedCollection new.\n'
+                'System myUserProfile symbolList do: [:each |\n'
+                '    names add: each name asString\n'
+                '].\n'
+                '(names asSortedCollection) asArray'
+            )
         )
-        return sorted(all_package_names)
-
-    def package_exists(self, package_name):
-        return package_name in self.list_packages()
+        return [dictionary_name.to_py for dictionary_name in dictionary_names]
 
     def create_package(self, package_name):
         package_name_literal = self.smalltalk_string_literal(package_name)
@@ -235,8 +250,54 @@ class GemstoneBrowserSession:
         self.create_package(package_name)
         return self.install_package(package_name)
 
+    def create_dictionary(self, dictionary_name):
+        dictionary_name_literal = self.smalltalk_string_literal(dictionary_name)
+        return self.run_code(
+            (
+                '| resolvedDictionary symbolList |\n'
+                'symbolList := System myUserProfile symbolList.\n'
+                'resolvedDictionary := symbolList objectNamed: %s asSymbol.\n'
+                'resolvedDictionary ifNil: [\n'
+                '    resolvedDictionary := SymbolDictionary new.\n'
+                '    resolvedDictionary name: %s asSymbol.\n'
+                '    symbolList addLast: resolvedDictionary.\n'
+                '].\n'
+                'resolvedDictionary'
+            )
+            % (dictionary_name_literal, dictionary_name_literal)
+        )
+
+    def assign_class_to_package(self, class_name, package_name):
+        class_name_literal = self.smalltalk_string_literal(class_name)
+        package_name_literal = self.smalltalk_string_literal(package_name)
+        return self.run_code(
+            (
+                '| className packageName classToAssign |\n'
+                'className := %s.\n'
+                'packageName := %s.\n'
+                'classToAssign := System myUserProfile symbolList\n'
+                '    objectNamed: className asSymbol.\n'
+                'classToAssign ifNil: [\n'
+                "    Error signal: 'Unknown class_name.'\n"
+                '].\n'
+                '[ ClassOrganizer new classify: classToAssign under: packageName ]\n'
+                '    on: Error\n'
+                '    do: [\n'
+                '        [\n'
+                '            ClassOrganizer new\n'
+                '                classify: classToAssign\n'
+                '                under: packageName asSymbol\n'
+                '        ] on: Error do: [\n'
+                "            Error signal: 'Could not assign class to package.'\n"
+                '        ]\n'
+                '    ].\n'
+                'true'
+            )
+            % (class_name_literal, package_name_literal)
+        )
+
     def delete_package(self, package_name):
-        class_names = self.list_classes(package_name)
+        class_names = self.list_classes_in_category(package_name)
         for class_name in class_names:
             self.delete_class(class_name, in_dictionary=package_name)
         package_name_literal = self.smalltalk_string_literal(package_name)
@@ -267,58 +328,90 @@ class GemstoneBrowserSession:
             % package_name_literal
         )
 
-    def list_classes(self, package_name):
-        if not package_name:
+    def list_classes_in_category(self, category_name):
+        if not category_name:
             return []
-        class_names_from_categories = []
-        class_names_from_package_dictionary = []
         try:
-            gemstone_classes = self.class_organizer.categories().at(package_name)
-            class_names_from_categories = [
+            gemstone_classes = self.class_organizer.categories().at(category_name)
+            class_names = [
                 gemstone_class.name().to_py for gemstone_class in gemstone_classes
             ]
         except GemstoneError:
-            class_names_from_categories = []
+            class_names = []
         except GemstoneApiError:
-            class_names_from_categories = []
+            class_names = []
         except KeyError:
-            class_names_from_categories = []
-        class_names_from_package_dictionary = self.class_names_in_package_dictionary(
-            package_name
-        )
-        return sorted(
-            set(class_names_from_categories)
-            | set(class_names_from_package_dictionary)
-        )
+            class_names = []
+        return sorted(class_names)
 
-    def class_names_in_package_dictionary(self, package_name):
-        class_names = []
+    def list_classes_in_dictionary(self, dictionary_name):
+        if not dictionary_name:
+            return []
+        dictionary_name_literal = self.smalltalk_string_literal(dictionary_name)
+        class_names = self.run_code(
+            (
+                '| dictionaryName dictionary classNames |\n'
+                'dictionaryName := %s.\n'
+                'dictionary := System myUserProfile symbolList\n'
+                '    objectNamed: dictionaryName asSymbol.\n'
+                'dictionary ifNil: [\n'
+                '    classNames := Array new\n'
+                '] ifNotNil: [\n'
+                '    classNames := OrderedCollection new.\n'
+                '    dictionary keysAndValuesDo: [:key :value |\n'
+                '        (value isBehavior) ifTrue: [\n'
+                '            classNames add: key asString\n'
+                '        ]\n'
+                '    ].\n'
+                '    classNames := (classNames asSortedCollection) asArray\n'
+                '].\n'
+                'classNames'
+            )
+            % dictionary_name_literal
+        )
+        return [class_name.to_py for class_name in class_names]
+
+    def rowan_installed(self):
+        if self.rowan_installed_cache is not None:
+            return self.rowan_installed_cache
         try:
-            package_dictionary = self.package_library.objectNamed(package_name)
+            result = self.run_code('System hasClass: Rowan')
+            self.rowan_installed_cache = bool(result.to_py)
+        except GemstoneError:
+            self.rowan_installed_cache = False
+        except GemstoneApiError:
+            self.rowan_installed_cache = False
+        return self.rowan_installed_cache
+
+    def list_rowan_packages(self):
+        if not self.rowan_installed():
+            return []
+        try:
+            package_names = self.run_code(
+                'Rowan packageNames asSortedCollection asArray'
+            )
         except GemstoneError:
             return []
         except GemstoneApiError:
             return []
-        except KeyError:
+        return [package_name.to_py for package_name in package_names]
+
+    def list_classes_in_rowan_package(self, package_name):
+        if not package_name:
             return []
-        has_is_nil = hasattr(package_dictionary, 'isNil')
-        if has_is_nil:
-            try:
-                if package_dictionary.isNil().to_py:
-                    return []
-            except GemstoneError:
-                return []
-            except GemstoneApiError:
-                return []
-        for package_entry in package_dictionary:
-            try:
-                if package_entry.isBehavior().to_py:
-                    class_names.append(package_entry.name().to_py)
-            except GemstoneError:
-                pass
-            except GemstoneApiError:
-                pass
-        return class_names
+        if not self.rowan_installed():
+            return []
+        package_name_literal = self.smalltalk_string_literal(package_name)
+        try:
+            class_names = self.run_code(
+                '((Rowan classNamesForPackageNamed: %s) asSortedCollection) asArray'
+                % package_name_literal
+            )
+        except GemstoneError:
+            return []
+        except GemstoneApiError:
+            return []
+        return [class_name.to_py for class_name in class_names]
 
     def list_method_categories(self, class_name, show_instance_side):
         if not class_name:
@@ -966,7 +1059,7 @@ class GemstoneBrowserSession:
         if class_name is not None:
             return [class_name]
         if package_name is not None:
-            return sorted(self.list_classes(package_name))
+            return sorted(self.list_classes_in_category(package_name))
         return sorted(self.all_class_names())
 
     def selector_names_for_scope(
@@ -2113,7 +2206,7 @@ class GemstoneBrowserSession:
         if re.match('^[A-Za-z][A-Za-z0-9_]*$', in_dictionary):
             return in_dictionary
         dictionary_literal = self.smalltalk_string_literal(in_dictionary)
-        return '(GsPackageLibrary packageLibrary objectNamed: %s)' % (
+        return '(System myUserProfile symbolList objectNamed: %s asSymbol)' % (
             dictionary_literal,
         )
 
@@ -2574,7 +2667,7 @@ class GemstoneBrowserSession:
             )
 
     def install_or_refresh_tracer(self):
-        if not self.package_exists('Reahl-Swordfish'):
+        if not self.installed_package_named('Reahl-Swordfish'):
             self.create_and_install_package('Reahl-Swordfish')
         self.run_code(tracer_source())
         self.install_tracer_methods()
@@ -3284,7 +3377,7 @@ class GemstoneBrowserSession:
 
     def list_test_case_classes(self, package_name=None):
         class_names = (
-            self.list_classes(package_name)
+            self.list_classes_in_category(package_name)
             if package_name
             else self.all_class_names()
         )
@@ -6078,12 +6171,14 @@ class GemstoneBrowserSession:
         return selector_names
 
 
-def list_packages(gemstone_session):
-    return GemstoneBrowserSession(gemstone_session).list_packages()
+def list_categories(gemstone_session):
+    return GemstoneBrowserSession(gemstone_session).list_categories()
 
 
-def list_classes(gemstone_session, package_name):
-    return GemstoneBrowserSession(gemstone_session).list_classes(package_name)
+def list_classes_in_category(gemstone_session, category_name):
+    return GemstoneBrowserSession(gemstone_session).list_classes_in_category(
+        category_name
+    )
 
 
 def list_method_categories(gemstone_session, class_name, show_instance_side):
