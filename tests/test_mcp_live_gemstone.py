@@ -183,11 +183,14 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_abort(self):
         return self.registered_mcp_tools['gs_abort']
 
-    def new_gs_list_packages(self):
-        return self.registered_mcp_tools['gs_list_packages']
+    def new_gs_list_categories(self):
+        return self.registered_mcp_tools['gs_list_categories']
 
-    def new_gs_list_classes(self):
-        return self.registered_mcp_tools['gs_list_classes']
+    def new_gs_list_classes_in_category(self):
+        return self.registered_mcp_tools['gs_list_classes_in_category']
+
+    def new_gs_package_exists(self):
+        return self.registered_mcp_tools['gs_package_exists']
 
     def new_gs_list_method_categories(self):
         return self.registered_mcp_tools['gs_list_method_categories']
@@ -568,7 +571,7 @@ class LiveBrowserSessionFixture(Fixture):
             with expected(NoException):
                 close_session(self.gemstone_session)
 
-    def new_known_package_name(self):
+    def new_known_category_name(self):
         return self.gemstone_session.resolve_symbol('Object').category().to_py
 
     def new_halt_exception(self):
@@ -877,10 +880,12 @@ def test_live_gs_debug_stop_clears_debug_session(live_connection):
 
 
 @with_fixtures(LiveMcpConnectionFixture)
-def test_live_gs_list_packages_returns_non_empty_result(live_connection):
-    package_result = live_connection.gs_list_packages(live_connection.connection_id)
-    assert package_result['ok'], package_result
-    assert package_result['packages']
+def test_live_gs_list_categories_returns_non_empty_result(live_connection):
+    category_result = live_connection.gs_list_categories(
+        live_connection.connection_id
+    )
+    assert category_result['ok'], category_result
+    assert category_result['categories']
 
 
 @with_fixtures(LiveMcpConnectionFixture)
@@ -901,11 +906,12 @@ def test_live_gs_tracer_lifecycle_tracks_manifest_and_hash(live_connection):
     )
     assert install_result['ok'], install_result
     assert install_result['tracer_installed']
-    package_result = live_connection.gs_list_packages(
-        live_connection.connection_id
+    package_exists_result = live_connection.gs_package_exists(
+        live_connection.connection_id,
+        'Reahl-Swordfish',
     )
-    assert package_result['ok'], package_result
-    assert 'Reahl-Swordfish' in package_result['packages']
+    assert package_exists_result['ok'], package_exists_result
+    assert package_exists_result['exists']
     assert install_result['hashes_match']
     assert install_result['versions_match']
     assert install_result['manifest_matches']
@@ -941,11 +947,12 @@ def test_live_gs_ast_install_tracks_manifest_and_hash(live_connection):
     )
     assert install_result['ok'], install_result
     assert install_result['ast_support_installed']
-    package_result = live_connection.gs_list_packages(
-        live_connection.connection_id
+    package_exists_result = live_connection.gs_package_exists(
+        live_connection.connection_id,
+        'Reahl-Swordfish',
     )
-    assert package_result['ok'], package_result
-    assert 'Reahl-Swordfish' in package_result['packages']
+    assert package_exists_result['ok'], package_exists_result
+    assert package_exists_result['exists']
     assert install_result['ast_manifest_installed']
     assert install_result['hashes_match']
     assert install_result['versions_match']
@@ -3237,9 +3244,9 @@ def test_live_gs_commit_persists_changes_until_removed(live_connection):
 
 
 @with_fixtures(LiveBrowserSessionFixture)
-def test_live_browser_lists_classes_for_a_known_package(browser_fixture):
-    classes = browser_fixture.browser_session.list_classes(
-        browser_fixture.known_package_name
+def test_live_browser_lists_classes_for_a_known_category(browser_fixture):
+    classes = browser_fixture.browser_session.list_classes_in_category(
+        browser_fixture.known_category_name
     )
     assert classes
 

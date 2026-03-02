@@ -268,10 +268,12 @@ class GemstoneSessionRecord:
         self.change_event_publisher = None
         self.integrated_session_state = None
         self.selected_package = None
+        self.selected_dictionary = None
         self.selected_class = None
         self.selected_method_category = None
         self.selected_method_symbol = None
         self.show_instance_side = True
+        self.browse_mode = 'dictionaries'
 
     def set_integrated_session_state(self, integrated_session_state):
         self.integrated_session_state = integrated_session_state
@@ -304,7 +306,49 @@ class GemstoneSessionRecord:
     def select_package(self, package):
         self.selected_package = package
         self.select_class(None)
-        
+
+    def select_dictionary(self, dictionary_name):
+        self.selected_dictionary = dictionary_name
+        self.select_class(None)
+
+    def select_class_category(self, category_name):
+        if self.browse_mode == 'dictionaries':
+            self.selected_package = None
+            self.select_dictionary(category_name)
+            return
+        self.selected_dictionary = None
+        self.select_package(category_name)
+
+    def selected_class_category(self):
+        if self.browse_mode == 'dictionaries':
+            return self.selected_dictionary
+        return self.selected_package
+
+    @property
+    def rowan_installed(self):
+        return self.gemstone_browser_session.rowan_installed()
+
+    def select_browse_mode(self, browse_mode):
+        browse_mode = browse_mode.strip().lower()
+        valid_modes = ('dictionaries', 'categories', 'rowan')
+        if browse_mode not in valid_modes:
+            raise DomainException(
+                'browse_mode must be dictionaries, categories, or rowan.'
+            )
+        if browse_mode == 'rowan' and not self.rowan_installed:
+            raise DomainException('Rowan is not installed on this stone.')
+        if self.browse_mode == browse_mode:
+            return
+        self.browse_mode = browse_mode
+        self.selected_package = None
+        self.selected_dictionary = None
+        self.selected_class = None
+        self.selected_method_category = None
+        self.selected_method_symbol = None
+        self.publish_model_change('packages')
+        self.publish_model_change('classes')
+        self.publish_model_change('methods')
+
     def select_instance_side(self, show_instance_side):
         self.show_instance_side = show_instance_side
         self.select_method_category(None)
@@ -376,7 +420,13 @@ class GemstoneSessionRecord:
 
     @property
     def class_categories(self):
-        yield from self.gemstone_browser_session.list_packages()
+        if self.browse_mode == 'dictionaries':
+            yield from self.gemstone_browser_session.list_dictionaries()
+            return
+        if self.browse_mode == 'categories':
+            yield from self.gemstone_browser_session.list_categories()
+            return
+        yield from self.gemstone_browser_session.list_rowan_packages()
 
     def create_and_install_package(self, package_name):
         self.require_write_access('create_and_install_package')
@@ -402,7 +452,10 @@ class GemstoneSessionRecord:
         self.require_write_access('create_class')
         selected_dictionary = in_dictionary
         if selected_dictionary is None:
-            selected_dictionary = self.selected_package or 'UserGlobals'
+            if self.browse_mode == 'dictionaries':
+                selected_dictionary = self.selected_dictionary or 'UserGlobals'
+            else:
+                selected_dictionary = 'UserGlobals'
         self.gemstone_browser_session.create_class(
             class_name=class_name,
             superclass_name=superclass_name,
@@ -414,7 +467,10 @@ class GemstoneSessionRecord:
         self.require_write_access('delete_class')
         selected_dictionary = in_dictionary
         if selected_dictionary is None:
-            selected_dictionary = self.selected_package or 'UserGlobals'
+            if self.browse_mode == 'dictionaries':
+                selected_dictionary = self.selected_dictionary or 'UserGlobals'
+            else:
+                selected_dictionary = 'UserGlobals'
         self.gemstone_browser_session.delete_class(
             class_name,
             in_dictionary=selected_dictionary,
@@ -426,7 +482,19 @@ class GemstoneSessionRecord:
         self.publish_model_change('classes')
         
     def get_classes_in_category(self, category):
-        yield from self.gemstone_browser_session.list_classes(category)
+        if self.browse_mode == 'dictionaries':
+            yield from self.gemstone_browser_session.list_classes_in_dictionary(
+                category
+            )
+            return
+        if self.browse_mode == 'categories':
+            yield from self.gemstone_browser_session.list_classes_in_category(
+                category
+            )
+            return
+        yield from self.gemstone_browser_session.list_classes_in_rowan_package(
+            category
+        )
         
     def get_categories_in_class(self, class_name, show_instance_side):
         categories = self.gemstone_browser_session.list_method_categories(
@@ -4376,8 +4444,52 @@ class PackageSelection(FramedWidget):
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
         super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
 
-        self.selection_list = InteractiveSelectionList(self, self.get_all_packages, self.get_selected_package, self.select_package)
-        self.selection_list.grid(row=0, column=0, sticky="nsew")
+        self.selection_list = InteractiveSelectionList(
+            self,
+            self.get_all_groups,
+            self.get_selected_group,
+            self.select_group,
+        )
+        self.selection_list.grid(row=0, column=0, sticky='nsew')
+        self.browse_mode_var = tk.StringVar(
+            value=self.gemstone_session_record.browse_mode
+        )
+        self.browse_mode_controls = ttk.Frame(self)
+        self.browse_mode_controls.grid(
+            row=1,
+            column=0,
+            sticky='ew',
+            pady=(4, 0),
+        )
+        self.browse_mode_controls.columnconfigure(0, weight=1)
+        self.browse_mode_controls.columnconfigure(1, weight=1)
+        self.browse_mode_controls.columnconfigure(2, weight=1)
+        self.dictionaries_radiobutton = tk.Radiobutton(
+            self.browse_mode_controls,
+            text='Dictionaries',
+            variable=self.browse_mode_var,
+            value='dictionaries',
+            command=self.change_browse_mode,
+        )
+        self.categories_radiobutton = tk.Radiobutton(
+            self.browse_mode_controls,
+            text='Categories',
+            variable=self.browse_mode_var,
+            value='categories',
+            command=self.change_browse_mode,
+        )
+        rowan_state = tk.NORMAL if self.gemstone_session_record.rowan_installed else tk.DISABLED
+        self.rowan_radiobutton = tk.Radiobutton(
+            self.browse_mode_controls,
+            text='Rowan',
+            variable=self.browse_mode_var,
+            value='rowan',
+            command=self.change_browse_mode,
+            state=rowan_state,
+        )
+        self.dictionaries_radiobutton.grid(row=0, column=0, sticky='w')
+        self.categories_radiobutton.grid(row=0, column=1, sticky='w')
+        self.rowan_radiobutton.grid(row=0, column=2, sticky='e')
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
                                                        
@@ -4389,86 +4501,50 @@ class PackageSelection(FramedWidget):
         self.event_queue.subscribe('Committed', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
-        self.selection_list.selection_listbox.bind('<Button-3>', self.show_context_menu)
+        self.event_queue.subscribe('BrowseModeChanged', self.handle_browse_mode_changed)
 
-    def select_package(self, selected_package):
-        self.gemstone_session_record.select_package(selected_package)
+    def change_browse_mode(self):
+        selected_mode = self.browse_mode_var.get()
+        try:
+            self.gemstone_session_record.select_browse_mode(selected_mode)
+        except DomainException as error:
+            messagebox.showerror('Browse Mode', str(error))
+            self.browse_mode_var.set(self.gemstone_session_record.browse_mode)
+            return
+        self.selection_list.repopulate()
+        self.event_queue.publish('BrowseModeChanged', origin=self)
+        # AI: Retain legacy event name for compatibility with dependent widgets.
         self.event_queue.publish('SelectedPackageChanged', origin=self)
-        
-    def get_all_packages(self):
+        self.event_queue.publish('SelectedClassChanged', origin=self)
+        self.event_queue.publish('SelectedCategoryChanged', origin=self)
+        self.event_queue.publish('MethodSelected', origin=self)
+
+    def handle_browse_mode_changed(self, origin=None):
+        if origin is self:
+            return
+        rowan_state = tk.NORMAL if self.gemstone_session_record.rowan_installed else tk.DISABLED
+        self.rowan_radiobutton.config(state=rowan_state)
+        if (
+            self.gemstone_session_record.browse_mode == 'rowan'
+            and not self.gemstone_session_record.rowan_installed
+        ):
+            self.gemstone_session_record.select_browse_mode('dictionaries')
+        self.browse_mode_var.set(self.gemstone_session_record.browse_mode)
+        self.selection_list.repopulate()
+
+    def select_group(self, selected_group):
+        self.gemstone_session_record.select_class_category(selected_group)
+        self.event_queue.publish('SelectedPackageChanged', origin=self)
+
+    def get_all_groups(self):
         return list(self.browser_window.gemstone_session_record.class_categories)
 
-    def get_selected_package(self):
-        return self.gemstone_session_record.selected_package
+    def get_selected_group(self):
+        return self.gemstone_session_record.selected_class_category()
         
     def repopulate(self, origin=None):
         if origin is not self:
             self.selection_list.repopulate()
-
-    def show_context_menu(self, event):
-        listbox = self.selection_list.selection_listbox
-        has_selection = listbox.size() > 0
-        if has_selection:
-            idx = listbox.nearest(event.y)
-            listbox.selection_clear(0, 'end')
-            listbox.selection_set(idx)
-        menu = tk.Menu(self, tearoff=0)
-        command_state = tk.NORMAL
-        if self.browser_window.application.integrated_session_state.is_mcp_busy():
-            command_state = tk.DISABLED
-        delete_command_state = command_state if has_selection else tk.DISABLED
-        menu.add_command(
-            label='Add Package',
-            command=self.add_package,
-            state=command_state,
-        )
-        menu.add_command(
-            label='Delete Package',
-            command=self.delete_package,
-            state=delete_command_state,
-        )
-        menu.tk_popup(event.x_root, event.y_root)
-
-    def add_package(self):
-        package_name = simpledialog.askstring('Add Package', 'Package name:')
-        if not package_name:
-            return
-        try:
-            package_name = package_name.strip()
-            if not package_name:
-                return
-            self.gemstone_session_record.create_and_install_package(package_name)
-            self.gemstone_session_record.select_package(package_name)
-            self.selection_list.repopulate()
-            self.event_queue.publish('SelectedPackageChanged', origin=self)
-        except (GemstoneDomainException, GemstoneError) as error:
-            messagebox.showerror('Add Package', str(error))
-
-    def delete_package(self):
-        listbox = self.selection_list.selection_listbox
-        selection = listbox.curselection()
-        if not selection:
-            return
-        package_name = listbox.get(selection[0])
-        should_delete = messagebox.askyesno(
-            'Delete Package',
-            (
-                'Delete package %s and all classes in it? '
-                'This cannot be undone.'
-            )
-            % package_name,
-        )
-        if not should_delete:
-            return
-        try:
-            self.gemstone_session_record.delete_package(package_name)
-            self.selection_list.repopulate()
-            self.event_queue.publish('SelectedPackageChanged', origin=self)
-            self.event_queue.publish('SelectedClassChanged', origin=self)
-            self.event_queue.publish('SelectedCategoryChanged', origin=self)
-            self.event_queue.publish('MethodSelected', origin=self)
-        except (DomainException, GemstoneDomainException, GemstoneError) as error:
-            messagebox.showerror('Delete Package', str(error))
 
             
 class ClassSelection(FramedWidget):        
@@ -4786,8 +4862,12 @@ class ClassSelection(FramedWidget):
         self.hierarchy_tree.see(selected_item_id)
 
     def get_all_classes(self):
-        selected_package = self.gemstone_session_record.selected_package
-        return list(self.browser_window.gemstone_session_record.get_classes_in_category(selected_package))
+        selected_category = self.gemstone_session_record.selected_class_category()
+        return list(
+            self.browser_window.gemstone_session_record.get_classes_in_category(
+                selected_category
+            )
+        )
 
     def get_selected_class(self):
         return self.gemstone_session_record.selected_class
@@ -4799,7 +4879,10 @@ class ClassSelection(FramedWidget):
         class_category='',
     ):
         selected_package = self.gemstone_session_record.selected_package
-        if selection_source == 'hierarchy':
+        if (
+            selection_source == 'hierarchy'
+            and self.gemstone_session_record.browse_mode == 'categories'
+        ):
             selected_package = class_category
             if not selected_package:
                 try:
@@ -4855,9 +4938,17 @@ class ClassSelection(FramedWidget):
         menu.tk_popup(event.x_root, event.y_root)
 
     def add_class(self):
-        selected_package = self.gemstone_session_record.selected_package
-        if not selected_package:
-            messagebox.showerror('Add Class', 'Select a package first.')
+        selected_category = self.gemstone_session_record.selected_class_category()
+        if not selected_category:
+            category_label = 'dictionary'
+            if self.gemstone_session_record.browse_mode == 'categories':
+                category_label = 'category'
+            if self.gemstone_session_record.browse_mode == 'rowan':
+                category_label = 'Rowan package'
+            messagebox.showerror(
+                'Add Class',
+                'Select a %s first.' % category_label,
+            )
             return
         class_name = simpledialog.askstring('Add Class', 'Class name:')
         if class_name is None:
@@ -4879,7 +4970,6 @@ class ClassSelection(FramedWidget):
             self.gemstone_session_record.create_class(
                 class_name=class_name,
                 superclass_name=superclass_name,
-                in_dictionary=selected_package,
             )
             self.gemstone_session_record.select_class(class_name)
             self.selection_list.repopulate()
@@ -4894,21 +4984,29 @@ class ClassSelection(FramedWidget):
         if not selection:
             return
         class_name = listbox.get(selection[0])
-        selected_package = self.gemstone_session_record.selected_package
+        selected_category = self.gemstone_session_record.selected_class_category()
+        selected_category_label = 'dictionary'
+        if self.gemstone_session_record.browse_mode == 'categories':
+            selected_category_label = 'category'
+        if self.gemstone_session_record.browse_mode == 'rowan':
+            selected_category_label = 'Rowan package'
         should_delete = messagebox.askyesno(
             'Delete Class',
             (
-                'Delete class %s from package %s? '
+                'Delete class %s from %s %s? '
                 'This cannot be undone.'
             )
-            % (class_name, selected_package or 'UserGlobals'),
+            % (
+                class_name,
+                selected_category_label,
+                selected_category or 'UserGlobals',
+            ),
         )
         if not should_delete:
             return
         try:
             self.gemstone_session_record.delete_class(
                 class_name,
-                in_dictionary=selected_package,
             )
             self.selection_list.repopulate()
             self.refresh_class_definition()

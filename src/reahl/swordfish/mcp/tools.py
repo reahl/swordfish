@@ -372,7 +372,7 @@ def register_tools(
             package_name,
             'package_name',
         )
-        if not browser_session.package_exists(package_name):
+        if not browser_session.installed_package_named(package_name):
             raise DomainException(
                 (
                     'Unknown package_name. '
@@ -396,18 +396,8 @@ def register_tools(
                 browser_session,
                 package_name,
             )
-            if (
-                in_dictionary != 'UserGlobals'
-                and in_dictionary != package_name
-            ):
-                raise DomainException(
-                    (
-                        'Provide either in_dictionary or package_name, '
-                        'not both with different values.'
-                    )
-                )
-            return package_name, package_name
-        return in_dictionary, None
+            return in_dictionary, package_name
+        return in_dictionary, ''
 
     def validated_non_negative_integer_or_none(input_value, argument_name):
         if input_value is None:
@@ -668,6 +658,7 @@ def register_tools(
                     'action': 'For new module scaffolding, use explicit package tools.',
                     'tools': [
                         'gs_create_package',
+                        'gs_create_dictionary',
                         'gs_install_package',
                         'gs_create_class_in_package',
                         'gs_create_test_case_class',
@@ -959,7 +950,7 @@ def register_tools(
         )
 
     def install_ast_support_in_browser_session(browser_session):
-        if not browser_session.package_exists('Reahl-Swordfish'):
+        if not browser_session.installed_package_named('Reahl-Swordfish'):
             browser_session.create_and_install_package('Reahl-Swordfish')
         browser_session.run_code(ast_support_source())
         browser_session.run_code(
@@ -2059,6 +2050,13 @@ def register_tools(
             ],
             'tool_groups': {
                 'navigation': [
+                    'gs_list_categories',
+                    'gs_list_dictionaries',
+                    'gs_list_rowan_packages',
+                    'gs_rowan_installed',
+                    'gs_list_classes_in_category',
+                    'gs_list_classes_in_dictionary',
+                    'gs_list_classes_in_rowan_package',
                     'gs_find_classes',
                     'gs_find_selectors',
                     'gs_find_implementors',
@@ -2074,6 +2072,7 @@ def register_tools(
                 'safe_write': [
                     'gs_begin',
                     'gs_create_package',
+                    'gs_create_dictionary',
                     'gs_install_package',
                     'gs_compile_method',
                     'gs_create_class',
@@ -2181,7 +2180,7 @@ def register_tools(
             }
 
     @mcp_server.tool()
-    def gs_list_packages(connection_id):
+    def gs_list_categories(connection_id):
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -2189,7 +2188,7 @@ def register_tools(
             return {
                 'ok': True,
                 'connection_id': connection_id,
-                'packages': browser_session.list_packages(),
+                'categories': browser_session.list_categories(),
             }
         except GemstoneError as error:
             return {
@@ -2199,7 +2198,7 @@ def register_tools(
             }
 
     @mcp_server.tool()
-    def gs_list_classes(connection_id, package_name):
+    def gs_list_dictionaries(connection_id):
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -2207,14 +2206,152 @@ def register_tools(
             return {
                 'ok': True,
                 'connection_id': connection_id,
-                'package_name': package_name,
-                'classes': browser_session.list_classes(package_name),
+                'dictionaries': browser_session.list_dictionaries(),
             }
         except GemstoneError as error:
             return {
                 'ok': False,
                 'connection_id': connection_id,
                 'error': gemstone_error_payload(error),
+            }
+
+    @mcp_server.tool()
+    def gs_rowan_installed(connection_id):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'rowan_installed': browser_session.rowan_installed(),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+
+    @mcp_server.tool()
+    def gs_list_rowan_packages(connection_id):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            if not browser_session.rowan_installed():
+                raise DomainException('Rowan is not installed on this stone.')
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'packages': browser_session.list_rowan_packages(),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_list_classes_in_category(connection_id, category_name):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            category_name = validated_non_empty_string_stripped(
+                category_name,
+                'category_name',
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'category_name': category_name,
+                'classes': browser_session.list_classes_in_category(
+                    category_name
+                ),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_list_classes_in_dictionary(connection_id, dictionary_name):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            dictionary_name = validated_non_empty_string_stripped(
+                dictionary_name,
+                'dictionary_name',
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'dictionary_name': dictionary_name,
+                'classes': browser_session.list_classes_in_dictionary(
+                    dictionary_name
+                ),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_list_classes_in_rowan_package(connection_id, package_name):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            package_name = validated_non_empty_string_stripped(
+                package_name,
+                'package_name',
+            )
+            if not browser_session.rowan_installed():
+                raise DomainException('Rowan is not installed on this stone.')
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'package_name': package_name,
+                'classes': browser_session.list_classes_in_rowan_package(
+                    package_name
+                ),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
             }
 
     @mcp_server.tool()
@@ -2231,7 +2368,7 @@ def register_tools(
                 'ok': True,
                 'connection_id': connection_id,
                 'package_name': package_name,
-                'exists': browser_session.package_exists(package_name),
+                'exists': browser_session.installed_package_named(package_name),
             }
         except GemstoneError as error:
             return {
@@ -2274,8 +2411,58 @@ def register_tools(
                 'connection_id': connection_id,
                 'package_name': package_name,
                 'installed': True,
-                'visible_in_package_list': browser_session.package_exists(
+                'visible_in_package_list': browser_session.installed_package_named(
                     package_name
+                ),
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_create_dictionary(connection_id, dictionary_name):
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_create_dictionary is disabled. '
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = browser_session_for_policy(gemstone_session)
+        try:
+            dictionary_name = validated_non_empty_string_stripped(
+                dictionary_name,
+                'dictionary_name',
+            )
+            browser_session.create_dictionary(dictionary_name)
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'dictionary_name': dictionary_name,
+                'visible_in_dictionary_list': (
+                    dictionary_name in browser_session.list_dictionaries()
                 ),
             }
         except GemstoneError as error:
@@ -3862,7 +4049,6 @@ def register_tools(
         class_inst_var_names=None,
         pool_dictionary_names=None,
         in_dictionary='UserGlobals',
-        package_name='',
     ):
         if not allow_compile:
             return disabled_tool_response(
@@ -3885,10 +4071,9 @@ def register_tools(
                 superclass_name,
                 'superclass_name',
             )
-            in_dictionary, package_name = resolved_class_creation_target(
-                browser_session,
+            in_dictionary = validated_non_empty_string_stripped(
                 in_dictionary,
-                package_name,
+                'in_dictionary',
             )
             inst_var_names = validated_identifier_names(
                 inst_var_names,
@@ -3925,7 +4110,6 @@ def register_tools(
                 'class_inst_var_names': class_inst_var_names,
                 'pool_dictionary_names': pool_dictionary_names,
                 'in_dictionary': in_dictionary,
-                'package_name': package_name,
             }
         except GemstoneError as error:
             return {
@@ -3956,17 +4140,96 @@ def register_tools(
         class_var_names=None,
         class_inst_var_names=None,
         pool_dictionary_names=None,
+        in_dictionary='UserGlobals',
     ):
-        return gs_create_class(
-            connection_id=connection_id,
-            class_name=class_name,
-            superclass_name=superclass_name,
-            inst_var_names=inst_var_names,
-            class_var_names=class_var_names,
-            class_inst_var_names=class_inst_var_names,
-            pool_dictionary_names=pool_dictionary_names,
-            package_name=package_name,
-        )
+        if not allow_compile:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    'gs_create_class is disabled. '
+                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = browser_session_for_policy(gemstone_session)
+        try:
+            class_name = validated_identifier(class_name, 'class_name')
+            superclass_name = validated_identifier(
+                superclass_name,
+                'superclass_name',
+            )
+            package_name = validated_existing_package_name(
+                browser_session,
+                package_name,
+            )
+            in_dictionary = validated_non_empty_string_stripped(
+                in_dictionary,
+                'in_dictionary',
+            )
+            inst_var_names = validated_identifier_names(
+                inst_var_names,
+                'inst_var_names',
+            )
+            class_var_names = validated_identifier_names(
+                class_var_names,
+                'class_var_names',
+            )
+            class_inst_var_names = validated_identifier_names(
+                class_inst_var_names,
+                'class_inst_var_names',
+            )
+            pool_dictionary_names = validated_identifier_names(
+                pool_dictionary_names,
+                'pool_dictionary_names',
+            )
+            browser_session.create_class(
+                class_name=class_name,
+                superclass_name=superclass_name,
+                inst_var_names=inst_var_names,
+                class_var_names=class_var_names,
+                class_inst_var_names=class_inst_var_names,
+                pool_dictionary_names=pool_dictionary_names,
+                in_dictionary=in_dictionary,
+            )
+            browser_session.assign_class_to_package(
+                class_name,
+                package_name,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'superclass_name': superclass_name,
+                'inst_var_names': inst_var_names,
+                'class_var_names': class_var_names,
+                'class_inst_var_names': class_inst_var_names,
+                'pool_dictionary_names': pool_dictionary_names,
+                'in_dictionary': in_dictionary,
+                'package_name': package_name,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
 
     @mcp_server.tool()
     def gs_create_test_case_class(
@@ -4001,6 +4264,11 @@ def register_tools(
                 class_name=class_name,
                 in_dictionary=in_dictionary,
             )
+            if package_name:
+                browser_session.assign_class_to_package(
+                    class_name,
+                    package_name,
+                )
             return {
                 'ok': True,
                 'connection_id': connection_id,

@@ -1163,6 +1163,20 @@ def test_gs_create_package_is_disabled_by_default(tools_fixture):
 
 
 @with_fixtures(RestrictedToolsFixture)
+def test_gs_create_dictionary_is_disabled_by_default(tools_fixture):
+    create_dictionary = tools_fixture.registered_mcp_tools['gs_create_dictionary']
+    create_result = create_dictionary(
+        'missing-connection-id',
+        'ExampleDictionary',
+    )
+    assert not create_result['ok']
+    assert create_result['error']['message'] == (
+        'gs_create_dictionary is disabled. '
+        'Start swordfish --headless-mcp with --allow-compile to enable.'
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
 def test_gs_install_package_is_disabled_by_default(tools_fixture):
     install_result = tools_fixture.gs_install_package(
         'missing-connection-id',
@@ -1626,6 +1640,27 @@ def test_gs_create_class_in_package_checks_connection_when_allowed(
     )
     assert not create_result['ok']
     assert create_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_list_dictionaries_checks_connection(tools_fixture):
+    list_dictionaries = tools_fixture.registered_mcp_tools['gs_list_dictionaries']
+    list_result = list_dictionaries('missing-connection-id')
+    assert not list_result['ok']
+    assert list_result['error']['message'] == 'Unknown connection_id.'
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_list_classes_in_dictionary_checks_connection(tools_fixture):
+    list_classes_in_dictionary = tools_fixture.registered_mcp_tools[
+        'gs_list_classes_in_dictionary'
+    ]
+    list_result = list_classes_in_dictionary(
+        'missing-connection-id',
+        'UserGlobals',
+    )
+    assert not list_result['ok']
+    assert list_result['error']['message'] == 'Unknown connection_id.'
 
 
 @with_fixtures(AllowedToolsFixture)
