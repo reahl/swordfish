@@ -3403,6 +3403,7 @@ class Swordfish(tk.Tk):
         if visible:
             if not indicator_is_managed:
                 self.mcp_activity_indicator.grid()
+            self.mcp_activity_indicator.step(1)
             self.mcp_activity_indicator.start(10)
             if not self.mcp_activity_indicator_visible:
                 self.event_queue.publish(

@@ -1719,6 +1719,18 @@ def test_foreground_activity_feedback_controls_status_and_indicator(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_foreground_activity_feedback_advances_indicator_immediately(fixture):
+    """AI: Foreground activity should advance the indicator immediately so it remains visible during synchronous work."""
+    fixture.simulate_login()
+    fixture.app.begin_foreground_activity('Running tests...')
+    fixture.app.update_idletasks()
+
+    assert float(fixture.app.mcp_activity_indicator.cget('value')) > 0.0
+
+    fixture.app.end_foreground_activity()
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_indicator_is_hidden_when_mcp_server_is_running_but_idle(fixture):
     """AI: Idle startup status should not show a partially-filled progress indicator when MCP is merely running."""
     with fixture.app.embedded_mcp_server_controller.lock:
