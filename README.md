@@ -366,11 +366,12 @@ Docker script options:
 ./docker-start.sh --foreground --no-entry-point  # Root shell without entrypoint setup
 ./docker-start.sh --enable-ssh       # Start sshd in container (key-only auth)
 ./docker-start.sh --enable-ssh --ssh-pubkey-file ~/.ssh/id_ed25519.pub
+./docker-start.sh --gemstone-version 3.6.5
 ```
 
 The Docker setup includes:
 - Ubuntu 24.04 base with Python 3.12
-- GemStone/Smalltalk 3.7.4.3 environment
+- GemStone/Smalltalk environment (default `3.7.4.3`, configurable)
 - Python development tools (black, isort, pytest) in virtual environment
 - X11 forwarding for GUI applications
 - Volume mounts for live code editing
@@ -439,7 +440,14 @@ If you bypass the entrypoint (for example `--no-entry-point`), configure the env
 
 ```bash
 source ~/.local/venv/bin/activate
-. /opt/dev/gemstone/gemShell.sh 3.7.4.3
+. /opt/dev/gemstone/gemShell.sh "${GEMSTONE_VERSION:-3.7.4.3}"
+```
+
+To run and test specifically against GemStone `3.6.5`:
+
+```bash
+GEMSTONE_VERSION=3.6.5 ./docker-start.sh --no-cache --enable-ssh --ssh-pubkey-file ~/.ssh/id_ed25519.pub
+./docker-test-over-ssh.sh
 ```
 
 ```bash

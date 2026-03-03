@@ -7,6 +7,7 @@ FOREGROUND=""
 NO_ENTRYPOINT=""
 ENABLE_SSHD="${ENABLE_SSHD:-}"
 SSH_PUBKEY_FILE="${SF_SSH_PUBKEY_FILE:-}"
+GEMSTONE_VERSION="${GEMSTONE_VERSION:-3.7.4.3}"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -40,9 +41,18 @@ while [[ $# -gt 0 ]]; do
             echo "Using SSH public key from: $SSH_PUBKEY_FILE"
             shift 2
             ;;
+        --gemstone-version)
+            if [[ -z "${2:-}" ]]; then
+                echo "--gemstone-version requires a version (for example 3.6.5)"
+                exit 1
+            fi
+            GEMSTONE_VERSION="$2"
+            echo "Using GemStone version: $GEMSTONE_VERSION"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--no-cache] [--foreground] [--no-entry-point] [--enable-ssh] [--ssh-pubkey-file PATH]"
+            echo "Usage: $0 [--no-cache] [--foreground] [--no-entry-point] [--enable-ssh] [--ssh-pubkey-file PATH] [--gemstone-version VERSION]"
             exit 1
             ;;
     esac
@@ -52,6 +62,8 @@ done
 export HOST_UID=$(id -u)
 export HOST_GID=$(id -g)
 export HOST_USER=$(whoami)
+export GEMSTONE_VERSION
+echo "Building/running with GemStone version: $GEMSTONE_VERSION"
 
 if [[ "$ENABLE_SSHD" == "true" ]]; then
     export ENABLE_SSHD="true"

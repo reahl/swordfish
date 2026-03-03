@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        GEMSTONE_VERSION: "3.7.4.3"
+        GEMSTONE_VERSION: ${GEMSTONE_VERSION:-3.7.4.3}
         http_proxy: ${HTTP_PROXY:-}
         CACHE_DIR: ${CACHE_DIR:-../../cache/downloads}
       x-bake:
@@ -23,6 +23,7 @@ services:
       - PYTHONPATH=/workspace/src
       - BUILDKIT_PROGRESS=plain
       - ENABLE_SSHD=${ENABLE_SSHD:-false}
+      - GEMSTONE_VERSION=${GEMSTONE_VERSION:-3.7.4.3}
       - SSH_PORT=${SF_SSH_PORT:-2222}
       - SSH_BIND_ADDRESS=${SF_SSH_BIND_ADDRESS:-127.0.0.1}
       - SSH_AUTHORIZED_KEY=${SF_SSH_AUTHORIZED_KEY:-}
