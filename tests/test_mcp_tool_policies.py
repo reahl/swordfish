@@ -830,6 +830,17 @@ def test_gs_capabilities_exposes_ast_support_tool_group(tools_fixture):
 
 
 @with_fixtures(AllowedToolsFixture)
+def test_gs_capabilities_exposes_breakpoint_debugging_tools(tools_fixture):
+    capabilities_result = tools_fixture.gs_capabilities()
+    assert capabilities_result['ok'], capabilities_result
+    debugging_tools = capabilities_result['tool_groups']['debugging']
+    assert 'gs_breakpoint_set' in debugging_tools
+    assert 'gs_breakpoint_list' in debugging_tools
+    assert 'gs_breakpoint_clear' in debugging_tools
+    assert 'gs_breakpoint_clear_all' in debugging_tools
+
+
+@with_fixtures(AllowedToolsFixture)
 def test_gs_guidance_validates_intent(tools_fixture):
     guidance_result = tools_fixture.gs_guidance('unknown_intent')
     assert not guidance_result['ok']
@@ -861,6 +872,17 @@ def test_gs_guidance_navigation_recommends_method_ast(tools_fixture):
     workflow = guidance_result['guidance']['workflow']
     assert 'gs_method_ast' in workflow[2]['tools']
     assert 'gs_query_methods_by_ast_pattern' in workflow[2]['tools']
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_guidance_runtime_evidence_includes_breakpoint_tools(tools_fixture):
+    guidance_result = tools_fixture.gs_guidance('runtime_evidence')
+    assert guidance_result['ok'], guidance_result
+    workflow = guidance_result['guidance']['workflow']
+    assert workflow[0]['tools'] == ['gs_breakpoint_set', 'gs_breakpoint_list']
+    assert 'gs_breakpoint_clear or gs_breakpoint_clear_all' in workflow[3][
+        'tools'
+    ]
 
 
 @with_fixtures(AllowedToolsFixture)
@@ -1516,6 +1538,22 @@ def test_gs_debug_eval_requires_explicit_confirmation(tools_fixture):
     assert (
         'gs_debug_eval requires human approval for eval bypass.'
         in eval_result['error']['message']
+    )
+
+
+@with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
+def test_gs_breakpoint_set_validates_positive_source_offset(tools_fixture):
+    set_breakpoint = tools_fixture.registered_mcp_tools['gs_breakpoint_set']
+    result = set_breakpoint(
+        tools_fixture.connection_id,
+        'OrderLine',
+        'total',
+        0,
+        True,
+    )
+    assert not result['ok']
+    assert result['error']['message'] == (
+        'source_offset must be greater than zero.'
     )
 
 

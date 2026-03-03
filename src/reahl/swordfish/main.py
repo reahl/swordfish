@@ -412,6 +412,7 @@ class GemstoneSessionRecord:
         return f'{self.session_id}: {self.user_name} on {self.stone_name} at server {self.host_name}'
 
     def log_out(self):
+        self.gemstone_browser_session.clear_stored_breakpoints()
         self.gemstone_session.log_out()
 
     @property
@@ -1008,6 +1009,47 @@ class GemstoneSessionRecord:
     def debug_test_method(self, class_name, method_selector):
         self.require_write_access('debug_test_method')
         return self.gemstone_browser_session.debug_test_method(class_name, method_selector)
+    
+    def set_breakpoint(
+        self,
+        class_name,
+        show_instance_side,
+        method_selector,
+        source_offset,
+    ):
+        self.require_write_access('set_breakpoint')
+        return self.gemstone_browser_session.set_breakpoint(
+            class_name,
+            method_selector,
+            show_instance_side,
+            source_offset,
+        )
+
+    def clear_breakpoint(self, breakpoint_id):
+        self.require_write_access('clear_breakpoint')
+        return self.gemstone_browser_session.clear_breakpoint(breakpoint_id)
+
+    def clear_breakpoint_at(
+        self,
+        class_name,
+        show_instance_side,
+        method_selector,
+        source_offset,
+    ):
+        self.require_write_access('clear_breakpoint_at')
+        return self.gemstone_browser_session.clear_breakpoint_at(
+            class_name,
+            method_selector,
+            show_instance_side,
+            source_offset,
+        )
+
+    def list_breakpoints(self):
+        return self.gemstone_browser_session.list_breakpoints()
+
+    def clear_all_breakpoints(self):
+        self.require_write_access('clear_all_breakpoints')
+        return self.gemstone_browser_session.clear_all_breakpoints()
     # except GemstoneError as e:
     #     try:
     #         e.context.gciStepOverFromLevel(1)
@@ -1644,6 +1686,11 @@ class MainMenu(tk.Menu):
                 state=menu_state,
             )
             self.session_menu.add_command(
+                label='Breakpoints...',
+                command=self.show_breakpoints_dialog,
+                state=menu_state,
+            )
+            self.session_menu.add_command(
                 label='Logout',
                 command=self.parent.logout,
                 state=menu_state,
@@ -1716,6 +1763,9 @@ class MainMenu(tk.Menu):
 
     def show_run_dialog(self):
         self.parent.run_code()
+
+    def show_breakpoints_dialog(self):
+        self.parent.open_breakpoints_dialog()
 
     def start_mcp_server(self):
         self.parent.start_mcp_server_from_menu()
@@ -3119,6 +3169,137 @@ class SendersDialog(tk.Toplevel):
             pass
 
 
+class BreakpointsDialog(tk.Toplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.gemstone_session_record = parent.gemstone_session_record
+        self.title('Breakpoints')
+        self.geometry('760x320')
+        self.transient(parent)
+        if parent.winfo_viewable():
+            self.wait_visibility()
+        self.grab_set()
+
+        self.breakpoint_list = ttk.Treeview(
+            self,
+            columns=('Class', 'Side', 'Selector', 'Offset', 'Step Point'),
+            show='headings',
+            height=10,
+        )
+        self.breakpoint_list.heading('Class', text='Class')
+        self.breakpoint_list.heading('Side', text='Side')
+        self.breakpoint_list.heading('Selector', text='Method')
+        self.breakpoint_list.heading('Offset', text='Offset')
+        self.breakpoint_list.heading('Step Point', text='Step Point')
+        self.breakpoint_list.column('Class', width=180, anchor='w')
+        self.breakpoint_list.column('Side', width=80, anchor='center')
+        self.breakpoint_list.column('Selector', width=220, anchor='w')
+        self.breakpoint_list.column('Offset', width=100, anchor='e')
+        self.breakpoint_list.column('Step Point', width=100, anchor='e')
+        self.breakpoint_list.grid(
+            row=0,
+            column=0,
+            columnspan=3,
+            sticky='nsew',
+            padx=10,
+            pady=(10, 6),
+        )
+
+        self.clear_selected_button = ttk.Button(
+            self,
+            text='Clear Selected',
+            command=self.clear_selected_breakpoint,
+        )
+        self.clear_selected_button.grid(
+            row=1,
+            column=0,
+            padx=(10, 5),
+            pady=(0, 10),
+            sticky='w',
+        )
+        self.clear_all_button = ttk.Button(
+            self,
+            text='Clear All',
+            command=self.clear_all_breakpoints,
+        )
+        self.clear_all_button.grid(
+            row=1,
+            column=1,
+            padx=5,
+            pady=(0, 10),
+            sticky='w',
+        )
+        self.close_button = ttk.Button(
+            self,
+            text='Close',
+            command=self.destroy,
+        )
+        self.close_button.grid(
+            row=1,
+            column=2,
+            padx=(5, 10),
+            pady=(0, 10),
+            sticky='e',
+        )
+        self.columnconfigure(0, weight=1)
+        self.columnconfigure(1, weight=0)
+        self.columnconfigure(2, weight=0)
+        self.rowconfigure(0, weight=1)
+
+        self.refresh_breakpoints()
+
+    def refresh_breakpoints(self):
+        for row_id in self.breakpoint_list.get_children():
+            self.breakpoint_list.delete(row_id)
+        breakpoint_entries = self.gemstone_session_record.list_breakpoints()
+        for breakpoint_entry in breakpoint_entries:
+            side_label = 'instance'
+            if not breakpoint_entry['show_instance_side']:
+                side_label = 'class'
+            self.breakpoint_list.insert(
+                '',
+                'end',
+                iid=breakpoint_entry['breakpoint_id'],
+                values=(
+                    breakpoint_entry['class_name'],
+                    side_label,
+                    breakpoint_entry['method_selector'],
+                    breakpoint_entry['source_offset'],
+                    breakpoint_entry['step_point'],
+                ),
+            )
+
+    def selected_breakpoint_id(self):
+        selection = self.breakpoint_list.selection()
+        if not selection:
+            return None
+        return selection[0]
+
+    def clear_selected_breakpoint(self):
+        breakpoint_id = self.selected_breakpoint_id()
+        if breakpoint_id is None:
+            return
+        try:
+            self.gemstone_session_record.clear_breakpoint(breakpoint_id)
+            self.refresh_breakpoints()
+            self.parent.event_queue.publish('MethodsChanged')
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            messagebox.showerror('Breakpoints', str(domain_exception))
+        except GemstoneError as error:
+            messagebox.showerror('Breakpoints', str(error))
+
+    def clear_all_breakpoints(self):
+        try:
+            self.gemstone_session_record.clear_all_breakpoints()
+            self.refresh_breakpoints()
+            self.parent.event_queue.publish('MethodsChanged')
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            messagebox.showerror('Breakpoints', str(domain_exception))
+        except GemstoneError as error:
+            messagebox.showerror('Breakpoints', str(error))
+
+
 class Swordfish(tk.Tk):
     def __init__(
         self,
@@ -3692,6 +3873,11 @@ class Swordfish(tk.Tk):
 
     def open_senders_dialog(self, method_symbol=None):
         SendersDialog(self, method_name=method_symbol)
+
+    def open_breakpoints_dialog(self):
+        if self.gemstone_session_record is None:
+            return
+        BreakpointsDialog(self)
         
         
 class RunTab(ttk.Frame):
@@ -6115,6 +6301,11 @@ class CodePanel(tk.Frame):
         self.text_editor.tag_configure("smalltalk_comment", foreground="green")
         self.text_editor.tag_configure("smalltalk_string", foreground="orange")
         self.text_editor.tag_configure("highlight", background="darkgrey")
+        self.text_editor.tag_configure(
+            'breakpoint_marker',
+            background='#ff6b6b',
+            foreground='black',
+        )
 
         self.text_editor.bind('<Control-a>', self.select_all_text_editor)
         self.text_editor.bind('<Control-A>', self.select_all_text_editor)
@@ -6313,6 +6504,16 @@ class CodePanel(tk.Frame):
                 label='Close',
                 command=self.close_current_tab,
             )
+            self.current_context_menu.add_command(
+                label='Set Breakpoint Here',
+                command=self.set_breakpoint_at_cursor,
+                state=write_command_state,
+            )
+            self.current_context_menu.add_command(
+                label='Clear Breakpoint Here',
+                command=self.clear_breakpoint_at_cursor,
+                state=write_command_state,
+            )
             self.current_context_menu.add_separator()
         selected_text = self.selected_text()
         if selected_text:
@@ -6396,6 +6597,83 @@ class CodePanel(tk.Frame):
         if active_editor_tab is None:
             return
         active_editor_tab.method_editor.close_tab(active_editor_tab)
+
+    def source_offset_at_cursor(self):
+        return self.cursor_offset() + 1
+
+    def set_breakpoint_at_cursor(self):
+        method_context = self.method_context()
+        if method_context is None:
+            messagebox.showwarning(
+                'No Method Context',
+                'Select or open a method before setting a breakpoint.',
+            )
+            return
+        class_name, show_instance_side, method_selector = method_context
+        requested_source_offset = self.source_offset_at_cursor()
+        try:
+            breakpoint_entry = self.gemstone_session_record.set_breakpoint(
+                class_name,
+                show_instance_side,
+                method_selector,
+                requested_source_offset,
+            )
+            current_source = self.text_editor.get('1.0', 'end-1c')
+            self.apply_breakpoint_markers(current_source)
+            resolved_source_offset = breakpoint_entry['source_offset']
+            if resolved_source_offset != requested_source_offset:
+                requested_line, requested_column = (
+                    self.line_and_column_for_source_offset(
+                        requested_source_offset
+                    )
+                )
+                resolved_line, resolved_column = (
+                    self.line_and_column_for_source_offset(
+                        resolved_source_offset
+                    )
+                )
+                messagebox.showinfo(
+                    'Breakpoint Set',
+                    (
+                        'Requested line %s, column %s. '
+                        'Breakpoint set at nearest executable location '
+                        'line %s, column %s.'
+                    )
+                    % (
+                        requested_line,
+                        requested_column,
+                        resolved_line,
+                        resolved_column,
+                    ),
+                )
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            messagebox.showerror('Set Breakpoint', str(domain_exception))
+        except GemstoneError as error:
+            messagebox.showerror('Set Breakpoint', str(error))
+
+    def clear_breakpoint_at_cursor(self):
+        method_context = self.method_context()
+        if method_context is None:
+            messagebox.showwarning(
+                'No Method Context',
+                'Select or open a method before clearing a breakpoint.',
+            )
+            return
+        class_name, show_instance_side, method_selector = method_context
+        source_offset = self.source_offset_at_cursor()
+        try:
+            self.gemstone_session_record.clear_breakpoint_at(
+                class_name,
+                show_instance_side,
+                method_selector,
+                source_offset,
+            )
+            current_source = self.text_editor.get('1.0', 'end-1c')
+            self.apply_breakpoint_markers(current_source)
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            messagebox.showerror('Clear Breakpoint', str(domain_exception))
+        except GemstoneError as error:
+            messagebox.showerror('Clear Breakpoint', str(error))
 
     def jump_to_method_context(self):
         method_context = self.method_context()
@@ -7285,6 +7563,71 @@ class CodePanel(tk.Frame):
     def on_key_release(self, event):
         text = self.text_editor.get("1.0", tk.END)
         self.apply_syntax_highlighting(text)
+        self.apply_breakpoint_markers(text)
+
+    def line_and_column_for_source_offset(self, source_offset):
+        source_text = self.text_editor.get('1.0', 'end-1c')
+        source_length = len(source_text)
+        normalized_source_offset = source_offset
+        if normalized_source_offset < 1:
+            normalized_source_offset = 1
+        maximum_offset = source_length + 1
+        if normalized_source_offset > maximum_offset:
+            normalized_source_offset = maximum_offset
+        index_text = self.text_editor.index(
+            f'1.0 + {normalized_source_offset - 1} chars'
+        )
+        line_text, column_text = index_text.split('.')
+        return int(line_text), int(column_text) + 1
+
+    def breakpoint_entries_for_current_method(self):
+        if self.tab_key is None:
+            return []
+        gemstone_session_record = self.gemstone_session_record
+        if gemstone_session_record is None:
+            return []
+        class_name, show_instance_side, method_selector = self.tab_key
+        breakpoint_entries = gemstone_session_record.list_breakpoints()
+        matching_breakpoints = []
+        index = 0
+        breakpoint_count = len(breakpoint_entries)
+        while index < breakpoint_count:
+            breakpoint_entry = breakpoint_entries[index]
+            same_class = breakpoint_entry['class_name'] == class_name
+            same_side = (
+                breakpoint_entry['show_instance_side'] == show_instance_side
+            )
+            same_selector = (
+                breakpoint_entry['method_selector'] == method_selector
+            )
+            if same_class and same_side and same_selector:
+                matching_breakpoints.append(breakpoint_entry)
+            index += 1
+        return matching_breakpoints
+
+    def apply_breakpoint_markers(self, source):
+        self.text_editor.tag_remove('breakpoint_marker', '1.0', tk.END)
+        breakpoint_entries = self.breakpoint_entries_for_current_method()
+        source_length = len(source)
+        index = 0
+        breakpoint_count = len(breakpoint_entries)
+        while index < breakpoint_count:
+            source_offset = breakpoint_entries[index]['source_offset']
+            normalized_source_offset = source_offset
+            if normalized_source_offset < 1:
+                normalized_source_offset = 1
+            if normalized_source_offset > source_length and source_length > 0:
+                normalized_source_offset = source_length
+            if source_length > 0:
+                start_position = self.text_editor.index(
+                    f'1.0 + {normalized_source_offset - 1} chars'
+                )
+                self.text_editor.tag_add(
+                    'breakpoint_marker',
+                    start_position,
+                    f'{start_position} + 1c',
+                )
+            index += 1
 
     def refresh(self, source, mark=None):
         text_editor_was_disabled = (
@@ -7298,6 +7641,7 @@ class CodePanel(tk.Frame):
             position = self.text_editor.index(f"1.0 + {mark-1} chars")
             self.text_editor.tag_add("highlight", position, f"{position} + 1c")
         self.apply_syntax_highlighting(source)
+        self.apply_breakpoint_markers(source)
         self.cursor_position_indicator.update_position()
         if text_editor_was_disabled:
             self.text_editor.configure(state=tk.DISABLED)

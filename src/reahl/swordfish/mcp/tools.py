@@ -794,6 +794,14 @@ def register_tools(
             workflow = [
                 {
                     'step': 1,
+                    'action': 'Set breakpoints in suspected methods.',
+                    'tools': [
+                        'gs_breakpoint_set',
+                        'gs_breakpoint_list',
+                    ],
+                },
+                {
+                    'step': 2,
                     'action': 'Install and enable tracer once per image/session.',
                     'tools': [
                         'gs_tracer_install',
@@ -802,7 +810,7 @@ def register_tools(
                     ],
                 },
                 {
-                    'step': 2,
+                    'step': 3,
                     'action': 'Trace a selector and run relevant tests.',
                     'tools': [
                         'gs_tracer_trace_selector',
@@ -810,10 +818,14 @@ def register_tools(
                     ],
                 },
                 {
-                    'step': 3,
-                    'action': 'Read observed senders and untrace when done.',
+                    'step': 4,
+                    'action': (
+                        'Read observed senders, then clear breakpoints and '
+                        'untrace when done.'
+                    ),
                     'tools': [
                         'gs_tracer_find_observed_senders',
+                        'gs_breakpoint_clear or gs_breakpoint_clear_all',
                         'gs_tracer_untrace_selector',
                     ],
                 },
@@ -1700,6 +1712,9 @@ def register_tools(
             for frame in stack_frames
         ]
 
+    def serialized_breakpoints(browser_session):
+        return browser_session.list_breakpoints()
+
     def debug_payload(debug_session):
         return {
             'stack_frames': serialized_debug_frames(debug_session),
@@ -1854,6 +1869,7 @@ def register_tools(
 
         remove_debug_sessions_for_connection(connection_id)
         gemstone_session = remove_connection(connection_id)
+        GemstoneBrowserSession(gemstone_session).clear_stored_breakpoints()
         try:
             close_session(gemstone_session)
         except GemstoneError as error:
@@ -2068,6 +2084,20 @@ def register_tools(
                     'gs_method_structure_summary',
                     'gs_method_control_flow_summary',
                     'gs_query_methods_by_ast_pattern',
+                    'gs_breakpoint_list',
+                ],
+                'debugging': [
+                    'gs_debug_eval',
+                    'gs_debug_stack',
+                    'gs_debug_continue',
+                    'gs_debug_step_over',
+                    'gs_debug_step_into',
+                    'gs_debug_step_through',
+                    'gs_debug_stop',
+                    'gs_breakpoint_set',
+                    'gs_breakpoint_list',
+                    'gs_breakpoint_clear',
+                    'gs_breakpoint_clear_all',
                 ],
                 'safe_write': [
                     'gs_begin',
@@ -6098,6 +6128,136 @@ def register_tools(
             'stopped': False,
             'error': gemstone_error_payload(debug_session.exception),
         }
+
+    @mcp_server.tool()
+    def gs_breakpoint_set(
+        connection_id,
+        class_name,
+        method_selector,
+        source_offset,
+        show_instance_side=True,
+    ):
+        try:
+            class_name = validated_identifier(class_name, 'class_name')
+            method_selector = validated_selector(
+                method_selector,
+                'method_selector',
+            )
+            source_offset = validated_positive_integer(
+                source_offset,
+                'source_offset',
+            )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            breakpoint_entry = browser_session.set_breakpoint(
+                class_name,
+                method_selector,
+                show_instance_side,
+                source_offset,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'breakpoint': breakpoint_entry,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_breakpoint_list(connection_id):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        return {
+            'ok': True,
+            'connection_id': connection_id,
+            'breakpoints': serialized_breakpoints(browser_session),
+        }
+
+    @mcp_server.tool()
+    def gs_breakpoint_clear(connection_id, breakpoint_id):
+        try:
+            breakpoint_id = validated_non_empty_string(
+                breakpoint_id,
+                'breakpoint_id',
+            )
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            cleared_breakpoint = browser_session.clear_breakpoint(
+                breakpoint_id,
+            )
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'breakpoint': cleared_breakpoint,
+            }
+        except (DomainException, GemstoneApiError) as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+
+    @mcp_server.tool()
+    def gs_breakpoint_clear_all(connection_id):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            cleared_breakpoints = browser_session.clear_all_breakpoints()
+            return {
+                'ok': True,
+                'connection_id': connection_id,
+                'breakpoints': cleared_breakpoints,
+            }
+        except GemstoneError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
 
     @mcp_server.tool()
     def gs_eval(
