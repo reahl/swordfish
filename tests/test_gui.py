@@ -18,6 +18,7 @@ from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.mcp.integration_state import IntegratedSessionState
 from reahl.swordfish.main import BrowserWindow
+from reahl.swordfish.main import BreakpointsDialog
 from reahl.swordfish.main import DomainException
 from reahl.swordfish.main import EventQueue
 from reahl.swordfish.main import Explorer
@@ -98,6 +99,7 @@ class SwordfishGuiFixture(Fixture):
         self.mock_browser.list_classes_in_rowan_package.return_value = []
         self.mock_browser.list_method_categories.return_value = ['accessing', 'testing']
         self.mock_browser.list_methods.return_value = ['total', 'description']
+        self.mock_browser.list_breakpoints.return_value = []
         self.mock_browser.get_method_category.return_value = 'accessing'
         class_definitions = {
             'OrderLine': {
@@ -740,6 +742,8 @@ def test_text_context_menu_includes_save_and_close_for_open_tab(fixture):
     assert 'Jump to Class' in command_labels
     assert 'Save' in command_labels
     assert 'Close' in command_labels
+    assert 'Set Breakpoint Here' in command_labels
+    assert 'Clear Breakpoint Here' in command_labels
     assert 'Select All' in command_labels
     assert 'Copy' in command_labels
     assert 'Paste' in command_labels
@@ -754,6 +758,98 @@ def test_text_context_menu_includes_save_and_close_for_open_tab(fixture):
     assert 'Method Structure' not in command_labels
     assert 'Method Control Flow' not in command_labels
     assert 'Method AST' not in command_labels
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_set_breakpoint_command_from_text_context_menu_uses_method_context(
+    fixture,
+):
+    """AI: Setting a breakpoint from method editor context menu should target the selected method context and cursor offset."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+    fixture.session_record.set_breakpoint = Mock(
+        return_value={'breakpoint_id': 'bp-1'}
+    )
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    fixture.invoke_menu_command(menu, 'Set Breakpoint Here')
+
+    fixture.session_record.set_breakpoint.assert_called_once_with(
+        'OrderLine',
+        True,
+        'total',
+        ANY,
+    )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_source_displays_breakpoint_markers_for_existing_breakpoints(
+    fixture,
+):
+    """AI: Method editor should visibly tag source locations where breakpoints already exist."""
+    fixture.mock_browser.list_breakpoints.return_value = [
+        {
+            'breakpoint_id': 'bp-1',
+            'class_name': 'OrderLine',
+            'show_instance_side': True,
+            'method_selector': 'total',
+            'source_offset': 1,
+            'step_point': 1,
+        }
+    ]
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+    breakpoint_ranges = tab.code_panel.text_editor.tag_ranges('breakpoint_marker')
+
+    assert len(breakpoint_ranges) == 2
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_clear_breakpoint_command_from_text_context_menu_uses_method_context(
+    fixture,
+):
+    """AI: Clearing a breakpoint from method editor context menu should target the selected method context and cursor offset."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+    fixture.session_record.clear_breakpoint_at = Mock(
+        return_value={'breakpoint_id': 'bp-1'}
+    )
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    fixture.invoke_menu_command(menu, 'Clear Breakpoint Here')
+
+    fixture.session_record.clear_breakpoint_at.assert_called_once_with(
+        'OrderLine',
+        True,
+        'total',
+        ANY,
+    )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_set_breakpoint_reports_nearest_executable_location_when_snapped(
+    fixture,
+):
+    """AI: Setting a breakpoint should explain when the cursor location is snapped to a nearby executable offset."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+    tab.code_panel.text_editor.mark_set(tk.INSERT, '1.2')
+    fixture.session_record.set_breakpoint = Mock(
+        return_value={
+            'breakpoint_id': 'bp-1',
+            'class_name': 'OrderLine',
+            'show_instance_side': True,
+            'method_selector': 'total',
+            'source_offset': 8,
+            'step_point': 2,
+        }
+    )
+    with patch('reahl.swordfish.main.messagebox') as mock_messagebox:
+        tab.code_panel.set_breakpoint_at_cursor()
+
+    mock_messagebox.showinfo.assert_called_once()
+    showinfo_message = mock_messagebox.showinfo.call_args.args[1]
+    assert 'nearest executable location' in showinfo_message
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -1298,6 +1394,7 @@ class SwordfishAppFixture(Fixture):
         self.mock_browser.list_classes_in_rowan_package.return_value = []
         self.mock_browser.list_method_categories.return_value = ['accessing']
         self.mock_browser.list_methods.return_value = ['total']
+        self.mock_browser.list_breakpoints.return_value = []
         self.mock_browser.get_method_category.return_value = 'accessing'
 
         # AI: Chained mock for EditorTab.repopulate() which calls
@@ -1611,6 +1708,63 @@ def test_mcp_menu_contains_start_stop_and_config_commands(fixture):
     assert labels == ['Start MCP', 'Stop MCP', 'Configure MCP']
     assert mcp_menu.entrycget(0, 'state') == tk.NORMAL
     assert mcp_menu.entrycget(1, 'state') == tk.DISABLED
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_session_menu_contains_breakpoints_command_when_logged_in(fixture):
+    """AI: Session menu should expose a Breakpoints dialog action after login."""
+    fixture.simulate_login()
+    fixture.app.menu_bar.update_menus()
+
+    session_menu_labels = menu_command_labels(fixture.app.menu_bar.session_menu)
+    assert 'Breakpoints...' in session_menu_labels
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_session_menu_breakpoints_command_delegates_to_swordfish_handler(
+    fixture,
+):
+    """AI: Session menu Breakpoints action should delegate to Swordfish dialog handler."""
+    fixture.simulate_login()
+    session_menu = fixture.app.menu_bar.session_menu
+    with patch.object(fixture.app, 'open_breakpoints_dialog') as open_dialog:
+        invoke_menu_command_by_label(session_menu, 'Breakpoints...')
+    open_dialog.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_open_breakpoints_dialog_lists_active_breakpoints(fixture):
+    """AI: Opening Breakpoints dialog should list the active breakpoints from session record."""
+    fixture.simulate_login()
+    fixture.session_record.list_breakpoints = Mock(
+        return_value=[
+            {
+                'breakpoint_id': 'bp-1',
+                'class_name': 'OrderLine',
+                'show_instance_side': True,
+                'method_selector': 'total',
+                'source_offset': 42,
+                'step_point': 3,
+            }
+        ]
+    )
+
+    fixture.app.open_breakpoints_dialog()
+    fixture.app.update()
+    dialogs = [
+        child
+        for child in fixture.app.winfo_children()
+        if isinstance(child, BreakpointsDialog)
+    ]
+    assert dialogs
+    dialog = dialogs[0]
+    dialog_rows = dialog.breakpoint_list.get_children()
+    assert len(dialog_rows) == 1
+    row_values = dialog.breakpoint_list.item(dialog_rows[0], 'values')
+    assert row_values[0] == 'OrderLine'
+    assert row_values[1] == 'instance'
+    assert row_values[2] == 'total'
+    dialog.destroy()
 
 
 @with_fixtures(SwordfishAppFixture)

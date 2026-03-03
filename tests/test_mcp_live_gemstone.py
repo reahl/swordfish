@@ -391,6 +391,18 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_debug_stop(self):
         return self.registered_mcp_tools['gs_debug_stop']
 
+    def new_gs_breakpoint_set(self):
+        return self.registered_mcp_tools['gs_breakpoint_set']
+
+    def new_gs_breakpoint_list(self):
+        return self.registered_mcp_tools['gs_breakpoint_list']
+
+    def new_gs_breakpoint_clear(self):
+        return self.registered_mcp_tools['gs_breakpoint_clear']
+
+    def new_gs_breakpoint_clear_all(self):
+        return self.registered_mcp_tools['gs_breakpoint_clear_all']
+
     def evaluate_python_value(self, source):
         eval_result = self.gs_eval(
             self.connection_id,
@@ -3403,3 +3415,67 @@ def test_live_debug_session_step_over_then_continue_returns_result(browser_fixtu
     continue_outcome = debug_session.continue_running()
     assert continue_outcome.has_completed
     assert continue_outcome.result.to_py == 123
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_breakpoint_tools_set_list_and_clear_breakpoints(live_connection):
+    class_name = 'McpBreakpointClass%s' % uuid.uuid4().hex[:8]
+    selector = 'breakpointProbe%s' % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result['ok'], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result['ok'], create_class_result
+    compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        '%s ^1 + 2' % selector,
+        True,
+    )
+    assert compile_result['ok'], compile_result
+    set_result = live_connection.gs_breakpoint_set(
+        live_connection.connection_id,
+        class_name,
+        selector,
+        1,
+        True,
+    )
+    assert set_result['ok'], set_result
+    breakpoint_id = set_result['breakpoint']['breakpoint_id']
+    list_result = live_connection.gs_breakpoint_list(
+        live_connection.connection_id
+    )
+    assert list_result['ok'], list_result
+    breakpoint_entries = list_result['breakpoints']
+    assert any(
+        entry['breakpoint_id'] == breakpoint_id
+        for entry in breakpoint_entries
+    )
+    debug_eval_result = live_connection.gs_debug_eval(
+        live_connection.connection_id,
+        '%s new %s' % (class_name, selector),
+        reason='live-breakpoint-check',
+    )
+    assert debug_eval_result['ok'], debug_eval_result
+    assert not debug_eval_result['completed']
+    stop_result = live_connection.gs_debug_stop(
+        live_connection.connection_id,
+        debug_eval_result['debug_id'],
+    )
+    assert stop_result['ok'], stop_result
+    clear_result = live_connection.gs_breakpoint_clear(
+        live_connection.connection_id,
+        breakpoint_id,
+    )
+    assert clear_result['ok'], clear_result
+    clear_all_result = live_connection.gs_breakpoint_clear_all(
+        live_connection.connection_id
+    )
+    assert clear_all_result['ok'], clear_all_result
+    list_after_clear_result = live_connection.gs_breakpoint_list(
+        live_connection.connection_id
+    )
+    assert list_after_clear_result['ok'], list_after_clear_result
+    assert not list_after_clear_result['breakpoints']

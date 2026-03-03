@@ -4,6 +4,14 @@ import time
 
 from reahl.ptongue import GemstoneApiError, GemstoneError
 
+from reahl.swordfish.gemstone.breakpoint_registry import (
+    breakpoint_for_session,
+    clear_breakpoints_for_session,
+    find_breakpoint_for_method_step_point,
+    list_breakpoints_for_session,
+    record_breakpoint_for_session,
+    remove_breakpoint_for_session,
+)
 from reahl.swordfish.gemstone.session import DomainException, render_result
 from reahl.swordfish.mcp.ast_assets import (
     AST_SUPPORT_VERSION,
@@ -2231,6 +2239,176 @@ class GemstoneBrowserSession:
     def selector_reference_expression(self, method_selector):
         selector_literal = self.smalltalk_string_literal(method_selector)
         return '(%s asSymbol)' % selector_literal
+
+    def source_offsets_for_compiled_method(self, compiled_method):
+        source_offsets = compiled_method.perform('_sourceOffsets')
+        offsets = []
+        offset_count = source_offsets.size().to_py
+        index = 1
+        while index <= offset_count:
+            offsets.append(source_offsets.at(index).to_py)
+            index += 1
+        return offsets
+
+    def step_point_for_source_offset(self, offsets, source_offset):
+        if not offsets:
+            raise DomainException(
+                'Cannot set a breakpoint for a method with no source offsets.'
+            )
+        try:
+            numeric_source_offset = int(source_offset)
+        except (TypeError, ValueError):
+            raise DomainException('source_offset must be a positive integer.')
+        if numeric_source_offset < 1:
+            raise DomainException('source_offset must be a positive integer.')
+        selected_step_point = 1
+        selected_distance = abs(offsets[0] - numeric_source_offset)
+        index = 2
+        offset_count = len(offsets)
+        while index <= offset_count:
+            current_offset = offsets[index - 1]
+            current_distance = abs(current_offset - numeric_source_offset)
+            if current_distance < selected_distance:
+                selected_step_point = index
+                selected_distance = current_distance
+            index += 1
+        return selected_step_point
+
+    def list_breakpoints(self):
+        return list_breakpoints_for_session(self.gemstone_session)
+
+    def set_breakpoint(
+        self,
+        class_name,
+        method_selector,
+        show_instance_side,
+        source_offset,
+    ):
+        if not isinstance(show_instance_side, bool):
+            raise DomainException('show_instance_side must be a boolean.')
+        compiled_method = self.get_compiled_method(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        offsets = self.source_offsets_for_compiled_method(compiled_method)
+        step_point = self.step_point_for_source_offset(offsets, source_offset)
+        existing_breakpoint = find_breakpoint_for_method_step_point(
+            self.gemstone_session,
+            class_name,
+            show_instance_side,
+            method_selector,
+            step_point,
+        )
+        if existing_breakpoint is not None:
+            return existing_breakpoint
+        compiled_method.perform(
+            'setBreakAtStepPoint:',
+            self.gemstone_session.from_py(step_point),
+        )
+        selected_source_offset = offsets[step_point - 1]
+        return record_breakpoint_for_session(
+            self.gemstone_session,
+            class_name,
+            show_instance_side,
+            method_selector,
+            selected_source_offset,
+            step_point,
+        )
+
+    def clear_breakpoint(self, breakpoint_id):
+        breakpoint_entry = breakpoint_for_session(
+            self.gemstone_session,
+            breakpoint_id,
+        )
+        if breakpoint_entry is None:
+            raise DomainException('Unknown breakpoint_id.')
+        compiled_method = self.get_compiled_method(
+            breakpoint_entry['class_name'],
+            breakpoint_entry['method_selector'],
+            breakpoint_entry['show_instance_side'],
+        )
+        compiled_method.perform(
+            'disableBreakAtStepPoint:',
+            self.gemstone_session.from_py(breakpoint_entry['step_point']),
+        )
+        remove_breakpoint_for_session(self.gemstone_session, breakpoint_id)
+        return breakpoint_entry
+
+    def clear_breakpoint_at(
+        self,
+        class_name,
+        method_selector,
+        show_instance_side,
+        source_offset,
+    ):
+        try:
+            numeric_source_offset = int(source_offset)
+        except (TypeError, ValueError):
+            raise DomainException('source_offset must be a positive integer.')
+        if numeric_source_offset < 1:
+            raise DomainException('source_offset must be a positive integer.')
+        breakpoint_entries = self.list_breakpoints()
+        candidate_breakpoint = None
+        candidate_distance = None
+        index = 0
+        breakpoint_count = len(breakpoint_entries)
+        while index < breakpoint_count:
+            breakpoint_entry = breakpoint_entries[index]
+            same_class = breakpoint_entry['class_name'] == class_name
+            same_side = (
+                breakpoint_entry['show_instance_side'] == show_instance_side
+            )
+            same_selector = (
+                breakpoint_entry['method_selector'] == method_selector
+            )
+            if same_class and same_side and same_selector:
+                current_distance = abs(
+                    breakpoint_entry['source_offset'] - numeric_source_offset
+                )
+                no_candidate = candidate_breakpoint is None
+                closer_candidate = (
+                    candidate_distance is not None
+                    and current_distance < candidate_distance
+                )
+                if no_candidate or closer_candidate:
+                    candidate_breakpoint = breakpoint_entry
+                    candidate_distance = current_distance
+            index += 1
+        if candidate_breakpoint is None:
+            raise DomainException(
+                'No breakpoint exists for %s>>%s.'
+                % (class_name, method_selector)
+            )
+        return self.clear_breakpoint(candidate_breakpoint['breakpoint_id'])
+
+    def clear_all_breakpoints(self):
+        breakpoint_entries = self.list_breakpoints()
+        cleared_entries = []
+        index = 0
+        breakpoint_count = len(breakpoint_entries)
+        while index < breakpoint_count:
+            breakpoint_entry = breakpoint_entries[index]
+            compiled_method = self.get_compiled_method(
+                breakpoint_entry['class_name'],
+                breakpoint_entry['method_selector'],
+                breakpoint_entry['show_instance_side'],
+            )
+            compiled_method.perform(
+                'disableBreakAtStepPoint:',
+                self.gemstone_session.from_py(breakpoint_entry['step_point']),
+            )
+            removed_breakpoint = remove_breakpoint_for_session(
+                self.gemstone_session,
+                breakpoint_entry['breakpoint_id'],
+            )
+            if removed_breakpoint is not None:
+                cleared_entries.append(removed_breakpoint)
+            index += 1
+        return cleared_entries
+
+    def clear_stored_breakpoints(self):
+        return clear_breakpoints_for_session(self.gemstone_session)
 
     def evaluate_source(self, source):
         result = self.run_code(source)
