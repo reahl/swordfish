@@ -1686,11 +1686,6 @@ class MainMenu(tk.Menu):
                 state=menu_state,
             )
             self.session_menu.add_command(
-                label='Breakpoints...',
-                command=self.show_breakpoints_dialog,
-                state=menu_state,
-            )
-            self.session_menu.add_command(
                 label='Logout',
                 command=self.parent.logout,
                 state=menu_state,
@@ -1747,6 +1742,11 @@ class MainMenu(tk.Menu):
             self.file_menu.add_command(
                 label='Run',
                 command=self.show_run_dialog,
+                state=run_command_state,
+            )
+            self.file_menu.add_command(
+                label='Breakpoints...',
+                command=self.show_breakpoints_dialog,
                 state=run_command_state,
             )
             self.file_menu.add_separator()
@@ -3174,6 +3174,7 @@ class BreakpointsDialog(tk.Toplevel):
         super().__init__(parent)
         self.parent = parent
         self.gemstone_session_record = parent.gemstone_session_record
+        self.breakpoint_entries_by_id = {}
         self.title('Breakpoints')
         self.geometry('760x320')
         self.transient(parent)
@@ -3197,6 +3198,7 @@ class BreakpointsDialog(tk.Toplevel):
         self.breakpoint_list.column('Selector', width=220, anchor='w')
         self.breakpoint_list.column('Offset', width=100, anchor='e')
         self.breakpoint_list.column('Step Point', width=100, anchor='e')
+        self.breakpoint_list.bind('<Double-1>', self.on_breakpoint_double_click)
         self.breakpoint_list.grid(
             row=0,
             column=0,
@@ -3250,6 +3252,7 @@ class BreakpointsDialog(tk.Toplevel):
         self.refresh_breakpoints()
 
     def refresh_breakpoints(self):
+        self.breakpoint_entries_by_id = {}
         for row_id in self.breakpoint_list.get_children():
             self.breakpoint_list.delete(row_id)
         breakpoint_entries = self.gemstone_session_record.list_breakpoints()
@@ -3257,6 +3260,7 @@ class BreakpointsDialog(tk.Toplevel):
             side_label = 'instance'
             if not breakpoint_entry['show_instance_side']:
                 side_label = 'class'
+            self.breakpoint_entries_by_id[breakpoint_entry['breakpoint_id']] = breakpoint_entry
             self.breakpoint_list.insert(
                 '',
                 'end',
@@ -3269,6 +3273,27 @@ class BreakpointsDialog(tk.Toplevel):
                     breakpoint_entry['step_point'],
                 ),
             )
+
+    def on_breakpoint_double_click(self, event):
+        breakpoint_id = self.selected_breakpoint_id()
+        if breakpoint_id is None:
+            return
+        breakpoint_entry = self.breakpoint_entries_by_id.get(breakpoint_id)
+        if breakpoint_entry is None:
+            return
+        try:
+            self.parent.handle_sender_selection(
+                breakpoint_entry['class_name'],
+                breakpoint_entry['show_instance_side'],
+                breakpoint_entry['method_selector'],
+            )
+            if self.parent.browser_tab:
+                self.parent.notebook.select(self.parent.browser_tab)
+            self.destroy()
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            messagebox.showerror('Breakpoints', str(domain_exception))
+        except GemstoneError as error:
+            messagebox.showerror('Breakpoints', str(error))
 
     def selected_breakpoint_id(self):
         selection = self.breakpoint_list.selection()

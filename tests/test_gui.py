@@ -1711,24 +1711,24 @@ def test_mcp_menu_contains_start_stop_and_config_commands(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_session_menu_contains_breakpoints_command_when_logged_in(fixture):
-    """AI: Session menu should expose a Breakpoints dialog action after login."""
+def test_file_menu_contains_breakpoints_command_when_logged_in(fixture):
+    """AI: File menu should expose a Breakpoints dialog action after login."""
     fixture.simulate_login()
     fixture.app.menu_bar.update_menus()
 
-    session_menu_labels = menu_command_labels(fixture.app.menu_bar.session_menu)
-    assert 'Breakpoints...' in session_menu_labels
+    file_menu_labels = menu_command_labels(fixture.app.menu_bar.file_menu)
+    assert 'Breakpoints...' in file_menu_labels
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_session_menu_breakpoints_command_delegates_to_swordfish_handler(
+def test_file_menu_breakpoints_command_delegates_to_swordfish_handler(
     fixture,
 ):
-    """AI: Session menu Breakpoints action should delegate to Swordfish dialog handler."""
+    """AI: File menu Breakpoints action should delegate to Swordfish dialog handler."""
     fixture.simulate_login()
-    session_menu = fixture.app.menu_bar.session_menu
+    file_menu = fixture.app.menu_bar.file_menu
     with patch.object(fixture.app, 'open_breakpoints_dialog') as open_dialog:
-        invoke_menu_command_by_label(session_menu, 'Breakpoints...')
+        invoke_menu_command_by_label(file_menu, 'Breakpoints...')
     open_dialog.assert_called_once()
 
 
@@ -1765,6 +1765,52 @@ def test_open_breakpoints_dialog_lists_active_breakpoints(fixture):
     assert row_values[1] == 'instance'
     assert row_values[2] == 'total'
     dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_breakpoints_dialog_double_click_navigates_to_selected_method(
+    fixture,
+):
+    """AI: Double-clicking a breakpoint should navigate browser selection to that method and focus Browser tab."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    fixture.session_record.list_breakpoints = Mock(
+        return_value=[
+            {
+                'breakpoint_id': 'bp-1',
+                'class_name': 'OrderLine',
+                'show_instance_side': True,
+                'method_selector': 'total',
+                'source_offset': 42,
+                'step_point': 3,
+            }
+        ]
+    )
+
+    fixture.app.open_breakpoints_dialog()
+    fixture.app.update()
+    dialogs = [
+        child
+        for child in fixture.app.winfo_children()
+        if isinstance(child, BreakpointsDialog)
+    ]
+    assert dialogs
+    dialog = dialogs[0]
+
+    dialog.breakpoint_list.focus('bp-1')
+    dialog.breakpoint_list.selection_set('bp-1')
+    dialog.on_breakpoint_double_click(None)
+    fixture.app.update()
+
+    assert fixture.session_record.selected_class == 'OrderLine'
+    assert fixture.session_record.selected_method_symbol == 'total'
+    assert fixture.session_record.show_instance_side
+    selected_tab_text = fixture.app.notebook.tab(
+        fixture.app.notebook.select(),
+        'text',
+    )
+    assert selected_tab_text == 'Browser'
 
 
 @with_fixtures(SwordfishAppFixture)
