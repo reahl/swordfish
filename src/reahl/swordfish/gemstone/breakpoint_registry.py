@@ -1,6 +1,5 @@
 import uuid
 
-
 breakpoints_by_session_key = {}
 breakpoints_by_id = {}
 session_key_by_breakpoint_id = {}
