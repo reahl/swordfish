@@ -871,6 +871,30 @@ def test_text_context_menu_includes_run_and_inspect_for_selected_text_in_open_ta
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_text_context_menu_find_references_uses_selected_class_name(
+    fixture,
+):
+    """AI: Find References from method source should reuse class search for the selected class name."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ('OrderLine', True, 'total')
+    ]
+    tab.code_panel.application.open_find_dialog_for_class = Mock()
+    tab.code_panel.text_editor.delete('1.0', 'end')
+    tab.code_panel.text_editor.insert('1.0', 'OrderLine')
+    tab.code_panel.text_editor.tag_add(tk.SEL, '1.0', '1.9')
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    command_labels = menu_command_labels(menu)
+    assert 'Find References' in command_labels
+    fixture.invoke_menu_command(menu, 'Find References')
+
+    tab.code_panel.application.open_find_dialog_for_class.assert_called_once_with(
+        'OrderLine',
+    )
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_inspect_command_from_method_source_context_menu_opens_inspector_for_selection(
     fixture,
 ):
@@ -2883,6 +2907,24 @@ def test_find_dialog_class_search_populates_result_list(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_open_find_dialog_for_class_prefills_and_executes_class_search(
+    fixture,
+):
+    """AI: Opening class references should reuse Find dialog with class mode and immediate search."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_classes.return_value = ['OrderLine']
+
+    with patch.object(FindDialog, 'wait_visibility'):
+        dialog = fixture.app.open_find_dialog_for_class('OrderLine')
+
+    assert dialog is not None
+    assert dialog.search_type.get() == 'class'
+    assert dialog.find_entry.get() == 'OrderLine'
+    assert list(dialog.results_listbox.get(0, 'end')) == ['OrderLine']
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_find_dialog_double_click_navigates_browser_to_selected_class(fixture):
     """Double-clicking a class name in the FindDialog results navigates the
     browser to that class by selecting its package and class in the columns."""
@@ -4023,6 +4065,96 @@ def test_right_click_on_class_runs_all_tests_and_shows_result(fixture):
 
     fixture.mock_browser.run_gemstone_tests.assert_called_once_with('OrderLine')
     mock_msgbox.showinfo.assert_called_once()
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_class_list_context_menu_find_references_uses_selected_class_name(
+    fixture,
+):
+    """AI: Find References from class list context menu should open class search for the clicked class."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        'Kernel',
+    )
+    classes_widget = fixture.browser_window.classes_widget
+    classes_widget.browser_window.application.open_find_dialog_for_class = Mock()
+    class_listbox = classes_widget.selection_list.selection_listbox
+    class_index = list(class_listbox.get(0, 'end')).index('OrderLine')
+    class_item_box = class_listbox.bbox(class_index)
+    assert class_item_box is not None
+
+    classes_widget.show_context_menu(
+        types.SimpleNamespace(
+            widget=class_listbox,
+            y=class_item_box[1] + 1,
+            x_root=1,
+            y_root=1,
+        )
+    )
+    menu = classes_widget.current_context_menu
+    command_labels = menu_command_labels(menu)
+    assert 'Find References' in command_labels
+    fixture.invoke_menu_command(menu, 'Find References')
+
+    classes_widget.browser_window.application.open_find_dialog_for_class.assert_called_once_with(
+        'OrderLine',
+    )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_class_hierarchy_context_menu_find_references_uses_selected_class_name(
+    fixture,
+):
+    """AI: Find References from hierarchy context menu should open class search for the clicked class."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        'Kernel',
+    )
+    fixture.select_in_listbox(
+        fixture.browser_window.classes_widget.selection_list.selection_listbox,
+        'OrderLine',
+    )
+    classes_widget = fixture.browser_window.classes_widget
+    classes_widget.browser_window.application.open_find_dialog_for_class = Mock()
+    classes_widget.classes_notebook.select(classes_widget.hierarchy_frame)
+    fixture.root.update()
+    tree = classes_widget.hierarchy_tree
+
+    def child_with_text(parent_item, expected_text):
+        child_item_ids = tree.get_children(parent_item)
+        for child_item_id in child_item_ids:
+            if tree.item(child_item_id, 'text') == expected_text:
+                return child_item_id
+        raise AssertionError(
+            f'Could not find {expected_text} under {parent_item}.',
+        )
+
+    object_item = child_with_text('', 'Object')
+    order_item = child_with_text(object_item, 'Order')
+    order_line_item = child_with_text(order_item, 'OrderLine')
+    tree.selection_set(order_line_item)
+    tree.focus(order_line_item)
+    tree.see(order_line_item)
+    fixture.root.update()
+    order_line_box = tree.bbox(order_line_item)
+    assert order_line_box not in [None, '']
+
+    classes_widget.show_hierarchy_context_menu(
+        types.SimpleNamespace(
+            widget=tree,
+            y=order_line_box[1] + 1,
+            x_root=1,
+            y_root=1,
+        )
+    )
+    menu = classes_widget.current_context_menu
+    command_labels = menu_command_labels(menu)
+    assert 'Find References' in command_labels
+    fixture.invoke_menu_command(menu, 'Find References')
+
+    classes_widget.browser_window.application.open_find_dialog_for_class.assert_called_once_with(
+        'OrderLine',
+    )
 
 
 @with_fixtures(SwordfishAppFixture)

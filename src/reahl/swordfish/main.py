@@ -3890,8 +3890,31 @@ class Swordfish(tk.Tk):
         self.inspector_tab.destroy()
         self.inspector_tab = None
         
-    def open_find_dialog(self):
-        FindDialog(self)
+    def open_find_dialog(
+        self,
+        search_type='class',
+        search_query='',
+        run_search=False,
+    ):
+        dialog = FindDialog(self)
+        if search_type in ['class', 'method']:
+            dialog.search_type.set(search_type)
+        if search_query:
+            dialog.find_entry.delete(0, tk.END)
+            dialog.find_entry.insert(0, search_query)
+        if run_search:
+            dialog.find_text()
+        return dialog
+
+    def open_find_dialog_for_class(self, class_name):
+        selected_class_name = (class_name or '').strip()
+        if not selected_class_name:
+            return None
+        return self.open_find_dialog(
+            search_type='class',
+            search_query=selected_class_name,
+            run_search=True,
+        )
         
     def open_implementors_dialog(self, method_symbol=None):
         ImplementorsDialog(self, method_name=method_symbol)
@@ -4802,6 +4825,7 @@ class ClassSelection(FramedWidget):
         self.hierarchy_item_by_class_name = {}
         self.synchronizing_hierarchy_selection = False
         self.hierarchy_tree.bind('<<TreeviewSelect>>', self.repopulate_categories)
+        self.hierarchy_tree.bind('<Button-3>', self.show_hierarchy_context_menu)
         self.classes_notebook.bind(
             '<<NotebookTabChanged>>',
             self.handle_classes_notebook_changed,
@@ -4896,6 +4920,8 @@ class ClassSelection(FramedWidget):
         self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
 
         self.selection_list.selection_listbox.bind('<Button-3>', self.show_context_menu)
+        self.current_context_menu = None
+        self.context_menu_class_name = None
 
     def switch_side(self):
         if self.syncing_side_selection:
@@ -5117,12 +5143,12 @@ class ClassSelection(FramedWidget):
 
     def show_context_menu(self, event):
         listbox = self.selection_list.selection_listbox
-        has_selection = listbox.size() > 0
-        if has_selection:
-            idx = listbox.nearest(event.y)
-            listbox.selection_clear(0, 'end')
-            listbox.selection_set(idx)
-        menu = tk.Menu(self, tearoff=0)
+        selected_class_name = self.class_name_from_list_context_event(event)
+        self.context_menu_class_name = selected_class_name
+        has_selection = selected_class_name is not None
+        if self.current_context_menu:
+            self.current_context_menu.unpost()
+        menu = self.current_context_menu = tk.Menu(self, tearoff=0)
         read_only = self.browser_window.application.integrated_session_state.is_mcp_busy()
         write_command_state = tk.NORMAL
         run_command_state = tk.NORMAL
@@ -5143,9 +5169,58 @@ class ClassSelection(FramedWidget):
             state=delete_command_state,
         )
         menu.add_command(
+            label='Find References',
+            command=self.find_references_for_selected_class,
+            state=tk.NORMAL if has_selection else tk.DISABLED,
+        )
+        menu.add_command(
             label='Run All Tests',
             command=self.run_all_tests,
             state=run_command_state,
+        )
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def class_name_from_list_context_event(self, event):
+        listbox = self.selection_list.selection_listbox
+        if listbox.size() <= 0:
+            return None
+        selected_index = listbox.nearest(event.y)
+        listbox.selection_clear(0, 'end')
+        listbox.selection_set(selected_index)
+        return listbox.get(selected_index)
+
+    def class_name_from_hierarchy_context_event(self, event):
+        tree = self.hierarchy_tree
+        selected_item_id = tree.identify_row(event.y)
+        if not selected_item_id:
+            selected_items = tree.selection()
+            if selected_items:
+                selected_item_id = selected_items[0]
+        if not selected_item_id:
+            return None
+        tree.selection_set(selected_item_id)
+        tree.focus(selected_item_id)
+        return tree.item(selected_item_id, 'text')
+
+    def find_references_for_selected_class(self):
+        class_name = self.context_menu_class_name
+        if class_name is None:
+            class_name = self.gemstone_session_record.selected_class
+        if not class_name:
+            return
+        self.browser_window.application.open_find_dialog_for_class(class_name)
+
+    def show_hierarchy_context_menu(self, event):
+        selected_class_name = self.class_name_from_hierarchy_context_event(event)
+        self.context_menu_class_name = selected_class_name
+        has_selection = selected_class_name is not None
+        if self.current_context_menu:
+            self.current_context_menu.unpost()
+        menu = self.current_context_menu = tk.Menu(self, tearoff=0)
+        menu.add_command(
+            label='Find References',
+            command=self.find_references_for_selected_class,
+            state=tk.NORMAL if has_selection else tk.DISABLED,
         )
         menu.tk_popup(event.x_root, event.y_root)
 
@@ -6561,6 +6636,10 @@ class CodePanel(tk.Frame):
             label='Find Senders',
             command=self.open_senders_from_source,
         )
+        self.current_context_menu.add_command(
+            label='Find References',
+            command=self.find_references_from_source,
+        )
         self.current_context_menu.add_separator()
         self.current_context_menu.add_command(
             label='Apply Rename Method',
@@ -6770,6 +6849,27 @@ class CodePanel(tk.Frame):
             )
             return
         self.application.open_senders_dialog(method_symbol=selector)
+
+    def class_name_for_reference_lookup(self):
+        selected_text = self.selected_text()
+        candidate = selected_text if selected_text else self.word_under_cursor()
+        candidate = (candidate or '').strip()
+        if not candidate:
+            return None
+        class_name_match = re.search(r'[A-Za-z_]\w*', candidate)
+        if class_name_match is None:
+            return None
+        return class_name_match.group(0)
+
+    def find_references_from_source(self):
+        class_name = self.class_name_for_reference_lookup()
+        if class_name is None:
+            messagebox.showwarning(
+                'No Class Name',
+                'Could not determine a class name at the current cursor position.',
+            )
+            return
+        self.application.open_find_dialog_for_class(class_name)
 
     def run_method_analysis(self, analysis_function, title):
         method_context = self.method_context()
