@@ -27,35 +27,40 @@ class FakeGemstoneString:
         self.to_py = value
 
 
+class FakeGemstoneSession:
+    def from_py(self, value):
+        return value
+
+
 class FakeGemstoneMethod:
-    def __init__(self, source, source_offsets, previous_step_point, step_point_offset):
+    def __init__(self, source, source_offsets, step_point_for_ip):
         self.source = source
         self.source_offsets = source_offsets
-        self.previous_step_point = previous_step_point
-        self.step_point_offset = step_point_offset
+        self.step_point_for_ip = step_point_for_ip
 
     def perform(self, selector, *args):
         if selector == '_sourceOffsets':
             return FakeGemstoneArray(self.source_offsets)
-        if selector == '_previousStepPointForIp:':
-            return FakeGemstoneNumber(self.previous_step_point)
-        if selector == '_stepPointOffset':
-            return FakeGemstoneNumber(self.step_point_offset)
+        if selector == '_stepPointForIp:level:useNext:':
+            return FakeGemstoneNumber(self.step_point_for_ip)
         raise AssertionError('AI: Unexpected selector: %s' % selector)
 
     def fullSource(self):
         return FakeGemstoneString(self.source)
 
 
-def test_step_point_offset_prefers_current_step_point_index_when_available():
-    """AI: A block frame should highlight the active halt send instead of a later step point."""
+def test_step_point_offset_uses_ip_and_level_to_find_source_position():
+    """AI: The source marker position is found by delegating to GemStone's own
+    _stepPointForIp:level:useNext: which handles the next-vs-previous distinction
+    between the top frame and deeper frames."""
     source = 'ifTrue: [ accounts halt addAll: (accounts select: [ :each | each == self ]) ]'
     frame = GemstoneStackFrame.__new__(GemstoneStackFrame)
+    frame.gemstone_session = FakeGemstoneSession()
+    frame.level = 2
     frame.gemstone_method = FakeGemstoneMethod(
         source=source,
         source_offsets=[10, 11, 90, 20, 31, 76],
-        previous_step_point=6,
-        step_point_offset=4,
+        step_point_for_ip=4,
     )
     frame.ip_offset = FakeGemstoneNumber(96)
 
