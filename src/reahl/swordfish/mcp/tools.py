@@ -2093,6 +2093,7 @@ def register_tools(
                     'gs_debug_step_over',
                     'gs_debug_step_into',
                     'gs_debug_step_through',
+                    'gs_debug_restart_frame',
                     'gs_debug_stop',
                     'gs_breakpoint_set',
                     'gs_breakpoint_list',
@@ -6097,6 +6098,22 @@ def register_tools(
         if error_response:
             return error_response
         action_outcome = debug_session.step_through(level)
+        return debug_action_response(
+            connection_id,
+            debug_id,
+            debug_session,
+            action_outcome,
+        )
+
+    @mcp_server.tool()
+    def gs_debug_restart_frame(connection_id, debug_id, level=1):
+        debug_session, error_response = get_active_debug_session(
+            connection_id,
+            debug_id,
+        )
+        if error_response:
+            return error_response
+        action_outcome = debug_session.restart_frame(level)
         return debug_action_response(
             connection_id,
             debug_id,
