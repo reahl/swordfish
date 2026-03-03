@@ -27,14 +27,12 @@ class GemstoneStackFrame:
     @property
     def step_point_offset(self):
         offsets = self.gemstone_method.perform('_sourceOffsets')
-        # AI: Prefer current step point when GemStone reports one for this frame.
-        step_point = self.gemstone_method.perform('_stepPointOffset')
-        if step_point.to_py < 1:
-            # AI: Fall back for frames where current step point is unavailable.
-            step_point = self.gemstone_method.perform(
-                '_previousStepPointForIp:',
-                self.ip_offset,
-            )
+        step_point = self.gemstone_method.perform(
+            '_stepPointForIp:level:useNext:',
+            self.ip_offset,
+            self.gemstone_session.from_py(self.level),
+            self.gemstone_session.from_py(False),
+        )
         bounded_step_point = step_point.min(offsets.size())
         offset = offsets.at(bounded_step_point).to_py
         source = self.method_source
