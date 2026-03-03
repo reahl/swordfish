@@ -156,6 +156,21 @@ class GemstoneDebugSession:
     def step_through_result(self, level):
         return self.exception.context.gciStepThruFromLevel(level)
 
+    def restart_frame(self, level):
+        try:
+            self.restart_frame_result(level)
+            return GemstoneDebugActionOutcome(False)
+        except GemstoneError as error:
+            self.exception = error
+            return GemstoneDebugActionOutcome(False)
+
+    def restart_frame_result(self, level):
+        session = self.exception.context.session
+        return self.exception.context.perform(
+            '_trimStackToLevel:',
+            session.from_py(level),
+        )
+
     def stop(self):
         return self.debug_action_outcome(self.stop_result)
 

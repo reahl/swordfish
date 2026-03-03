@@ -2492,6 +2492,91 @@ def test_debugger_active_controls_keep_close_on_right(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_debugger_active_controls_place_restart_between_through_and_stop(
+    fixture,
+):
+    """AI: Restart action should be in stepping flow between Through and Stop."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+
+    fixture.app.run_code('1/0')
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    debugger_tab = fixture.app.debugger_tab
+    through_column = int(
+        debugger_tab.debugger_controls.through_button.grid_info()['column']
+    )
+    restart_column = int(
+        debugger_tab.debugger_controls.restart_button.grid_info()['column']
+    )
+    stop_column = int(
+        debugger_tab.debugger_controls.stop_button.grid_info()['column']
+    )
+
+    assert through_column < restart_column
+    assert restart_column < stop_column
+    assert debugger_tab.debugger_controls.restart_button.cget('text') == 'Restart'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugger_restart_button_dispatches_to_restart_frame(fixture):
+    """AI: Restart debugger control should invoke restart of the selected frame."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+
+    fixture.app.run_code('1/0')
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    debugger_tab = fixture.app.debugger_tab
+    with patch.object(debugger_tab, 'restart_frame') as restart_frame:
+        debugger_tab.debugger_controls.restart_button.invoke()
+
+    restart_frame.assert_called_once_with()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugger_restart_frame_uses_selected_level_with_debug_session(
+    fixture,
+):
+    """AI: Restart frame action should restart exactly the selected frame level and apply the resulting outcome."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+
+    fixture.app.run_code('1/0')
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    debugger_tab = fixture.app.debugger_tab
+    action_outcome = Mock()
+    with patch.object(
+        debugger_tab,
+        'selected_frame_level',
+        return_value=3,
+    ):
+        with patch.object(
+            debugger_tab.debug_session,
+            'restart_frame',
+            return_value=action_outcome,
+        ) as restart_frame:
+            with patch.object(
+                debugger_tab,
+                'apply_debug_action_outcome',
+            ) as apply_debug_action_outcome:
+                debugger_tab.restart_frame()
+
+    restart_frame.assert_called_once_with(3)
+    apply_debug_action_outcome.assert_called_once_with(action_outcome)
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_completed_debugger_keeps_close_in_top_action_row(fixture):
     """AI: Completed debugger view keeps close action above result content for layout consistency."""
     fixture.simulate_login()

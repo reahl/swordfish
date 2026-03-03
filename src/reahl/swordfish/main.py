@@ -8579,6 +8579,12 @@ class DebuggerWindow(ttk.PanedWindow):
         if frame_level:
             action_outcome = self.debug_session.step_through(frame_level)
             self.apply_debug_action_outcome(action_outcome)
+
+    def restart_frame(self):
+        frame_level = self.selected_frame_level()
+        if frame_level:
+            outcome = self.debug_session.restart_frame(frame_level)
+            self.apply_debug_action_outcome(outcome)
             
     def stop(self):
         frame_level = self.selected_frame_level()
@@ -8648,23 +8654,26 @@ class DebuggerControls(ttk.Frame):
         self.through_button = ttk.Button(self, text="Through", command=self.handle_through)
         self.through_button.grid(row=0, column=3, padx=5, pady=5)
 
+        self.restart_button = ttk.Button(self, text='Restart', command=self.handle_restart)
+        self.restart_button.grid(row=0, column=4, padx=5, pady=5)
+
         self.stop_button = ttk.Button(self, text="Stop", command=self.handle_stop)
-        self.stop_button.grid(row=0, column=4, padx=5, pady=5)
+        self.stop_button.grid(row=0, column=5, padx=5, pady=5)
 
         self.browse_button = ttk.Button(
             self,
             text='Browse Method',
             command=self.handle_browse,
         )
-        self.browse_button.grid(row=0, column=5, padx=5, pady=5)
+        self.browse_button.grid(row=0, column=6, padx=5, pady=5)
 
-        self.columnconfigure(6, weight=1)
+        self.columnconfigure(7, weight=1)
         self.close_button = ttk.Button(
             self,
             text='Close',
             command=self.handle_close,
         )
-        self.close_button.grid(row=0, column=7, padx=5, pady=5, sticky='e')
+        self.close_button.grid(row=0, column=8, padx=5, pady=5, sticky='e')
 
     def handle_continue(self):
         self.debugger.continue_running()
@@ -8677,6 +8686,9 @@ class DebuggerControls(ttk.Frame):
         
     def handle_through(self):
         self.debugger.step_through()
+
+    def handle_restart(self):
+        self.debugger.restart_frame()
 
     def handle_stop(self):
         self.debugger.stop()
