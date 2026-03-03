@@ -12,6 +12,16 @@ ENABLE_SSHD=${ENABLE_SSHD:-false}
 SSH_PORT=${SSH_PORT:-2222}
 SSH_BIND_ADDRESS=${SSH_BIND_ADDRESS:-127.0.0.1}
 SSH_AUTHORIZED_KEY=${SSH_AUTHORIZED_KEY:-}
+GEMSTONE_VERSION=${GEMSTONE_VERSION:-}
+
+if [ -z "$GEMSTONE_VERSION" ]; then
+    DETECTED_GEMSTONE_DIR=$(ls -d /opt/gemstone/GemStone* 2>/dev/null | head -1 || true)
+    if [ -n "$DETECTED_GEMSTONE_DIR" ]; then
+        GEMSTONE_VERSION=$(basename "$DETECTED_GEMSTONE_DIR" | sed 's/^GemStone//')
+    else
+        GEMSTONE_VERSION=3.7.4.3
+    fi
+fi
 
 # Create group if it doesn't exist
 if ! getent group "$USERNAME" >/dev/null 2>&1; then
@@ -35,25 +45,26 @@ chown "$USERNAME:$USERNAME" "$USER_HOME"
 
 # Set up GemStone environment for the user
 if [ -f /opt/dev/gemstone/defineGemStoneEnvironment.sh ]; then
-    if [ ! -f "$USER_HOME/.gemstone_setup_done" ]; then
+    if [ ! -f "$USER_HOME/.gemstone_setup_done_${GEMSTONE_VERSION}" ]; then
         echo "Setting up GemStone environment for $USERNAME"
-        gosu "$USERNAME" /opt/dev/gemstone/defineGemStoneEnvironment.sh 3.7.4.3
+        gosu "$USERNAME" /opt/dev/gemstone/defineGemStoneEnvironment.sh "$GEMSTONE_VERSION"
         # Also add the GemStone environment directly to the user's profile for immediate access
+        sed -i '/^VERSION=.*$/d' "$USER_HOME/.profile" 2>/dev/null || true
+        sed -i '/\/opt\/dev\/gemstone\/gemShell\.sh /d' "$USER_HOME/.profile" 2>/dev/null || true
         if ! grep -q "GEMSHELL" "$USER_HOME/.profile" 2>/dev/null; then
             echo "" >> "$USER_HOME/.profile"
             echo "# GemStone Environment" >> "$USER_HOME/.profile"
             echo "echo GEMSHELL: /opt/dev/gemstone/gemShell.sh" >> "$USER_HOME/.profile"
-            echo "VERSION=3.7.4.3" >> "$USER_HOME/.profile"
-            echo ". /opt/dev/gemstone/gemShell.sh 3.7.4.3" >> "$USER_HOME/.profile"
         fi
-        touch "$USER_HOME/.gemstone_setup_done"
-    fi
-fi
-
-if [ -f /opt/dev/gemstone/gemShell.sh ]; then
-    if ! grep -q "/opt/dev/gemstone/gemShell.sh 3.7.4.3" "$USER_HOME/.bashrc" 2>/dev/null; then
-        echo "" >> "$USER_HOME/.bashrc"
-        echo ". /opt/dev/gemstone/gemShell.sh 3.7.4.3" >> "$USER_HOME/.bashrc"
+        echo "VERSION=$GEMSTONE_VERSION" >> "$USER_HOME/.profile"
+        echo ". /opt/dev/gemstone/gemShell.sh $GEMSTONE_VERSION" >> "$USER_HOME/.profile"
+        sed -i '/\/opt\/dev\/gemstone\/gemShell\.sh /d' "$USER_HOME/.bashrc" 2>/dev/null || true
+        if ! grep -q "/opt/dev/gemstone/gemShell.sh $GEMSTONE_VERSION" "$USER_HOME/.bashrc" 2>/dev/null; then
+            echo "" >> "$USER_HOME/.bashrc"
+            echo ". /opt/dev/gemstone/gemShell.sh $GEMSTONE_VERSION" >> "$USER_HOME/.bashrc"
+        fi
+        rm -f "$USER_HOME"/.gemstone_setup_done_*
+        touch "$USER_HOME/.gemstone_setup_done_${GEMSTONE_VERSION}"
     fi
 fi
 
@@ -85,11 +96,12 @@ if [ -f /opt/gemstone/GemStone*/bin/initial.config ]; then
     
     # Set up GemStone environment for gemstone user
     GEMSTONE_USER_HOME="/home/gemstone"
-    if [ -f /opt/dev/gemstone/defineGemStoneEnvironment.sh ] && [ ! -f "$GEMSTONE_USER_HOME/.gemstone_setup_done" ]; then
+    if [ -f /opt/dev/gemstone/defineGemStoneEnvironment.sh ] && [ ! -f "$GEMSTONE_USER_HOME/.gemstone_setup_done_${GEMSTONE_VERSION}" ]; then
         echo "Setting up GemStone environment for gemstone user..."
-        gosu gemstone /opt/dev/gemstone/defineGemStoneEnvironment.sh 3.7.4.3
+        gosu gemstone /opt/dev/gemstone/defineGemStoneEnvironment.sh "$GEMSTONE_VERSION"
         # Note: .profile already sources .bashrc, so no circular reference needed
-        touch "$GEMSTONE_USER_HOME/.gemstone_setup_done"
+        rm -f "$GEMSTONE_USER_HOME"/.gemstone_setup_done_*
+        touch "$GEMSTONE_USER_HOME/.gemstone_setup_done_${GEMSTONE_VERSION}"
     fi
 fi
 
