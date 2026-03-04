@@ -6,6 +6,8 @@ class IntegratedSessionState:
     def __init__(self):
         self.lock = threading.RLock()
         self.ide_gui_active = False
+        self.ide_gui_reference = None
+        self.ide_navigation_action_reference = None
         self.ide_session = None
         self.ide_transaction_active = True
         self.mcp_operation_depth = 0
@@ -15,13 +17,32 @@ class IntegratedSessionState:
         self.mcp_busy_state_subscribers = []
         self.model_refresh_subscribers = []
 
-    def attach_ide_gui(self):
+    def callback_reference_for(self, callback):
+        try:
+            return weakref.WeakMethod(callback)
+        except TypeError:
+            return weakref.ref(callback)
+
+    def callback_from_reference(self, callback_reference):
+        if callback_reference is None:
+            return None
+        return callback_reference()
+
+    def attach_ide_gui(self, ide_gui=None, ide_navigation_action=None):
         with self.lock:
             self.ide_gui_active = True
+            if ide_gui is not None:
+                self.ide_gui_reference = self.callback_reference_for(ide_gui)
+            if ide_navigation_action is not None:
+                self.ide_navigation_action_reference = (
+                    self.callback_reference_for(ide_navigation_action)
+                )
 
     def detach_ide_gui(self):
         with self.lock:
             self.ide_gui_active = False
+            self.ide_gui_reference = None
+            self.ide_navigation_action_reference = None
             self.ide_session = None
             self.ide_transaction_active = True
             self.pending_model_changes = []
@@ -50,6 +71,35 @@ class IntegratedSessionState:
         with self.lock:
             return self.ide_session
 
+    def ide_gui_for_mcp(self):
+        with self.lock:
+            return self.callback_from_reference(self.ide_gui_reference)
+
+    def has_ide_navigation_action(self):
+        with self.lock:
+            callback = self.callback_from_reference(
+                self.ide_navigation_action_reference
+            )
+            return callback is not None
+
+    def perform_ide_navigation_action(self, action_name, action_parameters):
+        callback = None
+        with self.lock:
+            callback = self.callback_from_reference(
+                self.ide_navigation_action_reference
+            )
+        if callback is None:
+            return {
+                'ok': False,
+                'error': {
+                    'message': (
+                        'IDE navigation is unavailable. '
+                        'Attach an active GUI session first.'
+                    ),
+                },
+            }
+        return callback(action_name, action_parameters)
+
     def ide_connection_id(self):
         return self.ide_connection_identifier
 
@@ -60,10 +110,17 @@ class IntegratedSessionState:
         with self.lock:
             if self.ide_session is None:
                 return None
+            ide_navigation_available = (
+                self.callback_from_reference(
+                    self.ide_navigation_action_reference
+                )
+                is not None
+            )
             return {
                 'connection_mode': 'ide_attached',
                 'transaction_active': self.ide_transaction_active,
                 'managed_by_ide': True,
+                'ide_navigation_available': ide_navigation_available,
             }
 
     def mark_ide_transaction_active(self):
@@ -112,12 +169,6 @@ class IntegratedSessionState:
             change_kinds = list(self.pending_model_changes)
             self.pending_model_changes = []
             return change_kinds
-
-    def callback_reference_for(self, callback):
-        try:
-            return weakref.WeakMethod(callback)
-        except TypeError:
-            return weakref.ref(callback)
 
     def subscribe_mcp_busy_state(self, callback):
         with self.lock:

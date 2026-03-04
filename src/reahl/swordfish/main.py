@@ -3344,7 +3344,10 @@ class Swordfish(tk.Tk):
         super().__init__()
         self.event_queue = EventQueue(self)
         self.integrated_session_state = current_integrated_session_state()
-        self.integrated_session_state.attach_ide_gui()
+        self.integrated_session_state.attach_ide_gui(
+            ide_gui=self,
+            ide_navigation_action=self.perform_mcp_ide_navigation_action,
+        )
         self.title('Swordfish')
         self.geometry('800x600')
         self.default_stone_name = default_stone_name
@@ -3392,6 +3395,10 @@ class Swordfish(tk.Tk):
         self.event_queue.subscribe(
             'ModelRefreshRequested',
             self.handle_model_refresh_requested,
+        )
+        self.event_queue.subscribe(
+            'McpIdeNavigationRequested',
+            self.handle_mcp_ide_navigation_requested,
         )
         self.integrated_session_state.subscribe_mcp_busy_state(
             self.publish_mcp_busy_state_event,
@@ -3788,6 +3795,184 @@ class Swordfish(tk.Tk):
     def handle_model_refresh_requested(self, change_kind=''):
         self.process_pending_model_refresh_requests()
         self.refresh_collaboration_status()
+
+    def validated_oop_label_for_navigation(self, oop_value):
+        oop_label = ''
+        if isinstance(oop_value, int):
+            oop_label = str(oop_value)
+        if isinstance(oop_value, str):
+            oop_label = oop_value.strip()
+        if not oop_label.isdigit():
+            raise DomainException('oop labels must contain digits only.')
+        if int(oop_label) <= 0:
+            raise DomainException('oop labels must be positive integers.')
+        return oop_label
+
+    def gemstone_object_is_nil(self, gemstone_object):
+        try:
+            nil_value = gemstone_object.isNil().to_py
+            if isinstance(nil_value, bool):
+                return nil_value
+            return False
+        except (GemstoneError, AttributeError):
+            return False
+
+    def gemstone_object_for_oop_label(self, oop_label):
+        if not self.is_logged_in:
+            raise DomainException('No active GemStone session in the IDE.')
+        normalized_oop_label = self.validated_oop_label_for_navigation(oop_label)
+        source_candidates = [
+            f'Object _objectForOop: {normalized_oop_label}',
+            f'System objectForOop: {normalized_oop_label}',
+        ]
+        resolved_object = None
+        resolved = False
+        last_error = None
+        for source_code in source_candidates:
+            try:
+                candidate_object = self.gemstone_session_record.run_code(source_code)
+                if self.gemstone_object_is_nil(candidate_object):
+                    last_error = DomainException(
+                        f'Oop {normalized_oop_label} resolved to nil.'
+                    )
+                if not self.gemstone_object_is_nil(candidate_object):
+                    resolved_object = candidate_object
+                    resolved = True
+            except (DomainException, GemstoneDomainException, GemstoneError) as error:
+                last_error = error
+            if resolved:
+                return resolved_object
+        if last_error is None:
+            last_error = DomainException(
+                f'Unable to resolve oop {normalized_oop_label}.'
+            )
+        raise last_error
+
+    def open_graph_for_oop_labels(self, oop_labels, clear_existing=False):
+        if not self.is_logged_in:
+            return {
+                'ok': False,
+                'error': {'message': 'No active GemStone session in the IDE.'},
+                'opened_oops': [],
+                'unresolved_oops': [],
+            }
+        if clear_existing:
+            tab_exists = self.graph_tab is not None and self.graph_tab.winfo_exists()
+            if tab_exists:
+                self.graph_tab.clear_graph()
+        opened_oops = []
+        unresolved_oops = []
+        for oop_label in oop_labels:
+            normalized_oop_label = ''
+            opened_object = None
+            failure_message = ''
+            try:
+                normalized_oop_label = self.validated_oop_label_for_navigation(
+                    oop_label
+                )
+                opened_object = self.gemstone_object_for_oop_label(
+                    normalized_oop_label
+                )
+            except (DomainException, GemstoneDomainException, GemstoneError) as error:
+                failure_message = str(error)
+            if opened_object is not None:
+                self.open_graph_inspector_for_object(opened_object)
+                opened_oops.append(normalized_oop_label)
+            if opened_object is None:
+                unresolved_label = str(oop_label)
+                if normalized_oop_label:
+                    unresolved_label = normalized_oop_label
+                unresolved_oops.append(
+                    {
+                        'oop': unresolved_label,
+                        'message': failure_message or 'Unable to resolve oop.',
+                    }
+                )
+        return {
+            'ok': len(opened_oops) > 0,
+            'opened_oops': opened_oops,
+            'unresolved_oops': unresolved_oops,
+            'graph_tab_open': self.graph_tab is not None and self.graph_tab.winfo_exists(),
+        }
+
+    def execute_mcp_ide_navigation_action(self, action_name, action_parameters=None):
+        if action_parameters is None:
+            action_parameters = {}
+        if action_name == 'open_graph_for_oops':
+            oop_labels = action_parameters.get('oop_labels')
+            if not isinstance(oop_labels, list):
+                return {
+                    'ok': False,
+                    'error': {'message': 'oop_labels must be a list.'},
+                }
+            clear_existing = action_parameters.get('clear_existing', False)
+            if not isinstance(clear_existing, bool):
+                return {
+                    'ok': False,
+                    'error': {'message': 'clear_existing must be a boolean.'},
+                }
+            return self.open_graph_for_oop_labels(
+                oop_labels,
+                clear_existing=clear_existing,
+            )
+        return {
+            'ok': False,
+            'error': {
+                'message': f'Unknown IDE navigation action: {action_name}.'
+            },
+        }
+
+    def handle_mcp_ide_navigation_requested(
+        self,
+        action_name='',
+        action_parameters=None,
+        response_holder=None,
+        completion_event=None,
+    ):
+        response = self.execute_mcp_ide_navigation_action(
+            action_name,
+            action_parameters,
+        )
+        if response_holder is not None:
+            response_holder['response'] = response
+        if completion_event is not None:
+            completion_event.set()
+
+    def perform_mcp_ide_navigation_action(self, action_name, action_parameters=None):
+        if action_parameters is None:
+            action_parameters = {}
+        in_ui_thread = threading.get_ident() == self.event_queue.root_thread_ident
+        if in_ui_thread:
+            return self.execute_mcp_ide_navigation_action(
+                action_name,
+                action_parameters,
+            )
+        response_holder = {}
+        completion_event = threading.Event()
+        self.event_queue.publish(
+            'McpIdeNavigationRequested',
+            action_name=action_name,
+            action_parameters=action_parameters,
+            response_holder=response_holder,
+            completion_event=completion_event,
+        )
+        completed = completion_event.wait(timeout=5.0)
+        if not completed:
+            return {
+                'ok': False,
+                'error': {
+                    'message': 'IDE navigation request timed out.'
+                },
+            }
+        response = response_holder.get('response')
+        if isinstance(response, dict):
+            return response
+        return {
+            'ok': False,
+            'error': {
+                'message': 'IDE navigation request returned no response.'
+            },
+        }
 
     def synchronise_collaboration_state(self):
         if not self.winfo_exists():

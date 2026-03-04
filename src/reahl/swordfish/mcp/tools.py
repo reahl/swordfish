@@ -1,5 +1,6 @@
 import functools
 import re
+import threading
 import time
 import uuid
 
@@ -468,7 +469,135 @@ def register_tools(
             'eval_requires_human_approval': allow_eval,
             'commit_requires_human_approval': commit_allowed_for_current_mode(),
             'writes_require_active_transaction': True,
+            'ide_navigation_available': (
+                gui_active
+                and integrated_session_state.has_ide_navigation_action()
+            ),
         }
+
+    def require_ide_navigation_connection(connection_id):
+        if not integrated_session_state.is_ide_connection_id(connection_id):
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {
+                    'message': (
+                        'IDE navigation tools require the shared IDE '
+                        'connection_id.'
+                    ),
+                },
+            }
+        if not integrated_session_state.is_ide_gui_active():
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {
+                    'message': (
+                        'IDE GUI is not active. '
+                        'Start the Swordfish GUI and log in first.'
+                    ),
+                },
+            }
+        if not integrated_session_state.has_ide_navigation_action():
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {
+                    'message': (
+                        'IDE navigation is unavailable in this session.'
+                    ),
+                },
+            }
+        return None
+
+    def validated_oop_label(oop_value, argument_name):
+        if isinstance(oop_value, int):
+            if oop_value <= 0:
+                raise DomainException(
+                    '%s entries must be positive integers.' % argument_name
+                )
+            return str(oop_value)
+        if isinstance(oop_value, str):
+            normalized_value = oop_value.strip()
+            if not normalized_value.isdigit():
+                raise DomainException(
+                    '%s entries must contain digits only.' % argument_name
+                )
+            if int(normalized_value) <= 0:
+                raise DomainException(
+                    '%s entries must be positive integers.' % argument_name
+                )
+            return normalized_value
+        raise DomainException(
+            '%s entries must be integers or numeric strings.' % argument_name
+        )
+
+    def validated_oop_labels(input_values, argument_name):
+        if not isinstance(input_values, list):
+            raise DomainException('%s must be a list.' % argument_name)
+        validated_values = []
+        for input_value in input_values:
+            validated_values.append(
+                validated_oop_label(input_value, argument_name)
+            )
+        if len(validated_values) < 1:
+            raise DomainException('%s must contain at least one oop.' % argument_name)
+        return validated_values
+
+    def oop_labels_from_stack_trace_text(stack_trace_text):
+        oop_labels = []
+        seen_oops = set()
+        explicit_oop_pattern = re.compile(
+            r'(?i)\boop\b\s*[:=#]?\s*([1-9]\d+)\b'
+        )
+        parenthesized_oop_pattern = re.compile(r'\(([1-9]\d{2,})\)')
+        fallback_large_number_pattern = re.compile(r'\b([1-9]\d{4,})\b')
+
+        for oop_match in explicit_oop_pattern.finditer(stack_trace_text):
+            oop_label = oop_match.group(1)
+            if oop_label not in seen_oops:
+                seen_oops.add(oop_label)
+                oop_labels.append(oop_label)
+        for oop_match in parenthesized_oop_pattern.finditer(stack_trace_text):
+            oop_label = oop_match.group(1)
+            if oop_label not in seen_oops:
+                seen_oops.add(oop_label)
+                oop_labels.append(oop_label)
+        if len(oop_labels) < 1:
+            for oop_match in fallback_large_number_pattern.finditer(
+                stack_trace_text
+            ):
+                oop_label = oop_match.group(1)
+                if oop_label not in seen_oops:
+                    seen_oops.add(oop_label)
+                    oop_labels.append(oop_label)
+        return oop_labels
+
+    def perform_ide_navigation_action(
+        connection_id,
+        action_name,
+        action_parameters,
+    ):
+        connection_error_response = require_ide_navigation_connection(
+            connection_id
+        )
+        if connection_error_response is not None:
+            return connection_error_response
+        action_response = integrated_session_state.perform_ide_navigation_action(
+            action_name,
+            action_parameters,
+        )
+        if not isinstance(action_response, dict):
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {
+                    'message': 'IDE navigation action returned an invalid response.'
+                },
+            }
+        response = dict(action_response)
+        response['connection_id'] = connection_id
+        return response
 
     def source_code_character_map_for_eval(source):
         code_character_map = [True for _ in source]
@@ -2037,6 +2166,94 @@ def register_tools(
         }
 
     @mcp_server.tool()
+    def gs_ide_navigation_status(connection_id):
+        metadata = metadata_for_connection_id(connection_id)
+        if metadata is None:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': 'Unknown connection_id.'},
+            }
+        return {
+            'ok': True,
+            'connection_id': connection_id,
+            'connection_mode': metadata['connection_mode'],
+            'gui_session_active': integrated_session_state.is_ide_gui_active(),
+            'ide_navigation_available': (
+                integrated_session_state.has_ide_navigation_action()
+            ),
+            'shared_ide_connection_id': integrated_session_state.ide_connection_id(),
+        }
+
+    @mcp_server.tool()
+    def gs_ide_open_graph_for_oops(
+        connection_id,
+        oops,
+        clear_existing=False,
+    ):
+        try:
+            oop_labels = validated_oop_labels(oops, 'oops')
+            clear_existing = validated_boolean_like(
+                clear_existing,
+                'clear_existing',
+            )
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        return perform_ide_navigation_action(
+            connection_id,
+            'open_graph_for_oops',
+            {
+                'oop_labels': oop_labels,
+                'clear_existing': clear_existing,
+            },
+        )
+
+    @mcp_server.tool()
+    def gs_ide_open_graph_for_stack_trace(
+        connection_id,
+        stack_trace,
+        clear_existing=False,
+    ):
+        try:
+            stack_trace = validated_non_empty_string(stack_trace, 'stack_trace')
+            clear_existing = validated_boolean_like(
+                clear_existing,
+                'clear_existing',
+            )
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        oop_labels = oop_labels_from_stack_trace_text(stack_trace)
+        if len(oop_labels) < 1:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {
+                    'message': (
+                        'No oop labels were found in stack_trace. '
+                        'Pass explicit oops to gs_ide_open_graph_for_oops.'
+                    ),
+                },
+            }
+        navigation_response = perform_ide_navigation_action(
+            connection_id,
+            'open_graph_for_oops',
+            {
+                'oop_labels': oop_labels,
+                'clear_existing': clear_existing,
+            },
+        )
+        navigation_response['extracted_oops'] = oop_labels
+        return navigation_response
+
+    @mcp_server.tool()
     def gs_capabilities():
         ast_backend = browser_session_for_policy(None).ast_backend_status()
         gui_active = gui_session_is_active()
@@ -2065,6 +2282,11 @@ def register_tools(
                 'gs_transaction_status',
             ],
             'tool_groups': {
+                'ide_navigation': [
+                    'gs_ide_navigation_status',
+                    'gs_ide_open_graph_for_oops',
+                    'gs_ide_open_graph_for_stack_trace',
+                ],
                 'navigation': [
                     'gs_list_categories',
                     'gs_list_dictionaries',

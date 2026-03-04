@@ -2250,6 +2250,39 @@ def test_run_context_menu_graph_inspect_opens_graph_for_selected_result(fixture)
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_mcp_ide_navigation_action_opens_graph_for_oops(fixture):
+    """AI: MCP IDE navigation action should resolve requested oops and open those objects in the Graph tab."""
+    fixture.simulate_login()
+    first_object = make_mock_gemstone_object('OrderLine', 'anOrderLine', oop=3001)
+    second_object = make_mock_gemstone_object('Order', 'anOrder', oop=3002)
+    objects_by_source = {
+        'Object _objectForOop: 3001': first_object,
+        'Object _objectForOop: 3002': second_object,
+    }
+
+    def object_for_source(source):
+        return objects_by_source[source]
+
+    fixture.mock_browser.run_code.side_effect = object_for_source
+    response = fixture.app.perform_mcp_ide_navigation_action(
+        'open_graph_for_oops',
+        {
+            'oop_labels': ['3001', '3002'],
+            'clear_existing': True,
+        },
+    )
+    fixture.app.update()
+
+    assert response['ok'], response
+    assert response['opened_oops'] == ['3001', '3002']
+    assert response['unresolved_oops'] == []
+    assert fixture.app.graph_tab is not None
+    registry = fixture.app.graph_tab.graph_canvas.registry
+    assert registry.contains_object(first_object)
+    assert registry.contains_object(second_object)
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_run_inspector_uses_object_summary_as_first_tab_label(fixture):
     """AI: The first inspector tab should identify the inspected object rather than a generic Context label."""
     fixture.simulate_login()
