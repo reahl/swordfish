@@ -10,6 +10,7 @@ from reahl.ptongue import GemstoneError
 from reahl.tofu import Fixture
 from reahl.tofu import NoException
 from reahl.tofu import expected
+from reahl.tofu import scenario
 from reahl.tofu import set_up
 from reahl.tofu import tear_down
 from reahl.tofu import with_fixtures
@@ -23,6 +24,8 @@ from reahl.swordfish.main import DomainException
 from reahl.swordfish.main import EventQueue
 from reahl.swordfish.main import Explorer
 from reahl.swordfish.main import FindDialog
+from reahl.swordfish.main import GraphNode
+from reahl.swordfish.main import GraphObjectRegistry
 from reahl.swordfish.main import CoveringTestsBrowseDialog
 from reahl.swordfish.main import GemstoneSessionRecord
 from reahl.swordfish.main import InspectorTab
@@ -871,6 +874,23 @@ def test_text_context_menu_includes_run_and_inspect_for_selected_text_in_open_ta
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_text_context_menu_includes_graph_inspect_for_selected_text_in_open_tab(
+    fixture,
+):
+    """AI: Selecting method source text should expose Graph Inspect in the editor context menu."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+    tab.code_panel.text_editor.delete('1.0', 'end')
+    tab.code_panel.text_editor.insert('1.0', '3 + 4\n5 + 6')
+    tab.code_panel.text_editor.tag_add(tk.SEL, '1.0', '1.5')
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    command_labels = menu_command_labels(menu)
+
+    assert 'Graph Inspect' in command_labels
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_text_context_menu_find_references_uses_selected_class_name(
     fixture,
 ):
@@ -913,6 +933,29 @@ def test_inspect_command_from_method_source_context_menu_opens_inspector_for_sel
 
     fixture.mock_browser.run_code.assert_called_with('3 + 4')
     tab.code_panel.application.open_inspector_for_object.assert_called_with(
+        inspected_object,
+    )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_graph_inspect_command_from_method_source_context_menu_opens_graph_for_selection(
+    fixture,
+):
+    """AI: Choosing Graph Inspect from method source context menu should evaluate selected source and open Graph on the result."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    tab = fixture.browser_window.editor_area_widget.open_tabs[('OrderLine', True, 'total')]
+    tab.code_panel.text_editor.delete('1.0', 'end')
+    tab.code_panel.text_editor.insert('1.0', '3 + 4')
+    tab.code_panel.text_editor.tag_add(tk.SEL, '1.0', '1.5')
+    inspected_object = make_mock_gemstone_object('Integer', '7', oop=3004)
+    fixture.mock_browser.run_code.return_value = inspected_object
+    tab.code_panel.application.open_graph_inspector_for_object = Mock()
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    fixture.invoke_menu_command(menu, 'Graph Inspect')
+
+    fixture.mock_browser.run_code.assert_called_with('3 + 4')
+    tab.code_panel.application.open_graph_inspector_for_object.assert_called_with(
         inspected_object,
     )
 
@@ -2117,6 +2160,22 @@ def test_run_source_context_menu_includes_run_and_inspect_for_selected_text(fixt
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_run_source_context_menu_includes_graph_inspect_for_selected_text(fixture):
+    """AI: Run source context menu should expose Graph Inspect when source text is selected."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete('1.0', 'end')
+    run_tab.source_text.insert('1.0', '3 + 4\n5 + 6')
+    run_tab.source_text.tag_add(tk.SEL, '1.0', '1.5')
+
+    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    labels = menu_command_labels(run_tab.current_text_menu)
+    assert 'Graph Inspect' in labels
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_run_context_menu_run_executes_selected_text_only(fixture):
     """Run command in Run source context menu evaluates only the selected source fragment."""
     fixture.simulate_login()
@@ -2163,6 +2222,31 @@ def test_run_context_menu_inspect_opens_inspector_for_selected_result(fixture):
     assert isinstance(fixture.app.inspector_tab.explorer, Explorer)
     selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
     assert selected_tab_text == 'Inspect'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_context_menu_graph_inspect_opens_graph_for_selected_result(fixture):
+    """AI: Graph Inspect in Run source context menu should evaluate selected source and open the Graph tab on that result."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete('1.0', 'end')
+    run_tab.source_text.insert('1.0', '3 + 4\nthisWillNotRun')
+    run_tab.source_text.tag_add(tk.SEL, '1.0', '1.5')
+
+    inspected_result = make_mock_gemstone_object('Integer', '7', oop=4444)
+    fixture.mock_browser.run_code.return_value = inspected_result
+
+    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    invoke_menu_command_by_label(run_tab.current_text_menu, 'Graph Inspect')
+    fixture.app.update()
+
+    fixture.mock_browser.run_code.assert_called_with('3 + 4')
+    assert fixture.app.graph_tab is not None
+    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+    assert selected_tab_text == 'Graph'
+    assert fixture.app.graph_tab.graph_canvas.registry.contains_object(inspected_result)
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -3594,6 +3678,100 @@ def make_mock_instance_with_inst_vars(class_name, string_repr, inst_vars, oop=No
     return instance
 
 
+class GraphObjectRegistryFixture(Fixture):
+    @set_up
+    def create_registry(self):
+        self.registry = GraphObjectRegistry()
+
+
+class GraphObjectKeyScenarios(Fixture):
+    @scenario
+    def none_object(self):
+        """AI: None should map to a stable sentinel key."""
+        self.an_object = None
+        self.expected_key = ('none',)
+
+    @scenario
+    def oop_backed_object(self):
+        """AI: Objects exposing oop should use that oop for deduplication."""
+        self.an_object = make_mock_gemstone_object('Integer', '7', oop=1234)
+        self.expected_key = ('oop', '1234')
+
+    @scenario
+    def object_without_oop_attribute(self):
+        """AI: Objects without oop should fall back to Python identity keys."""
+        self.an_object = object()
+        self.expected_key = ('identity', str(id(self.an_object)))
+
+    @scenario
+    def object_with_failing_oop_accessor(self):
+        """AI: oop lookup failures should fall back to identity keys."""
+
+        class OopFailingObject:
+            @property
+            def oop(self):
+                raise RuntimeError('oop not available')
+
+        self.an_object = OopFailingObject()
+        self.expected_key = ('identity', str(id(self.an_object)))
+
+
+@with_fixtures(GraphObjectRegistryFixture, GraphObjectKeyScenarios)
+def test_graph_registry_oop_key_generation_handles_object_shapes(fixture, scenario):
+    """AI: Graph registry key generation should choose oop keys when available and otherwise use stable fallbacks."""
+    with expected(NoException):
+        oop_key = fixture.registry.oop_key_for(scenario.an_object)
+    assert oop_key == scenario.expected_key
+
+
+@with_fixtures(GraphObjectRegistryFixture)
+def test_graph_registry_registers_and_resolves_nodes_by_key(fixture):
+    """AI: Registering a graph node should allow node lookup by an equivalent object key."""
+    gemstone_object = make_mock_gemstone_object('OrderLine', 'anOrderLine', oop=2003)
+    oop_key = fixture.registry.oop_key_for(gemstone_object)
+    node = GraphNode(
+        gemstone_object,
+        oop_key,
+        class_name='OrderLine',
+        label='2003:OrderLine',
+    )
+
+    fixture.registry.register_node(node)
+
+    assert fixture.registry.contains_object(gemstone_object)
+    assert fixture.registry.node_for(gemstone_object) is node
+
+
+@with_fixtures(GraphObjectRegistryFixture)
+def test_graph_registry_avoids_duplicate_edges_for_same_source_target_and_label(
+    fixture,
+):
+    """AI: Re-adding an existing source-target-label edge should not duplicate graph links."""
+    source_object = make_mock_gemstone_object('Order', 'anOrder', oop=101)
+    target_object = make_mock_gemstone_object('OrderLine', 'aLine', oop=102)
+    source_node = GraphNode(
+        source_object,
+        fixture.registry.oop_key_for(source_object),
+        class_name='Order',
+        label='101:Order',
+    )
+    target_node = GraphNode(
+        target_object,
+        fixture.registry.oop_key_for(target_object),
+        class_name='OrderLine',
+        label='102:OrderLine',
+    )
+
+    first_edge = fixture.registry.add_edge(source_node, target_node, 'line')
+    duplicate_edge = fixture.registry.add_edge(source_node, target_node, 'line')
+    different_label_edge = fixture.registry.add_edge(source_node, target_node, 'item')
+
+    assert first_edge is not None
+    assert duplicate_edge is None
+    assert different_label_edge is not None
+    assert len(fixture.registry.all_edges()) == 2
+
+
 class ObjectInspectorFixture(Fixture):
     @set_up
     def create_explorer(self):
@@ -3694,6 +3872,35 @@ def test_double_clicking_equivalent_oop_reuses_existing_tab(fixture):
     tab_labels = [fixture.explorer.tab(t, 'text') for t in fixture.explorer.tabs()]
     assert tab_labels.count('2003:OrderLine anOrderLine') == 1
     assert fixture.explorer.tab(fixture.explorer.select(), 'text') == '2003:OrderLine anOrderLine'
+
+
+@with_fixtures(ObjectInspectorFixture)
+def test_object_inspector_row_menu_graph_inspect_routes_selected_value(fixture):
+    """AI: The object row context menu should expose Graph Inspect and pass the selected row value to the graph action."""
+    graph_inspect_action = Mock()
+    inspector = ObjectInspector(
+        fixture.root,
+        values={'self': fixture.mock_self},
+        graph_inspect_action=graph_inspect_action,
+    )
+    inspector.pack()
+    fixture.root.update()
+
+    row = inspector.treeview.get_children()[0]
+    inspector.treeview.focus(row)
+    inspector.treeview.selection_set(row)
+    inspector.open_object_menu(
+        types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1),
+    )
+    fixture.root.update()
+
+    command_labels = menu_command_labels(inspector.current_object_menu)
+    assert 'Graph Inspect' in command_labels
+
+    invoke_menu_command_by_label(inspector.current_object_menu, 'Graph Inspect')
+    fixture.root.update()
+
+    graph_inspect_action.assert_called_once_with(fixture.mock_self)
 
 
 @with_fixtures(ObjectInspectorFixture)
