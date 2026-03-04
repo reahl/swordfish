@@ -563,9 +563,30 @@ class GemstoneSessionRecord:
         except GemstoneError:
             return
 
+    def class_category_containing_class(self, class_name):
+        selected_category = self.selected_class_category()
+        if selected_category:
+            classes_in_selected_category = list(
+                self.get_classes_in_category(selected_category)
+            )
+            if class_name in classes_in_selected_category:
+                return selected_category
+        all_categories = list(self.class_categories)
+        matching_category = None
+        category_index = 0
+        while category_index < len(all_categories) and matching_category is None:
+            category_name = all_categories[category_index]
+            classes_in_category = list(self.get_classes_in_category(category_name))
+            if class_name in classes_in_category:
+                matching_category = category_name
+            category_index += 1
+        return matching_category
+
     def jump_to_class(self, class_name, show_instance_side):
         selected_gemstone_class = self.gemstone_session.resolve_symbol(class_name)
-        selected_category = selected_gemstone_class.category().to_py
+        selected_category = self.class_category_containing_class(class_name)
+        if selected_category is None:
+            selected_category = selected_gemstone_class.category().to_py
         self.select_class_category(selected_category)
         self.select_instance_side(show_instance_side)
         self.select_class(class_name)
@@ -1005,6 +1026,9 @@ class GemstoneSessionRecord:
 
     def run_code(self, source):
         self.require_write_access('run_code')
+        return self.gemstone_browser_session.run_code(source)
+
+    def resolve_object(self, source):
         return self.gemstone_browser_session.run_code(source)
 
     def run_gemstone_tests(self, class_name):
@@ -3830,7 +3854,7 @@ class Swordfish(tk.Tk):
         last_error = None
         for source_code in source_candidates:
             try:
-                candidate_object = self.gemstone_session_record.run_code(source_code)
+                candidate_object = self.gemstone_session_record.resolve_object(source_code)
                 if self.gemstone_object_is_nil(candidate_object):
                     last_error = DomainException(
                         f'Oop {normalized_oop_label} resolved to nil.'

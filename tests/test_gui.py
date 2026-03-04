@@ -3168,6 +3168,44 @@ def test_find_dialog_double_click_in_dictionary_mode_updates_dictionary_and_clas
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_find_dialog_double_click_in_dictionary_mode_uses_class_membership_not_symbol_category(
+    fixture,
+):
+    """AI: In dictionary mode, Find navigation should choose the dictionary that contains the class even if class category metadata differs."""
+    fixture.simulate_login()
+    fixture.mock_browser.list_dictionaries.return_value = ['UserGlobals', 'Kernel']
+
+    def classes_for_dictionary(dictionary_name):
+        if dictionary_name == 'UserGlobals':
+            return ['OrderLine', 'LegacyClass']
+        if dictionary_name == 'Kernel':
+            return ['Order', 'Collection']
+        return []
+
+    fixture.mock_browser.list_classes_in_dictionary.side_effect = classes_for_dictionary
+    fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = 'Kernel'
+
+    fixture.session_record.select_class_category('Kernel')
+    fixture.app.event_queue.publish('SelectedClassChanged')
+    fixture.app.update()
+
+    with patch.object(FindDialog, 'wait_visibility'):
+        dialog = FindDialog(fixture.app)
+
+    dialog.results_listbox.insert(tk.END, 'OrderLine')
+    dialog.results_listbox.selection_set(0)
+    dialog.on_result_double_click(None)
+    fixture.app.update()
+
+    assert fixture.session_record.selected_dictionary == 'UserGlobals'
+    assert fixture.session_record.selected_class == 'OrderLine'
+    class_listbox = fixture.app.browser_tab.classes_widget.selection_list.selection_listbox
+    assert list(class_listbox.get(0, 'end')) == ['OrderLine', 'LegacyClass']
+    selected_class_index = class_listbox.curselection()[0]
+    assert class_listbox.get(selected_class_index) == 'OrderLine'
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_senders_dialog_method_search_populates_result_list(fixture):
     """Searching for senders in the SendersDialog shows sender methods with class/side labels."""
     fixture.simulate_login()
