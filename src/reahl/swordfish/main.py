@@ -9152,13 +9152,64 @@ class DebuggerWindow(ttk.PanedWindow):
             return self.stack_frames[int(selected_item)]
         return None
 
+    def value_for_named_local_on_frame(self, frame, variable_name):
+        frame_vars = frame.vars
+        if variable_name in frame_vars:
+            return True, frame_vars[variable_name]
+        return False, None
+
+    def value_for_named_instance_variable_on_frame_self(self, frame, variable_name):
+        frame_self = getattr(frame, 'self', None)
+        if frame_self is None:
+            return False, None
+        inst_var_names = []
+        try:
+            inst_var_names = list(frame_self.gemstone_class().allInstVarNames())
+        except (GemstoneError, AttributeError):
+            return False, None
+        for one_based_index, inst_var_name in enumerate(inst_var_names, start=1):
+            candidate_name = ''
+            try:
+                candidate_name = inst_var_name.to_py
+            except AttributeError:
+                candidate_name = str(inst_var_name)
+            names_match = candidate_name == variable_name
+            if names_match:
+                value = None
+                value_found = False
+                try:
+                    value = frame_self.instVarNamed(inst_var_name)
+                    value_found = True
+                except GemstoneError:
+                    pass
+                if not value_found:
+                    try:
+                        value = frame_self.instVarAt(one_based_index)
+                        value_found = True
+                    except GemstoneError:
+                        pass
+                if value_found:
+                    return True, value
+        return False, None
+
     def value_for_source_expression(self, frame, source_expression):
         expression = source_expression.strip()
         if expression == 'self':
             return frame.self
-        frame_vars = frame.vars
-        if expression in frame_vars:
-            return frame_vars[expression]
+        local_value_found, local_value = self.value_for_named_local_on_frame(
+            frame,
+            expression,
+        )
+        if local_value_found:
+            return local_value
+        instvar_value_found, instvar_value = (
+            self.value_for_named_instance_variable_on_frame_self(
+                frame,
+                expression,
+            )
+        )
+        if instvar_value_found:
+            return instvar_value
         return frame.gemstone_session.execute(
             expression,
             context=frame.var_context,
