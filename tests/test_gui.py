@@ -2834,9 +2834,8 @@ def test_debugger_source_context_menu_inspect_evaluates_selected_expression_in_f
     debugger_tab = fixture.app.debugger_tab
     evaluated_value = make_mock_gemstone_object('Integer', '3', oop=3003)
     mock_var_context = Mock()
-    mock_var_context.perform.return_value = evaluated_value
     mock_gemstone_session = Mock()
-    mock_gemstone_session.from_py.side_effect = lambda source: source
+    mock_gemstone_session.execute.return_value = evaluated_value
     frame = types.SimpleNamespace(
         self=make_mock_gemstone_object('OrderLine', 'anOrderLine', oop=3001),
         vars={'x': make_mock_gemstone_object('Integer', '2', oop=3002)},
@@ -2863,8 +2862,10 @@ def test_debugger_source_context_menu_inspect_evaluates_selected_expression_in_f
         )
         fixture.app.update()
 
-    mock_gemstone_session.from_py.assert_called_once_with('x + 1')
-    mock_var_context.perform.assert_called_once_with('evaluate:', 'x + 1')
+    mock_gemstone_session.execute.assert_called_once_with(
+        'x + 1',
+        context=mock_var_context,
+    )
     assert fixture.app.inspector_tab is not None
     selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
     assert selected_tab_text == 'Inspect'

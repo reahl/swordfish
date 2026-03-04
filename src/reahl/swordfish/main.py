@@ -8608,9 +8608,9 @@ class DebuggerWindow(ttk.PanedWindow):
         frame_vars = frame.vars
         if expression in frame_vars:
             return frame_vars[expression]
-        return frame.var_context.perform(
-            'evaluate:',
-            frame.gemstone_session.from_py(expression),
+        return frame.gemstone_session.execute(
+            expression,
+            context=frame.var_context,
         )
 
     def inspect_selected_source_expression(self, source_expression):
