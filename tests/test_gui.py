@@ -3072,6 +3072,9 @@ def test_find_dialog_double_click_navigates_browser_to_selected_class(fixture):
     """Double-clicking a class name in the FindDialog results navigates the
     browser to that class by selecting its package and class in the columns."""
     fixture.simulate_login()
+    fixture.app.browser_tab.packages_widget.browse_mode_var.set('categories')
+    fixture.app.browser_tab.packages_widget.change_browse_mode()
+    fixture.app.update()
     # AI: jump_to_class resolves the class symbol to find its package via
     # gemstone_session.resolve_symbol(name).category().to_py
     fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = 'Kernel'
@@ -3086,6 +3089,49 @@ def test_find_dialog_double_click_navigates_browser_to_selected_class(fixture):
 
     assert fixture.session_record.selected_class == 'OrderLine'
     assert fixture.session_record.selected_package == 'Kernel'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_dialog_double_click_in_dictionary_mode_updates_dictionary_and_class_lists(
+    fixture,
+):
+    """AI: In dictionary browse mode, selecting a class from Find should switch dictionary/class panes to the class's dictionary and selected class."""
+    fixture.simulate_login()
+    fixture.mock_browser.list_dictionaries.return_value = ['UserGlobals', 'Kernel']
+
+    def classes_for_dictionary(dictionary_name):
+        if dictionary_name == 'UserGlobals':
+            return ['LegacyClass']
+        if dictionary_name == 'Kernel':
+            return ['OrderLine', 'Order']
+        return []
+
+    fixture.mock_browser.list_classes_in_dictionary.side_effect = classes_for_dictionary
+    fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = 'Kernel'
+
+    fixture.session_record.select_class_category('UserGlobals')
+    fixture.app.event_queue.publish('SelectedClassChanged')
+    fixture.app.update()
+
+    with patch.object(FindDialog, 'wait_visibility'):
+        dialog = FindDialog(fixture.app)
+
+    dialog.results_listbox.insert(tk.END, 'OrderLine')
+    dialog.results_listbox.selection_set(0)
+    dialog.on_result_double_click(None)
+    fixture.app.update()
+
+    assert fixture.session_record.selected_dictionary == 'Kernel'
+    assert fixture.session_record.selected_class == 'OrderLine'
+    dictionary_listbox = (
+        fixture.app.browser_tab.packages_widget.selection_list.selection_listbox
+    )
+    selected_dictionary_index = dictionary_listbox.curselection()[0]
+    assert dictionary_listbox.get(selected_dictionary_index) == 'Kernel'
+    class_listbox = fixture.app.browser_tab.classes_widget.selection_list.selection_listbox
+    assert list(class_listbox.get(0, 'end')) == ['OrderLine', 'Order']
+    selected_class_index = class_listbox.curselection()[0]
+    assert class_listbox.get(selected_class_index) == 'OrderLine'
 
 
 @with_fixtures(SwordfishAppFixture)

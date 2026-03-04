@@ -565,8 +565,8 @@ class GemstoneSessionRecord:
 
     def jump_to_class(self, class_name, show_instance_side):
         selected_gemstone_class = self.gemstone_session.resolve_symbol(class_name)
-        selected_package = selected_gemstone_class.category().to_py
-        self.select_package(selected_package)
+        selected_category = selected_gemstone_class.category().to_py
+        self.select_class_category(selected_category)
         self.select_instance_side(show_instance_side)
         self.select_class(class_name)
         
