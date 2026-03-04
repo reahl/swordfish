@@ -3253,3 +3253,108 @@ def test_gs_commit_can_be_enabled_when_ide_owns_session():
     )
     assert commit_result['ok'], commit_result
     assert fake_session.commit_count == 1
+
+
+def test_gs_ide_open_graph_for_stack_trace_dispatches_oops_to_navigation_action():
+    registrar = McpToolRegistrar()
+    shared_state = IntegratedSessionState()
+    shared_state.attach_ide_session(FakeGemstoneSession())
+    captured_action_name = {'value': ''}
+    captured_action_parameters = {'value': {}}
+
+    def fake_navigation_action(action_name, action_parameters):
+        captured_action_name['value'] = action_name
+        captured_action_parameters['value'] = dict(action_parameters)
+        return {
+            'ok': True,
+            'opened_oops': list(action_parameters['oop_labels']),
+            'unresolved_oops': [],
+        }
+
+    shared_state.attach_ide_gui(ide_navigation_action=fake_navigation_action)
+    register_tools(
+        registrar,
+        allow_eval=True,
+        allow_compile=True,
+        allow_commit=True,
+        allow_tracing=True,
+        integrated_session_state=shared_state,
+    )
+    open_graph_for_stack_trace = registrar.registered_tools_by_name[
+        'gs_ide_open_graph_for_stack_trace'
+    ]
+    stack_trace_text = (
+        'Process stack frame: oop: 3001 receiver(4002) '
+        'context oop=5003'
+    )
+    result = open_graph_for_stack_trace(
+        shared_state.ide_connection_id(),
+        stack_trace_text,
+        clear_existing=True,
+    )
+
+    assert result['ok'], result
+    assert result['extracted_oops'] == ['3001', '5003', '4002']
+    assert captured_action_name['value'] == 'open_graph_for_oops'
+    assert captured_action_parameters['value'] == {
+        'oop_labels': ['3001', '5003', '4002'],
+        'clear_existing': True,
+    }
+
+
+def test_gs_ide_open_graph_for_oops_requires_shared_ide_connection():
+    registrar = McpToolRegistrar()
+    shared_state = IntegratedSessionState()
+    shared_state.attach_ide_session(FakeGemstoneSession())
+    shared_state.attach_ide_gui(
+        ide_navigation_action=lambda action_name, action_parameters: {'ok': True}
+    )
+    register_tools(
+        registrar,
+        allow_eval=True,
+        allow_compile=True,
+        allow_commit=True,
+        allow_tracing=True,
+        integrated_session_state=shared_state,
+    )
+    open_graph_for_oops = registrar.registered_tools_by_name[
+        'gs_ide_open_graph_for_oops'
+    ]
+    result = open_graph_for_oops(
+        'foreign-connection-id',
+        ['3001'],
+    )
+
+    assert not result['ok']
+    assert result['error']['message'] == (
+        'IDE navigation tools require the shared IDE connection_id.'
+    )
+
+
+def test_gs_capabilities_exposes_ide_navigation_tool_group():
+    registrar = McpToolRegistrar()
+    shared_state = IntegratedSessionState()
+    shared_state.attach_ide_session(FakeGemstoneSession())
+
+    def fake_navigation_action(action_name, action_parameters):
+        return {'ok': True}
+
+    shared_state.attach_ide_gui(
+        ide_navigation_action=fake_navigation_action
+    )
+    register_tools(
+        registrar,
+        allow_eval=True,
+        allow_compile=True,
+        allow_commit=True,
+        allow_tracing=True,
+        integrated_session_state=shared_state,
+    )
+
+    capabilities_result = registrar.registered_tools_by_name['gs_capabilities']()
+    assert capabilities_result['ok'], capabilities_result
+    assert capabilities_result['policy']['ide_navigation_available']
+    ide_navigation_tools = capabilities_result['tool_groups']['ide_navigation']
+    assert 'gs_ide_navigation_status' in ide_navigation_tools
+    assert 'gs_ide_open_graph_for_oops' in ide_navigation_tools
+    assert 'gs_ide_open_graph_for_stack_trace' in ide_navigation_tools
