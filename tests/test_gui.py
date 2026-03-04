@@ -2959,6 +2959,64 @@ def test_debugger_source_context_menu_inspect_evaluates_selected_expression_in_f
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_debugger_source_context_menu_inspect_reads_self_instance_variable(
+    fixture,
+):
+    """AI: Inspecting an instance-variable token in debugger source should resolve from self, not evaluate as a free symbol."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+
+    fixture.app.run_code('1/0')
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    debugger_tab = fixture.app.debugger_tab
+    full_value = make_mock_gemstone_object('Set', 'aSet', oop=4004)
+    frame_self = make_mock_instance_with_inst_vars(
+        'ExampleSetTest',
+        'anExampleSetTest',
+        {'full': full_value},
+        oop=4001,
+    )
+    mock_var_context = Mock()
+    mock_gemstone_session = Mock()
+    mock_gemstone_session.execute.side_effect = FakeGemstoneError()
+    frame = types.SimpleNamespace(
+        self=frame_self,
+        vars={},
+        var_context=mock_var_context,
+        gemstone_session=mock_gemstone_session,
+    )
+
+    debugger_tab.code_panel.text_editor.delete('1.0', 'end')
+    debugger_tab.code_panel.text_editor.insert('1.0', 'full add: 5')
+    debugger_tab.code_panel.text_editor.tag_add(tk.SEL, '1.0', '1.4')
+    with patch.object(
+        debugger_tab,
+        'get_selected_stack_frame',
+        return_value=frame,
+    ):
+        debugger_tab.code_panel.open_text_menu(
+            types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1),
+        )
+        invoke_menu_command_by_label(
+            debugger_tab.code_panel.current_context_menu,
+            'Inspect',
+        )
+        fixture.app.update()
+
+    mock_gemstone_session.execute.assert_not_called()
+    assert fixture.app.inspector_tab is not None
+    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+    assert selected_tab_text == 'Inspect'
+    root_tab_id = fixture.app.inspector_tab.explorer.tabs()[0]
+    root_tab_label = fixture.app.inspector_tab.explorer.tab(root_tab_id, 'text')
+    assert root_tab_label == '4004:Set aSet'
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_file_run_command_opens_run_tab_in_notebook(fixture):
     """Choosing File > Run should open and select a Run tab in the main notebook."""
     fixture.simulate_login()
