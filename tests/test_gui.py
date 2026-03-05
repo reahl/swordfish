@@ -2490,6 +2490,91 @@ def test_mcp_ide_navigation_action_opens_method_in_browser(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_mcp_ide_navigation_action_reports_browser_source_selection(fixture):
+    """AI: MCP current-view action should report active browser method source selection and method context."""
+    fixture.simulate_login()
+    fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
+        "Kernel"
+    )
+    fixture.mock_browser.get_method_category.return_value = "accessing"
+    open_method_response = fixture.app.perform_mcp_ide_navigation_action(
+        "open_method",
+        {
+            "class_name": "OrderLine",
+            "method_symbol": "total",
+            "show_instance_side": True,
+        },
+    )
+    assert open_method_response["ok"], open_method_response
+    method_editor = fixture.app.browser_tab.editor_area_widget
+    selected_editor_tab_id = method_editor.editor_notebook.select()
+    selected_editor_tab = method_editor.editor_notebook.nametowidget(
+        selected_editor_tab_id
+    )
+    source_text_widget = selected_editor_tab.code_panel.text_editor
+    source_text_widget.tag_add(tk.SEL, "1.0", "1.5")
+    source_text_widget.mark_set(tk.INSERT, "1.5")
+
+    response = fixture.app.perform_mcp_ide_navigation_action("query_current_view")
+
+    assert response["ok"], response
+    assert response["active_tab"]["kind"] == "browser"
+    assert response["active_source_view"]["kind"] == "browser_method_source"
+    browser_source_state = response["active_source_view"]["state"]
+    assert browser_source_state["method_context"] == {
+        "class_name": "OrderLine",
+        "show_instance_side": True,
+        "method_symbol": "total",
+    }
+    assert browser_source_state["selection"]["has_selection"]
+    assert browser_source_state["selection"]["selected_text"] == "total"
+    assert response["browser_state"]["selected_method_symbol"] == "total"
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_mcp_ide_navigation_action_reports_debugger_source_selection(fixture):
+    """AI: MCP current-view action should report active debugger frame context and selected source text."""
+    fixture.simulate_login()
+    debugger_tab = ttk.Frame(fixture.app.notebook)
+    debugger_source_widget = tk.Text(debugger_tab)
+    debugger_source_widget.insert("1.0", "recalculateTotal\n    ^self total")
+    debugger_source_widget.tag_add(tk.SEL, "1.0", "1.10")
+    debugger_source_widget.mark_set(tk.INSERT, "1.10")
+    selected_frame = types.SimpleNamespace(
+        level=2,
+        class_name="OrderLine",
+        method_name="recalculateTotal",
+        step_point_offset=17,
+    )
+    debugger_tab.code_panel = types.SimpleNamespace(text_editor=debugger_source_widget)
+    debugger_tab.get_selected_stack_frame = Mock(return_value=selected_frame)
+    debugger_tab.frame_method_context = Mock(
+        return_value=("OrderLine", True, "recalculateTotal")
+    )
+    debugger_tab.is_running = True
+    fixture.app.debugger_tab = debugger_tab
+    fixture.app.notebook.add(debugger_tab, text="Debugger")
+    fixture.app.notebook.select(debugger_tab)
+    fixture.app.update()
+
+    response = fixture.app.perform_mcp_ide_navigation_action("query_current_view")
+
+    assert response["ok"], response
+    assert response["active_tab"]["kind"] == "debugger"
+    assert response["active_source_view"]["kind"] == "debugger_method_source"
+    debugger_source_state = response["active_source_view"]["state"]
+    assert debugger_source_state["method_context"] == {
+        "class_name": "OrderLine",
+        "show_instance_side": True,
+        "method_symbol": "recalculateTotal",
+    }
+    assert debugger_source_state["selection"]["has_selection"]
+    assert debugger_source_state["selection"]["selected_text"] == "recalculat"
+    assert debugger_source_state["selected_frame"]["class_name"] == "OrderLine"
+    assert debugger_source_state["selected_frame"]["method_name"] == "recalculateTotal"
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_mcp_ide_navigation_action_delegates_to_debugger_opener(fixture):
     """AI: MCP debugger action should delegate to debugger opening handler."""
     fixture.simulate_login()
