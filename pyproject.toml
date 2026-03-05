@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reahl-swordfish"
-version = "0.4.0"
+version = "0.5.0"
 description = "A classic Smalltalk IDE for GemStone/Smalltalk"
 readme = "README.md"
 authors = [
