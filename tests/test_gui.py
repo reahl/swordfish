@@ -767,6 +767,10 @@ def test_text_context_menu_includes_save_and_close_for_open_tab(fixture):
     assert "Close" in command_labels
     assert "Set Breakpoint Here" in command_labels
     assert "Clear Breakpoint Here" in command_labels
+    assert "Implementors" in command_labels
+    assert "Senders" in command_labels
+    assert "Find Implementors" not in command_labels
+    assert "Find Senders" not in command_labels
     assert "Select All" in command_labels
     assert "Copy" in command_labels
     assert "Paste" in command_labels
@@ -936,8 +940,8 @@ def test_text_context_menu_find_references_uses_selected_class_name(
 
     menu = fixture.open_text_context_menu_for_tab(tab)
     command_labels = menu_command_labels(menu)
-    assert "Find References" in command_labels
-    fixture.invoke_menu_command(menu, "Find References")
+    assert "References" in command_labels
+    fixture.invoke_menu_command(menu, "References")
 
     tab.code_panel.application.open_find_dialog_for_class.assert_called_once_with(
         "OrderLine",
@@ -1875,16 +1879,74 @@ def test_file_menu_contains_breakpoints_command_when_logged_in(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_file_menu_does_not_include_implementors_or_senders_commands(
+def test_file_menu_contains_find_implementors_and_senders_shortcuts(
     fixture,
 ):
-    """AI: File menu should only expose generic Find, not mode-specific Implementors or Senders commands."""
+    """AI: File menu should include Find shortcuts for implementors and senders directly below Find."""
     fixture.simulate_login()
     fixture.app.menu_bar.update_menus()
 
     file_menu_labels = menu_command_labels(fixture.app.menu_bar.file_menu)
-    assert "Implementors" not in file_menu_labels
-    assert "Senders" not in file_menu_labels
+    assert "Find" in file_menu_labels
+    assert "Implementors" in file_menu_labels
+    assert "Senders" in file_menu_labels
+    assert file_menu_labels.index("Find") < file_menu_labels.index("Implementors")
+    assert file_menu_labels.index("Implementors") < file_menu_labels.index("Senders")
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_file_menu_find_implementors_command_delegates_to_swordfish_handler(
+    fixture,
+):
+    """AI: File menu Implementors action should delegate to Swordfish find-implementors handler."""
+    fixture.simulate_login()
+    file_menu = fixture.app.menu_bar.file_menu
+    with patch.object(fixture.app, "open_implementors_dialog") as open_dialog:
+        invoke_menu_command_by_label(file_menu, "Implementors")
+    open_dialog.assert_called_once_with()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_file_menu_find_senders_command_delegates_to_swordfish_handler(
+    fixture,
+):
+    """AI: File menu Senders action should delegate to Swordfish find-senders handler."""
+    fixture.simulate_login()
+    file_menu = fixture.app.menu_bar.file_menu
+    with patch.object(fixture.app, "open_senders_dialog") as open_dialog:
+        invoke_menu_command_by_label(file_menu, "Senders")
+    open_dialog.assert_called_once_with()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_open_implementors_dialog_configures_find_dialog_for_exact_method_search(
+    fixture,
+):
+    """AI: Opening implementors dialog should configure Find for exact method implementors lookup."""
+    with patch.object(fixture.app, "open_find_dialog") as open_find_dialog:
+        fixture.app.open_implementors_dialog(method_symbol="total")
+    open_find_dialog.assert_called_once_with(
+        search_type="method",
+        search_query="total",
+        run_search=True,
+        match_mode="exact",
+    )
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_open_senders_dialog_configures_find_dialog_for_exact_method_references(
+    fixture,
+):
+    """AI: Opening senders dialog should configure Find for exact method reference lookup."""
+    with patch.object(fixture.app, "open_find_dialog") as open_find_dialog:
+        fixture.app.open_senders_dialog(method_symbol="total")
+    open_find_dialog.assert_called_once_with(
+        search_type="reference",
+        search_query="total",
+        run_search=True,
+        match_mode="exact",
+        reference_target="method",
+    )
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -5080,8 +5142,8 @@ def test_class_list_context_menu_find_references_uses_selected_class_name(
     )
     menu = classes_widget.current_context_menu
     command_labels = menu_command_labels(menu)
-    assert "Find References" in command_labels
-    fixture.invoke_menu_command(menu, "Find References")
+    assert "References" in command_labels
+    fixture.invoke_menu_command(menu, "References")
 
     classes_widget.browser_window.application.open_find_dialog_for_class.assert_called_once_with(
         "OrderLine",
@@ -5136,8 +5198,8 @@ def test_class_hierarchy_context_menu_find_references_uses_selected_class_name(
     )
     menu = classes_widget.current_context_menu
     command_labels = menu_command_labels(menu)
-    assert "Find References" in command_labels
-    fixture.invoke_menu_command(menu, "Find References")
+    assert "References" in command_labels
+    fixture.invoke_menu_command(menu, "References")
 
     classes_widget.browser_window.application.open_find_dialog_for_class.assert_called_once_with(
         "OrderLine",
