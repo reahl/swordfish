@@ -2252,13 +2252,23 @@ def register_tools(
         ast_backend = browser_session_for_policy(None).ast_backend_status()
         gui_active = gui_session_is_active()
         shared_connection_id = None
+        ide_mcp_runtime = None
         if gui_active:
             shared_connection_id = integrated_session_state.ide_connection_id()
+            if integrated_session_state.has_ide_navigation_action():
+                ide_view_response = perform_ide_navigation_action(
+                    shared_connection_id,
+                    "query_current_view",
+                    {},
+                )
+                if isinstance(ide_view_response, dict) and ide_view_response.get("ok"):
+                    ide_mcp_runtime = ide_view_response.get("mcp_runtime")
         return {
             "ok": True,
             "server_name": "SwordfishMCP",
             "policy": policy_flags(),
             "shared_ide_connection_id": shared_connection_id,
+            "ide_mcp_runtime": ide_mcp_runtime,
             "ast_backend": ast_backend,
             "ast_support": {
                 "expected_version": AST_SUPPORT_VERSION,

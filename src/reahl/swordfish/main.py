@@ -7,6 +7,7 @@ import logging
 import os
 import queue
 import re
+import sys
 import threading
 import tkinter as tk
 import tkinter.messagebox as messagebox
@@ -1265,6 +1266,125 @@ class EventQueue:
                 pass
             self.wakeup_write_descriptor = None
 
+MCP_RUNTIME_CONFIG_SCHEMA_VERSION = 1
+MCP_RUNTIME_CONFIG_FILE_NAME = "mcp.json"
+
+
+def mcp_config_home_directory():
+    xdg_config_home = os.environ.get("XDG_CONFIG_HOME", "").strip()
+    if xdg_config_home:
+        return xdg_config_home
+    return os.path.join(os.path.expanduser("~"), ".config")
+
+
+def mcp_runtime_config_file_path():
+    return os.path.join(
+        mcp_config_home_directory(),
+        "swordfish",
+        MCP_RUNTIME_CONFIG_FILE_NAME,
+    )
+
+
+def validated_mcp_runtime_config_dict(config_payload):
+    if not isinstance(config_payload, dict):
+        raise ValueError("mcp_runtime_config must be an object.")
+    if "mcp_host" in config_payload:
+        mcp_host = str(config_payload["mcp_host"]).strip()
+        if not mcp_host:
+            raise ValueError("mcp_host cannot be empty.")
+    if "mcp_port" in config_payload:
+        mcp_port = config_payload["mcp_port"]
+        if isinstance(mcp_port, bool) or not isinstance(mcp_port, int):
+            raise ValueError("mcp_port must be an integer.")
+        if mcp_port <= 0:
+            raise ValueError("mcp_port must be greater than zero.")
+    if "mcp_http_path" in config_payload:
+        mcp_http_path = str(config_payload["mcp_http_path"]).strip()
+        if not mcp_http_path.startswith("/"):
+            raise ValueError("mcp_http_path must start with '/'.")
+    return config_payload
+
+
+def load_saved_mcp_runtime_config():
+    config_file_path = mcp_runtime_config_file_path()
+    if not os.path.exists(config_file_path):
+        return None
+    try:
+        with open(config_file_path, "r", encoding="utf-8") as config_file:
+            payload = json.load(config_file)
+        if not isinstance(payload, dict):
+            return None
+        schema_version = payload.get("schema_version", MCP_RUNTIME_CONFIG_SCHEMA_VERSION)
+        if schema_version != MCP_RUNTIME_CONFIG_SCHEMA_VERSION:
+            return None
+        config_payload = payload.get("mcp_runtime_config")
+        validated_payload = validated_mcp_runtime_config_dict(config_payload)
+        return McpRuntimeConfig.from_dict(validated_payload)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def save_mcp_runtime_config(runtime_config):
+    config_file_path = mcp_runtime_config_file_path()
+    config_directory = os.path.dirname(config_file_path)
+    payload = {
+        "schema_version": MCP_RUNTIME_CONFIG_SCHEMA_VERSION,
+        "mcp_runtime_config": runtime_config.to_dict(),
+    }
+    temporary_file_path = config_file_path + ".tmp"
+    try:
+        os.makedirs(config_directory, exist_ok=True)
+        with open(temporary_file_path, "w", encoding="utf-8") as config_file:
+            json.dump(payload, config_file, indent=2, sort_keys=True)
+            config_file.write("\n")
+        os.replace(temporary_file_path, config_file_path)
+        os.chmod(config_file_path, 0o600)
+    except OSError as error:
+        try:
+            os.remove(temporary_file_path)
+        except OSError:
+            pass
+        raise DomainException(
+            "Unable to save MCP configuration to %s: %s"
+            % (config_file_path, error)
+        )
+
+
+def mcp_argument_is_explicitly_set(argument_tokens, option_name):
+    option_prefix = option_name + "="
+    for argument_token in argument_tokens:
+        if argument_token == option_name:
+            return True
+        if argument_token.startswith(option_prefix):
+            return True
+    return False
+
+
+def explicit_mcp_runtime_overrides_from_argument_tokens(argument_tokens):
+    explicit_overrides = {}
+    if mcp_argument_is_explicitly_set(argument_tokens, "--allow-eval"):
+        explicit_overrides["allow_eval"] = True
+    if mcp_argument_is_explicitly_set(argument_tokens, "--allow-compile"):
+        explicit_overrides["allow_compile"] = True
+    if mcp_argument_is_explicitly_set(argument_tokens, "--allow-commit"):
+        explicit_overrides["allow_commit"] = True
+    if mcp_argument_is_explicitly_set(argument_tokens, "--allow-tracing"):
+        explicit_overrides["allow_tracing"] = True
+    if mcp_argument_is_explicitly_set(
+        argument_tokens,
+        "--allow-mcp-commit-when-gui",
+    ):
+        explicit_overrides["allow_mcp_commit_when_gui"] = True
+    if mcp_argument_is_explicitly_set(argument_tokens, "--require-gemstone-ast"):
+        explicit_overrides["require_gemstone_ast"] = True
+    if mcp_argument_is_explicitly_set(argument_tokens, "--mcp-host"):
+        explicit_overrides["mcp_host"] = True
+    if mcp_argument_is_explicitly_set(argument_tokens, "--mcp-port"):
+        explicit_overrides["mcp_port"] = True
+    if mcp_argument_is_explicitly_set(argument_tokens, "--mcp-http-path"):
+        explicit_overrides["mcp_http_path"] = True
+    return explicit_overrides
+
 
 class McpRuntimeConfig:
     def __init__(
@@ -1301,6 +1421,42 @@ class McpRuntimeConfig:
             mcp_port=self.mcp_port,
             mcp_http_path=self.mcp_http_path,
         )
+
+    @classmethod
+    def from_dict(cls, config_payload):
+        return cls(
+            allow_eval=bool(config_payload.get("allow_eval", False)),
+            allow_compile=bool(config_payload.get("allow_compile", False)),
+            allow_commit=bool(config_payload.get("allow_commit", False)),
+            allow_tracing=bool(config_payload.get("allow_tracing", False)),
+            allow_mcp_commit_when_gui=bool(
+                config_payload.get("allow_mcp_commit_when_gui", False)
+            ),
+            require_gemstone_ast=bool(
+                config_payload.get("require_gemstone_ast", False)
+            ),
+            mcp_host=str(config_payload.get("mcp_host", "127.0.0.1")).strip(),
+            mcp_port=int(config_payload.get("mcp_port", 8000)),
+            mcp_http_path=str(config_payload.get("mcp_http_path", "/mcp")).strip(),
+        )
+
+    def to_dict(self):
+        return {
+            "allow_eval": bool(self.allow_eval),
+            "allow_compile": bool(self.allow_compile),
+            "allow_commit": bool(self.allow_commit),
+            "allow_tracing": bool(self.allow_tracing),
+            "allow_mcp_commit_when_gui": bool(self.allow_mcp_commit_when_gui),
+            "require_gemstone_ast": bool(self.require_gemstone_ast),
+            "mcp_host": self.mcp_host,
+            "mcp_port": self.mcp_port,
+            "mcp_http_path": self.mcp_http_path,
+        }
+
+    def __eq__(self, other):
+        if not isinstance(other, McpRuntimeConfig):
+            return False
+        return self.to_dict() == other.to_dict()
 
     def endpoint_url(self):
         return "http://%s:%s%s" % (
@@ -1345,6 +1501,7 @@ class EmbeddedMcpServerController:
     def __init__(self, integrated_session_state, runtime_config):
         self.integrated_session_state = integrated_session_state
         self.runtime_config = runtime_config.copy()
+        self.applied_runtime_config = None
         self.lock = threading.RLock()
         self.server_thread = None
         self.uvicorn_server = None
@@ -1365,12 +1522,23 @@ class EmbeddedMcpServerController:
 
     def status(self):
         with self.lock:
+            configured_endpoint_url = self.runtime_config.endpoint_url()
+            active_endpoint_url = configured_endpoint_url
+            if self.applied_runtime_config is not None:
+                active_endpoint_url = self.applied_runtime_config.endpoint_url()
+            restart_required_for_config = False
+            if self.running and self.applied_runtime_config is not None:
+                restart_required_for_config = (
+                    self.runtime_config != self.applied_runtime_config
+                )
             return {
                 "running": self.running,
                 "starting": self.starting,
                 "stopping": self.stopping,
                 "last_error_message": self.last_error_message,
-                "endpoint_url": self.runtime_config.endpoint_url(),
+                "endpoint_url": active_endpoint_url,
+                "configured_endpoint_url": configured_endpoint_url,
+                "restart_required_for_config": restart_required_for_config,
             }
 
     def callback_reference_for(self, callback):
@@ -1511,6 +1679,7 @@ class EmbeddedMcpServerController:
             server = uvicorn.Server(uvicorn_config)
             with self.lock:
                 self.uvicorn_server = server
+                self.applied_runtime_config = local_runtime_config.copy()
                 self.running = True
                 self.starting = False
                 self.last_error_message = ""
@@ -1536,6 +1705,7 @@ class EmbeddedMcpServerController:
                 self.stopping = False
                 self.uvicorn_server = None
                 self.server_thread = None
+                self.applied_runtime_config = None
             self.notify_server_state_subscribers()
 
 
@@ -3920,6 +4090,7 @@ class Swordfish(tk.Tk):
         self.last_mcp_server_starting_state = None
         self.last_mcp_server_stopping_state = None
         self.last_mcp_server_error_message = None
+        self.last_mcp_config_save_error_message = None
         if mcp_runtime_config is None:
             mcp_runtime_config = McpRuntimeConfig(
                 allow_compile=True,
@@ -4033,14 +4204,20 @@ class Swordfish(tk.Tk):
         if dialog.result is None:
             return
         self.mcp_runtime_config = dialog.result.copy()
-        mcp_was_running = self.embedded_mcp_server_controller.status()["running"]
         self.embedded_mcp_server_controller.update_runtime_config(
             self.mcp_runtime_config
         )
-        if mcp_was_running:
-            self.embedded_mcp_server_controller.stop()
-            self.start_mcp_server(report_errors=True)
+        try:
+            save_mcp_runtime_config(self.mcp_runtime_config)
+            self.last_mcp_config_save_error_message = None
+        except DomainException as error:
+            self.last_mcp_config_save_error_message = str(error)
+            messagebox.showerror(
+                "MCP Configuration",
+                str(error),
+            )
         self.menu_bar.update_menus()
+        self.refresh_collaboration_status()
 
     def commit(self):
         self.gemstone_session_record.commit()
@@ -4243,6 +4420,8 @@ class Swordfish(tk.Tk):
         starting=False,
         stopping=False,
         endpoint_url="",
+        configured_endpoint_url="",
+        restart_required_for_config=False,
         last_error_message="",
     ):
         self.event_queue.publish(
@@ -4251,6 +4430,8 @@ class Swordfish(tk.Tk):
             starting=starting,
             stopping=stopping,
             endpoint_url=endpoint_url,
+            configured_endpoint_url=configured_endpoint_url,
+            restart_required_for_config=restart_required_for_config,
             last_error_message=last_error_message,
         )
 
@@ -4305,9 +4486,15 @@ class Swordfish(tk.Tk):
         elif mcp_server_starting:
             self.collaboration_status_text.set("Starting MCP server...")
         elif mcp_server_running:
-            self.collaboration_status_text.set(
-                "IDE ready. MCP running at %s." % mcp_server_status["endpoint_url"]
+            runtime_message = "IDE ready. MCP running at %s." % (
+                mcp_server_status["endpoint_url"]
             )
+            if mcp_server_status.get("restart_required_for_config"):
+                runtime_message = (
+                    runtime_message
+                    + " MCP config changed; stop and start MCP to apply latest settings."
+                )
+            self.collaboration_status_text.set(runtime_message)
         elif self.is_logged_in:
             self.collaboration_status_text.set("IDE ready. Embedded MCP is stopped.")
         else:
@@ -4323,6 +4510,8 @@ class Swordfish(tk.Tk):
         starting=False,
         stopping=False,
         endpoint_url="",
+        configured_endpoint_url="",
+        restart_required_for_config=False,
         last_error_message="",
     ):
         self.last_mcp_server_running_state = running
@@ -4573,6 +4762,23 @@ class Swordfish(tk.Tk):
             "selection": self.text_widget_selection_state(self.run_tab.source_text),
         }
 
+    def mcp_runtime_state_for_ai(self):
+        mcp_server_status = self.embedded_mcp_server_controller.status()
+        return {
+            "running": mcp_server_status["running"],
+            "starting": mcp_server_status["starting"],
+            "stopping": mcp_server_status["stopping"],
+            "endpoint_url": mcp_server_status["endpoint_url"],
+            "configured_endpoint_url": mcp_server_status["configured_endpoint_url"],
+            "restart_required_for_config": mcp_server_status.get(
+                "restart_required_for_config",
+                False,
+            ),
+            "config_file_path": mcp_runtime_config_file_path(),
+            "last_save_error_message": self.last_mcp_config_save_error_message,
+            "desired_runtime_config": self.mcp_runtime_config.to_dict(),
+        }
+
     def current_ide_view_state(self):
         active_tab_id = None
         active_tab_label = None
@@ -4650,6 +4856,7 @@ class Swordfish(tk.Tk):
             "browser_state": browser_state,
             "debugger_state": debugger_state,
             "active_source_view": active_source_view,
+            "mcp_runtime": self.mcp_runtime_state_for_ai(),
         }
 
     def execute_mcp_ide_navigation_action(self, action_name, action_parameters=None):
@@ -9304,6 +9511,8 @@ class ObjectInspector(ttk.Frame):
             total_items = self.set_as_array.size().to_py
         except GemstoneError:
             return False
+        if type(total_items) is not int:
+            return False
         self.pagination_mode = "set"
         self.current_page = 0
         self.total_items = total_items
@@ -9386,6 +9595,8 @@ class ObjectInspector(ttk.Frame):
         try:
             total_items = an_object.size().to_py
         except GemstoneError:
+            return False
+        if type(total_items) is not int:
             return False
 
         can_access_index_one = True
@@ -10993,18 +11204,24 @@ def new_application_argument_parser(default_mode="ide"):
     return argument_parser
 
 
-def run_mcp_server(arguments, integrated_session_state=None):
+def run_mcp_server(
+    arguments,
+    integrated_session_state=None,
+    runtime_config=None,
+):
+    if runtime_config is None:
+        runtime_config = runtime_mcp_config_from_arguments(arguments)
     mcp_server = create_server(
-        allow_eval=arguments.allow_eval,
-        allow_compile=arguments.allow_compile,
-        allow_commit=arguments.allow_commit,
-        allow_tracing=arguments.allow_tracing,
-        allow_commit_when_gui=arguments.allow_mcp_commit_when_gui,
+        allow_eval=runtime_config.allow_eval,
+        allow_compile=runtime_config.allow_compile,
+        allow_commit=runtime_config.allow_commit,
+        allow_tracing=runtime_config.allow_tracing,
+        allow_commit_when_gui=runtime_config.allow_mcp_commit_when_gui,
         integrated_session_state=integrated_session_state,
-        require_gemstone_ast=arguments.require_gemstone_ast,
-        mcp_host=arguments.mcp_host,
-        mcp_port=arguments.mcp_port,
-        mcp_streamable_http_path=arguments.mcp_http_path,
+        require_gemstone_ast=runtime_config.require_gemstone_ast,
+        mcp_host=runtime_config.mcp_host,
+        mcp_port=runtime_config.mcp_port,
+        mcp_streamable_http_path=runtime_config.mcp_http_path,
     )
     mcp_server.run(transport=arguments.transport)
 
@@ -11030,22 +11247,95 @@ def runtime_mcp_config_from_arguments(arguments):
     )
 
 
+def merged_runtime_mcp_config_from_arguments(
+    arguments,
+    argument_tokens=None,
+    persisted_runtime_config=None,
+):
+    cli_runtime_config = runtime_mcp_config_from_arguments(arguments)
+    if persisted_runtime_config is None:
+        persisted_runtime_config = load_saved_mcp_runtime_config()
+    if persisted_runtime_config is None:
+        return cli_runtime_config
+    if argument_tokens is None:
+        argument_tokens = []
+    explicit_overrides = explicit_mcp_runtime_overrides_from_argument_tokens(
+        argument_tokens
+    )
+    if len(explicit_overrides) < 1:
+        return persisted_runtime_config.copy()
+    merged_runtime_config = persisted_runtime_config.copy()
+    merged_runtime_config.update_with(
+        allow_eval=(
+            cli_runtime_config.allow_eval
+            if explicit_overrides.get("allow_eval")
+            else None
+        ),
+        allow_compile=(
+            cli_runtime_config.allow_compile
+            if explicit_overrides.get("allow_compile")
+            else None
+        ),
+        allow_commit=(
+            cli_runtime_config.allow_commit
+            if explicit_overrides.get("allow_commit")
+            else None
+        ),
+        allow_tracing=(
+            cli_runtime_config.allow_tracing
+            if explicit_overrides.get("allow_tracing")
+            else None
+        ),
+        allow_mcp_commit_when_gui=(
+            cli_runtime_config.allow_mcp_commit_when_gui
+            if explicit_overrides.get("allow_mcp_commit_when_gui")
+            else None
+        ),
+        require_gemstone_ast=(
+            cli_runtime_config.require_gemstone_ast
+            if explicit_overrides.get("require_gemstone_ast")
+            else None
+        ),
+        mcp_host=(
+            cli_runtime_config.mcp_host
+            if explicit_overrides.get("mcp_host")
+            else None
+        ),
+        mcp_port=(
+            cli_runtime_config.mcp_port
+            if explicit_overrides.get("mcp_port")
+            else None
+        ),
+        mcp_http_path=(
+            cli_runtime_config.mcp_http_path
+            if explicit_overrides.get("mcp_http_path")
+            else None
+        ),
+    )
+    return merged_runtime_config
+
+
 def run_application(default_mode="ide"):
     argument_parser = new_application_argument_parser(default_mode=default_mode)
     arguments = argument_parser.parse_args()
     validate_application_arguments(argument_parser, arguments)
+    argument_tokens = sys.argv[1:]
+    runtime_config = merged_runtime_mcp_config_from_arguments(
+        arguments,
+        argument_tokens=argument_tokens,
+    )
     run_headless_mcp = arguments.headless_mcp
     if arguments.mode == "mcp-headless":
         run_headless_mcp = True
     if arguments.mode == "ide":
         run_headless_mcp = False
     if run_headless_mcp:
-        run_mcp_server(arguments)
+        run_mcp_server(arguments, runtime_config=runtime_config)
         return
     app = Swordfish(
         default_stone_name=arguments.stone_name,
-        start_embedded_mcp=True,
-        mcp_runtime_config=runtime_mcp_config_from_arguments(arguments),
+        start_embedded_mcp=False,
+        mcp_runtime_config=runtime_config,
     )
     app.mainloop()
 

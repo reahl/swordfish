@@ -3386,3 +3386,33 @@ def test_gs_capabilities_exposes_ide_navigation_tool_group():
     assert "gs_ide_select_class" in ide_navigation_tools
     assert "gs_ide_open_method" in ide_navigation_tools
     assert "gs_ide_open_debugger" in ide_navigation_tools
+
+
+def test_gs_capabilities_includes_ide_mcp_runtime_restart_hint():
+    registrar = McpToolRegistrar()
+    shared_state = IntegratedSessionState()
+    shared_state.attach_ide_session(FakeGemstoneSession())
+
+    def fake_navigation_action(action_name, action_parameters):
+        if action_name == "query_current_view":
+            return {
+                "ok": True,
+                "mcp_runtime": {
+                    "restart_required_for_config": True,
+                },
+            }
+        return {"ok": True}
+
+    shared_state.attach_ide_gui(ide_navigation_action=fake_navigation_action)
+    register_tools(
+        registrar,
+        allow_eval=True,
+        allow_compile=True,
+        allow_commit=True,
+        allow_tracing=True,
+        integrated_session_state=shared_state,
+    )
+
+    capabilities_result = registrar.registered_tools_by_name["gs_capabilities"]()
+    assert capabilities_result["ok"], capabilities_result
+    assert capabilities_result["ide_mcp_runtime"]["restart_required_for_config"]
