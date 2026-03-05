@@ -2098,6 +2098,14 @@ def register_tools(
         }
 
     @mcp_server.tool()
+    def gs_ide_current_view(connection_id):
+        return perform_ide_navigation_action(
+            connection_id,
+            "query_current_view",
+            {},
+        )
+
+    @mcp_server.tool()
     def gs_ide_open_graph_for_oops(
         connection_id,
         oops,
@@ -2259,6 +2267,7 @@ def register_tools(
             "tool_groups": {
                 "ide_navigation": [
                     "gs_ide_navigation_status",
+                    "gs_ide_current_view",
                     "gs_ide_open_graph_for_oops",
                     "gs_ide_select_class",
                     "gs_ide_open_method",

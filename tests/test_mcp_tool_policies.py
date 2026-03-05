@@ -3205,6 +3205,39 @@ def test_gs_ide_open_graph_for_oops_requires_shared_ide_connection():
     )
 
 
+def test_gs_ide_current_view_dispatches_navigation_action():
+    registrar = McpToolRegistrar()
+    shared_state = IntegratedSessionState()
+    shared_state.attach_ide_session(FakeGemstoneSession())
+    captured_action_name = {"value": ""}
+    captured_action_parameters = {"value": {}}
+
+    def fake_navigation_action(action_name, action_parameters):
+        captured_action_name["value"] = action_name
+        captured_action_parameters["value"] = dict(action_parameters)
+        return {
+            "ok": True,
+            "active_tab": {"label": "Browser", "kind": "browser"},
+        }
+
+    shared_state.attach_ide_gui(ide_navigation_action=fake_navigation_action)
+    register_tools(
+        registrar,
+        allow_eval=True,
+        allow_compile=True,
+        allow_commit=True,
+        allow_tracing=True,
+        integrated_session_state=shared_state,
+    )
+    current_view = registrar.registered_tools_by_name["gs_ide_current_view"]
+    result = current_view(shared_state.ide_connection_id())
+
+    assert result["ok"], result
+    assert result["connection_id"] == shared_state.ide_connection_id()
+    assert captured_action_name["value"] == "query_current_view"
+    assert captured_action_parameters["value"] == {}
+
+
 def test_gs_ide_select_class_dispatches_navigation_action():
     registrar = McpToolRegistrar()
     shared_state = IntegratedSessionState()
@@ -3348,6 +3381,7 @@ def test_gs_capabilities_exposes_ide_navigation_tool_group():
     assert capabilities_result["policy"]["ide_navigation_available"]
     ide_navigation_tools = capabilities_result["tool_groups"]["ide_navigation"]
     assert "gs_ide_navigation_status" in ide_navigation_tools
+    assert "gs_ide_current_view" in ide_navigation_tools
     assert "gs_ide_open_graph_for_oops" in ide_navigation_tools
     assert "gs_ide_select_class" in ide_navigation_tools
     assert "gs_ide_open_method" in ide_navigation_tools

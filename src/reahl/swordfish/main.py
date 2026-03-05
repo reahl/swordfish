@@ -4441,6 +4441,209 @@ class Swordfish(tk.Tk):
             and self.graph_tab.winfo_exists(),
         }
 
+    def method_context_payload(self, method_context):
+        if method_context is None:
+            return None
+        try:
+            class_name, show_instance_side, method_symbol = method_context
+        except (TypeError, ValueError):
+            return None
+        return {
+            "class_name": class_name,
+            "show_instance_side": show_instance_side,
+            "method_symbol": method_symbol,
+        }
+
+    def text_widget_selection_state(self, text_widget):
+        empty_selection_state = {
+            "has_selection": False,
+            "selection_start": None,
+            "selection_end": None,
+            "selected_text": "",
+            "cursor_index": None,
+        }
+        if text_widget is None:
+            return empty_selection_state
+        try:
+            if not text_widget.winfo_exists():
+                return empty_selection_state
+        except AttributeError:
+            return empty_selection_state
+        selection_start, selection_end = selected_range_in_text_widget(text_widget)
+        selected_text = ""
+        if selection_start is not None:
+            try:
+                selected_text = text_widget.get(selection_start, selection_end)
+            except tk.TclError:
+                selection_start = None
+                selection_end = None
+                selected_text = ""
+        cursor_index = None
+        try:
+            cursor_index = text_widget.index(tk.INSERT)
+        except tk.TclError:
+            cursor_index = None
+        return {
+            "has_selection": selection_start is not None,
+            "selection_start": selection_start,
+            "selection_end": selection_end,
+            "selected_text": selected_text,
+            "cursor_index": cursor_index,
+        }
+
+    def browser_editor_state(self):
+        if self.browser_tab is None or not self.browser_tab.winfo_exists():
+            return None
+        method_editor = self.browser_tab.editor_area_widget
+        selected_editor_tab_id = ""
+        try:
+            selected_editor_tab_id = method_editor.editor_notebook.select()
+        except tk.TclError:
+            selected_editor_tab_id = ""
+        active_editor_tab_label = None
+        method_context = None
+        selection_state = self.text_widget_selection_state(None)
+        if selected_editor_tab_id:
+            try:
+                active_editor_tab_label = method_editor.editor_notebook.tab(
+                    selected_editor_tab_id,
+                    "text",
+                )
+            except tk.TclError:
+                active_editor_tab_label = None
+            selected_editor_tab = None
+            try:
+                selected_editor_tab = method_editor.editor_notebook.nametowidget(
+                    selected_editor_tab_id
+                )
+            except tk.TclError:
+                selected_editor_tab = None
+            code_panel = None
+            if selected_editor_tab is not None:
+                code_panel = getattr(selected_editor_tab, "code_panel", None)
+            if code_panel is not None:
+                method_context = self.method_context_payload(code_panel.method_context())
+                selection_state = self.text_widget_selection_state(code_panel.text_editor)
+        return {
+            "active_editor_tab_label": active_editor_tab_label,
+            "method_context": method_context,
+            "selection": selection_state,
+        }
+
+    def debugger_source_state(self):
+        if self.debugger_tab is None or not self.debugger_tab.winfo_exists():
+            return None
+        selected_frame = self.debugger_tab.get_selected_stack_frame()
+        selected_frame_payload = None
+        method_context = None
+        if selected_frame is not None:
+            selected_frame_payload = {
+                "level": selected_frame.level,
+                "class_name": selected_frame.class_name,
+                "method_name": selected_frame.method_name,
+                "step_point_offset": selected_frame.step_point_offset,
+            }
+            method_context = self.method_context_payload(
+                self.debugger_tab.frame_method_context(selected_frame)
+            )
+        debugger_code_panel = getattr(self.debugger_tab, "code_panel", None)
+        debugger_text_widget = None
+        if debugger_code_panel is not None:
+            debugger_text_widget = getattr(debugger_code_panel, "text_editor", None)
+        selection_state = self.text_widget_selection_state(debugger_text_widget)
+        return {
+            "running": self.debugger_tab.is_running,
+            "selected_frame": selected_frame_payload,
+            "method_context": method_context,
+            "selection": selection_state,
+        }
+
+    def run_source_state(self):
+        if self.run_tab is None or not self.run_tab.winfo_exists():
+            return None
+        return {
+            "selection": self.text_widget_selection_state(self.run_tab.source_text),
+        }
+
+    def current_ide_view_state(self):
+        active_tab_id = None
+        active_tab_label = None
+        active_tab_kind = "none"
+        if self.notebook is not None and self.notebook.winfo_exists():
+            try:
+                active_tab_id = self.notebook.select()
+            except tk.TclError:
+                active_tab_id = None
+            if active_tab_id:
+                try:
+                    active_tab_label = self.notebook.tab(active_tab_id, "text")
+                except tk.TclError:
+                    active_tab_label = None
+        if self.browser_tab is not None and active_tab_id == str(self.browser_tab):
+            active_tab_kind = "browser"
+        if self.run_tab is not None and active_tab_id == str(self.run_tab):
+            active_tab_kind = "run"
+        if self.debugger_tab is not None and active_tab_id == str(self.debugger_tab):
+            active_tab_kind = "debugger"
+        if self.inspector_tab is not None and active_tab_id == str(self.inspector_tab):
+            active_tab_kind = "inspect"
+        if self.graph_tab is not None and active_tab_id == str(self.graph_tab):
+            active_tab_kind = "graph"
+        if active_tab_kind == "none" and active_tab_label:
+            active_tab_kind = active_tab_label.lower()
+
+        browser_state = None
+        if self.is_logged_in:
+            class_view_mode = None
+            if self.browser_tab is not None and self.browser_tab.winfo_exists():
+                class_view_mode = (
+                    "hierarchy"
+                    if self.browser_tab.classes_widget.selected_tab_is_hierarchy()
+                    else "list"
+                )
+            browser_state = {
+                "browse_mode": self.gemstone_session_record.browse_mode,
+                "selected_package": self.gemstone_session_record.selected_package,
+                "selected_dictionary": self.gemstone_session_record.selected_dictionary,
+                "selected_class": self.gemstone_session_record.selected_class,
+                "selected_method_category": (
+                    self.gemstone_session_record.selected_method_category
+                ),
+                "selected_method_symbol": self.gemstone_session_record.selected_method_symbol,
+                "show_instance_side": self.gemstone_session_record.show_instance_side,
+                "class_view_mode": class_view_mode,
+            }
+
+        debugger_state = self.debugger_source_state()
+        active_source_view = None
+        if active_tab_kind == "browser":
+            browser_editor_state = self.browser_editor_state()
+            active_source_view = {
+                "kind": "browser_method_source",
+                "state": browser_editor_state,
+            }
+        if active_tab_kind == "debugger":
+            active_source_view = {
+                "kind": "debugger_method_source",
+                "state": debugger_state,
+            }
+        if active_tab_kind == "run":
+            active_source_view = {
+                "kind": "run_source",
+                "state": self.run_source_state(),
+            }
+        return {
+            "ok": True,
+            "is_logged_in": self.is_logged_in,
+            "active_tab": {
+                "label": active_tab_label,
+                "kind": active_tab_kind,
+            },
+            "browser_state": browser_state,
+            "debugger_state": debugger_state,
+            "active_source_view": active_source_view,
+        }
+
     def execute_mcp_ide_navigation_action(self, action_name, action_parameters=None):
         if action_parameters is None:
             action_parameters = {}
@@ -4575,6 +4778,8 @@ class Swordfish(tk.Tk):
                 exception,
                 ask_before_open=ask_before_open,
             )
+        if action_name == "query_current_view":
+            return self.current_ide_view_state()
         return {
             "ok": False,
             "error": {"message": f"Unknown IDE navigation action: {action_name}."},
