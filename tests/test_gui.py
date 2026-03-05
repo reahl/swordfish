@@ -2381,6 +2381,79 @@ def test_mcp_ide_navigation_action_opens_graph_for_oops(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_mcp_ide_navigation_action_selects_class_in_browser(fixture):
+    """AI: MCP IDE navigation action should select class context in the browser."""
+    fixture.simulate_login()
+    fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
+        "Kernel"
+    )
+
+    response = fixture.app.perform_mcp_ide_navigation_action(
+        "select_class",
+        {
+            "class_name": "OrderLine",
+            "show_instance_side": True,
+        },
+    )
+    fixture.app.update()
+
+    assert response["ok"], response
+    assert fixture.session_record.selected_class == "OrderLine"
+    assert fixture.session_record.show_instance_side is True
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_mcp_ide_navigation_action_opens_method_in_browser(fixture):
+    """AI: MCP IDE navigation action should select method context in the browser."""
+    fixture.simulate_login()
+    fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
+        "Kernel"
+    )
+    fixture.mock_browser.get_method_category.return_value = "accessing"
+
+    response = fixture.app.perform_mcp_ide_navigation_action(
+        "open_method",
+        {
+            "class_name": "OrderLine",
+            "method_symbol": "total",
+            "show_instance_side": True,
+        },
+    )
+    fixture.app.update()
+
+    assert response["ok"], response
+    assert fixture.session_record.selected_class == "OrderLine"
+    assert fixture.session_record.selected_method_symbol == "total"
+    assert fixture.session_record.selected_method_category == "accessing"
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_mcp_ide_navigation_action_delegates_to_debugger_opener(fixture):
+    """AI: MCP debugger action should delegate to debugger opening handler."""
+    fixture.simulate_login()
+    example_exception = RuntimeError("MCP debugger test")
+
+    with patch.object(
+        fixture.app,
+        "open_debugger_for_mcp_exception",
+        return_value={"ok": True, "debugger_opened": True},
+    ) as debugger_opener:
+        response = fixture.app.perform_mcp_ide_navigation_action(
+            "open_debugger_for_exception",
+            {
+                "exception": example_exception,
+                "ask_before_open": True,
+            },
+        )
+
+    debugger_opener.assert_called_once_with(
+        example_exception,
+        ask_before_open=True,
+    )
+    assert response["ok"], response
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_run_inspector_uses_object_summary_as_first_tab_label(fixture):
     """AI: The first inspector tab should identify the inspected object rather than a generic Context label."""
     fixture.simulate_login()
