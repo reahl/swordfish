@@ -57,8 +57,8 @@ def delete_selected_range_in_text_widget(text_widget):
 
 
 def select_all_in_text_widget(text_widget):
-    text_widget.tag_add(tk.SEL, '1.0', 'end-1c')
-    text_widget.mark_set(tk.INSERT, '1.0')
+    text_widget.tag_add(tk.SEL, "1.0", "end-1c")
+    text_widget.mark_set(tk.INSERT, "1.0")
     text_widget.see(tk.INSERT)
 
 
@@ -87,7 +87,7 @@ def paste_text_into_widget(clipboard_owner, text_widget):
     autoseparators_enabled = True
     can_configure_autoseparators = True
     try:
-        autoseparators_value = text_widget.cget('autoseparators')
+        autoseparators_value = text_widget.cget("autoseparators")
         autoseparators_enabled = bool(int(autoseparators_value))
     except (tk.TclError, TypeError, ValueError):
         can_configure_autoseparators = False
@@ -117,7 +117,7 @@ def replace_selected_range_before_typing(text_widget, event):
     if control_key_pressed_for_event(event):
         return
     inserts_character = bool(event.char)
-    inserts_control_character = event.keysym in ('Return', 'KP_Enter', 'Tab')
+    inserts_control_character = event.keysym in ("Return", "KP_Enter", "Tab")
     if inserts_character or inserts_control_character:
         delete_selected_range_in_text_widget(text_widget)
 
@@ -130,29 +130,29 @@ class CodeLineNumberColumn:
         self.line_numbers_text = tk.Text(
             parent,
             width=4,
-            wrap='none',
+            wrap="none",
             padx=6,
             takefocus=0,
-            state='disabled',
+            state="disabled",
             borderwidth=0,
             highlightthickness=0,
-            background='#f2f2f2',
-            foreground='#666666',
-            cursor='arrow',
+            background="#f2f2f2",
+            foreground="#666666",
+            cursor="arrow",
         )
         self.line_numbers_text.tag_configure(
-            'line_number_alignment',
-            justify='right',
+            "line_number_alignment",
+            justify="right",
         )
-        self.line_numbers_text.bind('<MouseWheel>', self.scroll_main_text)
-        self.line_numbers_text.bind('<Button-4>', self.scroll_main_text)
-        self.line_numbers_text.bind('<Button-5>', self.scroll_main_text)
-        self.line_numbers_text.bind('<Button-1>', self.ignore_mouse_click)
+        self.line_numbers_text.bind("<MouseWheel>", self.scroll_main_text)
+        self.line_numbers_text.bind("<Button-4>", self.scroll_main_text)
+        self.line_numbers_text.bind("<Button-5>", self.scroll_main_text)
+        self.line_numbers_text.bind("<Button-1>", self.ignore_mouse_click)
 
-        self.text_widget.bind('<<Modified>>', self.on_text_modified, add='+')
-        self.text_widget.bind('<Configure>', self.refresh_line_numbers, add='+')
-        self.text_widget.bind('<KeyRelease>', self.refresh_line_numbers, add='+')
-        self.text_widget.bind('<ButtonRelease-1>', self.refresh_line_numbers, add='+')
+        self.text_widget.bind("<<Modified>>", self.on_text_modified, add="+")
+        self.text_widget.bind("<Configure>", self.refresh_line_numbers, add="+")
+        self.text_widget.bind("<KeyRelease>", self.refresh_line_numbers, add="+")
+        self.text_widget.bind("<ButtonRelease-1>", self.refresh_line_numbers, add="+")
         self.text_widget.configure(yscrollcommand=self.on_text_scrolled)
 
         self.clear_modified_flag()
@@ -175,17 +175,17 @@ class CodeLineNumberColumn:
             self.refresh_line_numbers()
 
     def ignore_mouse_click(self, event=None):
-        return 'break'
+        return "break"
 
     def scroll_units_for_event(self, event):
         mouse_delta = 0
-        if hasattr(event, 'delta'):
+        if hasattr(event, "delta"):
             mouse_delta = event.delta
         if mouse_delta > 0:
             return -1
         if mouse_delta < 0:
             return 1
-        button_number = getattr(event, 'num', None)
+        button_number = getattr(event, "num", None)
         if button_number == 4:
             return -1
         if button_number == 5:
@@ -196,9 +196,9 @@ class CodeLineNumberColumn:
         scroll_units = self.scroll_units_for_event(event)
         if scroll_units == 0:
             return None
-        self.text_widget.yview_scroll(scroll_units, 'units')
+        self.text_widget.yview_scroll(scroll_units, "units")
         self.sync_scroll_position()
-        return 'break'
+        return "break"
 
     def on_text_scrolled(self, first_fraction, last_fraction):
         self.line_numbers_text.yview_moveto(first_fraction)
@@ -206,7 +206,7 @@ class CodeLineNumberColumn:
             self.external_yscrollcommand(first_fraction, last_fraction)
 
     def line_count(self):
-        line_number = int(self.text_widget.index('end-1c').split('.')[0])
+        line_number = int(self.text_widget.index("end-1c").split(".")[0])
         if line_number < 1:
             return 1
         return line_number
@@ -215,7 +215,7 @@ class CodeLineNumberColumn:
         line_numbers = []
         for line_number in range(1, line_count + 1):
             line_numbers.append(str(line_number))
-        return '\n'.join(line_numbers)
+        return "\n".join(line_numbers)
 
     def sync_scroll_position(self):
         first_fraction, _ = self.text_widget.yview()
@@ -224,17 +224,17 @@ class CodeLineNumberColumn:
     def refresh_line_numbers(self, event=None):
         line_count = self.line_count()
         line_number_text = self.line_number_text_for_count(line_count)
-        self.line_numbers_text.configure(state='normal')
-        self.line_numbers_text.delete('1.0', tk.END)
+        self.line_numbers_text.configure(state="normal")
+        self.line_numbers_text.delete("1.0", tk.END)
         self.line_numbers_text.insert(
-            '1.0',
+            "1.0",
             line_number_text,
-            'line_number_alignment',
+            "line_number_alignment",
         )
         self.line_numbers_text.configure(
             width=max(3, len(str(line_count)) + 1),
         )
-        self.line_numbers_text.configure(state='disabled')
+        self.line_numbers_text.configure(state="disabled")
         self.sync_scroll_position()
 
 
@@ -242,18 +242,18 @@ class TextCursorPositionIndicator:
     def __init__(self, text_widget, label_widget):
         self.text_widget = text_widget
         self.label_widget = label_widget
-        self.text_widget.bind('<KeyRelease>', self.update_position, add='+')
-        self.text_widget.bind('<ButtonRelease-1>', self.update_position, add='+')
-        self.text_widget.bind('<ButtonRelease-2>', self.update_position, add='+')
-        self.text_widget.bind('<ButtonRelease-3>', self.update_position, add='+')
-        self.text_widget.bind('<FocusIn>', self.update_position, add='+')
+        self.text_widget.bind("<KeyRelease>", self.update_position, add="+")
+        self.text_widget.bind("<ButtonRelease-1>", self.update_position, add="+")
+        self.text_widget.bind("<ButtonRelease-2>", self.update_position, add="+")
+        self.text_widget.bind("<ButtonRelease-3>", self.update_position, add="+")
+        self.text_widget.bind("<FocusIn>", self.update_position, add="+")
         self.update_position()
 
     def line_and_column(self):
         try:
-            line_text, zero_based_column_text = self.text_widget.index(
-                tk.INSERT
-            ).split('.')
+            line_text, zero_based_column_text = self.text_widget.index(tk.INSERT).split(
+                "."
+            )
             line_number = int(line_text)
             one_based_column_number = int(zero_based_column_text) + 1
             return line_number, one_based_column_number
@@ -263,11 +263,9 @@ class TextCursorPositionIndicator:
     def update_position(self, event=None):
         line_number, column_number = self.line_and_column()
         if line_number is None or column_number is None:
-            self.label_widget.config(text='Ln -, Col -')
+            self.label_widget.config(text="Ln -, Col -")
             return
-        self.label_widget.config(
-            text=f'Ln {line_number}, Col {column_number}'
-        )
+        self.label_widget.config(text=f"Ln {line_number}, Col {column_number}")
 
 
 class GemstoneSessionRecord:
@@ -282,7 +280,7 @@ class GemstoneSessionRecord:
         self.selected_method_category = None
         self.selected_method_symbol = None
         self.show_instance_side = True
-        self.browse_mode = 'dictionaries'
+        self.browse_mode = "dictionaries"
 
     def set_integrated_session_state(self, integrated_session_state):
         self.integrated_session_state = integrated_session_state
@@ -293,13 +291,12 @@ class GemstoneSessionRecord:
         if not self.integrated_session_state.is_mcp_busy():
             return
         mcp_operation_name = (
-            self.integrated_session_state.current_mcp_operation_name()
-            or 'unknown'
+            self.integrated_session_state.current_mcp_operation_name() or "unknown"
         )
         raise DomainException(
             (
-                'IDE is read-only while MCP operation %s is active. '
-                'Retry %s after MCP finishes.'
+                "IDE is read-only while MCP operation %s is active. "
+                "Retry %s after MCP finishes."
             )
             % (
                 mcp_operation_name,
@@ -321,7 +318,7 @@ class GemstoneSessionRecord:
         self.select_class(None)
 
     def select_class_category(self, category_name):
-        if self.browse_mode == 'dictionaries':
+        if self.browse_mode == "dictionaries":
             self.selected_package = None
             self.select_dictionary(category_name)
             return
@@ -329,7 +326,7 @@ class GemstoneSessionRecord:
         self.select_package(category_name)
 
     def selected_class_category(self):
-        if self.browse_mode == 'dictionaries':
+        if self.browse_mode == "dictionaries":
             return self.selected_dictionary
         return self.selected_package
 
@@ -339,13 +336,13 @@ class GemstoneSessionRecord:
 
     def select_browse_mode(self, browse_mode):
         browse_mode = browse_mode.strip().lower()
-        valid_modes = ('dictionaries', 'categories', 'rowan')
+        valid_modes = ("dictionaries", "categories", "rowan")
         if browse_mode not in valid_modes:
             raise DomainException(
-                'browse_mode must be dictionaries, categories, or rowan.'
+                "browse_mode must be dictionaries, categories, or rowan."
             )
-        if browse_mode == 'rowan' and not self.rowan_installed:
-            raise DomainException('Rowan is not installed on this stone.')
+        if browse_mode == "rowan" and not self.rowan_installed:
+            raise DomainException("Rowan is not installed on this stone.")
         if self.browse_mode == browse_mode:
             return
         self.browse_mode = browse_mode
@@ -354,9 +351,9 @@ class GemstoneSessionRecord:
         self.selected_class = None
         self.selected_method_category = None
         self.selected_method_symbol = None
-        self.publish_model_change('packages')
-        self.publish_model_change('classes')
-        self.publish_model_change('methods')
+        self.publish_model_change("packages")
+        self.publish_model_change("classes")
+        self.publish_model_change("methods")
 
     def select_instance_side(self, show_instance_side):
         self.show_instance_side = show_instance_side
@@ -369,37 +366,55 @@ class GemstoneSessionRecord:
     def select_method_category(self, selected_method_category):
         self.selected_method_category = selected_method_category
         self.select_method_symbol(None)
-        
+
     def select_method_symbol(self, selected_method_symbol):
         self.selected_method_symbol = selected_method_symbol
 
     def commit(self):
-        self.require_write_access('commit')
+        self.require_write_access("commit")
         self.gemstone_session.commit()
-        
+
     def abort(self):
-        self.require_write_access('abort')
+        self.require_write_access("abort")
         self.gemstone_session.abort()
-        
+
     @classmethod
-    def log_in_rpc(cls, gemstone_user_name, gemstone_password, rpc_hostname, stone_name, netldi_name):
-        nrs_string = f'!@{rpc_hostname}#netldi:{netldi_name}!gemnetobject'
-        logging.getLogger(__name__).debug(f'Logging in with: {gemstone_user_name} stone_name={stone_name} netldi_task={nrs_string}')
+    def log_in_rpc(
+        cls,
+        gemstone_user_name,
+        gemstone_password,
+        rpc_hostname,
+        stone_name,
+        netldi_name,
+    ):
+        nrs_string = f"!@{rpc_hostname}#netldi:{netldi_name}!gemnetobject"
+        logging.getLogger(__name__).debug(
+            f"Logging in with: {gemstone_user_name} stone_name={stone_name} netldi_task={nrs_string}"
+        )
         try:
-            gemstone_session = RPCSession(gemstone_user_name, gemstone_password, stone_name=stone_name, netldi_task=nrs_string)
+            gemstone_session = RPCSession(
+                gemstone_user_name,
+                gemstone_password,
+                stone_name=stone_name,
+                netldi_task=nrs_string,
+            )
         except GemstoneError as e:
-            raise DomainException('Gemstone error: %s' % e)
+            raise DomainException("Gemstone error: %s" % e)
         return cls(gemstone_session)
 
     @classmethod
     def log_in_linked(cls, gemstone_user_name, gemstone_password, stone_name):
-        logging.getLogger(__name__).debug(f'Logging in with: {gemstone_user_name} stone_name={stone_name}')
+        logging.getLogger(__name__).debug(
+            f"Logging in with: {gemstone_user_name} stone_name={stone_name}"
+        )
         try:
-            gemstone_session = LinkedSession(gemstone_user_name, gemstone_password, stone_name=stone_name)
+            gemstone_session = LinkedSession(
+                gemstone_user_name, gemstone_password, stone_name=stone_name
+            )
         except GemstoneError as e:
-            raise DomainException('Gemstone error: %s' % e)
+            raise DomainException("Gemstone error: %s" % e)
         return cls(gemstone_session)
-    
+
     @property
     def stone_name(self):
         return self.gemstone_session.System.stoneName().to_py
@@ -407,7 +422,7 @@ class GemstoneSessionRecord:
     @property
     def host_name(self):
         return self.gemstone_session.System.hostname().to_py
-    
+
     @property
     def user_name(self):
         return self.gemstone_session.System.myUserProfile().userId().to_py
@@ -415,10 +430,10 @@ class GemstoneSessionRecord:
     @property
     def session_id(self):
         # self.gemstone_session.System.session() returns our self.gemstone_session itself, not the id we want
-        return self.gemstone_session.execute('System session').to_py        
+        return self.gemstone_session.execute("System session").to_py
 
     def __str__(self):
-        return f'{self.session_id}: {self.user_name} on {self.stone_name} at server {self.host_name}'
+        return f"{self.session_id}: {self.user_name} on {self.stone_name} at server {self.host_name}"
 
     def log_out(self):
         self.gemstone_browser_session.clear_stored_breakpoints()
@@ -430,57 +445,57 @@ class GemstoneSessionRecord:
 
     @property
     def class_categories(self):
-        if self.browse_mode == 'dictionaries':
+        if self.browse_mode == "dictionaries":
             yield from self.gemstone_browser_session.list_dictionaries()
             return
-        if self.browse_mode == 'categories':
+        if self.browse_mode == "categories":
             yield from self.gemstone_browser_session.list_categories()
             return
         yield from self.gemstone_browser_session.list_rowan_packages()
 
     def create_and_install_package(self, package_name):
-        self.require_write_access('create_and_install_package')
+        self.require_write_access("create_and_install_package")
         self.gemstone_browser_session.create_and_install_package(package_name)
-        self.publish_model_change('packages')
+        self.publish_model_change("packages")
 
     def delete_package(self, package_name):
-        self.require_write_access('delete_package')
+        self.require_write_access("delete_package")
         self.gemstone_browser_session.delete_package(package_name)
         if self.selected_package == package_name:
             self.selected_package = None
             self.selected_class = None
             self.selected_method_category = None
             self.selected_method_symbol = None
-        self.publish_model_change('packages')
+        self.publish_model_change("packages")
 
     def create_class(
         self,
         class_name,
-        superclass_name='Object',
+        superclass_name="Object",
         in_dictionary=None,
     ):
-        self.require_write_access('create_class')
+        self.require_write_access("create_class")
         selected_dictionary = in_dictionary
         if selected_dictionary is None:
-            if self.browse_mode == 'dictionaries':
-                selected_dictionary = self.selected_dictionary or 'UserGlobals'
+            if self.browse_mode == "dictionaries":
+                selected_dictionary = self.selected_dictionary or "UserGlobals"
             else:
-                selected_dictionary = 'UserGlobals'
+                selected_dictionary = "UserGlobals"
         self.gemstone_browser_session.create_class(
             class_name=class_name,
             superclass_name=superclass_name,
             in_dictionary=selected_dictionary,
         )
-        self.publish_model_change('classes')
+        self.publish_model_change("classes")
 
     def delete_class(self, class_name, in_dictionary=None):
-        self.require_write_access('delete_class')
+        self.require_write_access("delete_class")
         selected_dictionary = in_dictionary
         if selected_dictionary is None:
-            if self.browse_mode == 'dictionaries':
-                selected_dictionary = self.selected_dictionary or 'UserGlobals'
+            if self.browse_mode == "dictionaries":
+                selected_dictionary = self.selected_dictionary or "UserGlobals"
             else:
-                selected_dictionary = 'UserGlobals'
+                selected_dictionary = "UserGlobals"
         self.gemstone_browser_session.delete_class(
             class_name,
             in_dictionary=selected_dictionary,
@@ -489,29 +504,25 @@ class GemstoneSessionRecord:
             self.selected_class = None
             self.selected_method_category = None
             self.selected_method_symbol = None
-        self.publish_model_change('classes')
-        
+        self.publish_model_change("classes")
+
     def get_classes_in_category(self, category):
-        if self.browse_mode == 'dictionaries':
+        if self.browse_mode == "dictionaries":
             yield from self.gemstone_browser_session.list_classes_in_dictionary(
                 category
             )
             return
-        if self.browse_mode == 'categories':
-            yield from self.gemstone_browser_session.list_classes_in_category(
-                category
-            )
+        if self.browse_mode == "categories":
+            yield from self.gemstone_browser_session.list_classes_in_category(category)
             return
-        yield from self.gemstone_browser_session.list_classes_in_rowan_package(
-            category
-        )
-        
+        yield from self.gemstone_browser_session.list_classes_in_rowan_package(category)
+
     def get_categories_in_class(self, class_name, show_instance_side):
         categories = self.gemstone_browser_session.list_method_categories(
             class_name,
             show_instance_side,
         )
-        if categories and categories[0] == 'all':
+        if categories and categories[0] == "all":
             categories = categories[1:]
         yield from categories
 
@@ -521,13 +532,13 @@ class GemstoneSessionRecord:
         show_instance_side,
         method_category,
     ):
-        self.require_write_access('create_method_category')
+        self.require_write_access("create_method_category")
         self.gemstone_browser_session.create_method_category(
             class_name,
             method_category,
             show_instance_side,
         )
-        self.publish_model_change('methods')
+        self.publish_model_change("methods")
 
     def delete_method_category(
         self,
@@ -535,7 +546,7 @@ class GemstoneSessionRecord:
         show_instance_side,
         method_category,
     ):
-        self.require_write_access('delete_method_category')
+        self.require_write_access("delete_method_category")
         self.gemstone_browser_session.delete_method_category(
             class_name,
             method_category,
@@ -544,7 +555,7 @@ class GemstoneSessionRecord:
         if self.selected_method_category == method_category:
             self.selected_method_category = None
             self.selected_method_symbol = None
-        self.publish_model_change('methods')
+        self.publish_model_change("methods")
 
     def get_selectors_in_class(self, class_name, method_category, show_instance_side):
         yield from self.gemstone_browser_session.list_methods(
@@ -590,7 +601,7 @@ class GemstoneSessionRecord:
         self.select_class_category(selected_category)
         self.select_instance_side(show_instance_side)
         self.select_class(class_name)
-        
+
     def jump_to_method(self, class_name, show_instance_side, method_symbol):
         selected_gemstone_class = self.gemstone_session.resolve_symbol(class_name)
         selected_package = selected_gemstone_class.category().to_py
@@ -604,21 +615,46 @@ class GemstoneSessionRecord:
         self.select_instance_side(show_instance_side)
         self.select_method_category(selected_method_category)
         self.select_method_symbol(method_symbol)
-        
+
     def get_current_methods(self):
-        return list(self.get_selectors_in_class(self.selected_class, self.selected_method_category, self.show_instance_side))
-        
-    def find_class_names_matching(self, search_input):
-        yield from self.gemstone_browser_session.find_classes(search_input)
-        
-    def find_selectors_matching(self, search_input):
-        yield from self.gemstone_browser_session.find_selectors(search_input)
+        return list(
+            self.get_selectors_in_class(
+                self.selected_class,
+                self.selected_method_category,
+                self.show_instance_side,
+            )
+        )
+
+    def find_class_names_matching(self, search_input, should_stop=None):
+        yield from self.gemstone_browser_session.find_classes(
+            search_input,
+            should_stop=should_stop,
+        )
+
+    def find_selectors_matching(self, search_input, should_stop=None):
+        yield from self.gemstone_browser_session.find_selectors(
+            search_input,
+            should_stop=should_stop,
+        )
+
+    def find_class_references(self, class_name):
+        class_reference_search_result = (
+            self.gemstone_browser_session.find_class_references(class_name)
+        )
+        yield from [
+            (
+                reference["class_name"],
+                reference["show_instance_side"],
+                reference["method_selector"],
+            )
+            for reference in class_reference_search_result["references"]
+        ]
 
     def find_implementors_of_method(self, method_name):
         yield from [
             (
-                implementor['class_name'],
-                not implementor['show_instance_side'],
+                implementor["class_name"],
+                not implementor["show_instance_side"],
             )
             for implementor in self.gemstone_browser_session.find_implementors(
                 method_name
@@ -626,16 +662,14 @@ class GemstoneSessionRecord:
         ]
 
     def find_senders_of_method(self, method_name):
-        sender_search_result = self.gemstone_browser_session.find_senders(
-            method_name
-        )
+        sender_search_result = self.gemstone_browser_session.find_senders(method_name)
         yield from [
             (
-                sender['class_name'],
-                sender['show_instance_side'],
-                sender['method_selector'],
+                sender["class_name"],
+                sender["show_instance_side"],
+                sender["method_selector"],
             )
-            for sender in sender_search_result['senders']
+            for sender in sender_search_result["senders"]
         ]
 
     def plan_sender_evidence_tests(
@@ -667,7 +701,7 @@ class GemstoneSessionRecord:
         max_traced_senders=250,
         max_observed_results=500,
     ):
-        self.require_write_access('collect_sender_evidence_from_tests')
+        self.require_write_access("collect_sender_evidence_from_tests")
         trace_result = None
         observed_result = None
         untrace_result = None
@@ -685,19 +719,19 @@ class GemstoneSessionRecord:
             trace_installed = True
             self.gemstone_browser_session.clear_observed_senders(method_name)
             for selected_test in selected_tests:
-                test_case_class_name = selected_test['test_case_class_name']
-                test_method_selector = selected_test['test_method_selector']
+                test_case_class_name = selected_test["test_case_class_name"]
+                test_method_selector = selected_test["test_method_selector"]
                 test_result = self.run_test_method(
                     test_case_class_name,
                     test_method_selector,
                 )
                 test_runs.append(
                     {
-                        'test_case_class_name': test_case_class_name,
-                        'test_method_selector': test_method_selector,
-                        'depth': selected_test.get('depth'),
-                        'tests_passed': test_result['has_passed'],
-                        'result': test_result,
+                        "test_case_class_name": test_case_class_name,
+                        "test_method_selector": test_method_selector,
+                        "depth": selected_test.get("depth"),
+                        "tests_passed": test_result["has_passed"],
+                        "result": test_result,
                     }
                 )
             observed_result = (
@@ -727,11 +761,11 @@ class GemstoneSessionRecord:
                 ):
                     pass
         return {
-            'method_name': method_name,
-            'trace': trace_result,
-            'test_runs': test_runs,
-            'observed': observed_result,
-            'untrace': untrace_result,
+            "method_name": method_name,
+            "trace": trace_result,
+            "test_runs": test_runs,
+            "observed": observed_result,
+            "untrace": untrace_result,
         }
 
     def method_sends(self, class_name, method_selector, show_instance_side):
@@ -793,14 +827,14 @@ class GemstoneSessionRecord:
         old_selector,
         new_selector,
     ):
-        self.require_write_access('apply_method_rename')
+        self.require_write_access("apply_method_rename")
         rename_result = self.gemstone_browser_session.apply_method_rename(
             class_name,
             show_instance_side,
             old_selector,
             new_selector,
         )
-        self.publish_model_change('methods')
+        self.publish_model_change("methods")
         return rename_result
 
     def preview_method_move(
@@ -829,7 +863,7 @@ class GemstoneSessionRecord:
         overwrite_target_method=False,
         delete_source_method=True,
     ):
-        self.require_write_access('apply_method_move')
+        self.require_write_access("apply_method_move")
         move_result = self.gemstone_browser_session.apply_method_move(
             source_class_name,
             source_show_instance_side,
@@ -839,7 +873,7 @@ class GemstoneSessionRecord:
             overwrite_target_method=overwrite_target_method,
             delete_source_method=delete_source_method,
         )
-        self.publish_model_change('methods')
+        self.publish_model_change("methods")
         return move_result
 
     def preview_method_add_parameter(
@@ -869,7 +903,7 @@ class GemstoneSessionRecord:
         parameter_name,
         default_argument_source,
     ):
-        self.require_write_access('apply_method_add_parameter')
+        self.require_write_access("apply_method_add_parameter")
         add_parameter_result = self.gemstone_browser_session.apply_method_add_parameter(
             class_name,
             show_instance_side,
@@ -878,7 +912,7 @@ class GemstoneSessionRecord:
             parameter_name,
             default_argument_source,
         )
-        self.publish_model_change('methods')
+        self.publish_model_change("methods")
         return add_parameter_result
 
     def preview_method_remove_parameter(
@@ -906,16 +940,18 @@ class GemstoneSessionRecord:
         overwrite_new_method=False,
         rewrite_source_senders=False,
     ):
-        self.require_write_access('apply_method_remove_parameter')
-        remove_parameter_result = self.gemstone_browser_session.apply_method_remove_parameter(
-            class_name,
-            show_instance_side,
-            method_selector,
-            parameter_keyword,
-            overwrite_new_method=overwrite_new_method,
-            rewrite_source_senders=rewrite_source_senders,
+        self.require_write_access("apply_method_remove_parameter")
+        remove_parameter_result = (
+            self.gemstone_browser_session.apply_method_remove_parameter(
+                class_name,
+                show_instance_side,
+                method_selector,
+                parameter_keyword,
+                overwrite_new_method=overwrite_new_method,
+                rewrite_source_senders=rewrite_source_senders,
+            )
         )
-        self.publish_model_change('methods')
+        self.publish_model_change("methods")
         return remove_parameter_result
 
     def preview_method_extract(
@@ -943,7 +979,7 @@ class GemstoneSessionRecord:
         statement_indexes,
         overwrite_new_method=False,
     ):
-        self.require_write_access('apply_method_extract')
+        self.require_write_access("apply_method_extract")
         extract_result = self.gemstone_browser_session.apply_method_extract(
             class_name,
             show_instance_side,
@@ -952,7 +988,7 @@ class GemstoneSessionRecord:
             statement_indexes,
             overwrite_new_method=overwrite_new_method,
         )
-        self.publish_model_change('methods')
+        self.publish_model_change("methods")
         return extract_result
 
     def preview_method_inline(
@@ -977,7 +1013,7 @@ class GemstoneSessionRecord:
         inline_selector,
         delete_inlined_method=False,
     ):
-        self.require_write_access('apply_method_inline')
+        self.require_write_access("apply_method_inline")
         inline_result = self.gemstone_browser_session.apply_method_inline(
             class_name,
             show_instance_side,
@@ -985,36 +1021,38 @@ class GemstoneSessionRecord:
             inline_selector,
             delete_inlined_method=delete_inlined_method,
         )
-        self.publish_model_change('methods')
+        self.publish_model_change("methods")
         return inline_result
-        
-    def update_method_source(self, selected_class, show_instance_side, method_symbol, source):
-        self.require_write_access('update_method_source')
+
+    def update_method_source(
+        self, selected_class, show_instance_side, method_symbol, source
+    ):
+        self.require_write_access("update_method_source")
         self.gemstone_browser_session.compile_method(
             selected_class,
             show_instance_side,
             source,
         )
-        self.publish_model_change('methods')
+        self.publish_model_change("methods")
 
     def create_method(
         self,
         selected_class,
         show_instance_side,
         source,
-        method_category='as yet unclassified',
+        method_category="as yet unclassified",
     ):
-        self.require_write_access('create_method')
+        self.require_write_access("create_method")
         self.gemstone_browser_session.compile_method(
             selected_class,
             show_instance_side,
             source,
             method_category=method_category,
         )
-        self.publish_model_change('methods')
+        self.publish_model_change("methods")
 
     def delete_method(self, selected_class, show_instance_side, method_selector):
-        self.require_write_access('delete_method')
+        self.require_write_access("delete_method")
         self.gemstone_browser_session.delete_method(
             selected_class,
             method_selector,
@@ -1022,27 +1060,31 @@ class GemstoneSessionRecord:
         )
         if self.selected_method_symbol == method_selector:
             self.selected_method_symbol = None
-        self.publish_model_change('methods')
+        self.publish_model_change("methods")
 
     def run_code(self, source):
-        self.require_write_access('run_code')
+        self.require_write_access("run_code")
         return self.gemstone_browser_session.run_code(source)
 
     def resolve_object(self, source):
         return self.gemstone_browser_session.run_code(source)
 
     def run_gemstone_tests(self, class_name):
-        self.require_write_access('run_gemstone_tests')
+        self.require_write_access("run_gemstone_tests")
         return self.gemstone_browser_session.run_gemstone_tests(class_name)
 
     def run_test_method(self, class_name, method_selector):
-        self.require_write_access('run_test_method')
-        return self.gemstone_browser_session.run_test_method(class_name, method_selector)
+        self.require_write_access("run_test_method")
+        return self.gemstone_browser_session.run_test_method(
+            class_name, method_selector
+        )
 
     def debug_test_method(self, class_name, method_selector):
-        self.require_write_access('debug_test_method')
-        return self.gemstone_browser_session.debug_test_method(class_name, method_selector)
-    
+        self.require_write_access("debug_test_method")
+        return self.gemstone_browser_session.debug_test_method(
+            class_name, method_selector
+        )
+
     def set_breakpoint(
         self,
         class_name,
@@ -1050,7 +1092,7 @@ class GemstoneSessionRecord:
         method_selector,
         source_offset,
     ):
-        self.require_write_access('set_breakpoint')
+        self.require_write_access("set_breakpoint")
         return self.gemstone_browser_session.set_breakpoint(
             class_name,
             method_selector,
@@ -1059,7 +1101,7 @@ class GemstoneSessionRecord:
         )
 
     def clear_breakpoint(self, breakpoint_id):
-        self.require_write_access('clear_breakpoint')
+        self.require_write_access("clear_breakpoint")
         return self.gemstone_browser_session.clear_breakpoint(breakpoint_id)
 
     def clear_breakpoint_at(
@@ -1069,7 +1111,7 @@ class GemstoneSessionRecord:
         method_selector,
         source_offset,
     ):
-        self.require_write_access('clear_breakpoint_at')
+        self.require_write_access("clear_breakpoint_at")
         return self.gemstone_browser_session.clear_breakpoint_at(
             class_name,
             method_selector,
@@ -1081,16 +1123,16 @@ class GemstoneSessionRecord:
         return self.gemstone_browser_session.list_breakpoints()
 
     def clear_all_breakpoints(self):
-        self.require_write_access('clear_all_breakpoints')
+        self.require_write_access("clear_all_breakpoints")
         return self.gemstone_browser_session.clear_all_breakpoints()
+
     # except GemstoneError as e:
     #     try:
     #         e.context.gciStepOverFromLevel(1)
     #     except GemstoneError as ex:
     #         result = ex.continue_with()
-    
-        
-    
+
+
 class EventQueue:
     def __init__(self, root):
         self.root = root
@@ -1100,11 +1142,11 @@ class EventQueue:
         self.root_thread_ident = threading.get_ident()
         self.wakeup_read_descriptor = None
         self.wakeup_write_descriptor = None
-        self.root.bind('<<CustomEventsPublished>>', self.process_events)
+        self.root.bind("<<CustomEventsPublished>>", self.process_events)
         self.configure_cross_thread_wakeup()
 
     def configure_cross_thread_wakeup(self):
-        supports_filehandler = hasattr(self.root, 'createfilehandler')
+        supports_filehandler = hasattr(self.root, "createfilehandler")
         if not supports_filehandler:
             return
         try:
@@ -1138,7 +1180,7 @@ class EventQueue:
                 self.queue.append((event_name, args, kwargs))
         if threading.get_ident() == self.root_thread_ident:
             try:
-                self.root.event_generate('<<CustomEventsPublished>>')
+                self.root.event_generate("<<CustomEventsPublished>>")
             except tk.TclError:
                 pass
             return
@@ -1147,12 +1189,12 @@ class EventQueue:
     def publish_cross_thread_wakeup(self):
         if self.wakeup_write_descriptor is not None:
             try:
-                os.write(self.wakeup_write_descriptor, b'1')
+                os.write(self.wakeup_write_descriptor, b"1")
             except OSError:
                 pass
             return
         try:
-            self.root.event_generate('<<CustomEventsPublished>>')
+            self.root.event_generate("<<CustomEventsPublished>>")
         except tk.TclError:
             pass
 
@@ -1165,7 +1207,7 @@ class EventQueue:
                     break
                 except OSError:
                     break
-                if wakeup_payload == b'':
+                if wakeup_payload == b"":
                     break
                 if len(wakeup_payload) < 1024:
                     break
@@ -1178,17 +1220,17 @@ class EventQueue:
                     break
                 event_name, args, kwargs = self.queue.popleft()
             if event_name in self.events:
-                logging.getLogger(__name__).debug(f'Processing: {event_name}')
+                logging.getLogger(__name__).debug(f"Processing: {event_name}")
                 retained_callbacks = []
                 for weak_callback, callback_args in self.events[event_name]:
                     callback = weak_callback()
                     if callback is None:
                         continue
                     retained_callbacks.append((weak_callback, callback_args))
-                    logging.getLogger(__name__).debug(f'Calling: {callback}')
+                    logging.getLogger(__name__).debug(f"Calling: {callback}")
                     callback(*callback_args, *args, **kwargs)
                 self.events[event_name] = retained_callbacks
-                    
+
     def clear_subscribers(self, owner):
         for event_name, registered_callbacks in self.events.copy().items():
             cleaned_callbacks = []
@@ -1197,15 +1239,14 @@ class EventQueue:
                 callback_is_live = callback is not None
                 owner_matches = False
                 if callback_is_live:
-                    owner_matches = getattr(callback, '__self__', None) is owner
+                    owner_matches = getattr(callback, "__self__", None) is owner
                 if callback_is_live and not owner_matches:
                     cleaned_callbacks.append((weak_callback, callback_args))
             self.events[event_name] = cleaned_callbacks
 
     def close(self):
-        if (
-            self.wakeup_read_descriptor is not None
-            and hasattr(self.root, 'deletefilehandler')
+        if self.wakeup_read_descriptor is not None and hasattr(
+            self.root, "deletefilehandler"
         ):
             try:
                 self.root.deletefilehandler(self.wakeup_read_descriptor)
@@ -1234,9 +1275,9 @@ class McpRuntimeConfig:
         allow_tracing=False,
         allow_mcp_commit_when_gui=False,
         require_gemstone_ast=False,
-        mcp_host='127.0.0.1',
+        mcp_host="127.0.0.1",
         mcp_port=8000,
-        mcp_http_path='/mcp',
+        mcp_http_path="/mcp",
     ):
         self.allow_eval = allow_eval
         self.allow_compile = allow_compile
@@ -1262,7 +1303,7 @@ class McpRuntimeConfig:
         )
 
     def endpoint_url(self):
-        return 'http://%s:%s%s' % (
+        return "http://%s:%s%s" % (
             self.mcp_host,
             self.mcp_port,
             self.mcp_http_path,
@@ -1307,7 +1348,7 @@ class EmbeddedMcpServerController:
         self.lock = threading.RLock()
         self.server_thread = None
         self.uvicorn_server = None
-        self.last_error_message = ''
+        self.last_error_message = ""
         self.starting = False
         self.stopping = False
         self.running = False
@@ -1325,11 +1366,11 @@ class EmbeddedMcpServerController:
     def status(self):
         with self.lock:
             return {
-                'running': self.running,
-                'starting': self.starting,
-                'stopping': self.stopping,
-                'last_error_message': self.last_error_message,
-                'endpoint_url': self.runtime_config.endpoint_url(),
+                "running": self.running,
+                "starting": self.starting,
+                "stopping": self.stopping,
+                "last_error_message": self.last_error_message,
+                "endpoint_url": self.runtime_config.endpoint_url(),
             }
 
     def callback_reference_for(self, callback):
@@ -1340,9 +1381,7 @@ class EmbeddedMcpServerController:
 
     def subscribe_server_state(self, callback):
         with self.lock:
-            self.server_state_subscribers.append(
-                self.callback_reference_for(callback)
-            )
+            self.server_state_subscribers.append(self.callback_reference_for(callback))
 
     def live_callbacks_from_references(self, callback_references):
         callbacks = []
@@ -1365,11 +1404,11 @@ class EmbeddedMcpServerController:
             self.server_state_subscribers = live_callback_references
         for callback in callbacks:
             callback(
-                running=status_payload['running'],
-                starting=status_payload['starting'],
-                stopping=status_payload['stopping'],
-                endpoint_url=status_payload['endpoint_url'],
-                last_error_message=status_payload['last_error_message'],
+                running=status_payload["running"],
+                starting=status_payload["starting"],
+                stopping=status_payload["stopping"],
+                endpoint_url=status_payload["endpoint_url"],
+                last_error_message=status_payload["last_error_message"],
             )
 
     def clear_subscribers(self, owner):
@@ -1385,7 +1424,7 @@ class EmbeddedMcpServerController:
             callback = callback_reference()
             if callback is None:
                 continue
-            callback_owner = getattr(callback, '__self__', None)
+            callback_owner = getattr(callback, "__self__", None)
             if callback_owner is owner:
                 continue
             cleaned_callback_references.append(callback_reference)
@@ -1398,11 +1437,11 @@ class EmbeddedMcpServerController:
             self.starting = True
             self.stopping = False
             self.shutdown_requested = False
-            self.last_error_message = ''
+            self.last_error_message = ""
             self.server_thread = threading.Thread(
                 target=self.run_server,
                 daemon=True,
-                name='SwordfishEmbeddedMCP',
+                name="SwordfishEmbeddedMCP",
             )
             self.server_thread.start()
         self.notify_server_state_subscribers()
@@ -1430,7 +1469,7 @@ class EmbeddedMcpServerController:
                 target=self.wait_for_server_thread_exit,
                 args=(server_thread,),
                 daemon=True,
-                name='SwordfishEmbeddedMCPStopWait',
+                name="SwordfishEmbeddedMCPStopWait",
             )
             wait_thread.start()
         return True
@@ -1453,9 +1492,7 @@ class EmbeddedMcpServerController:
                 allow_compile=local_runtime_config.allow_compile,
                 allow_commit=local_runtime_config.allow_commit,
                 allow_tracing=local_runtime_config.allow_tracing,
-                allow_commit_when_gui=(
-                    local_runtime_config.allow_mcp_commit_when_gui
-                ),
+                allow_commit_when_gui=(local_runtime_config.allow_mcp_commit_when_gui),
                 integrated_session_state=self.integrated_session_state,
                 require_gemstone_ast=local_runtime_config.require_gemstone_ast,
                 mcp_host=local_runtime_config.mcp_host,
@@ -1476,7 +1513,7 @@ class EmbeddedMcpServerController:
                 self.uvicorn_server = server
                 self.running = True
                 self.starting = False
-                self.last_error_message = ''
+                self.last_error_message = ""
                 if self.shutdown_requested:
                     server.should_exit = True
             self.notify_server_state_subscribers()
@@ -1508,15 +1545,13 @@ class McpConfigurationDialog(tk.Toplevel):
         self.parent = parent
         self.current_runtime_config = current_runtime_config.copy()
         self.result = None
-        self.title('MCP Configuration')
-        self.geometry('500x390')
+        self.title("MCP Configuration")
+        self.geometry("500x390")
         self.transient(parent)
         self.wait_visibility()
         self.grab_set()
 
-        self.host_variable = tk.StringVar(
-            value=self.current_runtime_config.mcp_host
-        )
+        self.host_variable = tk.StringVar(value=self.current_runtime_config.mcp_host)
         self.port_variable = tk.StringVar(
             value=str(self.current_runtime_config.mcp_port)
         )
@@ -1546,72 +1581,72 @@ class McpConfigurationDialog(tk.Toplevel):
 
     def create_widgets(self):
         body_frame = ttk.Frame(self, padding=12)
-        body_frame.grid(row=0, column=0, sticky='nsew')
+        body_frame.grid(row=0, column=0, sticky="nsew")
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
-        ttk.Label(body_frame, text='Host').grid(
-            row=0, column=0, sticky='w', pady=(0, 4)
+        ttk.Label(body_frame, text="Host").grid(
+            row=0, column=0, sticky="w", pady=(0, 4)
         )
         ttk.Entry(body_frame, textvariable=self.host_variable).grid(
-            row=1, column=0, sticky='ew', pady=(0, 10)
+            row=1, column=0, sticky="ew", pady=(0, 10)
         )
 
-        ttk.Label(body_frame, text='Port').grid(
-            row=2, column=0, sticky='w', pady=(0, 4)
+        ttk.Label(body_frame, text="Port").grid(
+            row=2, column=0, sticky="w", pady=(0, 4)
         )
         ttk.Entry(body_frame, textvariable=self.port_variable).grid(
-            row=3, column=0, sticky='ew', pady=(0, 10)
+            row=3, column=0, sticky="ew", pady=(0, 10)
         )
 
-        ttk.Label(body_frame, text='HTTP Path').grid(
-            row=4, column=0, sticky='w', pady=(0, 4)
+        ttk.Label(body_frame, text="HTTP Path").grid(
+            row=4, column=0, sticky="w", pady=(0, 4)
         )
         ttk.Entry(body_frame, textvariable=self.path_variable).grid(
-            row=5, column=0, sticky='ew', pady=(0, 12)
+            row=5, column=0, sticky="ew", pady=(0, 12)
         )
 
         ttk.Checkbutton(
             body_frame,
-            text='Enable eval tools',
+            text="Enable eval tools",
             variable=self.allow_eval_variable,
-        ).grid(row=6, column=0, sticky='w')
+        ).grid(row=6, column=0, sticky="w")
         ttk.Checkbutton(
             body_frame,
-            text='Enable compile/refactor tools',
+            text="Enable compile/refactor tools",
             variable=self.allow_compile_variable,
-        ).grid(row=7, column=0, sticky='w')
+        ).grid(row=7, column=0, sticky="w")
         ttk.Checkbutton(
             body_frame,
-            text='Enable commit tool',
+            text="Enable commit tool",
             variable=self.allow_commit_variable,
-        ).grid(row=8, column=0, sticky='w')
+        ).grid(row=8, column=0, sticky="w")
         ttk.Checkbutton(
             body_frame,
-            text='Allow MCP commit while IDE owns session',
+            text="Allow MCP commit while IDE owns session",
             variable=self.allow_commit_when_gui_variable,
-        ).grid(row=9, column=0, sticky='w')
+        ).grid(row=9, column=0, sticky="w")
         ttk.Checkbutton(
             body_frame,
-            text='Enable tracing tools',
+            text="Enable tracing tools",
             variable=self.allow_tracing_variable,
-        ).grid(row=10, column=0, sticky='w')
+        ).grid(row=10, column=0, sticky="w")
         ttk.Checkbutton(
             body_frame,
-            text='Require GemStone AST backend',
+            text="Require GemStone AST backend",
             variable=self.require_gemstone_ast_variable,
-        ).grid(row=11, column=0, sticky='w')
+        ).grid(row=11, column=0, sticky="w")
 
         button_frame = ttk.Frame(body_frame)
-        button_frame.grid(row=12, column=0, sticky='e', pady=(16, 0))
+        button_frame.grid(row=12, column=0, sticky="e", pady=(16, 0))
         ttk.Button(
             button_frame,
-            text='Cancel',
+            text="Cancel",
             command=self.cancel_dialog,
         ).grid(row=0, column=0, padx=(0, 8))
         ttk.Button(
             button_frame,
-            text='Apply',
+            text="Apply",
             command=self.apply_configuration,
         ).grid(row=0, column=1)
         body_frame.columnconfigure(0, weight=1)
@@ -1619,33 +1654,33 @@ class McpConfigurationDialog(tk.Toplevel):
     def apply_configuration(self):
         port_text = self.port_variable.get().strip()
         if not port_text:
-            messagebox.showerror('Invalid MCP configuration', 'Port cannot be empty.')
+            messagebox.showerror("Invalid MCP configuration", "Port cannot be empty.")
             return
         if not port_text.isdigit():
             messagebox.showerror(
-                'Invalid MCP configuration',
-                'Port must be a positive integer.',
+                "Invalid MCP configuration",
+                "Port must be a positive integer.",
             )
             return
         mcp_port = int(port_text)
         if mcp_port <= 0:
             messagebox.showerror(
-                'Invalid MCP configuration',
-                'Port must be greater than zero.',
+                "Invalid MCP configuration",
+                "Port must be greater than zero.",
             )
             return
         mcp_host = self.host_variable.get().strip()
         if not mcp_host:
             messagebox.showerror(
-                'Invalid MCP configuration',
-                'Host cannot be empty.',
+                "Invalid MCP configuration",
+                "Host cannot be empty.",
             )
             return
         mcp_http_path = self.path_variable.get().strip()
-        if not mcp_http_path.startswith('/'):
+        if not mcp_http_path.startswith("/"):
             messagebox.showerror(
-                'Invalid MCP configuration',
-                'HTTP path must start with /.',
+                "Invalid MCP configuration",
+                "HTTP path must start with /.",
             )
             return
         self.result = McpRuntimeConfig(
@@ -1653,9 +1688,7 @@ class McpConfigurationDialog(tk.Toplevel):
             allow_compile=self.allow_compile_variable.get(),
             allow_commit=self.allow_commit_variable.get(),
             allow_tracing=self.allow_tracing_variable.get(),
-            allow_mcp_commit_when_gui=(
-                self.allow_commit_when_gui_variable.get()
-            ),
+            allow_mcp_commit_when_gui=(self.allow_commit_when_gui_variable.get()),
             require_gemstone_ast=self.require_gemstone_ast_variable.get(),
             mcp_host=mcp_host,
             mcp_port=mcp_port,
@@ -1686,22 +1719,22 @@ class MainMenu(tk.Menu):
         self.update_file_menu()
 
         # Session Menu
-        self.add_cascade(label='Session', menu=self.session_menu)
+        self.add_cascade(label="Session", menu=self.session_menu)
         self.update_session_menu()
-        self.add_cascade(label='MCP', menu=self.mcp_menu)
+        self.add_cascade(label="MCP", menu=self.mcp_menu)
         self.update_mcp_menu()
 
     def _subscribe_events(self):
-        self.event_queue.subscribe('LoggedInSuccessfully', self.update_menus)
-        self.event_queue.subscribe('LoggedOut', self.update_menus)
-        self.event_queue.subscribe('McpBusyStateChanged', self.update_menus)
-        self.event_queue.subscribe('McpServerStateChanged', self.update_menus)
+        self.event_queue.subscribe("LoggedInSuccessfully", self.update_menus)
+        self.event_queue.subscribe("LoggedOut", self.update_menus)
+        self.event_queue.subscribe("McpBusyStateChanged", self.update_menus)
+        self.event_queue.subscribe("McpServerStateChanged", self.update_menus)
 
     def update_menus(self, gemstone_session_record=None, **kwargs):
         self.update_session_menu()
         self.update_file_menu()
         self.update_mcp_menu()
-        
+
     def update_session_menu(self):
         self.session_menu.delete(0, tk.END)
         if self.parent.is_logged_in:
@@ -1709,60 +1742,62 @@ class MainMenu(tk.Menu):
             if self.parent.integrated_session_state.is_mcp_busy():
                 menu_state = tk.DISABLED
             self.session_menu.add_command(
-                label='Commit',
+                label="Commit",
                 command=self.parent.commit,
                 state=menu_state,
             )
             self.session_menu.add_command(
-                label='Abort',
+                label="Abort",
                 command=self.parent.abort,
                 state=menu_state,
             )
             self.session_menu.add_command(
-                label='Logout',
+                label="Logout",
                 command=self.parent.logout,
                 state=menu_state,
             )
         else:
-            self.session_menu.add_command(label="Login", command=self.parent.show_login_screen)
+            self.session_menu.add_command(
+                label="Login", command=self.parent.show_login_screen
+            )
 
     def update_mcp_menu(self):
         self.mcp_menu.delete(0, tk.END)
         mcp_state = self.parent.embedded_mcp_server_status()
         start_state = tk.NORMAL
-        if mcp_state['running'] or mcp_state['starting'] or mcp_state['stopping']:
+        if mcp_state["running"] or mcp_state["starting"] or mcp_state["stopping"]:
             start_state = tk.DISABLED
         stop_state = tk.NORMAL
         if (
-            not mcp_state['running']
-            and not mcp_state['starting']
-            and not mcp_state['stopping']
+            not mcp_state["running"]
+            and not mcp_state["starting"]
+            and not mcp_state["stopping"]
         ):
             stop_state = tk.DISABLED
-        if mcp_state['stopping']:
+        if mcp_state["stopping"]:
             stop_state = tk.DISABLED
         if self.parent.integrated_session_state.is_mcp_busy():
             stop_state = tk.DISABLED
         configure_state = tk.NORMAL
-        if mcp_state['starting'] or mcp_state['stopping']:
+        if mcp_state["starting"] or mcp_state["stopping"]:
             configure_state = tk.DISABLED
         self.mcp_menu.add_command(
-            label='Start MCP',
+            label="Start MCP",
             command=self.start_mcp_server,
             state=start_state,
         )
         self.mcp_menu.add_command(
-            label='Stop MCP',
+            label="Stop MCP",
             command=self.stop_mcp_server,
             state=stop_state,
         )
         self.mcp_menu.add_separator()
         self.mcp_menu.add_command(
-            label='Configure MCP',
+            label="Configure MCP",
             command=self.configure_mcp_server,
             state=configure_state,
         )
-            
+
     def update_file_menu(self):
         self.file_menu.delete(0, tk.END)
         if self.parent.is_logged_in:
@@ -1770,15 +1805,13 @@ class MainMenu(tk.Menu):
             if self.parent.integrated_session_state.is_mcp_busy():
                 run_command_state = tk.DISABLED
             self.file_menu.add_command(label="Find", command=self.show_find_dialog)
-            self.file_menu.add_command(label="Implementors", command=self.show_implementors_dialog)
-            self.file_menu.add_command(label="Senders", command=self.show_senders_dialog)
             self.file_menu.add_command(
-                label='Run',
+                label="Run",
                 command=self.show_run_dialog,
                 state=run_command_state,
             )
             self.file_menu.add_command(
-                label='Breakpoints...',
+                label="Breakpoints",
                 command=self.show_breakpoints_dialog,
                 state=run_command_state,
             )
@@ -1787,12 +1820,6 @@ class MainMenu(tk.Menu):
 
     def show_find_dialog(self):
         self.parent.open_find_dialog()
-        
-    def show_implementors_dialog(self):
-        self.parent.open_implementors_dialog()
-
-    def show_senders_dialog(self):
-        self.parent.open_senders_dialog()
 
     def show_run_dialog(self):
         self.parent.run_code()
@@ -1811,1189 +1838,784 @@ class MainMenu(tk.Menu):
 
 
 class FindDialog(tk.Toplevel):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.title("Find")
-        self.geometry("300x400")
-        self.transient(parent)
-        self.wait_visibility()
-        self.grab_set()
-
-        self.parent = parent
-
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(3, weight=1)
-
-        # Radio buttons for search type
-        self.search_type = tk.StringVar(value="class")
-        ttk.Label(self, text="Search Type:").grid(row=0, column=0, padx=10, pady=5, sticky='w')
-        self.class_radio = ttk.Radiobutton(self, text="Class", variable=self.search_type, value="class")
-        self.class_radio.grid(row=0, column=1, padx=5, pady=5, sticky='w')
-        self.method_radio = ttk.Radiobutton(self, text="Method", variable=self.search_type, value="method")
-        self.method_radio.grid(row=0, column=2, padx=5, pady=5, sticky='w')
-
-        # Find entry
-        ttk.Label(self, text="Find what:").grid(row=1, column=0, padx=10, pady=10, sticky='w')
-        self.find_entry = ttk.Entry(self)
-        self.find_entry.grid(row=1, column=1, columnspan=2, padx=10, pady=10, sticky='ew')
-
-        # Buttons
-        self.button_frame = ttk.Frame(self)
-        self.button_frame.grid(row=2, column=0, columnspan=3, pady=10)
-        self.button_frame.grid_columnconfigure(0, weight=1)
-        self.button_frame.grid_columnconfigure(1, weight=1)
-
-        self.find_button = ttk.Button(self.button_frame, text="Find", command=self.find_text)
-        self.find_button.grid(row=0, column=0, padx=5)
-
-        self.cancel_button = ttk.Button(self.button_frame, text="Cancel", command=self.destroy)
-        self.cancel_button.grid(row=0, column=1, padx=5)
-
-        # Listbox for results
-        self.results_listbox = tk.Listbox(self)
-        self.results_listbox.grid(row=3, column=0, columnspan=3, padx=10, pady=10, sticky='nsew')
-        self.results_listbox.bind('<Double-Button-1>', self.on_result_double_click)
-
-    @property
-    def gemstone_session_record(self):
-        return self.parent.gemstone_session_record
-    
-    def find_text(self):
-        self.results_listbox.grid()
-
-        # Simulate search results based on the search type and query
-        search_query = self.find_entry.get()
-        search_type = self.search_type.get()
-        results = []
-
-        if search_query:
-            if search_type == "class":
-                # Simulate finding classes
-                results = self.gemstone_session_record.find_class_names_matching(search_query)
-            elif search_type == "method":
-                results = self.gemstone_session_record.find_selectors_matching(search_query)
-
-        # Display results in the listbox
-        self.results_listbox.delete(0, tk.END)
-        for result in results:
-            self.results_listbox.insert(tk.END, result)
-
-        self.results_listbox.grid()  # Show the listbox
-
-    def on_result_double_click(self, event):
-        try:
-            selected_index = self.results_listbox.curselection()[0]
-            selected_text = self.results_listbox.get(selected_index)
-            search_type = self.search_type.get()
-            parent = self.parent
-            self.destroy()
-            if search_type == 'class':
-                parent.handle_find_selection(search_type == 'class', selected_text)
-            else:
-                parent.open_implementors_dialog(method_symbol=selected_text)
-        except IndexError:
-            pass
-
-
-class ImplementorsDialog(tk.Toplevel):
-    def __init__(self, parent, method_name=None):
-        super().__init__(parent)
-        self.title("Implementors")
-        self.geometry("400x500")
-        self.transient(parent)
-        self.wait_visibility()
-        self.grab_set()
-
-        self.parent = parent
-
-        # Configure grid for proper resizing
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(2, weight=1)
-
-        # Method name entry
-        ttk.Label(self, text="Method Name:").grid(row=0, column=0, padx=10, pady=10, sticky='w')
-        self.method_entry = ttk.Entry(self)
-        self.method_entry.grid(row=0, column=1, columnspan=2, padx=10, pady=10, sticky='ew')
-        if method_name:
-            self.method_entry.insert(0, method_name)
-
-        # Buttons frame
-        self.button_frame = ttk.Frame(self)
-        self.button_frame.grid(row=1, column=0, columnspan=3, pady=10)
-        self.button_frame.grid_columnconfigure(0, weight=1)
-        self.button_frame.grid_columnconfigure(1, weight=1)
-
-        self.find_button = ttk.Button(self.button_frame, text="Find", command=self.find_implementors)
-        self.find_button.grid(row=0, column=0, padx=5)
-
-        self.cancel_button = ttk.Button(self.button_frame, text="Cancel", command=self.destroy)
-        self.cancel_button.grid(row=0, column=1, padx=5)
-
-        # Listbox for results
-        self.results_listbox = tk.Listbox(self)
-        self.results_listbox.bind('<Double-Button-1>', self.on_result_double_click)
-        self.results_listbox.grid(row=2, column=0, columnspan=3, padx=10, pady=10, sticky='nsew')
-
-        # Initialize with the implementors
-        self.find_implementors()
-
-    @property
-    def gemstone_session_record(self):
-        return self.parent.gemstone_session_record
-
-    def find_implementors(self):
-        self.results_listbox.grid()  # Make listbox visible
-        # Simulate search results for implementors of a method
-        method_name = self.method_entry.get()
-        results = []
-
-        if method_name:
-            results = self.gemstone_session_record.find_implementors_of_method(method_name)
-
-        # Display results in the listbox
-        self.results_listbox.delete(0, tk.END)
-        for class_name, is_meta in results:
-            method_type = " class" if is_meta else ""
-            self.results_listbox.insert(tk.END, f"{class_name}{method_type}")
-
-        self.results_listbox.grid()  # Show the listbox
-
-    def on_result_double_click(self, event):
-        try:
-            selected_index = self.results_listbox.curselection()[0]
-            selected_text = self.results_listbox.get(selected_index)
-            class_name, *rest = selected_text.split(' ', 1)
-            is_instance_side = 'class' not in rest
-            self.parent.handle_implementor_selection(self.method_entry.get(), class_name, is_instance_side)
-            self.destroy()
-        except IndexError:
-            pass
-
-
-def merged_sender_test_plan(current_plan, new_plan, max_elapsed_ms):
-    def candidate_test_key(candidate_test):
-        return (
-            candidate_test['test_case_class_name'],
-            candidate_test['test_method_selector'],
-        )
-
-    if current_plan is None:
-        merged_plan = dict(new_plan)
-        merged_plan['candidate_tests'] = list(
-            new_plan.get('candidate_tests', [])
-        )
-        merged_plan['sender_edges'] = list(
-            new_plan.get('sender_edges', [])
-        )
-        merged_plan['candidate_test_count'] = len(
-            merged_plan['candidate_tests']
-        )
-        merged_plan['sender_edge_count'] = len(merged_plan['sender_edges'])
-        return merged_plan
-
-    merged_plan = dict(current_plan)
-    candidate_tests_by_key = {}
-    for candidate_test in current_plan.get('candidate_tests', []):
-        candidate_tests_by_key[candidate_test_key(candidate_test)] = dict(
-            candidate_test
-        )
-    for candidate_test in new_plan.get('candidate_tests', []):
-        current_candidate_test_key = candidate_test_key(candidate_test)
-        if current_candidate_test_key in candidate_tests_by_key:
-            existing_candidate_test = candidate_tests_by_key[
-                current_candidate_test_key
-            ]
-            if (
-                candidate_test.get('depth', 0)
-                < existing_candidate_test.get('depth', 0)
-            ):
-                candidate_tests_by_key[current_candidate_test_key] = dict(
-                    candidate_test
-                )
-        if current_candidate_test_key not in candidate_tests_by_key:
-            candidate_tests_by_key[current_candidate_test_key] = dict(
-                candidate_test
-            )
-    merged_candidate_tests = sorted(
-        candidate_tests_by_key.values(),
-        key=lambda candidate_test: (
-            candidate_test.get('depth', 0),
-            candidate_test['test_case_class_name'],
-            candidate_test['test_method_selector'],
-        ),
-    )
-
-    sender_edges_by_key = {}
-    for sender_edge in (
-        current_plan.get('sender_edges', [])
-        + new_plan.get('sender_edges', [])
-    ):
-        sender_edge_key = (
-            sender_edge['from_selector'],
-            sender_edge['to_class_name'],
-            sender_edge['to_method_selector'],
-            sender_edge['to_show_instance_side'],
-            sender_edge['depth'],
-        )
-        sender_edges_by_key[sender_edge_key] = dict(sender_edge)
-    merged_sender_edges = list(sender_edges_by_key.values())
-
-    merged_plan['candidate_tests'] = merged_candidate_tests
-    merged_plan['candidate_test_count'] = len(merged_candidate_tests)
-    merged_plan['sender_edges'] = merged_sender_edges
-    merged_plan['sender_edge_count'] = len(merged_sender_edges)
-    merged_plan['visited_selector_count'] = max(
-        current_plan.get('visited_selector_count', 0),
-        new_plan.get('visited_selector_count', 0),
-    )
-    merged_plan['sender_search_truncated'] = (
-        current_plan.get('sender_search_truncated', False)
-        or new_plan.get('sender_search_truncated', False)
-    )
-    merged_plan['selector_limit_reached'] = (
-        current_plan.get('selector_limit_reached', False)
-        or new_plan.get('selector_limit_reached', False)
-    )
-    merged_plan['elapsed_limit_reached'] = new_plan.get(
-        'elapsed_limit_reached',
-        False,
-    )
-    merged_plan['elapsed_ms'] = (
-        current_plan.get('elapsed_ms', 0) + new_plan.get('elapsed_ms', 0)
-    )
-    merged_plan['max_elapsed_ms'] = max_elapsed_ms
-    merged_plan['stopped_by_user'] = new_plan.get('stopped_by_user', False)
-    return merged_plan
-
-
-class CoveringTestsDiscoveryWorkflow:
     def __init__(
         self,
-        gemstone_session_record,
-        method_name,
-        max_elapsed_ms,
+        parent,
+        search_type="class",
+        search_query="",
+        run_search=False,
+        match_mode=None,
+        reference_target=None,
     ):
-        self.gemstone_session_record = gemstone_session_record
-        self.method_name = method_name
-        self.max_elapsed_ms = max_elapsed_ms
-        self.should_stop = threading.Event()
-        self.pending_candidate_tests = queue.Queue()
-        self.accumulated_plan = None
-        self.search_state = {
-            'is_searching': False,
-            'latest_result': None,
-            'latest_error': None,
-            'attempt_processed': False,
-            'cancel_requested': False,
-            'use_results_requested_for_attempt': False,
-            'search_started': False,
-        }
-
-    def record_discovered_test(self, candidate_test):
-        self.pending_candidate_tests.put(dict(candidate_test))
-
-    def run_search_attempt(self):
-        self.search_state['is_searching'] = True
-        self.search_state['latest_result'] = None
-        self.search_state['latest_error'] = None
-        self.search_state['attempt_processed'] = False
-        self.search_state['cancel_requested'] = False
-        self.search_state['use_results_requested_for_attempt'] = False
-        self.search_state['search_started'] = True
-        self.should_stop.clear()
-
-        def discover_tests():
-            try:
-                self.search_state['latest_result'] = (
-                    self.gemstone_session_record.plan_sender_evidence_tests(
-                        self.method_name,
-                        max_depth=2,
-                        max_nodes=500,
-                        max_senders_per_selector=200,
-                        max_test_methods=200,
-                        max_elapsed_ms=self.max_elapsed_ms,
-                        should_stop=self.should_stop.is_set,
-                        on_candidate_test=self.record_discovered_test,
-                    )
-                )
-            except (GemstoneDomainException, GemstoneError) as error:
-                self.search_state['latest_error'] = error
-            finally:
-                self.search_state['is_searching'] = False
-
-        search_thread = threading.Thread(
-            target=discover_tests,
-            daemon=True,
-        )
-        search_thread.start()
-
-    def flush_discovered_tests(self, on_candidate_test):
-        keep_flushing = True
-        while keep_flushing:
-            discovered_test = None
-            try:
-                discovered_test = self.pending_candidate_tests.get_nowait()
-            except queue.Empty:
-                keep_flushing = False
-            if discovered_test is not None:
-                on_candidate_test(discovered_test)
-
-    def request_cancel(self):
-        self.search_state['cancel_requested'] = True
-        self.should_stop.set()
-
-    def request_use_results(self):
-        self.search_state['use_results_requested_for_attempt'] = True
-        self.should_stop.set()
-
-    def searching(self):
-        return self.search_state['is_searching']
-
-    def latest_error(self):
-        return self.search_state['latest_error']
-
-    def cancelled(self):
-        return self.search_state['cancel_requested']
-
-    def advance(self, stop_requested, use_results_requested, on_candidate_test):
-        self.flush_discovered_tests(on_candidate_test)
-        if stop_requested:
-            self.request_cancel()
-        if use_results_requested:
-            self.request_use_results()
-
-        if self.search_state['is_searching']:
-            return {'phase': 'searching'}
-        if not self.search_state['search_started']:
-            return {'phase': 'idle'}
-        if self.search_state['attempt_processed']:
-            return {'phase': 'idle'}
-        self.search_state['attempt_processed'] = True
-
-        if self.search_state['cancel_requested']:
-            return {'phase': 'cancelled'}
-        if self.search_state['latest_error'] is not None:
-            return {
-                'phase': 'error',
-                'error': self.search_state['latest_error'],
-            }
-        if self.search_state['latest_result'] is None:
-            return {'phase': 'empty'}
-
-        self.accumulated_plan = merged_sender_test_plan(
-            self.accumulated_plan,
-            self.search_state['latest_result'],
-            self.max_elapsed_ms,
-        )
-        result_stopped_by_user = self.search_state['latest_result'].get(
-            'stopped_by_user',
-            False,
-        )
-        used_results_requested = self.search_state[
-            'use_results_requested_for_attempt'
-        ]
-        if result_stopped_by_user and not used_results_requested:
-            return {'phase': 'cancelled'}
-        return {
-            'phase': 'ready',
-            'plan': self.accumulated_plan,
-            'timed_out': self.search_state['latest_result'].get(
-                'elapsed_limit_reached',
-                False,
-            ),
-            'used_results': used_results_requested,
-        }
-
-
-class CoveringTestsSearchDialog(tk.Toplevel):
-    def __init__(self, parent, method_name, max_elapsed_ms):
         super().__init__(parent)
-        self.title('Trace Narrowing Tests')
-        self.geometry('760x520')
-        self.transient(parent)
-        self.wait_visibility()
-        self.grab_set()
-
-        self.selected_tests = None
-        self.was_cancelled = True
-        self.stop_search_requested = False
-        self.use_results_requested = False
-        self.search_further_requested = False
-        self.is_searching = False
-        self.is_timed_out = False
-        self.method_name = method_name
-        self.max_elapsed_ms = max_elapsed_ms
-        self.candidate_tests_by_key = {}
-        self.candidate_test_order = []
-        self.checkbox_variables_by_key = {}
-        self.checkbox_widgets_by_key = {}
-        self.visited_selector_count = 0
-        self.elapsed_ms = 0
-        self.summary_message = ''
-
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)
-
-        self.summary_label = ttk.Label(
-            self,
-            text='',
-            justify='left',
-        )
-        self.summary_label.grid(
-            row=0,
-            column=0,
-            columnspan=2,
-            padx=10,
-            pady=(10, 6),
-            sticky='w',
-        )
-
-        self.progress_bar = ttk.Progressbar(
-            self,
-            mode='indeterminate',
-            length=360,
-        )
-        self.progress_bar.grid(
-            row=1,
-            column=0,
-            columnspan=2,
-            sticky='ew',
-            padx=10,
-            pady=(0, 6),
-        )
-
-        self.canvas = tk.Canvas(self, borderwidth=0, highlightthickness=0)
-        self.canvas.grid(row=2, column=0, sticky='nsew', padx=10)
-        self.scrollbar = ttk.Scrollbar(
-            self,
-            orient='vertical',
-            command=self.canvas.yview,
-        )
-        self.scrollbar.grid(row=2, column=1, sticky='ns', padx=(0, 10))
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
-
-        self.tests_frame = ttk.Frame(self.canvas)
-        self.canvas_window = self.canvas.create_window(
-            (0, 0),
-            window=self.tests_frame,
-            anchor='nw',
-        )
-        self.tests_frame.bind('<Configure>', self.update_scroll_region)
-        self.canvas.bind('<Configure>', self.update_canvas_window_width)
-
-        self.buttons = ttk.Frame(self)
-        self.buttons.grid(row=3, column=0, columnspan=2, sticky='e', pady=10)
-        self.select_all_button = ttk.Button(
-            self.buttons,
-            text='Select All',
-            command=self.select_all_tests,
-        )
-        self.select_all_button.grid(row=0, column=0, padx=(0, 4))
-        self.select_none_button = ttk.Button(
-            self.buttons,
-            text='Select None',
-            command=self.select_no_tests,
-        )
-        self.select_none_button.grid(row=0, column=1, padx=(0, 10))
-        self.run_selected_button = ttk.Button(
-            self.buttons,
-            text='Run Selected While Tracing',
-            command=self.run_selected_tests,
-        )
-        self.run_selected_button.grid(row=0, column=2, padx=(0, 4))
-        self.use_results_button = ttk.Button(
-            self.buttons,
-            text='Use Results So Far',
-            command=self.request_use_results,
-        )
-        self.use_results_button.grid(row=0, column=3, padx=(0, 4))
-        self.stop_search_button = ttk.Button(
-            self.buttons,
-            text='Stop Searching For Tests',
-            command=self.request_stop_search,
-        )
-        self.stop_search_button.grid(row=0, column=4, padx=(0, 4))
-        self.search_further_button = ttk.Button(
-            self.buttons,
-            text='Search Further',
-            command=self.request_search_further,
-        )
-        self.search_further_button.grid(row=0, column=5, padx=(0, 4))
-        self.cancel_button = ttk.Button(
-            self.buttons,
-            text='Cancel',
-            command=self.cancel_dialog,
-        )
-        self.cancel_button.grid(row=0, column=6)
-        self.protocol('WM_DELETE_WINDOW', self.cancel_dialog)
-        self.set_searching_state()
-
-    def candidate_test_key(self, candidate_test):
-        return (
-            candidate_test['test_case_class_name'],
-            candidate_test['test_method_selector'],
-        )
-
-    def summary_text(self):
-        candidate_count = len(self.candidate_test_order)
-        if self.is_searching:
-            return (
-                'Searching for candidate tests for %s... '
-                'Found: %s, explored selectors: %s.'
-            ) % (
-                self.method_name,
-                candidate_count,
-                self.visited_selector_count,
-            )
-        if self.is_timed_out:
-            return (
-                'Search reached %ss timeout. Found: %s, explored selectors: %s. '
-                'Select tests to run now or choose Search Further.'
-            ) % (
-                int(self.max_elapsed_ms / 1000),
-                candidate_count,
-                self.visited_selector_count,
-            )
-        return (
-            'Candidate tests for %s: %s (explored selectors: %s).'
-        ) % (
-            self.method_name,
-            candidate_count,
-            self.visited_selector_count,
-        )
-
-    def refresh_summary(self):
-        summary_text = self.summary_text()
-        if self.summary_message:
-            summary_text = '%s %s' % (summary_text, self.summary_message)
-        self.summary_label.configure(text=summary_text)
-
-    def format_test_label(self, candidate_test):
-        return (
-            '%s>>%s (depth %s via %s)'
-            % (
-                candidate_test['test_case_class_name'],
-                candidate_test['test_method_selector'],
-                candidate_test.get('depth', '?'),
-                candidate_test.get('reached_from_selector', '?'),
-            )
-        )
-
-    def update_scroll_region(self, event=None):
-        self.canvas.configure(scrollregion=self.canvas.bbox('all'))
-
-    def update_canvas_window_width(self, event):
-        self.canvas.itemconfigure(
-            self.canvas_window,
-            width=event.width,
-        )
-
-    def selection_controls_enabled(self):
-        has_tests = len(self.candidate_test_order) > 0
-        return has_tests and not self.is_searching
-
-    def update_button_states(self):
-        selection_controls_enabled = self.selection_controls_enabled()
-        select_button_state = (
-            tk.NORMAL if selection_controls_enabled else tk.DISABLED
-        )
-        run_button_state = (
-            tk.NORMAL if selection_controls_enabled else tk.DISABLED
-        )
-        self.select_all_button.configure(state=select_button_state)
-        self.select_none_button.configure(state=select_button_state)
-        self.run_selected_button.configure(state=run_button_state)
-        use_results_state = tk.NORMAL if self.is_searching else tk.DISABLED
-        stop_search_state = tk.NORMAL if self.is_searching else tk.DISABLED
-        self.use_results_button.configure(state=use_results_state)
-        self.stop_search_button.configure(state=stop_search_state)
-        search_further_state = tk.DISABLED
-        if self.is_timed_out and not self.is_searching:
-            search_further_state = tk.NORMAL
-        self.search_further_button.configure(state=search_further_state)
-        checkbox_state = tk.NORMAL if selection_controls_enabled else tk.DISABLED
-        for checkbox_widget in self.checkbox_widgets_by_key.values():
-            checkbox_widget.configure(state=checkbox_state)
-
-    def set_searching_state(self):
-        self.is_searching = True
-        self.is_timed_out = False
-        self.stop_search_requested = False
-        self.use_results_requested = False
-        self.search_further_requested = False
-        self.summary_message = ''
-        self.progress_bar.start(10)
-        self.update_button_states()
-        self.refresh_summary()
-
-    def set_stopping_for_use_results_state(self):
-        self.summary_message = (
-            'Stopping search to use the current results...'
-        )
-        self.refresh_summary()
-
-    def set_stopping_for_cancel_state(self):
-        self.summary_message = (
-            'Stopping search and cancelling...'
-        )
-        self.refresh_summary()
-
-    def set_ready_state(self, timed_out=False, summary_message=''):
-        self.is_searching = False
-        self.is_timed_out = timed_out
-        self.summary_message = summary_message
-        self.progress_bar.stop()
-        self.update_button_states()
-        self.refresh_summary()
-
-    def set_metrics_from_test_plan(self, test_plan):
-        self.visited_selector_count = test_plan.get(
-            'visited_selector_count',
-            self.visited_selector_count,
-        )
-        self.elapsed_ms = test_plan.get('elapsed_ms', self.elapsed_ms)
-        self.refresh_summary()
-
-    def add_or_update_candidate_test(self, candidate_test):
-        candidate_key = self.candidate_test_key(candidate_test)
-        has_candidate = candidate_key in self.candidate_tests_by_key
-        if has_candidate:
-            existing_candidate = self.candidate_tests_by_key[candidate_key]
-            candidate_depth = candidate_test.get('depth', 0)
-            existing_depth = existing_candidate.get('depth', 0)
-            if candidate_depth < existing_depth:
-                self.candidate_tests_by_key[candidate_key] = dict(candidate_test)
-                checkbutton = self.checkbox_widgets_by_key[candidate_key]
-                checkbutton.configure(
-                    text=self.format_test_label(candidate_test)
-                )
-        if not has_candidate:
-            self.candidate_tests_by_key[candidate_key] = dict(candidate_test)
-            self.candidate_test_order.append(candidate_key)
-            row_index = len(self.candidate_test_order) - 1
-            default_checked_count = 20
-            is_default_checked = row_index < default_checked_count
-            selected = tk.BooleanVar(value=is_default_checked)
-            self.checkbox_variables_by_key[candidate_key] = selected
-            checkbutton = ttk.Checkbutton(
-                self.tests_frame,
-                text=self.format_test_label(candidate_test),
-                variable=selected,
-            )
-            self.checkbox_widgets_by_key[candidate_key] = checkbutton
-            checkbutton.grid(
-                row=row_index,
-                column=0,
-                sticky='w',
-                padx=4,
-                pady=2,
-            )
-            self.update_scroll_region()
-        self.update_button_states()
-        self.refresh_summary()
-
-    def add_candidate_tests(self, candidate_tests):
-        for candidate_test in candidate_tests:
-            self.add_or_update_candidate_test(candidate_test)
-
-    def selected_candidate_tests(self):
-        selected_tests = []
-        for candidate_key in self.candidate_test_order:
-            selected_variable = self.checkbox_variables_by_key[candidate_key]
-            if selected_variable.get():
-                selected_tests.append(
-                    dict(self.candidate_tests_by_key[candidate_key])
-                )
-        return selected_tests
-
-    def select_all_tests(self):
-        for selected in self.checkbox_variables_by_key.values():
-            selected.set(True)
-
-    def select_no_tests(self):
-        for selected in self.checkbox_variables_by_key.values():
-            selected.set(False)
-
-    def request_use_results(self):
-        if self.is_searching:
-            self.use_results_requested = True
-            self.set_stopping_for_use_results_state()
-
-    def request_stop_search(self):
-        if self.is_searching:
-            self.stop_search_requested = True
-            self.set_stopping_for_cancel_state()
-
-    def request_search_further(self):
-        if not self.is_searching and self.is_timed_out:
-            self.search_further_requested = True
-            self.summary_message = ''
-            self.refresh_summary()
-
-    def cancel_dialog(self):
-        if self.is_searching:
-            self.request_stop_search()
-        if not self.is_searching:
-            self.destroy()
-
-    def run_selected_tests(self):
-        selected_tests = self.selected_candidate_tests()
-        if not selected_tests:
-            messagebox.showwarning(
-                'Trace Narrowing',
-                'Select at least one test.',
-                parent=self,
-            )
-            return
-        self.selected_tests = selected_tests
-        self.was_cancelled = False
-        self.destroy()
-
-
-class CoveringTestsBrowseDialog(tk.Toplevel):
-    def __init__(self, browser_window, method_name, max_elapsed_ms=120000):
-        super().__init__(browser_window)
-        self.title('Covering Tests')
-        self.geometry('760x520')
-        self.transient(browser_window)
-        self.wait_visibility()
-        self.grab_set()
-
-        self.browser_window = browser_window
-        self.method_name = method_name
-        self.max_elapsed_ms = max_elapsed_ms
-        self.candidate_tests_by_key = {}
-        self.candidate_test_keys_in_order = []
-        self.candidate_test_index_by_key = {}
-        self.visited_selector_count = 0
-        self.summary_message = ''
-        self.discovery_workflow = CoveringTestsDiscoveryWorkflow(
-            browser_window.gemstone_session_record,
-            method_name,
-            max_elapsed_ms,
-        )
-        self.is_searching = False
-        self.is_timed_out = False
-        self.stop_search_requested = False
-        self.use_results_requested = False
-        self.search_further_requested = False
-
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)
-
-        self.summary_label = ttk.Label(
-            self,
-            text='',
-            justify='left',
-        )
-        self.summary_label.grid(
-            row=0,
-            column=0,
-            columnspan=2,
-            padx=10,
-            pady=(10, 6),
-            sticky='w',
-        )
-
-        self.progress_bar = ttk.Progressbar(
-            self,
-            mode='indeterminate',
-            length=360,
-        )
-        self.progress_bar.grid(
-            row=1,
-            column=0,
-            columnspan=2,
-            sticky='ew',
-            padx=10,
-            pady=(0, 6),
-        )
-
-        self.results_listbox = tk.Listbox(self)
-        self.results_listbox.bind('<Double-Button-1>', self.on_result_double_click)
-        self.results_listbox.grid(
-            row=2,
-            column=0,
-            sticky='nsew',
-            padx=(10, 0),
-            pady=(0, 8),
-        )
-        self.scrollbar = ttk.Scrollbar(
-            self,
-            orient='vertical',
-            command=self.results_listbox.yview,
-        )
-        self.scrollbar.grid(
-            row=2,
-            column=1,
-            sticky='ns',
-            padx=(0, 10),
-            pady=(0, 8),
-        )
-        self.results_listbox.configure(yscrollcommand=self.scrollbar.set)
-
-        self.buttons = ttk.Frame(self)
-        self.buttons.grid(row=3, column=0, columnspan=2, sticky='e', pady=(0, 10))
-        self.use_results_button = ttk.Button(
-            self.buttons,
-            text='Use Results So Far',
-            command=self.request_use_results,
-        )
-        self.use_results_button.grid(row=0, column=0, padx=(0, 4))
-        self.stop_search_button = ttk.Button(
-            self.buttons,
-            text='Stop Searching For Tests',
-            command=self.request_stop_search,
-        )
-        self.stop_search_button.grid(row=0, column=1, padx=(0, 4))
-        self.search_further_button = ttk.Button(
-            self.buttons,
-            text='Search Further',
-            command=self.request_search_further,
-        )
-        self.search_further_button.grid(row=0, column=2, padx=(0, 4))
-        self.close_button = ttk.Button(
-            self.buttons,
-            text='Close',
-            command=self.close_dialog,
-        )
-        self.close_button.grid(row=0, column=3)
-        self.protocol('WM_DELETE_WINDOW', self.close_dialog)
-
-        self.run_search_attempt()
-        self.after(50, self.monitor_search)
-
-    def candidate_test_key(self, candidate_test):
-        return (
-            candidate_test['test_case_class_name'],
-            candidate_test['test_method_selector'],
-        )
-
-    def format_test_label(self, candidate_test):
-        return (
-            '%s>>%s (depth %s via %s)'
-            % (
-                candidate_test['test_case_class_name'],
-                candidate_test['test_method_selector'],
-                candidate_test.get('depth', '?'),
-                candidate_test.get('reached_from_selector', '?'),
-            )
-        )
-
-    def summary_text(self):
-        candidate_count = len(self.candidate_test_keys_in_order)
-        if self.is_searching:
-            return (
-                'Searching for covering tests for %s... '
-                'Found: %s, explored selectors: %s.'
-            ) % (
-                self.method_name,
-                candidate_count,
-                self.visited_selector_count,
-            )
-        if self.is_timed_out:
-            return (
-                'Search reached %ss timeout. Found: %s, explored selectors: %s.'
-            ) % (
-                int(self.max_elapsed_ms / 1000),
-                candidate_count,
-                self.visited_selector_count,
-            )
-        return (
-            'Covering tests for %s: %s (explored selectors: %s).'
-        ) % (
-            self.method_name,
-            candidate_count,
-            self.visited_selector_count,
-        )
-
-    def refresh_summary(self):
-        summary_text = self.summary_text()
-        if self.summary_message:
-            summary_text = '%s %s' % (summary_text, self.summary_message)
-        self.summary_label.configure(text=summary_text)
-
-    def update_button_states(self):
-        use_results_state = tk.NORMAL if self.is_searching else tk.DISABLED
-        stop_search_state = tk.NORMAL if self.is_searching else tk.DISABLED
-        search_further_state = (
-            tk.NORMAL if self.is_timed_out and not self.is_searching else tk.DISABLED
-        )
-        self.use_results_button.configure(state=use_results_state)
-        self.stop_search_button.configure(state=stop_search_state)
-        self.search_further_button.configure(state=search_further_state)
-        self.results_listbox.configure(state=tk.NORMAL)
-
-    def add_or_update_candidate_test(self, candidate_test):
-        candidate_key = self.candidate_test_key(candidate_test)
-        has_candidate = candidate_key in self.candidate_tests_by_key
-        if has_candidate:
-            existing_candidate = self.candidate_tests_by_key[candidate_key]
-            candidate_depth = candidate_test.get('depth', 0)
-            existing_depth = existing_candidate.get('depth', 0)
-            if candidate_depth < existing_depth:
-                self.candidate_tests_by_key[candidate_key] = dict(candidate_test)
-                candidate_index = self.candidate_test_index_by_key[candidate_key]
-                self.results_listbox.delete(candidate_index)
-                self.results_listbox.insert(
-                    candidate_index,
-                    self.format_test_label(candidate_test),
-                )
-        if not has_candidate:
-            candidate_index = len(self.candidate_test_keys_in_order)
-            self.candidate_tests_by_key[candidate_key] = dict(candidate_test)
-            self.candidate_test_keys_in_order.append(candidate_key)
-            self.candidate_test_index_by_key[candidate_key] = candidate_index
-            self.results_listbox.insert(
-                tk.END,
-                self.format_test_label(candidate_test),
-            )
-        self.refresh_summary()
-
-    def run_search_attempt(self):
-        self.is_searching = True
-        self.is_timed_out = False
-        self.stop_search_requested = False
-        self.use_results_requested = False
-        self.search_further_requested = False
-        self.summary_message = ''
-        self.progress_bar.start(10)
-        self.update_button_states()
-        self.refresh_summary()
-        self.discovery_workflow.run_search_attempt()
-
-    def set_ready_state(self, timed_out=False, summary_message=''):
-        self.is_searching = False
-        self.is_timed_out = timed_out
-        self.summary_message = summary_message
-        self.progress_bar.stop()
-        self.update_button_states()
-        self.refresh_summary()
-
-    def add_candidate_tests(self, candidate_tests):
-        for candidate_test in candidate_tests:
-            self.add_or_update_candidate_test(candidate_test)
-
-    def monitor_search(self):
-        if not self.winfo_exists():
-            return
-        if self.stop_search_requested and self.discovery_workflow.searching():
-            self.summary_message = 'Stopping search and closing...'
-            self.refresh_summary()
-        if self.use_results_requested and self.discovery_workflow.searching():
-            self.summary_message = (
-                'Stopping search to use the current results...'
-            )
-            self.refresh_summary()
-
-        search_outcome = self.discovery_workflow.advance(
-            self.stop_search_requested,
-            self.use_results_requested,
-            self.add_or_update_candidate_test,
-        )
-
-        if search_outcome['phase'] == 'searching':
-            self.after(50, self.monitor_search)
-            return
-        if search_outcome['phase'] == 'cancelled':
-            self.destroy()
-            return
-        if search_outcome['phase'] == 'error':
-            messagebox.showerror(
-                'Covering Tests',
-                str(search_outcome['error']),
-                parent=self,
-            )
-            self.set_ready_state(
-                timed_out=False,
-                summary_message='Search failed.',
-            )
-        if search_outcome['phase'] == 'empty':
-            self.set_ready_state(
-                timed_out=False,
-                summary_message='Search finished without results.',
-            )
-        if search_outcome['phase'] == 'ready':
-            accumulated_plan = search_outcome['plan']
-            self.visited_selector_count = max(
-                self.visited_selector_count,
-                accumulated_plan.get('visited_selector_count', 0),
-            )
-            self.add_candidate_tests(
-                accumulated_plan.get('candidate_tests', [])
-            )
-            summary_message = ''
-            if search_outcome['used_results']:
-                summary_message = 'Using the results found so far.'
-            if search_outcome['timed_out']:
-                summary_message = (
-                    'Search timed out. You can continue with Search Further.'
-                )
-            self.set_ready_state(
-                timed_out=search_outcome['timed_out'],
-                summary_message=summary_message,
-            )
-
-        if self.winfo_exists():
-            if self.search_further_requested:
-                self.search_further_requested = False
-                self.run_search_attempt()
-            self.after(50, self.monitor_search)
-
-    def request_use_results(self):
-        if self.is_searching:
-            self.use_results_requested = True
-
-    def request_stop_search(self):
-        if self.is_searching:
-            self.stop_search_requested = True
-        if not self.is_searching:
-            self.destroy()
-
-    def request_search_further(self):
-        if not self.is_searching and self.is_timed_out:
-            self.search_further_requested = True
-            self.summary_message = ''
-            self.refresh_summary()
-
-    def close_dialog(self):
-        if self.is_searching:
-            self.stop_search_requested = True
-        if not self.is_searching:
-            self.destroy()
-
-    def on_result_double_click(self, event):
-        if self.is_searching:
-            return
-        selection = self.results_listbox.curselection()
-        if not selection:
-            return
-        selected_index = selection[0]
-        candidate_key = self.candidate_test_keys_in_order[selected_index]
-        candidate_test = self.candidate_tests_by_key[candidate_key]
-        self.browser_window.application.handle_sender_selection(
-            candidate_test['test_case_class_name'],
-            True,
-            candidate_test['test_method_selector'],
-        )
-
-
-class SendersDialog(tk.Toplevel):
-    def __init__(self, parent, method_name=None):
-        super().__init__(parent)
-        self.title('Senders')
-        self.geometry('560x560')
+        self.title("Find")
+        self.geometry("720x560")
         self.transient(parent)
         self.wait_visibility()
         self.grab_set()
 
         self.parent = parent
-        self.sender_results = []
+        self.method_reference_results = []
+        self.navigation_method_results = []
+        self.reference_method_selectors = []
+        self.sender_tracing_selector = None
         self.static_sender_results = []
-        self.static_sender_method_name = None
+        self.last_reference_method_query = None
+        self.last_reference_method_match_mode = None
         self.max_test_discovery_elapsed_ms = 120000
-        self.status_var = tk.StringVar(value='')
+        self.status_var = tk.StringVar(value="")
+        self.search_intent_var = tk.StringVar(value="")
+        self.result_action_var = tk.StringVar(value="")
+        self.find_operation_running = False
+        self.find_stop_requested = False
 
         self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(6, weight=1)
 
-        ttk.Label(self, text='Method Name:').grid(
+        self.search_type = tk.StringVar(value="class")
+        self.match_mode = tk.StringVar(value="contains")
+        self.reference_target = tk.StringVar(value="class")
+        ttk.Label(self, text="Search Type:").grid(
             row=0,
             column=0,
             padx=10,
-            pady=10,
-            sticky='w',
+            pady=5,
+            sticky="w",
         )
-        self.method_entry = ttk.Entry(self)
-        self.method_entry.grid(
+        self.search_type_frame = ttk.Frame(self)
+        self.search_type_frame.grid(
             row=0,
             column=1,
+            columnspan=5,
+            padx=(0, 10),
+            pady=5,
+            sticky="w",
+        )
+        self.class_radio = ttk.Radiobutton(
+            self.search_type_frame,
+            text="Class",
+            variable=self.search_type,
+            value="class",
+        )
+        self.class_radio.pack(side="left", padx=(0, 8))
+        self.method_radio = ttk.Radiobutton(
+            self.search_type_frame,
+            text="Method",
+            variable=self.search_type,
+            value="method",
+        )
+        self.method_radio.pack(side="left", padx=(0, 8))
+        self.reference_radio = ttk.Radiobutton(
+            self.search_type_frame,
+            text="References",
+            variable=self.search_type,
+            value="reference",
+        )
+        self.reference_radio.pack(side="left", padx=(0, 8))
+
+        ttk.Label(self, text="Match:").grid(
+            row=1,
+            column=0,
+            padx=10,
+            pady=5,
+            sticky="w",
+        )
+        self.match_mode_frame = ttk.Frame(self)
+        self.match_mode_frame.grid(
+            row=1,
+            column=1,
             columnspan=2,
+            padx=(0, 10),
+            pady=5,
+            sticky="w",
+        )
+        self.match_contains_radio = ttk.Radiobutton(
+            self.match_mode_frame,
+            text="Contains",
+            variable=self.match_mode,
+            value="contains",
+        )
+        self.match_contains_radio.pack(side="left", padx=(0, 8))
+        self.match_exact_radio = ttk.Radiobutton(
+            self.match_mode_frame,
+            text="Exact",
+            variable=self.match_mode,
+            value="exact",
+        )
+        self.match_exact_radio.pack(side="left")
+
+        self.reference_target_label = ttk.Label(
+            self,
+            text="Reference target:",
+        )
+        self.reference_target_label.grid(
+            row=1,
+            column=3,
+            padx=(10, 6),
+            pady=5,
+            sticky="e",
+        )
+        self.reference_target_frame = ttk.Frame(self)
+        self.reference_target_frame.grid(
+            row=1,
+            column=4,
+            columnspan=2,
+            padx=(0, 10),
+            pady=5,
+            sticky="w",
+        )
+        self.reference_target_class_radio = ttk.Radiobutton(
+            self.reference_target_frame,
+            text="Class",
+            variable=self.reference_target,
+            value="class",
+        )
+        self.reference_target_class_radio.pack(side="left", padx=(0, 8))
+        self.reference_target_method_radio = ttk.Radiobutton(
+            self.reference_target_frame,
+            text="Method",
+            variable=self.reference_target,
+            value="method",
+        )
+        self.reference_target_method_radio.pack(side="left")
+
+        ttk.Label(self, text="Find what:").grid(
+            row=2,
+            column=0,
             padx=10,
             pady=10,
-            sticky='ew',
+            sticky="w",
         )
-        if method_name:
-            self.method_entry.insert(0, method_name)
+        self.find_entry = ttk.Entry(self)
+        self.find_entry.grid(
+            row=2,
+            column=1,
+            columnspan=5,
+            padx=10,
+            pady=10,
+            sticky="ew",
+        )
+        self.find_entry.bind(
+            "<KeyRelease>",
+            lambda *_: self.update_search_context_fields(),
+        )
+
+        ttk.Label(self, text="Search intent:").grid(
+            row=3,
+            column=0,
+            padx=10,
+            pady=(0, 2),
+            sticky="w",
+        )
+        self.search_intent_label = ttk.Label(
+            self,
+            textvariable=self.search_intent_var,
+            anchor="w",
+        )
+        self.search_intent_label.grid(
+            row=3,
+            column=1,
+            columnspan=5,
+            padx=10,
+            pady=(0, 2),
+            sticky="ew",
+        )
+
+        ttk.Label(self, text="Result action:").grid(
+            row=4,
+            column=0,
+            padx=10,
+            pady=(0, 2),
+            sticky="w",
+        )
+        self.result_action_label = ttk.Label(
+            self,
+            textvariable=self.result_action_var,
+            anchor="w",
+        )
+        self.result_action_label.grid(
+            row=4,
+            column=1,
+            columnspan=5,
+            padx=10,
+            pady=(0, 2),
+            sticky="ew",
+        )
 
         self.button_frame = ttk.Frame(self)
-        self.button_frame.grid(row=1, column=0, columnspan=3, pady=10)
+        self.button_frame.grid(row=5, column=0, columnspan=6, pady=10)
+        self.button_frame.grid_columnconfigure(0, weight=1)
+        self.button_frame.grid_columnconfigure(1, weight=1)
+        self.button_frame.grid_columnconfigure(2, weight=1)
+        self.button_frame.grid_columnconfigure(3, weight=1)
 
         self.find_button = ttk.Button(
             self.button_frame,
-            text='Find',
-            command=self.find_senders,
+            text="Find",
+            command=self.find_text,
         )
         self.find_button.grid(row=0, column=0, padx=5)
 
+        self.stop_button = ttk.Button(
+            self.button_frame,
+            text="Stop",
+            command=self.request_stop_find,
+            state=tk.DISABLED,
+        )
+        self.stop_button.grid(row=0, column=1, padx=5)
+
         self.narrow_button = ttk.Button(
             self.button_frame,
-            text='Narrow With Tracing',
+            text="Narrow With Tracing",
             command=self.narrow_senders_with_tracing,
         )
-        self.narrow_button.grid(row=0, column=1, padx=5)
+        self.narrow_button.grid(row=0, column=2, padx=5)
 
         self.cancel_button = ttk.Button(
             self.button_frame,
-            text='Cancel',
+            text="Cancel",
             command=self.destroy,
         )
-        self.cancel_button.grid(row=0, column=2, padx=5)
+        self.cancel_button.grid(row=0, column=3, padx=5)
 
         self.results_listbox = tk.Listbox(self)
-        self.results_listbox.bind('<Double-Button-1>', self.on_result_double_click)
         self.results_listbox.grid(
-            row=2,
+            row=6,
             column=0,
-            columnspan=3,
+            columnspan=6,
             padx=10,
             pady=(10, 4),
-            sticky='nsew',
+            sticky="nsew",
         )
+        self.results_listbox.bind("<Double-Button-1>", self.on_result_double_click)
 
         self.status_label = ttk.Label(
             self,
             textvariable=self.status_var,
-            anchor='w',
+            anchor="w",
         )
         self.status_label.grid(
-            row=3,
+            row=7,
             column=0,
-            columnspan=3,
+            columnspan=6,
             padx=10,
             pady=(0, 10),
-            sticky='ew',
+            sticky="ew",
         )
 
-        self.find_senders()
+        configuration = self.resolved_search_configuration(
+            search_type,
+            match_mode,
+            reference_target,
+        )
+        self.search_type.trace_add(
+            "write",
+            lambda *_: self.update_mode_controls(),
+        )
+        self.match_mode.trace_add(
+            "write",
+            lambda *_: self.update_mode_controls(),
+        )
+        self.reference_target.trace_add(
+            "write",
+            lambda *_: self.update_mode_controls(),
+        )
+        self.search_type.set(configuration["search_type"])
+        self.match_mode.set(configuration["match_mode"])
+        self.reference_target.set(configuration["reference_target"])
+        if search_query:
+            self.find_entry.delete(0, tk.END)
+            self.find_entry.insert(0, search_query)
+        self.update_mode_controls()
+        self.set_find_operation_state(False)
+        self.update_search_context_fields()
+        if run_search:
+            self.find_text()
 
     @property
     def gemstone_session_record(self):
         return self.parent.gemstone_session_record
 
-    def populate_sender_results(self, sender_results):
-        self.sender_results = list(sender_results)
+    def resolved_search_configuration(
+        self,
+        search_type,
+        match_mode,
+        reference_target,
+    ):
+        configuration = {
+            "search_type": "class",
+            "match_mode": "contains",
+            "reference_target": "class",
+        }
+        if search_type in ["class", "method", "reference"]:
+            configuration["search_type"] = search_type
+        if search_type == "class_reference":
+            configuration["search_type"] = "reference"
+            configuration["reference_target"] = "class"
+            configuration["match_mode"] = "exact"
+        if search_type == "implementor":
+            configuration["search_type"] = "method"
+            configuration["match_mode"] = "exact"
+        if search_type == "sender":
+            configuration["search_type"] = "reference"
+            configuration["reference_target"] = "method"
+            configuration["match_mode"] = "exact"
+        if match_mode in ["exact", "contains"]:
+            configuration["match_mode"] = match_mode
+        if reference_target in ["class", "method"]:
+            configuration["reference_target"] = reference_target
+        if configuration["search_type"] == "reference":
+            configuration["match_mode"] = "exact"
+        return configuration
+
+    def update_mode_controls(self):
+        search_type = self.search_type.get()
+        reference_mode_is_selected = search_type == "reference"
+        if reference_mode_is_selected and self.match_mode.get() != "exact":
+            self.match_mode.set("exact")
+            return
+        reference_target_is_method = self.reference_target.get() == "method"
+        tracing_controls_visible = (
+            reference_mode_is_selected and reference_target_is_method
+        )
+        contains_match_state = tk.NORMAL
+        exact_match_state = tk.NORMAL
+        if reference_mode_is_selected:
+            contains_match_state = tk.DISABLED
+        if self.find_operation_running:
+            contains_match_state = tk.DISABLED
+            exact_match_state = tk.DISABLED
+        self.match_contains_radio.config(state=contains_match_state)
+        self.match_exact_radio.config(state=exact_match_state)
+        if reference_mode_is_selected:
+            self.reference_target_label.grid()
+            self.reference_target_frame.grid()
+        else:
+            self.reference_target_label.grid_remove()
+            self.reference_target_frame.grid_remove()
+        if tracing_controls_visible:
+            self.narrow_button.grid()
+            self.status_label.grid()
+        else:
+            self.narrow_button.grid_remove()
+            self.status_label.grid_remove()
+            self.status_var.set("")
+        self.update_trace_narrow_state()
+        self.update_search_context_fields()
+
+    def update_trace_narrow_state(self):
+        can_trace = bool(self.sender_tracing_selector)
+        if self.search_type.get() != "reference":
+            can_trace = False
+        if self.reference_target.get() != "method":
+            can_trace = False
+        if self.find_operation_running:
+            can_trace = False
+        self.narrow_button.config(state=tk.NORMAL if can_trace else tk.DISABLED)
+
+    def set_find_operation_state(self, is_running):
+        self.find_operation_running = is_running
+        self.find_button.config(state=tk.DISABLED if is_running else tk.NORMAL)
+        self.stop_button.config(state=tk.NORMAL if is_running else tk.DISABLED)
+        self.cancel_button.config(state=tk.DISABLED if is_running else tk.NORMAL)
+        mode_control_state = tk.DISABLED if is_running else tk.NORMAL
+        self.find_entry.config(state=mode_control_state)
+        self.class_radio.config(state=mode_control_state)
+        self.method_radio.config(state=mode_control_state)
+        self.reference_radio.config(state=mode_control_state)
+        contains_match_state = mode_control_state
+        if not is_running and self.search_type.get() == "reference":
+            contains_match_state = tk.DISABLED
+        self.match_contains_radio.config(state=contains_match_state)
+        self.match_exact_radio.config(state=mode_control_state)
+        self.reference_target_class_radio.config(state=mode_control_state)
+        self.reference_target_method_radio.config(state=mode_control_state)
+        self.update_trace_narrow_state()
+        self.update_search_context_fields()
+
+    def request_stop_find(self):
+        if self.find_operation_running:
+            self.find_stop_requested = True
+            self.status_var.set("Stopping find...")
+
+    def find_should_stop(self):
+        if not self.find_operation_running:
+            return False
+        self.update_idletasks()
+        try:
+            self.update()
+        except tk.TclError:
+            return True
+        return self.find_stop_requested
+
+    def finish_stopped_find(self):
+        self.status_var.set("Find stopped. Showing partial results.")
+        self.sender_tracing_selector = None
+
+    def format_method_navigation_label(
+        self,
+        class_name,
+        show_instance_side,
+        method_selector,
+    ):
+        class_side_label = ""
+        if not show_instance_side:
+            class_side_label = " class"
+        return "%s%s>>%s" % (
+            class_name,
+            class_side_label,
+            method_selector,
+        )
+
+    def class_match_query_pattern(self, query_text, match_mode):
+        escaped_query = re.escape(query_text)
+        if match_mode == "exact":
+            return "^%s$" % escaped_query
+        return escaped_query
+
+    def class_names_for_query(
+        self,
+        query_text,
+        match_mode,
+        should_stop=None,
+    ):
+        class_pattern = self.class_match_query_pattern(
+            query_text,
+            match_mode,
+        )
+        return list(
+            self.gemstone_session_record.find_class_names_matching(
+                class_pattern,
+                should_stop=should_stop,
+            )
+        )
+
+    def selector_names_for_query(
+        self,
+        query_text,
+        match_mode,
+        should_stop=None,
+    ):
+        if match_mode == "exact":
+            return [query_text]
+        return list(
+            self.gemstone_session_record.find_selectors_matching(
+                query_text,
+                should_stop=should_stop,
+            )
+        )
+
+    def references_for_class_query(
+        self,
+        query_text,
+        match_mode,
+        should_stop=None,
+    ):
+        class_names = [query_text]
+        reference_results = []
+        for class_name in class_names:
+            if should_stop is not None and should_stop():
+                return self.unique_sorted_navigation_results(reference_results)
+            reference_results += list(
+                self.gemstone_session_record.find_class_references(class_name)
+            )
+        return self.unique_sorted_navigation_results(reference_results)
+
+    def references_for_method_query(
+        self,
+        query_text,
+        match_mode,
+        should_stop=None,
+    ):
+        selector_names = [query_text]
+        sender_results = []
+        for selector_name in selector_names:
+            if should_stop is not None and should_stop():
+                return (
+                    self.unique_sorted_navigation_results(sender_results),
+                    selector_names,
+                )
+            sender_results += list(
+                self.gemstone_session_record.find_senders_of_method(selector_name)
+            )
+        return (
+            self.unique_sorted_navigation_results(sender_results),
+            selector_names,
+        )
+
+    def unique_sorted_navigation_results(self, method_results):
+        unique_result_by_key = {}
+        for class_name, show_instance_side, method_selector in method_results:
+            result_key = (
+                class_name,
+                show_instance_side,
+                method_selector,
+            )
+            unique_result_by_key[result_key] = result_key
+        return sorted(unique_result_by_key.values())
+
+    def activity_message_for_search(
+        self,
+        search_type,
+        match_mode,
+        reference_target,
+        search_query,
+    ):
+        if search_type == "class":
+            if match_mode == "exact":
+                return "Finding class %s..." % search_query
+            return "Finding classes matching %s..." % search_query
+        if search_type == "method":
+            if match_mode == "exact":
+                return "Finding implementors of %s..." % search_query
+            return "Finding methods matching %s..." % search_query
+        if reference_target == "class":
+            return "Finding references to class %s..." % search_query
+        return "Finding references to method %s..." % search_query
+
+    def search_intent_text(
+        self,
+        search_type,
+        match_mode,
+        reference_target,
+        normalized_search_query,
+    ):
+        if not normalized_search_query:
+            return "Enter text to search."
+        if search_type == "class":
+            if match_mode == "exact":
+                return 'Class exactly "%s".' % normalized_search_query
+            return 'Classes containing "%s".' % normalized_search_query
+        if search_type == "method":
+            if match_mode == "exact":
+                return 'Implementors of method "%s".' % normalized_search_query
+            return 'Methods containing selector "%s".' % normalized_search_query
+        if reference_target == "class":
+            return 'References to class "%s" (exact).' % normalized_search_query
+        return 'References to method "%s" (exact).' % normalized_search_query
+
+    def result_action_text(self, search_type, match_mode, reference_target):
+        if self.find_operation_running:
+            return "Search in progress. Click Stop to cancel."
+        if search_type == "class":
+            return "Double-click a class to navigate."
+        if search_type == "method":
+            if match_mode == "exact":
+                return "Double-click an implementor to open the method."
+            return "Double-click a selector to find implementors (exact)."
+        if reference_target == "method":
+            return "Double-click a reference to open the caller method."
+        return "Double-click a reference to open the method."
+
+    def update_search_context_fields(self):
+        search_type = self.search_type.get()
+        match_mode = self.match_mode.get()
+        if search_type == "reference":
+            match_mode = "exact"
+        reference_target = self.reference_target.get()
+        normalized_search_query = self.find_entry.get().strip()
+        self.search_intent_var.set(
+            self.search_intent_text(
+                search_type,
+                match_mode,
+                reference_target,
+                normalized_search_query,
+            )
+        )
+        self.result_action_var.set(
+            self.result_action_text(
+                search_type,
+                match_mode,
+                reference_target,
+            )
+        )
+
+    def display_results(self, results):
         self.results_listbox.delete(0, tk.END)
-        for class_name, show_instance_side, method_selector in self.sender_results:
-            side_text = '' if show_instance_side else ' class'
-            self.results_listbox.insert(
-                tk.END,
-                f'{class_name}{side_text}>>{method_selector}',
+        for result in results:
+            self.results_listbox.insert(tk.END, result)
+        self.results_listbox.grid()
+
+    def populate_navigation_results(self, method_results):
+        self.navigation_method_results = list(method_results)
+        self.display_results(
+            [
+                self.format_method_navigation_label(
+                    class_name,
+                    show_instance_side,
+                    method_selector,
+                )
+                for class_name, show_instance_side, method_selector in (
+                    self.navigation_method_results
+                )
+            ]
+        )
+
+    def update_sender_status_for_method_references(
+        self,
+        selector_names,
+        static_reference_count,
+        match_mode,
+    ):
+        if self.search_type.get() != "reference":
+            self.status_var.set("")
+            return
+        if self.reference_target.get() != "method":
+            self.status_var.set("")
+            return
+        self.status_var.set("Static references: %s methods." % static_reference_count)
+
+    def current_reference_method_selector_for_tracing(
+        self,
+        selector_names,
+        normalized_search_query,
+        match_mode,
+    ):
+        return normalized_search_query
+
+    def find_text(self):
+        if self.find_operation_running:
+            return
+        search_query = self.find_entry.get()
+        normalized_search_query = search_query.strip()
+        search_type = self.search_type.get()
+        match_mode = self.match_mode.get()
+        if search_type == "reference":
+            match_mode = "exact"
+            if self.match_mode.get() != "exact":
+                self.match_mode.set("exact")
+        reference_target = self.reference_target.get()
+        self.update_search_context_fields()
+        self.navigation_method_results = []
+        self.method_reference_results = []
+        self.reference_method_selectors = []
+        self.sender_tracing_selector = None
+        should_run_search = bool(normalized_search_query)
+        self.find_stop_requested = False
+        self.set_find_operation_state(should_run_search)
+        if should_run_search:
+            self.parent.begin_foreground_activity(
+                self.activity_message_for_search(
+                    search_type,
+                    match_mode,
+                    reference_target,
+                    normalized_search_query,
+                )
             )
 
-    def find_senders(self):
-        method_name = self.method_entry.get().strip()
-        static_sender_results = []
-        if method_name:
-            static_sender_results = list(
-                self.gemstone_session_record.find_senders_of_method(method_name)
+        try:
+            if not should_run_search:
+                self.static_sender_results = []
+                self.last_reference_method_query = None
+                self.last_reference_method_match_mode = None
+                self.display_results([])
+                self.status_var.set("")
+                return
+            if search_type == "class":
+                class_names = self.class_names_for_query(
+                    normalized_search_query,
+                    match_mode,
+                    should_stop=self.find_should_stop,
+                )
+                self.display_results(class_names)
+                self.static_sender_results = []
+                self.last_reference_method_query = None
+                self.last_reference_method_match_mode = None
+                if self.find_stop_requested:
+                    self.finish_stopped_find()
+                else:
+                    self.status_var.set("")
+                return
+            if search_type == "method":
+                if match_mode == "exact":
+                    implementor_results = list(
+                        self.gemstone_session_record.find_implementors_of_method(
+                            normalized_search_query
+                        )
+                    )
+                    if self.find_should_stop():
+                        self.display_results([])
+                        self.finish_stopped_find()
+                        return
+                    self.navigation_method_results = [
+                        (
+                            class_name,
+                            not is_meta,
+                            normalized_search_query,
+                        )
+                        for class_name, is_meta in implementor_results
+                    ]
+                    self.populate_navigation_results(self.navigation_method_results)
+                    if self.find_stop_requested:
+                        self.finish_stopped_find()
+                    else:
+                        self.status_var.set("")
+                    return
+                selector_names = self.selector_names_for_query(
+                    normalized_search_query,
+                    match_mode,
+                    should_stop=self.find_should_stop,
+                )
+                self.display_results(selector_names)
+                self.static_sender_results = []
+                self.last_reference_method_query = None
+                self.last_reference_method_match_mode = None
+                if self.find_stop_requested:
+                    self.finish_stopped_find()
+                else:
+                    self.status_var.set("")
+                return
+            if reference_target == "class":
+                class_reference_results = self.references_for_class_query(
+                    normalized_search_query,
+                    match_mode,
+                    should_stop=self.find_should_stop,
+                )
+                self.method_reference_results = list(class_reference_results)
+                self.populate_navigation_results(class_reference_results)
+                self.static_sender_results = []
+                self.last_reference_method_query = None
+                self.last_reference_method_match_mode = None
+                if self.find_stop_requested:
+                    self.finish_stopped_find()
+                else:
+                    self.status_var.set("")
+                return
+            (
+                method_reference_results,
+                selector_names,
+            ) = self.references_for_method_query(
+                normalized_search_query,
+                match_mode,
+                should_stop=self.find_should_stop,
             )
-        self.static_sender_results = static_sender_results
-        self.static_sender_method_name = method_name
-        self.populate_sender_results(self.static_sender_results)
-        self.status_var.set(
-            'Static senders: %s' % len(self.static_sender_results)
-        )
+            self.reference_method_selectors = selector_names
+            self.static_sender_results = list(method_reference_results)
+            self.last_reference_method_query = normalized_search_query
+            self.last_reference_method_match_mode = match_mode
+            if self.find_stop_requested:
+                self.sender_tracing_selector = None
+                self.populate_navigation_results(method_reference_results)
+                self.finish_stopped_find()
+                return
+            self.sender_tracing_selector = (
+                self.current_reference_method_selector_for_tracing(
+                    selector_names,
+                    normalized_search_query,
+                    match_mode,
+                )
+            )
+            self.populate_navigation_results(method_reference_results)
+            self.update_sender_status_for_method_references(
+                selector_names,
+                len(self.static_sender_results),
+                match_mode,
+            )
+        finally:
+            if should_run_search:
+                self.parent.end_foreground_activity()
+            self.set_find_operation_state(False)
+            self.update_search_context_fields()
 
     def choose_tests_for_tracing(self, method_name):
         test_selection_dialog = CoveringTestsSearchDialog(
@@ -3026,37 +2648,35 @@ class SendersDialog(tk.Toplevel):
                 test_selection_dialog.use_results_requested,
                 test_selection_dialog.add_or_update_candidate_test,
             )
-            if search_outcome['phase'] == 'searching':
+            if search_outcome["phase"] == "searching":
                 self.after(50, monitor_search)
                 return
-            if search_outcome['phase'] == 'cancelled':
+            if search_outcome["phase"] == "cancelled":
                 test_selection_dialog.destroy()
                 return
-            if search_outcome['phase'] == 'error':
+            if search_outcome["phase"] == "error":
                 test_selection_dialog.destroy()
                 return
-            if search_outcome['phase'] == 'empty':
+            if search_outcome["phase"] == "empty":
                 test_selection_dialog.set_ready_state(
                     timed_out=False,
-                    summary_message='Search finished without results.',
+                    summary_message="Search finished without results.",
                 )
-            if search_outcome['phase'] == 'ready':
-                accumulated_plan = search_outcome['plan']
+            if search_outcome["phase"] == "ready":
+                accumulated_plan = search_outcome["plan"]
                 test_selection_dialog.add_candidate_tests(
-                    accumulated_plan.get('candidate_tests', [])
+                    accumulated_plan.get("candidate_tests", [])
                 )
-                test_selection_dialog.set_metrics_from_test_plan(
-                    accumulated_plan
-                )
-                summary_message = ''
-                if search_outcome['used_results']:
-                    summary_message = 'Using the results found so far.'
-                if search_outcome['timed_out']:
+                test_selection_dialog.set_metrics_from_test_plan(accumulated_plan)
+                summary_message = ""
+                if search_outcome["used_results"]:
+                    summary_message = "Using the results found so far."
+                if search_outcome["timed_out"]:
                     summary_message = (
-                        'Search timed out. You can continue with Search Further.'
+                        "Search timed out. You can continue with Search Further."
                     )
                 test_selection_dialog.set_ready_state(
-                    timed_out=search_outcome['timed_out'],
+                    timed_out=search_outcome["timed_out"],
                     summary_message=summary_message,
                 )
             if test_selection_dialog.winfo_exists():
@@ -3072,7 +2692,7 @@ class SendersDialog(tk.Toplevel):
         if discovery_workflow.latest_error() is not None:
             raise discovery_workflow.latest_error()
         if discovery_workflow.cancelled():
-            self.status_var.set('Test discovery stopped.')
+            self.status_var.set("Test discovery stopped.")
             return None
         if test_selection_dialog.selected_tests is None:
             return None
@@ -3080,15 +2700,9 @@ class SendersDialog(tk.Toplevel):
 
     def observed_sender_key(self, observed_sender):
         return (
-            observed_sender['caller_class_name'],
-            observed_sender['caller_show_instance_side'],
-            observed_sender['caller_method_selector'],
-        )
-
-    def candidate_test_key(self, candidate_test):
-        return (
-            candidate_test['test_case_class_name'],
-            candidate_test['test_method_selector'],
+            observed_sender["caller_class_name"],
+            observed_sender["caller_show_instance_side"],
+            observed_sender["caller_method_selector"],
         )
 
     def merge_sender_test_plans(self, current_plan, new_plan):
@@ -3099,24 +2713,40 @@ class SendersDialog(tk.Toplevel):
         )
 
     def narrow_senders_with_tracing(self):
-        method_name = self.method_entry.get().strip()
-        if not method_name:
+        if self.search_type.get() != "reference":
+            return
+        if self.reference_target.get() != "method":
+            return
+        reference_query = self.find_entry.get().strip()
+        if not reference_query:
             messagebox.showwarning(
-                'Narrow Senders',
-                'Enter a method selector first.',
+                "Narrow References",
+                "Enter a method selector first.",
                 parent=self,
             )
             return
-        static_results_match_selector = (
-            self.static_sender_method_name == method_name
+        query_is_out_of_date = (
+            self.last_reference_method_query != reference_query
+            or self.last_reference_method_match_mode != self.match_mode.get()
         )
-        if not static_results_match_selector:
-            self.find_senders()
+        if query_is_out_of_date:
+            self.find_text()
+        method_selector = self.sender_tracing_selector
+        if not method_selector:
+            messagebox.showwarning(
+                "Narrow References",
+                (
+                    "Tracing requires an exact selector or a contains "
+                    "query that matches one selector."
+                ),
+                parent=self,
+            )
+            return
         try:
-            selected_tests = self.choose_tests_for_tracing(method_name)
+            selected_tests = self.choose_tests_for_tracing(method_selector)
         except (GemstoneDomainException, GemstoneError) as error:
             messagebox.showerror(
-                'Narrow Senders',
+                "Narrow References",
                 str(error),
                 parent=self,
             )
@@ -3124,11 +2754,9 @@ class SendersDialog(tk.Toplevel):
         if selected_tests is None:
             return
         self.status_var.set(
-            (
-                'Tracing %s and running %s selected tests...'
-            )
+            "Tracing %s and running %s selected tests..."
             % (
-                method_name,
+                method_selector,
                 len(selected_tests),
             )
         )
@@ -3136,7 +2764,7 @@ class SendersDialog(tk.Toplevel):
         try:
             evidence_result = (
                 self.gemstone_session_record.collect_sender_evidence_from_tests(
-                    method_name,
+                    method_selector,
                     selected_tests,
                     max_traced_senders=250,
                     max_observed_results=500,
@@ -3144,13 +2772,13 @@ class SendersDialog(tk.Toplevel):
             )
         except (GemstoneDomainException, GemstoneError) as error:
             messagebox.showerror(
-                'Narrow Senders',
+                "Narrow References",
                 str(error),
                 parent=self,
             )
-            self.status_var.set('')
+            self.status_var.set("")
             return
-        observed_sender_entries = evidence_result['observed']['observed_senders']
+        observed_sender_entries = evidence_result["observed"]["observed_senders"]
         observed_sender_keys = {
             self.observed_sender_key(observed_sender)
             for observed_sender in observed_sender_entries
@@ -3160,16 +2788,13 @@ class SendersDialog(tk.Toplevel):
             for sender_result in self.static_sender_results
             if sender_result in observed_sender_keys
         ]
-        self.populate_sender_results(narrowed_sender_results)
-        trace_result = evidence_result.get('trace') or {}
-        total_sender_count = trace_result.get('total_sender_count')
-        targeted_sender_count = trace_result.get('targeted_sender_count')
-        summary_text = (
-            'Observed sender matches: %s of %s static senders.'
-            % (
-                len(narrowed_sender_results),
-                len(self.static_sender_results),
-            )
+        self.populate_navigation_results(narrowed_sender_results)
+        trace_result = evidence_result.get("trace") or {}
+        total_sender_count = trace_result.get("total_sender_count")
+        targeted_sender_count = trace_result.get("targeted_sender_count")
+        summary_text = "Observed method references: %s of %s static references." % (
+            len(narrowed_sender_results),
+            len(self.static_sender_results),
         )
         trace_was_capped = (
             total_sender_count is not None
@@ -3179,7 +2804,7 @@ class SendersDialog(tk.Toplevel):
         if trace_was_capped:
             summary_text = (
                 summary_text
-                + ' Tracing targeted %s of %s senders (capped).'
+                + " Tracing targeted %s of %s senders (capped)."
                 % (
                     targeted_sender_count,
                     total_sender_count,
@@ -3188,18 +2813,902 @@ class SendersDialog(tk.Toplevel):
         self.status_var.set(summary_text)
 
     def on_result_double_click(self, event):
-        try:
-            selected_index = self.results_listbox.curselection()[0]
-            selected_sender = self.sender_results[selected_index]
-            class_name, show_instance_side, method_selector = selected_sender
-            self.parent.handle_sender_selection(
+        selection = self.results_listbox.curselection()
+        if not selection:
+            pass
+            return
+        selected_index = selection[0]
+        selected_text = self.results_listbox.get(selected_index)
+        search_type = self.search_type.get()
+        match_mode = self.match_mode.get()
+        if search_type == "method" and match_mode == "contains":
+            self.find_entry.delete(0, tk.END)
+            self.find_entry.insert(0, selected_text)
+            self.match_mode.set("exact")
+            self.find_text()
+            self.update_search_context_fields()
+            return
+        parent = self.parent
+        self.destroy()
+        if search_type == "class":
+            parent.handle_find_selection(search_type == "class", selected_text)
+            return
+        has_navigation_result = selected_index < len(self.navigation_method_results)
+        if has_navigation_result:
+            (
+                class_name,
+                show_instance_side,
+                method_selector,
+            ) = self.navigation_method_results[selected_index]
+            parent.handle_sender_selection(
                 class_name,
                 show_instance_side,
                 method_selector,
             )
+
+
+def merged_sender_test_plan(current_plan, new_plan, max_elapsed_ms):
+    def candidate_test_key(candidate_test):
+        return (
+            candidate_test["test_case_class_name"],
+            candidate_test["test_method_selector"],
+        )
+
+    if current_plan is None:
+        merged_plan = dict(new_plan)
+        merged_plan["candidate_tests"] = list(new_plan.get("candidate_tests", []))
+        merged_plan["sender_edges"] = list(new_plan.get("sender_edges", []))
+        merged_plan["candidate_test_count"] = len(merged_plan["candidate_tests"])
+        merged_plan["sender_edge_count"] = len(merged_plan["sender_edges"])
+        return merged_plan
+
+    merged_plan = dict(current_plan)
+    candidate_tests_by_key = {}
+    for candidate_test in current_plan.get("candidate_tests", []):
+        candidate_tests_by_key[candidate_test_key(candidate_test)] = dict(
+            candidate_test
+        )
+    for candidate_test in new_plan.get("candidate_tests", []):
+        current_candidate_test_key = candidate_test_key(candidate_test)
+        if current_candidate_test_key in candidate_tests_by_key:
+            existing_candidate_test = candidate_tests_by_key[current_candidate_test_key]
+            if candidate_test.get("depth", 0) < existing_candidate_test.get("depth", 0):
+                candidate_tests_by_key[current_candidate_test_key] = dict(
+                    candidate_test
+                )
+        if current_candidate_test_key not in candidate_tests_by_key:
+            candidate_tests_by_key[current_candidate_test_key] = dict(candidate_test)
+    merged_candidate_tests = sorted(
+        candidate_tests_by_key.values(),
+        key=lambda candidate_test: (
+            candidate_test.get("depth", 0),
+            candidate_test["test_case_class_name"],
+            candidate_test["test_method_selector"],
+        ),
+    )
+
+    sender_edges_by_key = {}
+    for sender_edge in current_plan.get("sender_edges", []) + new_plan.get(
+        "sender_edges", []
+    ):
+        sender_edge_key = (
+            sender_edge["from_selector"],
+            sender_edge["to_class_name"],
+            sender_edge["to_method_selector"],
+            sender_edge["to_show_instance_side"],
+            sender_edge["depth"],
+        )
+        sender_edges_by_key[sender_edge_key] = dict(sender_edge)
+    merged_sender_edges = list(sender_edges_by_key.values())
+
+    merged_plan["candidate_tests"] = merged_candidate_tests
+    merged_plan["candidate_test_count"] = len(merged_candidate_tests)
+    merged_plan["sender_edges"] = merged_sender_edges
+    merged_plan["sender_edge_count"] = len(merged_sender_edges)
+    merged_plan["visited_selector_count"] = max(
+        current_plan.get("visited_selector_count", 0),
+        new_plan.get("visited_selector_count", 0),
+    )
+    merged_plan["sender_search_truncated"] = current_plan.get(
+        "sender_search_truncated", False
+    ) or new_plan.get("sender_search_truncated", False)
+    merged_plan["selector_limit_reached"] = current_plan.get(
+        "selector_limit_reached", False
+    ) or new_plan.get("selector_limit_reached", False)
+    merged_plan["elapsed_limit_reached"] = new_plan.get(
+        "elapsed_limit_reached",
+        False,
+    )
+    merged_plan["elapsed_ms"] = current_plan.get("elapsed_ms", 0) + new_plan.get(
+        "elapsed_ms", 0
+    )
+    merged_plan["max_elapsed_ms"] = max_elapsed_ms
+    merged_plan["stopped_by_user"] = new_plan.get("stopped_by_user", False)
+    return merged_plan
+
+
+class CoveringTestsDiscoveryWorkflow:
+    def __init__(
+        self,
+        gemstone_session_record,
+        method_name,
+        max_elapsed_ms,
+    ):
+        self.gemstone_session_record = gemstone_session_record
+        self.method_name = method_name
+        self.max_elapsed_ms = max_elapsed_ms
+        self.should_stop = threading.Event()
+        self.pending_candidate_tests = queue.Queue()
+        self.accumulated_plan = None
+        self.search_state = {
+            "is_searching": False,
+            "latest_result": None,
+            "latest_error": None,
+            "attempt_processed": False,
+            "cancel_requested": False,
+            "use_results_requested_for_attempt": False,
+            "search_started": False,
+        }
+
+    def record_discovered_test(self, candidate_test):
+        self.pending_candidate_tests.put(dict(candidate_test))
+
+    def run_search_attempt(self):
+        self.search_state["is_searching"] = True
+        self.search_state["latest_result"] = None
+        self.search_state["latest_error"] = None
+        self.search_state["attempt_processed"] = False
+        self.search_state["cancel_requested"] = False
+        self.search_state["use_results_requested_for_attempt"] = False
+        self.search_state["search_started"] = True
+        self.should_stop.clear()
+
+        def discover_tests():
+            try:
+                self.search_state["latest_result"] = (
+                    self.gemstone_session_record.plan_sender_evidence_tests(
+                        self.method_name,
+                        max_depth=2,
+                        max_nodes=500,
+                        max_senders_per_selector=200,
+                        max_test_methods=200,
+                        max_elapsed_ms=self.max_elapsed_ms,
+                        should_stop=self.should_stop.is_set,
+                        on_candidate_test=self.record_discovered_test,
+                    )
+                )
+            except (GemstoneDomainException, GemstoneError) as error:
+                self.search_state["latest_error"] = error
+            finally:
+                self.search_state["is_searching"] = False
+
+        search_thread = threading.Thread(
+            target=discover_tests,
+            daemon=True,
+        )
+        search_thread.start()
+
+    def flush_discovered_tests(self, on_candidate_test):
+        keep_flushing = True
+        while keep_flushing:
+            discovered_test = None
+            try:
+                discovered_test = self.pending_candidate_tests.get_nowait()
+            except queue.Empty:
+                keep_flushing = False
+            if discovered_test is not None:
+                on_candidate_test(discovered_test)
+
+    def request_cancel(self):
+        self.search_state["cancel_requested"] = True
+        self.should_stop.set()
+
+    def request_use_results(self):
+        self.search_state["use_results_requested_for_attempt"] = True
+        self.should_stop.set()
+
+    def searching(self):
+        return self.search_state["is_searching"]
+
+    def latest_error(self):
+        return self.search_state["latest_error"]
+
+    def cancelled(self):
+        return self.search_state["cancel_requested"]
+
+    def advance(self, stop_requested, use_results_requested, on_candidate_test):
+        self.flush_discovered_tests(on_candidate_test)
+        if stop_requested:
+            self.request_cancel()
+        if use_results_requested:
+            self.request_use_results()
+
+        if self.search_state["is_searching"]:
+            return {"phase": "searching"}
+        if not self.search_state["search_started"]:
+            return {"phase": "idle"}
+        if self.search_state["attempt_processed"]:
+            return {"phase": "idle"}
+        self.search_state["attempt_processed"] = True
+
+        if self.search_state["cancel_requested"]:
+            return {"phase": "cancelled"}
+        if self.search_state["latest_error"] is not None:
+            return {
+                "phase": "error",
+                "error": self.search_state["latest_error"],
+            }
+        if self.search_state["latest_result"] is None:
+            return {"phase": "empty"}
+
+        self.accumulated_plan = merged_sender_test_plan(
+            self.accumulated_plan,
+            self.search_state["latest_result"],
+            self.max_elapsed_ms,
+        )
+        result_stopped_by_user = self.search_state["latest_result"].get(
+            "stopped_by_user",
+            False,
+        )
+        used_results_requested = self.search_state["use_results_requested_for_attempt"]
+        if result_stopped_by_user and not used_results_requested:
+            return {"phase": "cancelled"}
+        return {
+            "phase": "ready",
+            "plan": self.accumulated_plan,
+            "timed_out": self.search_state["latest_result"].get(
+                "elapsed_limit_reached",
+                False,
+            ),
+            "used_results": used_results_requested,
+        }
+
+
+class CoveringTestsSearchDialog(tk.Toplevel):
+    def __init__(self, parent, method_name, max_elapsed_ms):
+        super().__init__(parent)
+        self.title("Trace Narrowing Tests")
+        self.geometry("760x520")
+        self.transient(parent)
+        self.wait_visibility()
+        self.grab_set()
+
+        self.selected_tests = None
+        self.was_cancelled = True
+        self.stop_search_requested = False
+        self.use_results_requested = False
+        self.search_further_requested = False
+        self.is_searching = False
+        self.is_timed_out = False
+        self.method_name = method_name
+        self.max_elapsed_ms = max_elapsed_ms
+        self.candidate_tests_by_key = {}
+        self.candidate_test_order = []
+        self.checkbox_variables_by_key = {}
+        self.checkbox_widgets_by_key = {}
+        self.visited_selector_count = 0
+        self.elapsed_ms = 0
+        self.summary_message = ""
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)
+
+        self.summary_label = ttk.Label(
+            self,
+            text="",
+            justify="left",
+        )
+        self.summary_label.grid(
+            row=0,
+            column=0,
+            columnspan=2,
+            padx=10,
+            pady=(10, 6),
+            sticky="w",
+        )
+
+        self.progress_bar = ttk.Progressbar(
+            self,
+            mode="indeterminate",
+            length=360,
+        )
+        self.progress_bar.grid(
+            row=1,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            padx=10,
+            pady=(0, 6),
+        )
+
+        self.canvas = tk.Canvas(self, borderwidth=0, highlightthickness=0)
+        self.canvas.grid(row=2, column=0, sticky="nsew", padx=10)
+        self.scrollbar = ttk.Scrollbar(
+            self,
+            orient="vertical",
+            command=self.canvas.yview,
+        )
+        self.scrollbar.grid(row=2, column=1, sticky="ns", padx=(0, 10))
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.tests_frame = ttk.Frame(self.canvas)
+        self.canvas_window = self.canvas.create_window(
+            (0, 0),
+            window=self.tests_frame,
+            anchor="nw",
+        )
+        self.tests_frame.bind("<Configure>", self.update_scroll_region)
+        self.canvas.bind("<Configure>", self.update_canvas_window_width)
+
+        self.buttons = ttk.Frame(self)
+        self.buttons.grid(row=3, column=0, columnspan=2, sticky="e", pady=10)
+        self.select_all_button = ttk.Button(
+            self.buttons,
+            text="Select All",
+            command=self.select_all_tests,
+        )
+        self.select_all_button.grid(row=0, column=0, padx=(0, 4))
+        self.select_none_button = ttk.Button(
+            self.buttons,
+            text="Select None",
+            command=self.select_no_tests,
+        )
+        self.select_none_button.grid(row=0, column=1, padx=(0, 10))
+        self.run_selected_button = ttk.Button(
+            self.buttons,
+            text="Run Selected While Tracing",
+            command=self.run_selected_tests,
+        )
+        self.run_selected_button.grid(row=0, column=2, padx=(0, 4))
+        self.use_results_button = ttk.Button(
+            self.buttons,
+            text="Use Results So Far",
+            command=self.request_use_results,
+        )
+        self.use_results_button.grid(row=0, column=3, padx=(0, 4))
+        self.stop_search_button = ttk.Button(
+            self.buttons,
+            text="Stop Searching For Tests",
+            command=self.request_stop_search,
+        )
+        self.stop_search_button.grid(row=0, column=4, padx=(0, 4))
+        self.search_further_button = ttk.Button(
+            self.buttons,
+            text="Search Further",
+            command=self.request_search_further,
+        )
+        self.search_further_button.grid(row=0, column=5, padx=(0, 4))
+        self.cancel_button = ttk.Button(
+            self.buttons,
+            text="Cancel",
+            command=self.cancel_dialog,
+        )
+        self.cancel_button.grid(row=0, column=6)
+        self.protocol("WM_DELETE_WINDOW", self.cancel_dialog)
+        self.set_searching_state()
+
+    def candidate_test_key(self, candidate_test):
+        return (
+            candidate_test["test_case_class_name"],
+            candidate_test["test_method_selector"],
+        )
+
+    def summary_text(self):
+        candidate_count = len(self.candidate_test_order)
+        if self.is_searching:
+            return (
+                "Searching for candidate tests for %s... "
+                "Found: %s, explored selectors: %s."
+            ) % (
+                self.method_name,
+                candidate_count,
+                self.visited_selector_count,
+            )
+        if self.is_timed_out:
+            return (
+                "Search reached %ss timeout. Found: %s, explored selectors: %s. "
+                "Select tests to run now or choose Search Further."
+            ) % (
+                int(self.max_elapsed_ms / 1000),
+                candidate_count,
+                self.visited_selector_count,
+            )
+        return ("Candidate tests for %s: %s (explored selectors: %s).") % (
+            self.method_name,
+            candidate_count,
+            self.visited_selector_count,
+        )
+
+    def refresh_summary(self):
+        summary_text = self.summary_text()
+        if self.summary_message:
+            summary_text = "%s %s" % (summary_text, self.summary_message)
+        self.summary_label.configure(text=summary_text)
+
+    def format_test_label(self, candidate_test):
+        return "%s>>%s (depth %s via %s)" % (
+            candidate_test["test_case_class_name"],
+            candidate_test["test_method_selector"],
+            candidate_test.get("depth", "?"),
+            candidate_test.get("reached_from_selector", "?"),
+        )
+
+    def update_scroll_region(self, event=None):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def update_canvas_window_width(self, event):
+        self.canvas.itemconfigure(
+            self.canvas_window,
+            width=event.width,
+        )
+
+    def selection_controls_enabled(self):
+        has_tests = len(self.candidate_test_order) > 0
+        return has_tests and not self.is_searching
+
+    def update_button_states(self):
+        selection_controls_enabled = self.selection_controls_enabled()
+        select_button_state = tk.NORMAL if selection_controls_enabled else tk.DISABLED
+        run_button_state = tk.NORMAL if selection_controls_enabled else tk.DISABLED
+        self.select_all_button.configure(state=select_button_state)
+        self.select_none_button.configure(state=select_button_state)
+        self.run_selected_button.configure(state=run_button_state)
+        use_results_state = tk.NORMAL if self.is_searching else tk.DISABLED
+        stop_search_state = tk.NORMAL if self.is_searching else tk.DISABLED
+        self.use_results_button.configure(state=use_results_state)
+        self.stop_search_button.configure(state=stop_search_state)
+        search_further_state = tk.DISABLED
+        if self.is_timed_out and not self.is_searching:
+            search_further_state = tk.NORMAL
+        self.search_further_button.configure(state=search_further_state)
+        checkbox_state = tk.NORMAL if selection_controls_enabled else tk.DISABLED
+        for checkbox_widget in self.checkbox_widgets_by_key.values():
+            checkbox_widget.configure(state=checkbox_state)
+
+    def set_searching_state(self):
+        self.is_searching = True
+        self.is_timed_out = False
+        self.stop_search_requested = False
+        self.use_results_requested = False
+        self.search_further_requested = False
+        self.summary_message = ""
+        self.progress_bar.start(10)
+        self.update_button_states()
+        self.refresh_summary()
+
+    def set_stopping_for_use_results_state(self):
+        self.summary_message = "Stopping search to use the current results..."
+        self.refresh_summary()
+
+    def set_stopping_for_cancel_state(self):
+        self.summary_message = "Stopping search and cancelling..."
+        self.refresh_summary()
+
+    def set_ready_state(self, timed_out=False, summary_message=""):
+        self.is_searching = False
+        self.is_timed_out = timed_out
+        self.summary_message = summary_message
+        self.progress_bar.stop()
+        self.update_button_states()
+        self.refresh_summary()
+
+    def set_metrics_from_test_plan(self, test_plan):
+        self.visited_selector_count = test_plan.get(
+            "visited_selector_count",
+            self.visited_selector_count,
+        )
+        self.elapsed_ms = test_plan.get("elapsed_ms", self.elapsed_ms)
+        self.refresh_summary()
+
+    def add_or_update_candidate_test(self, candidate_test):
+        candidate_key = self.candidate_test_key(candidate_test)
+        has_candidate = candidate_key in self.candidate_tests_by_key
+        if has_candidate:
+            existing_candidate = self.candidate_tests_by_key[candidate_key]
+            candidate_depth = candidate_test.get("depth", 0)
+            existing_depth = existing_candidate.get("depth", 0)
+            if candidate_depth < existing_depth:
+                self.candidate_tests_by_key[candidate_key] = dict(candidate_test)
+                checkbutton = self.checkbox_widgets_by_key[candidate_key]
+                checkbutton.configure(text=self.format_test_label(candidate_test))
+        if not has_candidate:
+            self.candidate_tests_by_key[candidate_key] = dict(candidate_test)
+            self.candidate_test_order.append(candidate_key)
+            row_index = len(self.candidate_test_order) - 1
+            default_checked_count = 20
+            is_default_checked = row_index < default_checked_count
+            selected = tk.BooleanVar(value=is_default_checked)
+            self.checkbox_variables_by_key[candidate_key] = selected
+            checkbutton = ttk.Checkbutton(
+                self.tests_frame,
+                text=self.format_test_label(candidate_test),
+                variable=selected,
+            )
+            self.checkbox_widgets_by_key[candidate_key] = checkbutton
+            checkbutton.grid(
+                row=row_index,
+                column=0,
+                sticky="w",
+                padx=4,
+                pady=2,
+            )
+            self.update_scroll_region()
+        self.update_button_states()
+        self.refresh_summary()
+
+    def add_candidate_tests(self, candidate_tests):
+        for candidate_test in candidate_tests:
+            self.add_or_update_candidate_test(candidate_test)
+
+    def selected_candidate_tests(self):
+        selected_tests = []
+        for candidate_key in self.candidate_test_order:
+            selected_variable = self.checkbox_variables_by_key[candidate_key]
+            if selected_variable.get():
+                selected_tests.append(dict(self.candidate_tests_by_key[candidate_key]))
+        return selected_tests
+
+    def select_all_tests(self):
+        for selected in self.checkbox_variables_by_key.values():
+            selected.set(True)
+
+    def select_no_tests(self):
+        for selected in self.checkbox_variables_by_key.values():
+            selected.set(False)
+
+    def request_use_results(self):
+        if self.is_searching:
+            self.use_results_requested = True
+            self.set_stopping_for_use_results_state()
+
+    def request_stop_search(self):
+        if self.is_searching:
+            self.stop_search_requested = True
+            self.set_stopping_for_cancel_state()
+
+    def request_search_further(self):
+        if not self.is_searching and self.is_timed_out:
+            self.search_further_requested = True
+            self.summary_message = ""
+            self.refresh_summary()
+
+    def cancel_dialog(self):
+        if self.is_searching:
+            self.request_stop_search()
+        if not self.is_searching:
             self.destroy()
-        except IndexError:
-            pass
+
+    def run_selected_tests(self):
+        selected_tests = self.selected_candidate_tests()
+        if not selected_tests:
+            messagebox.showwarning(
+                "Trace Narrowing",
+                "Select at least one test.",
+                parent=self,
+            )
+            return
+        self.selected_tests = selected_tests
+        self.was_cancelled = False
+        self.destroy()
+
+
+class CoveringTestsBrowseDialog(tk.Toplevel):
+    def __init__(self, browser_window, method_name, max_elapsed_ms=120000):
+        super().__init__(browser_window)
+        self.title("Covering Tests")
+        self.geometry("760x520")
+        self.transient(browser_window)
+        self.wait_visibility()
+        self.grab_set()
+
+        self.browser_window = browser_window
+        self.method_name = method_name
+        self.max_elapsed_ms = max_elapsed_ms
+        self.candidate_tests_by_key = {}
+        self.candidate_test_keys_in_order = []
+        self.candidate_test_index_by_key = {}
+        self.visited_selector_count = 0
+        self.summary_message = ""
+        self.discovery_workflow = CoveringTestsDiscoveryWorkflow(
+            browser_window.gemstone_session_record,
+            method_name,
+            max_elapsed_ms,
+        )
+        self.is_searching = False
+        self.is_timed_out = False
+        self.stop_search_requested = False
+        self.use_results_requested = False
+        self.search_further_requested = False
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)
+
+        self.summary_label = ttk.Label(
+            self,
+            text="",
+            justify="left",
+        )
+        self.summary_label.grid(
+            row=0,
+            column=0,
+            columnspan=2,
+            padx=10,
+            pady=(10, 6),
+            sticky="w",
+        )
+
+        self.progress_bar = ttk.Progressbar(
+            self,
+            mode="indeterminate",
+            length=360,
+        )
+        self.progress_bar.grid(
+            row=1,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            padx=10,
+            pady=(0, 6),
+        )
+
+        self.results_listbox = tk.Listbox(self)
+        self.results_listbox.bind("<Double-Button-1>", self.on_result_double_click)
+        self.results_listbox.grid(
+            row=2,
+            column=0,
+            sticky="nsew",
+            padx=(10, 0),
+            pady=(0, 8),
+        )
+        self.scrollbar = ttk.Scrollbar(
+            self,
+            orient="vertical",
+            command=self.results_listbox.yview,
+        )
+        self.scrollbar.grid(
+            row=2,
+            column=1,
+            sticky="ns",
+            padx=(0, 10),
+            pady=(0, 8),
+        )
+        self.results_listbox.configure(yscrollcommand=self.scrollbar.set)
+
+        self.buttons = ttk.Frame(self)
+        self.buttons.grid(row=3, column=0, columnspan=2, sticky="e", pady=(0, 10))
+        self.use_results_button = ttk.Button(
+            self.buttons,
+            text="Use Results So Far",
+            command=self.request_use_results,
+        )
+        self.use_results_button.grid(row=0, column=0, padx=(0, 4))
+        self.stop_search_button = ttk.Button(
+            self.buttons,
+            text="Stop Searching For Tests",
+            command=self.request_stop_search,
+        )
+        self.stop_search_button.grid(row=0, column=1, padx=(0, 4))
+        self.search_further_button = ttk.Button(
+            self.buttons,
+            text="Search Further",
+            command=self.request_search_further,
+        )
+        self.search_further_button.grid(row=0, column=2, padx=(0, 4))
+        self.close_button = ttk.Button(
+            self.buttons,
+            text="Close",
+            command=self.close_dialog,
+        )
+        self.close_button.grid(row=0, column=3)
+        self.protocol("WM_DELETE_WINDOW", self.close_dialog)
+
+        self.run_search_attempt()
+        self.after(50, self.monitor_search)
+
+    def candidate_test_key(self, candidate_test):
+        return (
+            candidate_test["test_case_class_name"],
+            candidate_test["test_method_selector"],
+        )
+
+    def format_test_label(self, candidate_test):
+        return "%s>>%s (depth %s via %s)" % (
+            candidate_test["test_case_class_name"],
+            candidate_test["test_method_selector"],
+            candidate_test.get("depth", "?"),
+            candidate_test.get("reached_from_selector", "?"),
+        )
+
+    def summary_text(self):
+        candidate_count = len(self.candidate_test_keys_in_order)
+        if self.is_searching:
+            return (
+                "Searching for covering tests for %s... "
+                "Found: %s, explored selectors: %s."
+            ) % (
+                self.method_name,
+                candidate_count,
+                self.visited_selector_count,
+            )
+        if self.is_timed_out:
+            return (
+                "Search reached %ss timeout. Found: %s, explored selectors: %s."
+            ) % (
+                int(self.max_elapsed_ms / 1000),
+                candidate_count,
+                self.visited_selector_count,
+            )
+        return ("Covering tests for %s: %s (explored selectors: %s).") % (
+            self.method_name,
+            candidate_count,
+            self.visited_selector_count,
+        )
+
+    def refresh_summary(self):
+        summary_text = self.summary_text()
+        if self.summary_message:
+            summary_text = "%s %s" % (summary_text, self.summary_message)
+        self.summary_label.configure(text=summary_text)
+
+    def update_button_states(self):
+        use_results_state = tk.NORMAL if self.is_searching else tk.DISABLED
+        stop_search_state = tk.NORMAL if self.is_searching else tk.DISABLED
+        search_further_state = (
+            tk.NORMAL if self.is_timed_out and not self.is_searching else tk.DISABLED
+        )
+        self.use_results_button.configure(state=use_results_state)
+        self.stop_search_button.configure(state=stop_search_state)
+        self.search_further_button.configure(state=search_further_state)
+        self.results_listbox.configure(state=tk.NORMAL)
+
+    def add_or_update_candidate_test(self, candidate_test):
+        candidate_key = self.candidate_test_key(candidate_test)
+        has_candidate = candidate_key in self.candidate_tests_by_key
+        if has_candidate:
+            existing_candidate = self.candidate_tests_by_key[candidate_key]
+            candidate_depth = candidate_test.get("depth", 0)
+            existing_depth = existing_candidate.get("depth", 0)
+            if candidate_depth < existing_depth:
+                self.candidate_tests_by_key[candidate_key] = dict(candidate_test)
+                candidate_index = self.candidate_test_index_by_key[candidate_key]
+                self.results_listbox.delete(candidate_index)
+                self.results_listbox.insert(
+                    candidate_index,
+                    self.format_test_label(candidate_test),
+                )
+        if not has_candidate:
+            candidate_index = len(self.candidate_test_keys_in_order)
+            self.candidate_tests_by_key[candidate_key] = dict(candidate_test)
+            self.candidate_test_keys_in_order.append(candidate_key)
+            self.candidate_test_index_by_key[candidate_key] = candidate_index
+            self.results_listbox.insert(
+                tk.END,
+                self.format_test_label(candidate_test),
+            )
+        self.refresh_summary()
+
+    def run_search_attempt(self):
+        self.is_searching = True
+        self.is_timed_out = False
+        self.stop_search_requested = False
+        self.use_results_requested = False
+        self.search_further_requested = False
+        self.summary_message = ""
+        self.progress_bar.start(10)
+        self.update_button_states()
+        self.refresh_summary()
+        self.discovery_workflow.run_search_attempt()
+
+    def set_ready_state(self, timed_out=False, summary_message=""):
+        self.is_searching = False
+        self.is_timed_out = timed_out
+        self.summary_message = summary_message
+        self.progress_bar.stop()
+        self.update_button_states()
+        self.refresh_summary()
+
+    def add_candidate_tests(self, candidate_tests):
+        for candidate_test in candidate_tests:
+            self.add_or_update_candidate_test(candidate_test)
+
+    def monitor_search(self):
+        if not self.winfo_exists():
+            return
+        if self.stop_search_requested and self.discovery_workflow.searching():
+            self.summary_message = "Stopping search and closing..."
+            self.refresh_summary()
+        if self.use_results_requested and self.discovery_workflow.searching():
+            self.summary_message = "Stopping search to use the current results..."
+            self.refresh_summary()
+
+        search_outcome = self.discovery_workflow.advance(
+            self.stop_search_requested,
+            self.use_results_requested,
+            self.add_or_update_candidate_test,
+        )
+
+        if search_outcome["phase"] == "searching":
+            self.after(50, self.monitor_search)
+            return
+        if search_outcome["phase"] == "cancelled":
+            self.destroy()
+            return
+        if search_outcome["phase"] == "error":
+            messagebox.showerror(
+                "Covering Tests",
+                str(search_outcome["error"]),
+                parent=self,
+            )
+            self.set_ready_state(
+                timed_out=False,
+                summary_message="Search failed.",
+            )
+        if search_outcome["phase"] == "empty":
+            self.set_ready_state(
+                timed_out=False,
+                summary_message="Search finished without results.",
+            )
+        if search_outcome["phase"] == "ready":
+            accumulated_plan = search_outcome["plan"]
+            self.visited_selector_count = max(
+                self.visited_selector_count,
+                accumulated_plan.get("visited_selector_count", 0),
+            )
+            self.add_candidate_tests(accumulated_plan.get("candidate_tests", []))
+            summary_message = ""
+            if search_outcome["used_results"]:
+                summary_message = "Using the results found so far."
+            if search_outcome["timed_out"]:
+                summary_message = (
+                    "Search timed out. You can continue with Search Further."
+                )
+            self.set_ready_state(
+                timed_out=search_outcome["timed_out"],
+                summary_message=summary_message,
+            )
+
+        if self.winfo_exists():
+            if self.search_further_requested:
+                self.search_further_requested = False
+                self.run_search_attempt()
+            self.after(50, self.monitor_search)
+
+    def request_use_results(self):
+        if self.is_searching:
+            self.use_results_requested = True
+
+    def request_stop_search(self):
+        if self.is_searching:
+            self.stop_search_requested = True
+        if not self.is_searching:
+            self.destroy()
+
+    def request_search_further(self):
+        if not self.is_searching and self.is_timed_out:
+            self.search_further_requested = True
+            self.summary_message = ""
+            self.refresh_summary()
+
+    def close_dialog(self):
+        if self.is_searching:
+            self.stop_search_requested = True
+        if not self.is_searching:
+            self.destroy()
+
+    def on_result_double_click(self, event):
+        if self.is_searching:
+            return
+        selection = self.results_listbox.curselection()
+        if not selection:
+            return
+        selected_index = selection[0]
+        candidate_key = self.candidate_test_keys_in_order[selected_index]
+        candidate_test = self.candidate_tests_by_key[candidate_key]
+        self.browser_window.application.handle_sender_selection(
+            candidate_test["test_case_class_name"],
+            True,
+            candidate_test["test_method_selector"],
+        )
 
 
 class BreakpointsDialog(tk.Toplevel):
@@ -3208,8 +3717,8 @@ class BreakpointsDialog(tk.Toplevel):
         self.parent = parent
         self.gemstone_session_record = parent.gemstone_session_record
         self.breakpoint_entries_by_id = {}
-        self.title('Breakpoints')
-        self.geometry('760x320')
+        self.title("Breakpoints")
+        self.geometry("760x320")
         self.transient(parent)
         if parent.winfo_viewable():
             self.wait_visibility()
@@ -3217,33 +3726,33 @@ class BreakpointsDialog(tk.Toplevel):
 
         self.breakpoint_list = ttk.Treeview(
             self,
-            columns=('Class', 'Side', 'Selector', 'Offset', 'Step Point'),
-            show='headings',
+            columns=("Class", "Side", "Selector", "Offset", "Step Point"),
+            show="headings",
             height=10,
         )
-        self.breakpoint_list.heading('Class', text='Class')
-        self.breakpoint_list.heading('Side', text='Side')
-        self.breakpoint_list.heading('Selector', text='Method')
-        self.breakpoint_list.heading('Offset', text='Offset')
-        self.breakpoint_list.heading('Step Point', text='Step Point')
-        self.breakpoint_list.column('Class', width=180, anchor='w')
-        self.breakpoint_list.column('Side', width=80, anchor='center')
-        self.breakpoint_list.column('Selector', width=220, anchor='w')
-        self.breakpoint_list.column('Offset', width=100, anchor='e')
-        self.breakpoint_list.column('Step Point', width=100, anchor='e')
-        self.breakpoint_list.bind('<Double-1>', self.on_breakpoint_double_click)
+        self.breakpoint_list.heading("Class", text="Class")
+        self.breakpoint_list.heading("Side", text="Side")
+        self.breakpoint_list.heading("Selector", text="Method")
+        self.breakpoint_list.heading("Offset", text="Offset")
+        self.breakpoint_list.heading("Step Point", text="Step Point")
+        self.breakpoint_list.column("Class", width=180, anchor="w")
+        self.breakpoint_list.column("Side", width=80, anchor="center")
+        self.breakpoint_list.column("Selector", width=220, anchor="w")
+        self.breakpoint_list.column("Offset", width=100, anchor="e")
+        self.breakpoint_list.column("Step Point", width=100, anchor="e")
+        self.breakpoint_list.bind("<Double-1>", self.on_breakpoint_double_click)
         self.breakpoint_list.grid(
             row=0,
             column=0,
             columnspan=3,
-            sticky='nsew',
+            sticky="nsew",
             padx=10,
             pady=(10, 6),
         )
 
         self.clear_selected_button = ttk.Button(
             self,
-            text='Clear Selected',
+            text="Clear Selected",
             command=self.clear_selected_breakpoint,
         )
         self.clear_selected_button.grid(
@@ -3251,11 +3760,11 @@ class BreakpointsDialog(tk.Toplevel):
             column=0,
             padx=(10, 5),
             pady=(0, 10),
-            sticky='w',
+            sticky="w",
         )
         self.clear_all_button = ttk.Button(
             self,
-            text='Clear All',
+            text="Clear All",
             command=self.clear_all_breakpoints,
         )
         self.clear_all_button.grid(
@@ -3263,11 +3772,11 @@ class BreakpointsDialog(tk.Toplevel):
             column=1,
             padx=5,
             pady=(0, 10),
-            sticky='w',
+            sticky="w",
         )
         self.close_button = ttk.Button(
             self,
-            text='Close',
+            text="Close",
             command=self.destroy,
         )
         self.close_button.grid(
@@ -3275,7 +3784,7 @@ class BreakpointsDialog(tk.Toplevel):
             column=2,
             padx=(5, 10),
             pady=(0, 10),
-            sticky='e',
+            sticky="e",
         )
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=0)
@@ -3290,20 +3799,22 @@ class BreakpointsDialog(tk.Toplevel):
             self.breakpoint_list.delete(row_id)
         breakpoint_entries = self.gemstone_session_record.list_breakpoints()
         for breakpoint_entry in breakpoint_entries:
-            side_label = 'instance'
-            if not breakpoint_entry['show_instance_side']:
-                side_label = 'class'
-            self.breakpoint_entries_by_id[breakpoint_entry['breakpoint_id']] = breakpoint_entry
+            side_label = "instance"
+            if not breakpoint_entry["show_instance_side"]:
+                side_label = "class"
+            self.breakpoint_entries_by_id[breakpoint_entry["breakpoint_id"]] = (
+                breakpoint_entry
+            )
             self.breakpoint_list.insert(
-                '',
-                'end',
-                iid=breakpoint_entry['breakpoint_id'],
+                "",
+                "end",
+                iid=breakpoint_entry["breakpoint_id"],
                 values=(
-                    breakpoint_entry['class_name'],
+                    breakpoint_entry["class_name"],
                     side_label,
-                    breakpoint_entry['method_selector'],
-                    breakpoint_entry['source_offset'],
-                    breakpoint_entry['step_point'],
+                    breakpoint_entry["method_selector"],
+                    breakpoint_entry["source_offset"],
+                    breakpoint_entry["step_point"],
                 ),
             )
 
@@ -3316,17 +3827,17 @@ class BreakpointsDialog(tk.Toplevel):
             return
         try:
             self.parent.handle_sender_selection(
-                breakpoint_entry['class_name'],
-                breakpoint_entry['show_instance_side'],
-                breakpoint_entry['method_selector'],
+                breakpoint_entry["class_name"],
+                breakpoint_entry["show_instance_side"],
+                breakpoint_entry["method_selector"],
             )
             if self.parent.browser_tab:
                 self.parent.notebook.select(self.parent.browser_tab)
             self.destroy()
         except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Breakpoints', str(domain_exception))
+            messagebox.showerror("Breakpoints", str(domain_exception))
         except GemstoneError as error:
-            messagebox.showerror('Breakpoints', str(error))
+            messagebox.showerror("Breakpoints", str(error))
 
     def selected_breakpoint_id(self):
         selection = self.breakpoint_list.selection()
@@ -3341,27 +3852,27 @@ class BreakpointsDialog(tk.Toplevel):
         try:
             self.gemstone_session_record.clear_breakpoint(breakpoint_id)
             self.refresh_breakpoints()
-            self.parent.event_queue.publish('MethodsChanged')
+            self.parent.event_queue.publish("MethodsChanged")
         except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Breakpoints', str(domain_exception))
+            messagebox.showerror("Breakpoints", str(domain_exception))
         except GemstoneError as error:
-            messagebox.showerror('Breakpoints', str(error))
+            messagebox.showerror("Breakpoints", str(error))
 
     def clear_all_breakpoints(self):
         try:
             self.gemstone_session_record.clear_all_breakpoints()
             self.refresh_breakpoints()
-            self.parent.event_queue.publish('MethodsChanged')
+            self.parent.event_queue.publish("MethodsChanged")
         except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Breakpoints', str(domain_exception))
+            messagebox.showerror("Breakpoints", str(domain_exception))
         except GemstoneError as error:
-            messagebox.showerror('Breakpoints', str(error))
+            messagebox.showerror("Breakpoints", str(error))
 
 
 class Swordfish(tk.Tk):
     def __init__(
         self,
-        default_stone_name='gs64stone',
+        default_stone_name="gs64stone",
         start_embedded_mcp=False,
         mcp_runtime_config=None,
     ):
@@ -3372,8 +3883,8 @@ class Swordfish(tk.Tk):
             ide_gui=self,
             ide_navigation_action=self.perform_mcp_ide_navigation_action,
         )
-        self.title('Swordfish')
-        self.geometry('800x600')
+        self.title("Swordfish")
+        self.geometry("800x600")
         self.default_stone_name = default_stone_name
 
         self.notebook = None
@@ -3384,10 +3895,10 @@ class Swordfish(tk.Tk):
         self.graph_tab = None
         self.collaboration_status_frame = None
         self.collaboration_status_label = None
-        self.collaboration_status_text = tk.StringVar(value='')
+        self.collaboration_status_text = tk.StringVar(value="")
         self.mcp_activity_indicator = None
         self.mcp_activity_indicator_visible = False
-        self.foreground_activity_message = ''
+        self.foreground_activity_message = ""
 
         self.gemstone_session_record = None
         self.last_mcp_busy_state = None
@@ -3406,22 +3917,22 @@ class Swordfish(tk.Tk):
             self.mcp_runtime_config,
         )
 
-        self.event_queue.subscribe('LoggedInSuccessfully', self.show_main_app)
-        self.event_queue.subscribe('LoggedOut', self.show_login_screen)
+        self.event_queue.subscribe("LoggedInSuccessfully", self.show_main_app)
+        self.event_queue.subscribe("LoggedOut", self.show_login_screen)
         self.event_queue.subscribe(
-            'McpBusyStateChanged',
+            "McpBusyStateChanged",
             self.handle_mcp_busy_state_changed,
         )
         self.event_queue.subscribe(
-            'McpServerStateChanged',
+            "McpServerStateChanged",
             self.handle_mcp_server_state_changed,
         )
         self.event_queue.subscribe(
-            'ModelRefreshRequested',
+            "ModelRefreshRequested",
             self.handle_model_refresh_requested,
         )
         self.event_queue.subscribe(
-            'McpIdeNavigationRequested',
+            "McpIdeNavigationRequested",
             self.handle_mcp_ide_navigation_requested,
         )
         self.integrated_session_state.subscribe_mcp_busy_state(
@@ -3450,7 +3961,7 @@ class Swordfish(tk.Tk):
     @property
     def is_logged_in(self):
         return self.gemstone_session_record is not None
-    
+
     def create_menu(self):
         self.menu_bar = MainMenu(self, self.event_queue)
         self.config(menu=self.menu_bar)
@@ -3462,8 +3973,8 @@ class Swordfish(tk.Tk):
         started = self.embedded_mcp_server_controller.start()
         if not started and report_errors:
             messagebox.showinfo(
-                'MCP',
-                'MCP is already running or starting.',
+                "MCP",
+                "MCP is already running or starting.",
             )
         return started
 
@@ -3471,13 +3982,13 @@ class Swordfish(tk.Tk):
         stopped = self.embedded_mcp_server_controller.stop()
         if not stopped:
             messagebox.showinfo(
-                'MCP',
-                'MCP is already stopped.',
+                "MCP",
+                "MCP is already stopped.",
             )
         return stopped
 
     def start_mcp_server_from_menu(self):
-        self.begin_foreground_activity('Starting MCP server...')
+        self.begin_foreground_activity("Starting MCP server...")
         try:
             self.start_mcp_server(report_errors=True)
             self.menu_bar.update_menus()
@@ -3487,11 +3998,11 @@ class Swordfish(tk.Tk):
     def stop_mcp_server_from_menu(self):
         if self.integrated_session_state.is_mcp_busy():
             messagebox.showwarning(
-                'MCP Busy',
-                'Stop MCP after the current MCP operation finishes.',
+                "MCP Busy",
+                "Stop MCP after the current MCP operation finishes.",
             )
             return
-        self.begin_foreground_activity('Stopping MCP server...')
+        self.begin_foreground_activity("Stopping MCP server...")
         try:
             self.stop_mcp_server()
             self.menu_bar.update_menus()
@@ -3504,7 +4015,7 @@ class Swordfish(tk.Tk):
         if dialog.result is None:
             return
         self.mcp_runtime_config = dialog.result.copy()
-        mcp_was_running = self.embedded_mcp_server_controller.status()['running']
+        mcp_was_running = self.embedded_mcp_server_controller.status()["running"]
         self.embedded_mcp_server_controller.update_runtime_config(
             self.mcp_runtime_config
         )
@@ -3516,27 +4027,27 @@ class Swordfish(tk.Tk):
     def commit(self):
         self.gemstone_session_record.commit()
         self.integrated_session_state.mark_ide_transaction_inactive()
-        self.event_queue.publish('Committed')
-        self.publish_model_change_events('transaction')
-        
+        self.event_queue.publish("Committed")
+        self.publish_model_change_events("transaction")
+
     def abort(self):
         self.gemstone_session_record.abort()
         self.integrated_session_state.mark_ide_transaction_inactive()
-        self.event_queue.publish('Aborted')
-        self.publish_model_change_events('transaction')
-        
+        self.event_queue.publish("Aborted")
+        self.publish_model_change_events("transaction")
+
     def logout(self):
         if self.integrated_session_state.is_mcp_busy():
             messagebox.showwarning(
-                'MCP Busy',
-                'Logout is disabled while MCP is running an operation.',
+                "MCP Busy",
+                "Logout is disabled while MCP is running an operation.",
             )
             return
         self.gemstone_session_record.log_out()
         self.gemstone_session_record = None
         self.integrated_session_state.detach_ide_session()
-        self.event_queue.publish('LoggedOut')
-            
+        self.event_queue.publish("LoggedOut")
+
     def clear_widgets(self):
         for widget in self.winfo_children():
             if widget != self.menu_bar:
@@ -3553,8 +4064,8 @@ class Swordfish(tk.Tk):
 
     def show_login_screen(self):
         self.clear_widgets()
-        self.collaboration_status_text.set('')
-        self.foreground_activity_message = ''
+        self.collaboration_status_text.set("")
+        self.foreground_activity_message = ""
         self.last_mcp_server_stopping_state = None
         self.rowconfigure(0, weight=1)
         self.rowconfigure(1, weight=0)
@@ -3564,7 +4075,7 @@ class Swordfish(tk.Tk):
             self,
             default_stone_name=self.default_stone_name,
         )
-        self.login_frame.grid(row=0, column=0, sticky='nsew')
+        self.login_frame.grid(row=0, column=0, sticky="nsew")
 
     def show_main_app(self, gemstone_session_record):
         self.gemstone_session_record = gemstone_session_record
@@ -3577,7 +4088,7 @@ class Swordfish(tk.Tk):
         self.integrated_session_state.attach_ide_session(
             self.gemstone_session_record.gemstone_session
         )
-        
+
         self.clear_widgets()
 
         self.create_notebook()
@@ -3585,27 +4096,27 @@ class Swordfish(tk.Tk):
         self.create_collaboration_status_bar()
 
     def publish_model_change_events(self, change_kind):
-        if change_kind == 'packages':
-            self.event_queue.publish('PackagesChanged')
-            self.event_queue.publish('ClassesChanged')
+        if change_kind == "packages":
+            self.event_queue.publish("PackagesChanged")
+            self.event_queue.publish("ClassesChanged")
             return
-        if change_kind == 'classes':
-            self.event_queue.publish('ClassesChanged')
-            self.event_queue.publish('SelectedClassChanged')
+        if change_kind == "classes":
+            self.event_queue.publish("ClassesChanged")
+            self.event_queue.publish("SelectedClassChanged")
             return
-        if change_kind == 'methods':
-            self.event_queue.publish('MethodsChanged')
-            self.event_queue.publish('SelectedCategoryChanged')
-            self.event_queue.publish('MethodSelected')
+        if change_kind == "methods":
+            self.event_queue.publish("MethodsChanged")
+            self.event_queue.publish("SelectedCategoryChanged")
+            self.event_queue.publish("MethodSelected")
             return
-        if change_kind == 'transaction':
-            self.event_queue.publish('PackagesChanged')
-            self.event_queue.publish('ClassesChanged')
-            self.event_queue.publish('MethodsChanged')
+        if change_kind == "transaction":
+            self.event_queue.publish("PackagesChanged")
+            self.event_queue.publish("ClassesChanged")
+            self.event_queue.publish("MethodsChanged")
 
     def create_notebook(self):
         self.notebook = ttk.Notebook(self)
-        self.notebook.grid(row=0, column=0, sticky='nsew')
+        self.notebook.grid(row=0, column=0, sticky="nsew")
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
@@ -3614,7 +4125,7 @@ class Swordfish(tk.Tk):
         self.collaboration_status_frame.grid(
             row=1,
             column=0,
-            sticky='ew',
+            sticky="ew",
             padx=6,
             pady=(2, 4),
         )
@@ -3622,22 +4133,22 @@ class Swordfish(tk.Tk):
         self.collaboration_status_label = ttk.Label(
             self.collaboration_status_frame,
             textvariable=self.collaboration_status_text,
-            anchor='w',
+            anchor="w",
         )
         self.collaboration_status_label.grid(
             row=0,
             column=0,
-            sticky='ew',
+            sticky="ew",
         )
         self.mcp_activity_indicator = ttk.Progressbar(
             self.collaboration_status_frame,
-            mode='indeterminate',
+            mode="indeterminate",
             length=110,
         )
         self.mcp_activity_indicator.grid(
             row=0,
             column=1,
-            sticky='e',
+            sticky="e",
             padx=(8, 0),
         )
         self.set_mcp_activity_indicator_visibility(False)
@@ -3647,7 +4158,7 @@ class Swordfish(tk.Tk):
         if self.mcp_activity_indicator is None:
             self.mcp_activity_indicator_visible = False
             return
-        indicator_is_managed = self.mcp_activity_indicator.winfo_manager() == 'grid'
+        indicator_is_managed = self.mcp_activity_indicator.winfo_manager() == "grid"
         if visible:
             if not indicator_is_managed:
                 self.mcp_activity_indicator.grid()
@@ -3655,7 +4166,7 @@ class Swordfish(tk.Tk):
             self.mcp_activity_indicator.start(10)
             if not self.mcp_activity_indicator_visible:
                 self.event_queue.publish(
-                    'UiActivityIndicatorChanged',
+                    "UiActivityIndicatorChanged",
                     is_visible=True,
                 )
             self.mcp_activity_indicator_visible = True
@@ -3667,7 +4178,7 @@ class Swordfish(tk.Tk):
         if self.mcp_activity_indicator_visible:
             self.mcp_activity_indicator_visible = False
             self.event_queue.publish(
-                'UiActivityIndicatorChanged',
+                "UiActivityIndicatorChanged",
                 is_visible=False,
             )
             return
@@ -3676,34 +4187,34 @@ class Swordfish(tk.Tk):
     def begin_foreground_activity(self, message):
         self.foreground_activity_message = message
         self.event_queue.publish(
-            'UiActivityChanged',
+            "UiActivityChanged",
             is_active=True,
             message=message,
         )
         self.collaboration_status_text.set(message)
         self.set_mcp_activity_indicator_visibility(True)
         try:
-            self.config(cursor='watch')
+            self.config(cursor="watch")
         except tk.TclError:
             pass
         self.update_idletasks()
 
     def end_foreground_activity(self):
-        self.foreground_activity_message = ''
+        self.foreground_activity_message = ""
         self.event_queue.publish(
-            'UiActivityChanged',
+            "UiActivityChanged",
             is_active=False,
-            message='',
+            message="",
         )
         try:
-            self.config(cursor='')
+            self.config(cursor="")
         except tk.TclError:
             pass
         self.refresh_collaboration_status()
 
-    def publish_mcp_busy_state_event(self, is_busy=False, operation_name=''):
+    def publish_mcp_busy_state_event(self, is_busy=False, operation_name=""):
         self.event_queue.publish(
-            'McpBusyStateChanged',
+            "McpBusyStateChanged",
             is_busy=is_busy,
             operation_name=operation_name,
         )
@@ -3713,11 +4224,11 @@ class Swordfish(tk.Tk):
         running=False,
         starting=False,
         stopping=False,
-        endpoint_url='',
-        last_error_message='',
+        endpoint_url="",
+        last_error_message="",
     ):
         self.event_queue.publish(
-            'McpServerStateChanged',
+            "McpServerStateChanged",
             running=running,
             starting=starting,
             stopping=stopping,
@@ -3725,9 +4236,9 @@ class Swordfish(tk.Tk):
             last_error_message=last_error_message,
         )
 
-    def publish_model_refresh_requested_event(self, change_kind=''):
+    def publish_model_refresh_requested_event(self, change_kind=""):
         self.event_queue.publish(
-            'ModelRefreshRequested',
+            "ModelRefreshRequested",
             change_kind=change_kind,
         )
 
@@ -3751,9 +4262,9 @@ class Swordfish(tk.Tk):
             return
         mcp_busy = self.integrated_session_state.is_mcp_busy()
         mcp_server_status = self.embedded_mcp_server_controller.status()
-        mcp_server_running = mcp_server_status['running']
-        mcp_server_starting = mcp_server_status['starting']
-        mcp_server_stopping = mcp_server_status['stopping']
+        mcp_server_running = mcp_server_status["running"]
+        mcp_server_starting = mcp_server_status["starting"]
+        mcp_server_stopping = mcp_server_status["stopping"]
         self.apply_collaboration_read_only_state(mcp_busy)
         self.set_mcp_activity_indicator_visibility(
             bool(self.foreground_activity_message)
@@ -3765,30 +4276,26 @@ class Swordfish(tk.Tk):
             self.collaboration_status_text.set(self.foreground_activity_message)
         elif mcp_busy:
             operation_name = (
-                self.integrated_session_state.current_mcp_operation_name()
-                or 'unknown'
+                self.integrated_session_state.current_mcp_operation_name() or "unknown"
             )
             self.collaboration_status_text.set(
-                'MCP busy: %s. IDE write/run/debug actions are read-only.'
+                "MCP busy: %s. IDE write/run/debug actions are read-only."
                 % operation_name
             )
         elif mcp_server_stopping:
-            self.collaboration_status_text.set('Stopping MCP server...')
+            self.collaboration_status_text.set("Stopping MCP server...")
         elif mcp_server_starting:
-            self.collaboration_status_text.set('Starting MCP server...')
+            self.collaboration_status_text.set("Starting MCP server...")
         elif mcp_server_running:
             self.collaboration_status_text.set(
-                'IDE ready. MCP running at %s.'
-                % mcp_server_status['endpoint_url']
+                "IDE ready. MCP running at %s." % mcp_server_status["endpoint_url"]
             )
         elif self.is_logged_in:
-            self.collaboration_status_text.set(
-                'IDE ready. Embedded MCP is stopped.'
-            )
+            self.collaboration_status_text.set("IDE ready. Embedded MCP is stopped.")
         else:
-            self.collaboration_status_text.set('')
+            self.collaboration_status_text.set("")
 
-    def handle_mcp_busy_state_changed(self, is_busy=False, operation_name=''):
+    def handle_mcp_busy_state_changed(self, is_busy=False, operation_name=""):
         self.last_mcp_busy_state = is_busy
         self.refresh_collaboration_status()
 
@@ -3797,8 +4304,8 @@ class Swordfish(tk.Tk):
         running=False,
         starting=False,
         stopping=False,
-        endpoint_url='',
-        last_error_message='',
+        endpoint_url="",
+        last_error_message="",
     ):
         self.last_mcp_server_running_state = running
         self.last_mcp_server_starting_state = starting
@@ -3809,27 +4316,27 @@ class Swordfish(tk.Tk):
         ):
             self.last_mcp_server_error_message = last_error_message
             messagebox.showerror(
-                'MCP Startup Failed',
+                "MCP Startup Failed",
                 last_error_message,
             )
         if not last_error_message:
             self.last_mcp_server_error_message = None
         self.refresh_collaboration_status()
 
-    def handle_model_refresh_requested(self, change_kind=''):
+    def handle_model_refresh_requested(self, change_kind=""):
         self.process_pending_model_refresh_requests()
         self.refresh_collaboration_status()
 
     def validated_oop_label_for_navigation(self, oop_value):
-        oop_label = ''
+        oop_label = ""
         if isinstance(oop_value, int):
             oop_label = str(oop_value)
         if isinstance(oop_value, str):
             oop_label = oop_value.strip()
         if not oop_label.isdigit():
-            raise DomainException('oop labels must contain digits only.')
+            raise DomainException("oop labels must contain digits only.")
         if int(oop_label) <= 0:
-            raise DomainException('oop labels must be positive integers.')
+            raise DomainException("oop labels must be positive integers.")
         return oop_label
 
     def gemstone_object_is_nil(self, gemstone_object):
@@ -3843,21 +4350,23 @@ class Swordfish(tk.Tk):
 
     def gemstone_object_for_oop_label(self, oop_label):
         if not self.is_logged_in:
-            raise DomainException('No active GemStone session in the IDE.')
+            raise DomainException("No active GemStone session in the IDE.")
         normalized_oop_label = self.validated_oop_label_for_navigation(oop_label)
         source_candidates = [
-            f'Object _objectForOop: {normalized_oop_label}',
-            f'System objectForOop: {normalized_oop_label}',
+            f"Object _objectForOop: {normalized_oop_label}",
+            f"System objectForOop: {normalized_oop_label}",
         ]
         resolved_object = None
         resolved = False
         last_error = None
         for source_code in source_candidates:
             try:
-                candidate_object = self.gemstone_session_record.resolve_object(source_code)
+                candidate_object = self.gemstone_session_record.resolve_object(
+                    source_code
+                )
                 if self.gemstone_object_is_nil(candidate_object):
                     last_error = DomainException(
-                        f'Oop {normalized_oop_label} resolved to nil.'
+                        f"Oop {normalized_oop_label} resolved to nil."
                     )
                 if not self.gemstone_object_is_nil(candidate_object):
                     resolved_object = candidate_object
@@ -3868,17 +4377,17 @@ class Swordfish(tk.Tk):
                 return resolved_object
         if last_error is None:
             last_error = DomainException(
-                f'Unable to resolve oop {normalized_oop_label}.'
+                f"Unable to resolve oop {normalized_oop_label}."
             )
         raise last_error
 
     def open_graph_for_oop_labels(self, oop_labels, clear_existing=False):
         if not self.is_logged_in:
             return {
-                'ok': False,
-                'error': {'message': 'No active GemStone session in the IDE.'},
-                'opened_oops': [],
-                'unresolved_oops': [],
+                "ok": False,
+                "error": {"message": "No active GemStone session in the IDE."},
+                "opened_oops": [],
+                "unresolved_oops": [],
             }
         if clear_existing:
             tab_exists = self.graph_tab is not None and self.graph_tab.winfo_exists()
@@ -3887,16 +4396,14 @@ class Swordfish(tk.Tk):
         opened_oops = []
         unresolved_oops = []
         for oop_label in oop_labels:
-            normalized_oop_label = ''
+            normalized_oop_label = ""
             opened_object = None
-            failure_message = ''
+            failure_message = ""
             try:
                 normalized_oop_label = self.validated_oop_label_for_navigation(
                     oop_label
                 )
-                opened_object = self.gemstone_object_for_oop_label(
-                    normalized_oop_label
-                )
+                opened_object = self.gemstone_object_for_oop_label(normalized_oop_label)
             except (DomainException, GemstoneDomainException, GemstoneError) as error:
                 failure_message = str(error)
             if opened_object is not None:
@@ -3908,47 +4415,46 @@ class Swordfish(tk.Tk):
                     unresolved_label = normalized_oop_label
                 unresolved_oops.append(
                     {
-                        'oop': unresolved_label,
-                        'message': failure_message or 'Unable to resolve oop.',
+                        "oop": unresolved_label,
+                        "message": failure_message or "Unable to resolve oop.",
                     }
                 )
         return {
-            'ok': len(opened_oops) > 0,
-            'opened_oops': opened_oops,
-            'unresolved_oops': unresolved_oops,
-            'graph_tab_open': self.graph_tab is not None and self.graph_tab.winfo_exists(),
+            "ok": len(opened_oops) > 0,
+            "opened_oops": opened_oops,
+            "unresolved_oops": unresolved_oops,
+            "graph_tab_open": self.graph_tab is not None
+            and self.graph_tab.winfo_exists(),
         }
 
     def execute_mcp_ide_navigation_action(self, action_name, action_parameters=None):
         if action_parameters is None:
             action_parameters = {}
-        if action_name == 'open_graph_for_oops':
-            oop_labels = action_parameters.get('oop_labels')
+        if action_name == "open_graph_for_oops":
+            oop_labels = action_parameters.get("oop_labels")
             if not isinstance(oop_labels, list):
                 return {
-                    'ok': False,
-                    'error': {'message': 'oop_labels must be a list.'},
+                    "ok": False,
+                    "error": {"message": "oop_labels must be a list."},
                 }
-            clear_existing = action_parameters.get('clear_existing', False)
+            clear_existing = action_parameters.get("clear_existing", False)
             if not isinstance(clear_existing, bool):
                 return {
-                    'ok': False,
-                    'error': {'message': 'clear_existing must be a boolean.'},
+                    "ok": False,
+                    "error": {"message": "clear_existing must be a boolean."},
                 }
             return self.open_graph_for_oop_labels(
                 oop_labels,
                 clear_existing=clear_existing,
             )
         return {
-            'ok': False,
-            'error': {
-                'message': f'Unknown IDE navigation action: {action_name}.'
-            },
+            "ok": False,
+            "error": {"message": f"Unknown IDE navigation action: {action_name}."},
         }
 
     def handle_mcp_ide_navigation_requested(
         self,
-        action_name='',
+        action_name="",
         action_parameters=None,
         response_holder=None,
         completion_event=None,
@@ -3958,7 +4464,7 @@ class Swordfish(tk.Tk):
             action_parameters,
         )
         if response_holder is not None:
-            response_holder['response'] = response
+            response_holder["response"] = response
         if completion_event is not None:
             completion_event.set()
 
@@ -3974,7 +4480,7 @@ class Swordfish(tk.Tk):
         response_holder = {}
         completion_event = threading.Event()
         self.event_queue.publish(
-            'McpIdeNavigationRequested',
+            "McpIdeNavigationRequested",
             action_name=action_name,
             action_parameters=action_parameters,
             response_holder=response_holder,
@@ -3983,19 +4489,15 @@ class Swordfish(tk.Tk):
         completed = completion_event.wait(timeout=5.0)
         if not completed:
             return {
-                'ok': False,
-                'error': {
-                    'message': 'IDE navigation request timed out.'
-                },
+                "ok": False,
+                "error": {"message": "IDE navigation request timed out."},
             }
-        response = response_holder.get('response')
+        response = response_holder.get("response")
         if isinstance(response, dict):
             return response
         return {
-            'ok': False,
-            'error': {
-                'message': 'IDE navigation request returned no response.'
-            },
+            "ok": False,
+            "error": {"message": "IDE navigation request returned no response."},
         }
 
     def synchronise_collaboration_state(self):
@@ -4029,14 +4531,19 @@ class Swordfish(tk.Tk):
     def open_debugger(self, exception):
         if self.integrated_session_state.is_mcp_busy():
             messagebox.showwarning(
-                'MCP Busy',
-                'Debugging is disabled while MCP is running an operation.',
+                "MCP Busy",
+                "Debugging is disabled while MCP is running an operation.",
             )
             return
         if self.debugger_tab:
             if self.debugger_tab.is_running:
-                response = messagebox.askquestion("Debugger Already Open", "A debugger is already open. Replace it with a new one?", icon='warning', type='okcancel')
-                if response == 'cancel':
+                response = messagebox.askquestion(
+                    "Debugger Already Open",
+                    "A debugger is already open. Replace it with a new one?",
+                    icon="warning",
+                    type="okcancel",
+                )
+                if response == "cancel":
                     return
             self.debugger_tab.destroy()
 
@@ -4044,7 +4551,13 @@ class Swordfish(tk.Tk):
         self.select_debugger_tab()
 
     def add_debugger_tab(self, exception):
-        self.debugger_tab = DebuggerWindow(self.notebook, self, self.gemstone_session_record, self.event_queue, exception)
+        self.debugger_tab = DebuggerWindow(
+            self.notebook,
+            self,
+            self.gemstone_session_record,
+            self.event_queue,
+            exception,
+        )
         self.notebook.add(self.debugger_tab, text="Debugger")
 
     def select_debugger_tab(self):
@@ -4053,19 +4566,23 @@ class Swordfish(tk.Tk):
         #     self.notebook.select(self.debugger_tab)
         #     self.debugger_tab.top_frame.lift()
         #     self.debugger_tab.forget(self.debugger_tab.top_frame)
-        #     self.debugger_tab.add(self.debugger_tab.top_frame)            
+        #     self.debugger_tab.add(self.debugger_tab.top_frame)
         #     self.debugger_tab.event_generate('<Configure>')
         #     self.debugger_tab.update()
-        
+
     def handle_find_selection(self, show_instance_side, class_name):
         self.gemstone_session_record.jump_to_class(class_name, show_instance_side)
-        self.event_queue.publish('SelectedClassChanged')
-        
-    def handle_implementor_selection(self, method_symbol, class_name, show_instance_side):
-        self.gemstone_session_record.jump_to_method(class_name, show_instance_side, method_symbol)
-        self.event_queue.publish('SelectedClassChanged')
-        self.event_queue.publish('SelectedCategoryChanged')
-        self.event_queue.publish('MethodSelected')
+        self.event_queue.publish("SelectedClassChanged")
+
+    def handle_implementor_selection(
+        self, method_symbol, class_name, show_instance_side
+    ):
+        self.gemstone_session_record.jump_to_method(
+            class_name, show_instance_side, method_symbol
+        )
+        self.event_queue.publish("SelectedClassChanged")
+        self.event_queue.publish("SelectedCategoryChanged")
+        self.event_queue.publish("MethodSelected")
 
     def handle_sender_selection(self, class_name, show_instance_side, method_symbol):
         self.gemstone_session_record.jump_to_method(
@@ -4073,17 +4590,15 @@ class Swordfish(tk.Tk):
             show_instance_side,
             method_symbol,
         )
-        self.event_queue.publish('SelectedClassChanged')
-        self.event_queue.publish('SelectedCategoryChanged')
-        self.event_queue.publish('MethodSelected')
+        self.event_queue.publish("SelectedClassChanged")
+        self.event_queue.publish("SelectedCategoryChanged")
+        self.event_queue.publish("MethodSelected")
 
     def run_code(self, source=""):
         if self.run_tab is None or not self.run_tab.winfo_exists():
             self.run_tab = RunTab(self.notebook, self)
-            self.notebook.add(self.run_tab, text='Run')
-        self.run_tab.set_read_only(
-            self.integrated_session_state.is_mcp_busy()
-        )
+            self.notebook.add(self.run_tab, text="Run")
+        self.run_tab.set_read_only(self.integrated_session_state.is_mcp_busy())
         self.notebook.select(self.run_tab)
         run_immediately = bool(source and source.strip())
         self.run_tab.present_source(source, run_immediately=run_immediately)
@@ -4096,19 +4611,21 @@ class Swordfish(tk.Tk):
             an_object=inspected_object,
             graph_inspect_action=self.open_graph_inspector_for_object,
         )
-        self.notebook.add(self.inspector_tab, text='Inspect')
+        self.notebook.add(self.inspector_tab, text="Inspect")
         self.notebook.select(self.inspector_tab)
 
     def open_graph_inspector_for_object(self, inspected_object):
         tab_is_missing = self.graph_tab is None or not self.graph_tab.winfo_exists()
         if tab_is_missing:
             self.graph_tab = GraphTab(self.notebook, self)
-            self.notebook.add(self.graph_tab, text='Graph')
+            self.notebook.add(self.graph_tab, text="Graph")
         self.notebook.select(self.graph_tab)
         self.graph_tab.add_object(inspected_object)
 
     def close_inspector_tab(self):
-        has_open_tab = self.inspector_tab is not None and self.inspector_tab.winfo_exists()
+        has_open_tab = (
+            self.inspector_tab is not None and self.inspector_tab.winfo_exists()
+        )
         if not has_open_tab:
             self.inspector_tab = None
             return
@@ -4130,45 +4647,61 @@ class Swordfish(tk.Tk):
             pass
         self.graph_tab.destroy()
         self.graph_tab = None
-        
+
     def open_find_dialog(
         self,
-        search_type='class',
-        search_query='',
+        search_type="class",
+        search_query="",
         run_search=False,
+        match_mode=None,
+        reference_target=None,
     ):
-        dialog = FindDialog(self)
-        if search_type in ['class', 'method']:
-            dialog.search_type.set(search_type)
-        if search_query:
-            dialog.find_entry.delete(0, tk.END)
-            dialog.find_entry.insert(0, search_query)
-        if run_search:
-            dialog.find_text()
-        return dialog
+        return FindDialog(
+            self,
+            search_type=search_type,
+            search_query=search_query,
+            run_search=run_search,
+            match_mode=match_mode,
+            reference_target=reference_target,
+        )
 
     def open_find_dialog_for_class(self, class_name):
-        selected_class_name = (class_name or '').strip()
+        selected_class_name = (class_name or "").strip()
         if not selected_class_name:
             return None
         return self.open_find_dialog(
-            search_type='class',
+            search_type="reference",
             search_query=selected_class_name,
             run_search=True,
+            match_mode="exact",
+            reference_target="class",
         )
-        
+
     def open_implementors_dialog(self, method_symbol=None):
-        ImplementorsDialog(self, method_name=method_symbol)
+        initial_selector = (method_symbol or "").strip()
+        return self.open_find_dialog(
+            search_type="method",
+            search_query=initial_selector,
+            run_search=bool(initial_selector),
+            match_mode="exact",
+        )
 
     def open_senders_dialog(self, method_symbol=None):
-        SendersDialog(self, method_name=method_symbol)
+        initial_selector = (method_symbol or "").strip()
+        return self.open_find_dialog(
+            search_type="reference",
+            search_query=initial_selector,
+            run_search=bool(initial_selector),
+            match_mode="exact",
+            reference_target="method",
+        )
 
     def open_breakpoints_dialog(self):
         if self.gemstone_session_record is None:
             return
         BreakpointsDialog(self)
-        
-        
+
+
 class RunTab(ttk.Frame):
     def __init__(self, parent, application):
         super().__init__(parent)
@@ -4181,38 +4714,38 @@ class RunTab(ttk.Frame):
         self.rowconfigure(5, weight=1)
 
         self.button_frame = ttk.Frame(self)
-        self.button_frame.grid(row=0, column=0, sticky='ew', padx=10, pady=(10, 5))
+        self.button_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
         self.button_frame.columnconfigure(2, weight=1)
 
         self.run_button = ttk.Button(
             self.button_frame,
-            text='Run',
+            text="Run",
             command=self.run_code_from_editor,
         )
         self.run_button.grid(row=0, column=0, padx=(0, 5))
 
         self.debug_button = ttk.Button(
             self.button_frame,
-            text='Debug',
+            text="Debug",
             command=self.open_debugger,
         )
-        self.debug_button.grid(row=0, column=1, sticky='w', padx=(0, 5))
+        self.debug_button.grid(row=0, column=1, sticky="w", padx=(0, 5))
 
         self.close_button = ttk.Button(
             self.button_frame,
-            text='Close',
+            text="Close",
             command=self.close_tab,
         )
-        self.close_button.grid(row=0, column=3, sticky='e')
+        self.close_button.grid(row=0, column=3, sticky="e")
 
-        self.source_label = ttk.Label(self, text='Source Code:')
-        self.source_label.grid(row=1, column=0, sticky='w', padx=10, pady=(5, 0))
+        self.source_label = ttk.Label(self, text="Source Code:")
+        self.source_label.grid(row=1, column=0, sticky="w", padx=10, pady=(5, 0))
 
         self.source_editor_frame = ttk.Frame(self)
         self.source_editor_frame.grid(
             row=2,
             column=0,
-            sticky='nsew',
+            sticky="nsew",
             padx=10,
             pady=(0, 10),
         )
@@ -4230,65 +4763,67 @@ class RunTab(ttk.Frame):
         self.source_line_number_column.line_numbers_text.grid(
             row=0,
             column=0,
-            sticky='ns',
+            sticky="ns",
         )
         self.source_text.grid(
             row=0,
             column=1,
-            sticky='nsew',
+            sticky="nsew",
         )
 
         self.status_bar = ttk.Frame(self)
-        self.status_bar.grid(row=3, column=0, sticky='ew', padx=10)
+        self.status_bar.grid(row=3, column=0, sticky="ew", padx=10)
         self.status_bar.columnconfigure(0, weight=1)
-        self.status_label = ttk.Label(self.status_bar, text='Ready')
-        self.status_label.grid(row=0, column=0, sticky='w')
+        self.status_label = ttk.Label(self.status_bar, text="Ready")
+        self.status_label.grid(row=0, column=0, sticky="w")
         self.source_cursor_position_label = ttk.Label(
             self.status_bar,
-            text='Ln 1, Col 1',
+            text="Ln 1, Col 1",
         )
         self.source_cursor_position_label.grid(
             row=0,
             column=1,
-            sticky='e',
+            sticky="e",
         )
 
-        self.result_label = ttk.Label(self, text='Result:')
-        self.result_label.grid(row=4, column=0, sticky='nw', padx=10, pady=(10, 0))
+        self.result_label = ttk.Label(self, text="Result:")
+        self.result_label.grid(row=4, column=0, sticky="nw", padx=10, pady=(10, 0))
 
-        self.result_text = tk.Text(self, height=7, state='disabled')
-        self.result_text.grid(row=5, column=0, sticky='nsew', padx=10, pady=(0, 10))
+        self.result_text = tk.Text(self, height=7, state="disabled")
+        self.result_text.grid(row=5, column=0, sticky="nsew", padx=10, pady=(0, 10))
         self.configure_text_actions()
         self.source_cursor_position_indicator = TextCursorPositionIndicator(
             self.source_text,
             self.source_cursor_position_label,
         )
         self.application.event_queue.subscribe(
-            'McpBusyStateChanged',
+            "McpBusyStateChanged",
             self.handle_mcp_busy_state_changed,
         )
         self.set_read_only(self.is_read_only())
 
     def configure_text_actions(self):
-        self.source_text.bind('<Control-a>', self.select_all_source_text)
-        self.source_text.bind('<Control-A>', self.select_all_source_text)
-        self.source_text.bind('<Control-c>', self.copy_source_selection)
-        self.source_text.bind('<Control-C>', self.copy_source_selection)
-        self.source_text.bind('<Control-v>', self.paste_into_source_text)
-        self.source_text.bind('<Control-V>', self.paste_into_source_text)
-        self.source_text.bind('<Control-z>', self.undo_source_text)
-        self.source_text.bind('<Control-Z>', self.undo_source_text)
-        self.source_text.bind('<KeyPress>', self.replace_selected_source_text_before_typing, add='+')
-        self.source_text.bind('<Button-3>', self.open_source_text_menu)
+        self.source_text.bind("<Control-a>", self.select_all_source_text)
+        self.source_text.bind("<Control-A>", self.select_all_source_text)
+        self.source_text.bind("<Control-c>", self.copy_source_selection)
+        self.source_text.bind("<Control-C>", self.copy_source_selection)
+        self.source_text.bind("<Control-v>", self.paste_into_source_text)
+        self.source_text.bind("<Control-V>", self.paste_into_source_text)
+        self.source_text.bind("<Control-z>", self.undo_source_text)
+        self.source_text.bind("<Control-Z>", self.undo_source_text)
+        self.source_text.bind(
+            "<KeyPress>", self.replace_selected_source_text_before_typing, add="+"
+        )
+        self.source_text.bind("<Button-3>", self.open_source_text_menu)
 
-        self.result_text.bind('<Control-a>', self.select_all_result_text)
-        self.result_text.bind('<Control-A>', self.select_all_result_text)
-        self.result_text.bind('<Control-c>', self.copy_result_selection)
-        self.result_text.bind('<Control-C>', self.copy_result_selection)
-        self.result_text.bind('<Button-3>', self.open_result_text_menu)
+        self.result_text.bind("<Control-a>", self.select_all_result_text)
+        self.result_text.bind("<Control-A>", self.select_all_result_text)
+        self.result_text.bind("<Control-c>", self.copy_result_selection)
+        self.result_text.bind("<Control-C>", self.copy_result_selection)
+        self.result_text.bind("<Button-3>", self.open_result_text_menu)
 
-        self.source_text.bind('<Button-1>', self.close_text_menu, add='+')
-        self.result_text.bind('<Button-1>', self.close_text_menu, add='+')
+        self.source_text.bind("<Button-1>", self.close_text_menu, add="+")
+        self.result_text.bind("<Button-1>", self.close_text_menu, add="+")
 
     def is_read_only(self):
         return self.application.integrated_session_state.is_mcp_busy()
@@ -4305,38 +4840,38 @@ class RunTab(ttk.Frame):
         self.run_button.configure(state=run_button_state)
         self.debug_button.configure(state=debug_button_state)
 
-    def handle_mcp_busy_state_changed(self, is_busy=False, operation_name=''):
+    def handle_mcp_busy_state_changed(self, is_busy=False, operation_name=""):
         self.set_read_only(is_busy)
 
     def select_all_source_text(self, event=None):
         select_all_in_text_widget(self.source_text)
-        return 'break'
+        return "break"
 
     def copy_source_selection(self, event=None):
         copy_selection_from_text_widget(self, self.source_text)
-        return 'break'
+        return "break"
 
     def paste_into_source_text(self, event=None):
         paste_text_into_widget(self, self.source_text)
-        return 'break'
+        return "break"
 
     def undo_source_text(self, event=None):
         undo_text_widget_edit(self.source_text)
-        return 'break'
+        return "break"
 
     def replace_selected_source_text_before_typing(self, event):
         replace_selected_range_before_typing(self.source_text, event)
 
     def select_all_result_text(self, event=None):
         select_all_in_text_widget(self.result_text)
-        return 'break'
+        return "break"
 
     def copy_result_selection(self, event=None):
         copy_selection_from_text_widget(self, self.result_text)
-        return 'break'
+        return "break"
 
     def open_source_text_menu(self, event):
-        self.source_text.mark_set(tk.INSERT, f'@{event.x},{event.y}')
+        self.source_text.mark_set(tk.INSERT, f"@{event.x},{event.y}")
         self.show_text_menu_for_widget(
             event,
             self.source_text,
@@ -4346,7 +4881,7 @@ class RunTab(ttk.Frame):
         )
 
     def open_result_text_menu(self, event):
-        self.result_text.mark_set(tk.INSERT, f'@{event.x},{event.y}')
+        self.result_text.mark_set(tk.INSERT, f"@{event.x},{event.y}")
         self.show_text_menu_for_widget(
             event,
             self.result_text,
@@ -4358,21 +4893,21 @@ class RunTab(ttk.Frame):
     def selected_source_text(self):
         start_index, end_index = selected_range_in_text_widget(self.source_text)
         if start_index is None:
-            return ''
+            return ""
         return self.source_text.get(start_index, end_index)
 
     def run_selected_source_text(self):
         if self.is_read_only():
-            self.status_label.config(text='MCP is busy. Run is disabled.')
+            self.status_label.config(text="MCP is busy. Run is disabled.")
             return
         selected_text = self.selected_source_text()
         if not selected_text.strip():
-            self.status_label.config(text='Select source text to run')
+            self.status_label.config(text="Select source text to run")
             return
-        self.status_label.config(text='Running selection...')
+        self.status_label.config(text="Running selection...")
         self.last_exception = None
         self.clear_source_error_highlight()
-        self.application.begin_foreground_activity('Running selected source...')
+        self.application.begin_foreground_activity("Running selected source...")
         try:
             try:
                 result = self.gemstone_session_record.run_code(selected_text)
@@ -4387,16 +4922,16 @@ class RunTab(ttk.Frame):
 
     def inspect_selected_source_text(self):
         if self.is_read_only():
-            self.status_label.config(text='MCP is busy. Inspect is disabled.')
+            self.status_label.config(text="MCP is busy. Inspect is disabled.")
             return
         selected_text = self.selected_source_text()
         if not selected_text.strip():
-            self.status_label.config(text='Select source text to inspect')
+            self.status_label.config(text="Select source text to inspect")
             return
-        self.status_label.config(text='Inspecting selection...')
+        self.status_label.config(text="Inspecting selection...")
         self.last_exception = None
         self.clear_source_error_highlight()
-        self.application.begin_foreground_activity('Inspecting selected source...')
+        self.application.begin_foreground_activity("Inspecting selected source...")
         try:
             try:
                 result = self.gemstone_session_record.run_code(selected_text)
@@ -4412,17 +4947,17 @@ class RunTab(ttk.Frame):
 
     def graph_inspect_selected_source_text(self):
         if self.is_read_only():
-            self.status_label.config(text='MCP is busy. Graph inspect is disabled.')
+            self.status_label.config(text="MCP is busy. Graph inspect is disabled.")
             return
         selected_text = self.selected_source_text()
         if not selected_text.strip():
-            self.status_label.config(text='Select source text to graph inspect')
+            self.status_label.config(text="Select source text to graph inspect")
             return
-        self.status_label.config(text='Graph inspecting selection...')
+        self.status_label.config(text="Graph inspecting selection...")
         self.last_exception = None
         self.clear_source_error_highlight()
         self.application.begin_foreground_activity(
-            'Graph inspecting selected source...'
+            "Graph inspecting selected source..."
         )
         try:
             try:
@@ -4456,22 +4991,22 @@ class RunTab(ttk.Frame):
             paste_command_state = tk.DISABLED
             undo_command_state = tk.DISABLED
         self.current_text_menu.add_command(
-            label='Select All',
+            label="Select All",
             command=lambda: select_all_in_text_widget(text_widget),
         )
         self.current_text_menu.add_command(
-            label='Copy',
+            label="Copy",
             command=lambda: copy_selection_from_text_widget(self, text_widget),
         )
         if allow_paste:
             self.current_text_menu.add_command(
-                label='Paste',
+                label="Paste",
                 command=lambda: paste_text_into_widget(self, text_widget),
                 state=paste_command_state,
             )
         if allow_undo:
             self.current_text_menu.add_command(
-                label='Undo',
+                label="Undo",
                 command=lambda: undo_text_widget_edit(text_widget),
                 state=undo_command_state,
             )
@@ -4482,17 +5017,17 @@ class RunTab(ttk.Frame):
                 run_command_state = tk.DISABLED
             self.current_text_menu.add_separator()
             self.current_text_menu.add_command(
-                label='Run',
+                label="Run",
                 command=self.run_selected_source_text,
                 state=run_command_state,
             )
             self.current_text_menu.add_command(
-                label='Inspect',
+                label="Inspect",
                 command=self.inspect_selected_source_text,
                 state=run_command_state,
             )
             self.current_text_menu.add_command(
-                label='Graph Inspect',
+                label="Graph Inspect",
                 command=self.graph_inspect_selected_source_text,
                 state=run_command_state,
             )
@@ -4508,11 +5043,11 @@ class RunTab(ttk.Frame):
         return self.application.gemstone_session_record
 
     def present_source(self, source, run_immediately=False):
-        source_text_was_disabled = self.source_text.cget('state') == tk.DISABLED
+        source_text_was_disabled = self.source_text.cget("state") == tk.DISABLED
         if source_text_was_disabled:
             self.source_text.configure(state=tk.NORMAL)
         if source and source.strip():
-            self.source_text.delete('1.0', tk.END)
+            self.source_text.delete("1.0", tk.END)
             self.source_text.insert(tk.END, source)
             self.source_cursor_position_indicator.update_position()
         if source_text_was_disabled:
@@ -4522,15 +5057,15 @@ class RunTab(ttk.Frame):
 
     def run_code_from_editor(self):
         if self.is_read_only():
-            self.status_label.config(text='MCP is busy. Run is disabled.')
+            self.status_label.config(text="MCP is busy. Run is disabled.")
             return
-        self.status_label.config(text='Running...')
+        self.status_label.config(text="Running...")
         self.last_exception = None
         self.clear_source_error_highlight()
-        self.application.begin_foreground_activity('Running source...')
+        self.application.begin_foreground_activity("Running source...")
         try:
             try:
-                code_to_run = self.source_text.get('1.0', 'end-1c')
+                code_to_run = self.source_text.get("1.0", "end-1c")
                 result = self.gemstone_session_record.run_code(code_to_run)
                 self.on_run_complete(result)
             except (DomainException, GemstoneDomainException) as domain_exception:
@@ -4542,26 +5077,30 @@ class RunTab(ttk.Frame):
             self.application.end_foreground_activity()
 
     def on_run_complete(self, result):
-        self.status_label.config(text='Completed successfully')
+        self.status_label.config(text="Completed successfully")
         self.clear_source_error_highlight()
-        self.result_text.config(state='normal')
-        self.result_text.delete('1.0', tk.END)
+        self.result_text.config(state="normal")
+        self.result_text.delete("1.0", tk.END)
         self.result_text.insert(tk.END, result.asString().to_py)
-        self.result_text.config(state='disabled')
+        self.result_text.config(state="disabled")
 
     def on_run_error(self, exception):
         self.last_exception = exception
         error_text = str(exception)
-        line_number, column_number = self.compile_error_location_for_exception(exception, error_text)
+        line_number, column_number = self.compile_error_location_for_exception(
+            exception, error_text
+        )
         self.show_source_error_highlight(line_number, column_number)
         self.show_error_in_result_panel(error_text, line_number, column_number)
-        self.status_label.config(text=self.error_status_text(error_text, line_number, column_number))
+        self.status_label.config(
+            text=self.error_status_text(error_text, line_number, column_number)
+        )
 
     def clear_source_error_highlight(self):
-        self.source_text.tag_remove('compile_error_location', '1.0', tk.END)
+        self.source_text.tag_remove("compile_error_location", "1.0", tk.END)
 
     def source_text_line_count(self):
-        return int(self.source_text.index('end-1c').split('.')[0])
+        return int(self.source_text.index("end-1c").split(".")[0])
 
     def source_text_line(self, line_number):
         if line_number < 1:
@@ -4569,7 +5108,7 @@ class RunTab(ttk.Frame):
         line_count = self.source_text_line_count()
         if line_number > line_count:
             return None
-        return self.source_text.get(f'{line_number}.0', f'{line_number}.end')
+        return self.source_text.get(f"{line_number}.0", f"{line_number}.end")
 
     def show_source_error_highlight(self, line_number, column_number):
         self.clear_source_error_highlight()
@@ -4580,59 +5119,67 @@ class RunTab(ttk.Frame):
         if source_line is None:
             return
 
-        start_index = f'{line_number}.0'
-        end_index = f'{line_number}.end'
+        start_index = f"{line_number}.0"
+        end_index = f"{line_number}.end"
         if column_number is not None and column_number > 0:
             bounded_column_number = column_number
             if bounded_column_number > len(source_line) + 1:
                 bounded_column_number = len(source_line) + 1
-            start_index = f'{line_number}.{bounded_column_number - 1}'
-            end_index = f'{line_number}.{bounded_column_number}'
+            start_index = f"{line_number}.{bounded_column_number - 1}"
+            end_index = f"{line_number}.{bounded_column_number}"
 
         self.source_text.tag_configure(
-            'compile_error_location',
-            background='#ffe4e4',
+            "compile_error_location",
+            background="#ffe4e4",
             underline=True,
         )
-        self.source_text.tag_add('compile_error_location', start_index, end_index)
+        self.source_text.tag_add("compile_error_location", start_index, end_index)
         self.source_text.see(start_index)
 
     def show_error_in_result_panel(self, error_text, line_number, column_number):
-        self.result_text.config(state='normal')
-        self.result_text.delete('1.0', tk.END)
+        self.result_text.config(state="normal")
+        self.result_text.delete("1.0", tk.END)
         self.result_text.insert(tk.END, error_text)
         if line_number is not None and column_number is not None:
             source_line = self.source_text_line(line_number)
             if source_line is None:
-                source_line = ''
-            caret_padding = ''
+                source_line = ""
+            caret_padding = ""
             if column_number > 1:
-                caret_padding = ' ' * (column_number - 1)
-            self.result_text.insert(tk.END, f'\nLine {line_number}, column {column_number}\n')
-            self.result_text.insert(tk.END, f'{source_line}\n')
-            self.result_text.insert(tk.END, f'{caret_padding}^\n')
-        self.result_text.config(state='disabled')
+                caret_padding = " " * (column_number - 1)
+            self.result_text.insert(
+                tk.END, f"\nLine {line_number}, column {column_number}\n"
+            )
+            self.result_text.insert(tk.END, f"{source_line}\n")
+            self.result_text.insert(tk.END, f"{caret_padding}^\n")
+        self.result_text.config(state="disabled")
 
     def error_status_text(self, error_text, line_number, column_number):
         if line_number is not None and column_number is not None:
-            return f'Error: {error_text} (line {line_number}, column {column_number})'
-        return f'Error: {error_text}'
+            return f"Error: {error_text} (line {line_number}, column {column_number})"
+        return f"Error: {error_text}"
 
     def compile_error_location_for_exception(self, exception, error_text):
         line_number = None
         column_number = None
 
-        line_number, column_number = self.compile_error_location_from_structured_arguments(exception)
+        line_number, column_number = (
+            self.compile_error_location_from_structured_arguments(exception)
+        )
         if line_number is None:
-            line_number, column_number = self.compile_error_location_from_text(error_text)
+            line_number, column_number = self.compile_error_location_from_text(
+                error_text
+            )
             if line_number is None:
                 message_text = self.compile_error_message_text(exception)
-                line_number, column_number = self.compile_error_location_from_text(message_text)
+                line_number, column_number = self.compile_error_location_from_text(
+                    message_text
+                )
 
         return line_number, column_number
 
     def compile_error_message_text(self, exception):
-        message_text = ''
+        message_text = ""
         try:
             message_text = exception.message
         except (AttributeError, GemstoneError, TypeError):
@@ -4675,19 +5222,23 @@ class RunTab(ttk.Frame):
         line_number = None
         column_number = None
 
-        full_match = re.search(r'line\s+(\d+)\s*[,;]?\s*column\s+(\d+)', error_text, re.IGNORECASE)
+        full_match = re.search(
+            r"line\s+(\d+)\s*[,;]?\s*column\s+(\d+)", error_text, re.IGNORECASE
+        )
         if full_match:
             line_number = int(full_match.group(1))
             column_number = int(full_match.group(2))
 
         if line_number is None:
-            inverted_match = re.search(r'column\s+(\d+)\s*[,;]?\s*line\s+(\d+)', error_text, re.IGNORECASE)
+            inverted_match = re.search(
+                r"column\s+(\d+)\s*[,;]?\s*line\s+(\d+)", error_text, re.IGNORECASE
+            )
             if inverted_match:
                 line_number = int(inverted_match.group(2))
                 column_number = int(inverted_match.group(1))
 
         if line_number is None:
-            line_only_match = re.search(r'line\s+(\d+)', error_text, re.IGNORECASE)
+            line_only_match = re.search(r"line\s+(\d+)", error_text, re.IGNORECASE)
             if line_only_match:
                 line_number = int(line_only_match.group(1))
 
@@ -4703,12 +5254,14 @@ class RunTab(ttk.Frame):
                 return sequence_value[zero_based_index]
             return None
 
-        size_value = self.python_error_value(self.message_send_result(sequence_value, 'size'))
+        size_value = self.python_error_value(
+            self.message_send_result(sequence_value, "size")
+        )
         if not isinstance(size_value, int):
             return None
         if one_based_index < 1 or one_based_index > size_value:
             return None
-        return self.message_send_result(sequence_value, 'at', one_based_index)
+        return self.message_send_result(sequence_value, "at", one_based_index)
 
     def message_send_result(self, receiver, selector_name, *arguments):
         result = None
@@ -4729,7 +5282,7 @@ class RunTab(ttk.Frame):
         if isinstance(candidate_value, (int, str)):
             return candidate_value
 
-        to_py_value = getattr(candidate_value, 'to_py', None)
+        to_py_value = getattr(candidate_value, "to_py", None)
         if to_py_value is not None:
             if callable(to_py_value):
                 try:
@@ -4739,8 +5292,8 @@ class RunTab(ttk.Frame):
             if not callable(to_py_value):
                 return to_py_value
 
-        as_string_result = self.message_send_result(candidate_value, 'asString')
-        as_string_value = getattr(as_string_result, 'to_py', None)
+        as_string_result = self.message_send_result(candidate_value, "asString")
+        as_string_value = getattr(as_string_result, "to_py", None)
         if callable(as_string_value):
             try:
                 return as_string_value()
@@ -4760,9 +5313,9 @@ class RunTab(ttk.Frame):
         if bounded_offset < 1:
             bounded_offset = 1
 
-        source_before_error = source_text[:bounded_offset - 1]
-        line_number = source_before_error.count('\n') + 1
-        last_newline_index = source_before_error.rfind('\n')
+        source_before_error = source_text[: bounded_offset - 1]
+        line_number = source_before_error.count("\n") + 1
+        last_newline_index = source_before_error.rfind("\n")
         column_number = bounded_offset
         if last_newline_index >= 0:
             column_number = len(source_before_error) - last_newline_index
@@ -4770,22 +5323,22 @@ class RunTab(ttk.Frame):
 
     def open_debugger(self):
         if self.is_read_only():
-            self.status_label.config(text='MCP is busy. Debug is disabled.')
+            self.status_label.config(text="MCP is busy. Debug is disabled.")
             return
-        code_to_run = self.source_text.get('1.0', 'end-1c')
+        code_to_run = self.source_text.get("1.0", "end-1c")
         if not code_to_run.strip():
-            self.status_label.config(text='No source to debug')
+            self.status_label.config(text="No source to debug")
             return
 
         self.last_exception = None
         self.clear_source_error_highlight()
-        self.application.begin_foreground_activity('Debugging source...')
+        self.application.begin_foreground_activity("Debugging source...")
         try:
             try:
                 result = self.gemstone_session_record.run_code(code_to_run)
                 self.on_run_complete(result)
                 self.status_label.config(
-                    text='Completed successfully; no debugger context',
+                    text="Completed successfully; no debugger context",
                 )
                 return
             except (DomainException, GemstoneDomainException) as domain_exception:
@@ -4810,7 +5363,7 @@ class RunTab(ttk.Frame):
             return True
 
         error_text = str(exception).lower()
-        return 'compileerror' in error_text or 'compile error' in error_text
+        return "compileerror" in error_text or "compile error" in error_text
 
     def close_tab(self):
         if self.application.run_tab is self:
@@ -4831,18 +5384,18 @@ class JsonResultDialog(tk.Toplevel):
         self.grab_set()
         self.focus_force()
 
-        self.result_text = tk.Text(self, wrap='word')
-        self.result_text.pack(fill='both', expand=True, padx=10, pady=(10, 0))
+        self.result_text = tk.Text(self, wrap="word")
+        self.result_text.pack(fill="both", expand=True, padx=10, pady=(10, 0))
         rendered_result = json.dumps(
             result_payload,
             indent=2,
             sort_keys=True,
             default=str,
         )
-        self.result_text.insert('1.0', rendered_result)
-        self.result_text.config(state='disabled')
+        self.result_text.insert("1.0", rendered_result)
+        self.result_text.config(state="disabled")
 
-        self.close_button = tk.Button(self, text='Close', command=self.destroy)
+        self.close_button = tk.Button(self, text="Close", command=self.destroy)
         self.close_button.pack(pady=10)
 
 
@@ -4851,24 +5404,29 @@ class FramedWidget(ttk.Frame):
         super().__init__(parent, borderwidth=2, relief="sunken")
         self.browser_window = browser_window
         self.event_queue = event_queue
-        self.grid(row=row, column=column, columnspan=colspan, sticky="nsew", padx=1, pady=1)
+        self.grid(
+            row=row, column=column, columnspan=colspan, sticky="nsew", padx=1, pady=1
+        )
 
     @property
     def gemstone_session_record(self):
         return self.browser_window.gemstone_session_record
-    
+
     def destroy(self):
         super().destroy()
         self.event_queue.clear_subscribers(self)
 
     def show_test_result(self, result):
-        if result['has_passed']:
-            messagebox.showinfo('Test Result', f"Passed ({result['run_count']} run)")
+        if result["has_passed"]:
+            messagebox.showinfo("Test Result", f"Passed ({result['run_count']} run)")
         else:
-            lines = [f"Failures: {result['failure_count']}, Errors: {result['error_count']}"]
-            lines.extend(result['failures'])
-            lines.extend(result['errors'])
-            messagebox.showerror('Test Result', '\n'.join(lines))
+            lines = [
+                f"Failures: {result['failure_count']}, Errors: {result['error_count']}"
+            ]
+            lines.extend(result["failures"])
+            lines.extend(result["errors"])
+            messagebox.showerror("Test Result", "\n".join(lines))
+
 
 class InteractiveSelectionList(ttk.Frame):
     def __init__(self, parent, get_all_entries, get_selected_entry, set_selected_to):
@@ -4881,16 +5439,20 @@ class InteractiveSelectionList(ttk.Frame):
 
         # Filter entry to allow filtering listbox content
         self.filter_var = tk.StringVar()
-        self.filter_var.trace_add('write', self.update_filter)
+        self.filter_var.trace_add("write", self.update_filter)
         self.filter_entry = tk.Entry(self, textvariable=self.filter_var)
-        self.filter_entry.grid(row=0, column=0, columnspan=2, sticky='ew')
+        self.filter_entry.grid(row=0, column=0, columnspan=2, sticky="ew")
 
         # Packages listbox to show filtered packages with scrollbar
-        self.selection_listbox = tk.Listbox(self, selectmode=tk.SINGLE, exportselection=False)
-        self.selection_listbox.grid(row=1, column=0, sticky='nsew')
+        self.selection_listbox = tk.Listbox(
+            self, selectmode=tk.SINGLE, exportselection=False
+        )
+        self.selection_listbox.grid(row=1, column=0, sticky="nsew")
 
-        self.scrollbar = tk.Scrollbar(self, orient='vertical', command=self.selection_listbox.yview)
-        self.scrollbar.grid(row=1, column=1, sticky='ns')
+        self.scrollbar = tk.Scrollbar(
+            self, orient="vertical", command=self.selection_listbox.yview
+        )
+        self.scrollbar.grid(row=1, column=1, sticky="ns")
         self.selection_listbox.config(yscrollcommand=self.scrollbar.set)
 
         # Configure weights for proper resizing
@@ -4901,13 +5463,13 @@ class InteractiveSelectionList(ttk.Frame):
         self.repopulate()
 
         # Bind the listbox selection event
-        self.selection_listbox.bind('<<ListboxSelect>>', self.handle_selection)
-        
+        self.selection_listbox.bind("<<ListboxSelect>>", self.handle_selection)
+
     def repopulate(self, origin=None):
         self.synchronizing_selection = True
         try:
             self.all_entries = self.get_all_entries()
-            self.filter_var.set('')
+            self.filter_var.set("")
             self.update_filter()
 
             selected_indices = self.selection_listbox.curselection()
@@ -4917,7 +5479,7 @@ class InteractiveSelectionList(ttk.Frame):
                     self.selection_listbox.see(index)
         finally:
             self.synchronizing_selection = False
-                    
+
     def update_filter(self, *args):
         filter_text = self.filter_var.get().lower()
         self.selection_listbox.delete(0, tk.END)
@@ -4947,10 +5509,12 @@ class InteractiveSelectionList(ttk.Frame):
         except IndexError:
             pass
 
-        
-class PackageSelection(FramedWidget):        
+
+class PackageSelection(FramedWidget):
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
-        super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
+        super().__init__(
+            parent, browser_window, event_queue, row, column, colspan=colspan
+        )
 
         self.selection_list = InteractiveSelectionList(
             self,
@@ -4958,7 +5522,7 @@ class PackageSelection(FramedWidget):
             self.get_selected_group,
             self.select_group,
         )
-        self.selection_list.grid(row=0, column=0, sticky='nsew')
+        self.selection_list.grid(row=0, column=0, sticky="nsew")
         self.browse_mode_var = tk.StringVar(
             value=self.gemstone_session_record.browse_mode
         )
@@ -4966,7 +5530,7 @@ class PackageSelection(FramedWidget):
         self.browse_mode_controls.grid(
             row=1,
             column=0,
-            sticky='ew',
+            sticky="ew",
             pady=(4, 0),
         )
         self.browse_mode_controls.columnconfigure(0, weight=1)
@@ -4974,93 +5538,99 @@ class PackageSelection(FramedWidget):
         self.browse_mode_controls.columnconfigure(2, weight=1)
         self.dictionaries_radiobutton = tk.Radiobutton(
             self.browse_mode_controls,
-            text='Dictionaries',
+            text="Dictionaries",
             variable=self.browse_mode_var,
-            value='dictionaries',
+            value="dictionaries",
             command=self.change_browse_mode,
         )
         self.categories_radiobutton = tk.Radiobutton(
             self.browse_mode_controls,
-            text='Categories',
+            text="Categories",
             variable=self.browse_mode_var,
-            value='categories',
+            value="categories",
             command=self.change_browse_mode,
         )
-        rowan_state = tk.NORMAL if self.gemstone_session_record.rowan_installed else tk.DISABLED
+        rowan_state = (
+            tk.NORMAL if self.gemstone_session_record.rowan_installed else tk.DISABLED
+        )
         self.rowan_radiobutton = tk.Radiobutton(
             self.browse_mode_controls,
-            text='Rowan',
+            text="Rowan",
             variable=self.browse_mode_var,
-            value='rowan',
+            value="rowan",
             command=self.change_browse_mode,
             state=rowan_state,
         )
-        self.dictionaries_radiobutton.grid(row=0, column=0, sticky='w')
-        self.categories_radiobutton.grid(row=0, column=1, sticky='w')
-        self.rowan_radiobutton.grid(row=0, column=2, sticky='e')
+        self.dictionaries_radiobutton.grid(row=0, column=0, sticky="w")
+        self.categories_radiobutton.grid(row=0, column=1, sticky="w")
+        self.rowan_radiobutton.grid(row=0, column=2, sticky="e")
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
-                                                       
+
         # Initial population of listbox
         self.repopulate()
 
         # Subscribe to event_queue for any "Aborted" event
-        self.event_queue.subscribe('PackagesChanged', self.repopulate)
-        self.event_queue.subscribe('Committed', self.repopulate)
-        self.event_queue.subscribe('Aborted', self.repopulate)
-        self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
-        self.event_queue.subscribe('BrowseModeChanged', self.handle_browse_mode_changed)
+        self.event_queue.subscribe("PackagesChanged", self.repopulate)
+        self.event_queue.subscribe("Committed", self.repopulate)
+        self.event_queue.subscribe("Aborted", self.repopulate)
+        self.event_queue.subscribe("SelectedClassChanged", self.repopulate)
+        self.event_queue.subscribe("BrowseModeChanged", self.handle_browse_mode_changed)
 
     def change_browse_mode(self):
         selected_mode = self.browse_mode_var.get()
         try:
             self.gemstone_session_record.select_browse_mode(selected_mode)
         except DomainException as error:
-            messagebox.showerror('Browse Mode', str(error))
+            messagebox.showerror("Browse Mode", str(error))
             self.browse_mode_var.set(self.gemstone_session_record.browse_mode)
             return
         self.selection_list.repopulate()
-        self.event_queue.publish('BrowseModeChanged', origin=self)
+        self.event_queue.publish("BrowseModeChanged", origin=self)
         # AI: Retain legacy event name for compatibility with dependent widgets.
-        self.event_queue.publish('SelectedPackageChanged', origin=self)
-        self.event_queue.publish('SelectedClassChanged', origin=self)
-        self.event_queue.publish('SelectedCategoryChanged', origin=self)
-        self.event_queue.publish('MethodSelected', origin=self)
+        self.event_queue.publish("SelectedPackageChanged", origin=self)
+        self.event_queue.publish("SelectedClassChanged", origin=self)
+        self.event_queue.publish("SelectedCategoryChanged", origin=self)
+        self.event_queue.publish("MethodSelected", origin=self)
 
     def handle_browse_mode_changed(self, origin=None):
         if origin is self:
             return
-        rowan_state = tk.NORMAL if self.gemstone_session_record.rowan_installed else tk.DISABLED
+        rowan_state = (
+            tk.NORMAL if self.gemstone_session_record.rowan_installed else tk.DISABLED
+        )
         self.rowan_radiobutton.config(state=rowan_state)
         if (
-            self.gemstone_session_record.browse_mode == 'rowan'
+            self.gemstone_session_record.browse_mode == "rowan"
             and not self.gemstone_session_record.rowan_installed
         ):
-            self.gemstone_session_record.select_browse_mode('dictionaries')
+            self.gemstone_session_record.select_browse_mode("dictionaries")
         self.browse_mode_var.set(self.gemstone_session_record.browse_mode)
         self.selection_list.repopulate()
 
     def select_group(self, selected_group):
         self.gemstone_session_record.select_class_category(selected_group)
-        self.event_queue.publish('SelectedPackageChanged', origin=self)
+        self.event_queue.publish("SelectedPackageChanged", origin=self)
 
     def get_all_groups(self):
         return list(self.browser_window.gemstone_session_record.class_categories)
 
     def get_selected_group(self):
         return self.gemstone_session_record.selected_class_category()
-        
+
     def repopulate(self, origin=None):
         if origin is not self:
             self.selection_list.repopulate()
 
-            
-class ClassSelection(FramedWidget):        
+
+class ClassSelection(FramedWidget):
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
-        super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
+        super().__init__(
+            parent, browser_window, event_queue, row, column, colspan=colspan
+        )
 
         self.class_content_paned = ttk.PanedWindow(self, orient=tk.VERTICAL)
-        self.class_content_paned.grid(row=0, column=0, columnspan=2, sticky='nsew')
+        self.class_content_paned.grid(row=0, column=0, columnspan=2, sticky="nsew")
         self.class_definition_sash_fraction = 0.65
 
         self.class_selection_frame = ttk.Frame(self.class_content_paned)
@@ -5069,50 +5639,63 @@ class ClassSelection(FramedWidget):
         self.class_content_paned.add(self.class_selection_frame, weight=3)
 
         self.classes_notebook = ttk.Notebook(self.class_selection_frame)
-        self.classes_notebook.grid(row=0, column=0, sticky='nsew')
+        self.classes_notebook.grid(row=0, column=0, sticky="nsew")
 
         self.rowconfigure(0, weight=1, minsize=180)
         self.rowconfigure(1, weight=0)
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=1)
 
-        self.selection_list = InteractiveSelectionList(self.classes_notebook, self.get_all_classes, self.get_selected_class, self.select_class)
-        self.selection_list.grid(row=0, column=0, sticky='nsew')
-        self.classes_notebook.add(self.selection_list, text='List')
+        self.selection_list = InteractiveSelectionList(
+            self.classes_notebook,
+            self.get_all_classes,
+            self.get_selected_class,
+            self.select_class,
+        )
+        self.selection_list.grid(row=0, column=0, sticky="nsew")
+        self.classes_notebook.add(self.selection_list, text="List")
 
         self.hierarchy_frame = ttk.Frame(self.classes_notebook)
-        self.hierarchy_frame.grid(row=0, column=0, sticky='nsew')
-        self.classes_notebook.add(self.hierarchy_frame, text='Hierarchy')
+        self.hierarchy_frame.grid(row=0, column=0, sticky="nsew")
+        self.classes_notebook.add(self.hierarchy_frame, text="Hierarchy")
         self.hierarchy_tree = ttk.Treeview(
             self.hierarchy_frame,
-            columns=('class_category',),
-            show='tree headings',
+            columns=("class_category",),
+            show="tree headings",
         )
-        self.hierarchy_tree.grid(row=0, column=0, sticky='nsew')
+        self.hierarchy_tree.grid(row=0, column=0, sticky="nsew")
         self.hierarchy_frame.rowconfigure(0, weight=1)
         self.hierarchy_frame.columnconfigure(0, weight=1)
-        self.hierarchy_tree.heading('#0', text='Class')
-        self.hierarchy_tree.heading('class_category', text='Class Category')
-        self.hierarchy_tree.column('#0', width=260, anchor='w')
-        self.hierarchy_tree.column('class_category', width=180, anchor='w')
+        self.hierarchy_tree.heading("#0", text="Class")
+        self.hierarchy_tree.heading("class_category", text="Class Category")
+        self.hierarchy_tree.column("#0", width=260, anchor="w")
+        self.hierarchy_tree.column("class_category", width=180, anchor="w")
         self.hierarchy_item_by_class_name = {}
         self.synchronizing_hierarchy_selection = False
-        self.hierarchy_tree.bind('<<TreeviewSelect>>', self.repopulate_categories)
-        self.hierarchy_tree.bind('<Button-3>', self.show_hierarchy_context_menu)
+        self.hierarchy_tree.bind("<<TreeviewSelect>>", self.repopulate_categories)
+        self.hierarchy_tree.bind("<Button-3>", self.show_hierarchy_context_menu)
         self.classes_notebook.bind(
-            '<<NotebookTabChanged>>',
+            "<<NotebookTabChanged>>",
             self.handle_classes_notebook_changed,
         )
 
-        self.selection_var = tk.StringVar(value='instance' if self.gemstone_session_record.show_instance_side else 'class')
+        self.selection_var = tk.StringVar(
+            value=(
+                "instance"
+                if self.gemstone_session_record.show_instance_side
+                else "class"
+            )
+        )
         self.syncing_side_selection = False
-        self.selection_var.trace_add('write', lambda name, index, operation: self.switch_side())
+        self.selection_var.trace_add(
+            "write", lambda name, index, operation: self.switch_side()
+        )
         self.class_controls_frame = ttk.Frame(self)
         self.class_controls_frame.grid(
             column=0,
             row=1,
             columnspan=2,
-            sticky='ew',
+            sticky="ew",
             pady=(4, 0),
         )
         self.class_controls_frame.columnconfigure(0, weight=0)
@@ -5120,36 +5703,36 @@ class ClassSelection(FramedWidget):
         self.class_controls_frame.columnconfigure(2, weight=1)
         self.class_radiobutton = tk.Radiobutton(
             self.class_controls_frame,
-            text='Class',
+            text="Class",
             variable=self.selection_var,
-            value='class',
+            value="class",
         )
         self.instance_radiobutton = tk.Radiobutton(
             self.class_controls_frame,
-            text='Instance',
+            text="Instance",
             variable=self.selection_var,
-            value='instance',
+            value="instance",
         )
-        self.class_radiobutton.grid(column=0, row=0, sticky='w')
-        self.instance_radiobutton.grid(column=1, row=0, sticky='w')
+        self.class_radiobutton.grid(column=0, row=0, sticky="w")
+        self.instance_radiobutton.grid(column=1, row=0, sticky="w")
         self.show_class_definition_var = tk.BooleanVar(value=False)
         self.show_class_definition_checkbox = tk.Checkbutton(
             self.class_controls_frame,
-            text='Definition',
+            text="Definition",
             variable=self.show_class_definition_var,
             command=self.toggle_class_definition,
         )
         self.show_class_definition_checkbox.grid(
             column=2,
             row=0,
-            sticky='e',
+            sticky="e",
         )
         self.class_definition_frame = ttk.Frame(self.class_content_paned)
         self.class_definition_frame.rowconfigure(0, weight=1)
         self.class_definition_frame.columnconfigure(1, weight=1)
         self.class_definition_text = tk.Text(
             self.class_definition_frame,
-            wrap='word',
+            wrap="word",
             width=1,
             height=8,
         )
@@ -5160,39 +5743,37 @@ class ClassSelection(FramedWidget):
         self.class_definition_line_number_column.line_numbers_text.grid(
             column=0,
             row=0,
-            sticky='ns',
+            sticky="ns",
         )
         self.class_definition_text.grid(
             column=1,
             row=0,
-            sticky='nsew',
+            sticky="nsew",
         )
         self.class_definition_cursor_position_label = ttk.Label(
             self.class_definition_frame,
-            text='Ln 1, Col 1',
+            text="Ln 1, Col 1",
         )
         self.class_definition_cursor_position_label.grid(
             column=1,
             row=1,
-            sticky='e',
+            sticky="e",
             pady=(2, 0),
         )
-        self.class_definition_cursor_position_indicator = (
-            TextCursorPositionIndicator(
-                self.class_definition_text,
-                self.class_definition_cursor_position_label,
-            )
+        self.class_definition_cursor_position_indicator = TextCursorPositionIndicator(
+            self.class_definition_text,
+            self.class_definition_cursor_position_label,
         )
-        self.class_definition_text.config(state='disabled')
+        self.class_definition_text.config(state="disabled")
 
-        self.event_queue.subscribe('SelectedPackageChanged', self.repopulate)
-        self.event_queue.subscribe('PackagesChanged', self.repopulate)
-        self.event_queue.subscribe('ClassesChanged', self.repopulate)
-        self.event_queue.subscribe('Committed', self.repopulate)
-        self.event_queue.subscribe('Aborted', self.repopulate)
-        self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
+        self.event_queue.subscribe("SelectedPackageChanged", self.repopulate)
+        self.event_queue.subscribe("PackagesChanged", self.repopulate)
+        self.event_queue.subscribe("ClassesChanged", self.repopulate)
+        self.event_queue.subscribe("Committed", self.repopulate)
+        self.event_queue.subscribe("Aborted", self.repopulate)
+        self.event_queue.subscribe("SelectedClassChanged", self.repopulate)
 
-        self.selection_list.selection_listbox.bind('<Button-3>', self.show_context_menu)
+        self.selection_list.selection_listbox.bind("<Button-3>", self.show_context_menu)
         self.current_context_menu = None
         self.context_menu_class_name = None
 
@@ -5200,11 +5781,11 @@ class ClassSelection(FramedWidget):
         if self.syncing_side_selection:
             return
         self.gemstone_session_record.select_instance_side(self.show_instance_side)
-        self.event_queue.publish('SelectedClassChanged')
+        self.event_queue.publish("SelectedClassChanged")
 
     @property
     def show_instance_side(self):
-        return self.selection_var.get() == 'instance'  
+        return self.selection_var.get() == "instance"
 
     def repopulate_categories(self, event):
         widget = event.widget
@@ -5214,16 +5795,16 @@ class ClassSelection(FramedWidget):
                 selected_class = widget.get(selected_index)
                 self.select_class(
                     selected_class,
-                    selection_source='list',
+                    selection_source="list",
                 )
                 return
             if isinstance(widget, ttk.Treeview):
                 if self.synchronizing_hierarchy_selection:
                     return
                 selected_item_id = widget.selection()[0]
-                selected_class = widget.item(selected_item_id, 'text')
-                class_values = widget.item(selected_item_id, 'values')
-                class_category = class_values[0] if class_values else ''
+                selected_class = widget.item(selected_item_id, "text")
+                class_values = widget.item(selected_item_id, "values")
+                class_category = class_values[0] if class_values else ""
                 current_class = self.gemstone_session_record.selected_class
                 current_package = self.gemstone_session_record.selected_package
                 selected_package = class_category or current_package
@@ -5234,7 +5815,7 @@ class ClassSelection(FramedWidget):
                     return
                 self.select_class(
                     selected_class,
-                    selection_source='hierarchy',
+                    selection_source="hierarchy",
                     class_category=class_category,
                 )
         except IndexError:
@@ -5243,9 +5824,9 @@ class ClassSelection(FramedWidget):
     def repopulate(self, origin=None):
         if origin is not self:
             expected_side = (
-                'instance'
+                "instance"
                 if self.gemstone_session_record.show_instance_side
-                else 'class'
+                else "class"
             )
             if self.selection_var.get() != expected_side:
                 self.syncing_side_selection = True
@@ -5276,7 +5857,7 @@ class ClassSelection(FramedWidget):
                 class_names,
             )
             superclass_by_class_name = {
-                class_name: class_definition.get('superclass_name')
+                class_name: class_definition.get("superclass_name")
                 for class_name, class_definition in class_definition_by_class_name.items()
             }
             children_by_parent_name = {}
@@ -5290,7 +5871,7 @@ class ClassSelection(FramedWidget):
             for child_names in children_by_parent_name.values():
                 child_names.sort()
             self.add_hierarchy_children(
-                '',
+                "",
                 None,
                 children_by_parent_name,
                 class_definition_by_class_name,
@@ -5306,20 +5887,18 @@ class ClassSelection(FramedWidget):
             class_name = classes_to_query.pop()
             if class_name not in class_definition_by_class_name:
                 class_definition = {
-                    'class_name': class_name,
-                    'superclass_name': None,
-                    'package_name': '',
+                    "class_name": class_name,
+                    "superclass_name": None,
+                    "package_name": "",
                 }
                 try:
-                    fetched_class_definition = (
-                        self.gemstone_session_record.gemstone_browser_session.get_class_definition(
-                            class_name,
-                        )
+                    fetched_class_definition = self.gemstone_session_record.gemstone_browser_session.get_class_definition(
+                        class_name,
                     )
                     class_definition.update(fetched_class_definition)
                 except GemstoneDomainException:
                     pass
-                superclass_name = class_definition.get('superclass_name')
+                superclass_name = class_definition.get("superclass_name")
                 class_definition_by_class_name[class_name] = class_definition
                 if (
                     superclass_name is not None
@@ -5341,10 +5920,10 @@ class ClassSelection(FramedWidget):
                 child_class_name,
                 {},
             )
-            class_category = class_definition.get('package_name') or ''
+            class_category = class_definition.get("package_name") or ""
             child_item_id = self.hierarchy_tree.insert(
                 parent_item_id,
-                'end',
+                "end",
                 text=child_class_name,
                 values=(class_category,),
             )
@@ -5386,33 +5965,33 @@ class ClassSelection(FramedWidget):
     def select_class(
         self,
         selected_class,
-        selection_source='list',
-        class_category='',
+        selection_source="list",
+        class_category="",
     ):
         selected_package = self.gemstone_session_record.selected_package
         if (
-            selection_source == 'hierarchy'
-            and self.gemstone_session_record.browse_mode == 'categories'
+            selection_source == "hierarchy"
+            and self.gemstone_session_record.browse_mode == "categories"
         ):
             selected_package = class_category
             if not selected_package:
                 try:
-                    class_definition = (
-                        self.gemstone_session_record.gemstone_browser_session.get_class_definition(
-                            selected_class,
-                        )
+                    class_definition = self.gemstone_session_record.gemstone_browser_session.get_class_definition(
+                        selected_class,
                     )
                 except (GemstoneDomainException, GemstoneError):
                     class_definition = {}
-                selected_package = class_definition.get('package_name') or selected_package
+                selected_package = (
+                    class_definition.get("package_name") or selected_package
+                )
             if selected_package:
                 self.gemstone_session_record.select_package(selected_package)
                 self.selection_list.repopulate()
         self.gemstone_session_record.select_class(selected_class)
-        if selection_source == 'hierarchy':
-            self.gemstone_session_record.select_method_category('all')
+        if selection_source == "hierarchy":
+            self.gemstone_session_record.select_method_category("all")
         self.refresh_class_definition()
-        self.event_queue.publish('SelectedClassChanged', origin=self)
+        self.event_queue.publish("SelectedClassChanged", origin=self)
 
     def show_context_menu(self, event):
         listbox = self.selection_list.selection_listbox
@@ -5422,32 +6001,32 @@ class ClassSelection(FramedWidget):
         if self.current_context_menu:
             self.current_context_menu.unpost()
         menu = self.current_context_menu = tk.Menu(self, tearoff=0)
-        read_only = self.browser_window.application.integrated_session_state.is_mcp_busy()
+        read_only = (
+            self.browser_window.application.integrated_session_state.is_mcp_busy()
+        )
         write_command_state = tk.NORMAL
         run_command_state = tk.NORMAL
         if read_only:
             write_command_state = tk.DISABLED
             run_command_state = tk.DISABLED
-        delete_command_state = (
-            write_command_state if has_selection else tk.DISABLED
-        )
+        delete_command_state = write_command_state if has_selection else tk.DISABLED
         menu.add_command(
-            label='Add Class',
+            label="Add Class",
             command=self.add_class,
             state=write_command_state,
         )
         menu.add_command(
-            label='Delete Class',
+            label="Delete Class",
             command=self.delete_class,
             state=delete_command_state,
         )
         menu.add_command(
-            label='Find References',
+            label="Find References",
             command=self.find_references_for_selected_class,
             state=tk.NORMAL if has_selection else tk.DISABLED,
         )
         menu.add_command(
-            label='Run All Tests',
+            label="Run All Tests",
             command=self.run_all_tests,
             state=run_command_state,
         )
@@ -5458,7 +6037,7 @@ class ClassSelection(FramedWidget):
         if listbox.size() <= 0:
             return None
         selected_index = listbox.nearest(event.y)
-        listbox.selection_clear(0, 'end')
+        listbox.selection_clear(0, "end")
         listbox.selection_set(selected_index)
         return listbox.get(selected_index)
 
@@ -5473,7 +6052,7 @@ class ClassSelection(FramedWidget):
             return None
         tree.selection_set(selected_item_id)
         tree.focus(selected_item_id)
-        return tree.item(selected_item_id, 'text')
+        return tree.item(selected_item_id, "text")
 
     def find_references_for_selected_class(self):
         class_name = self.context_menu_class_name
@@ -5491,7 +6070,7 @@ class ClassSelection(FramedWidget):
             self.current_context_menu.unpost()
         menu = self.current_context_menu = tk.Menu(self, tearoff=0)
         menu.add_command(
-            label='Find References',
+            label="Find References",
             command=self.find_references_for_selected_class,
             state=tk.NORMAL if has_selection else tk.DISABLED,
         )
@@ -5500,26 +6079,26 @@ class ClassSelection(FramedWidget):
     def add_class(self):
         selected_category = self.gemstone_session_record.selected_class_category()
         if not selected_category:
-            category_label = 'dictionary'
-            if self.gemstone_session_record.browse_mode == 'categories':
-                category_label = 'category'
-            if self.gemstone_session_record.browse_mode == 'rowan':
-                category_label = 'Rowan package'
+            category_label = "dictionary"
+            if self.gemstone_session_record.browse_mode == "categories":
+                category_label = "category"
+            if self.gemstone_session_record.browse_mode == "rowan":
+                category_label = "Rowan package"
             messagebox.showerror(
-                'Add Class',
-                'Select a %s first.' % category_label,
+                "Add Class",
+                "Select a %s first." % category_label,
             )
             return
-        class_name = simpledialog.askstring('Add Class', 'Class name:')
+        class_name = simpledialog.askstring("Add Class", "Class name:")
         if class_name is None:
             return
         class_name = class_name.strip()
         if not class_name:
             return
         superclass_name = simpledialog.askstring(
-            'Add Class',
-            'Superclass name:',
-            initialvalue='Object',
+            "Add Class",
+            "Superclass name:",
+            initialvalue="Object",
         )
         if superclass_name is None:
             return
@@ -5534,9 +6113,9 @@ class ClassSelection(FramedWidget):
             self.gemstone_session_record.select_class(class_name)
             self.selection_list.repopulate()
             self.refresh_class_definition()
-            self.event_queue.publish('SelectedClassChanged', origin=self)
+            self.event_queue.publish("SelectedClassChanged", origin=self)
         except (GemstoneDomainException, GemstoneError) as error:
-            messagebox.showerror('Add Class', str(error))
+            messagebox.showerror("Add Class", str(error))
 
     def delete_class(self):
         listbox = self.selection_list.selection_listbox
@@ -5545,21 +6124,18 @@ class ClassSelection(FramedWidget):
             return
         class_name = listbox.get(selection[0])
         selected_category = self.gemstone_session_record.selected_class_category()
-        selected_category_label = 'dictionary'
-        if self.gemstone_session_record.browse_mode == 'categories':
-            selected_category_label = 'category'
-        if self.gemstone_session_record.browse_mode == 'rowan':
-            selected_category_label = 'Rowan package'
+        selected_category_label = "dictionary"
+        if self.gemstone_session_record.browse_mode == "categories":
+            selected_category_label = "category"
+        if self.gemstone_session_record.browse_mode == "rowan":
+            selected_category_label = "Rowan package"
         should_delete = messagebox.askyesno(
-            'Delete Class',
-            (
-                'Delete class %s from %s %s? '
-                'This cannot be undone.'
-            )
+            "Delete Class",
+            ("Delete class %s from %s %s? " "This cannot be undone.")
             % (
                 class_name,
                 selected_category_label,
-                selected_category or 'UserGlobals',
+                selected_category or "UserGlobals",
             ),
         )
         if not should_delete:
@@ -5570,11 +6146,11 @@ class ClassSelection(FramedWidget):
             )
             self.selection_list.repopulate()
             self.refresh_class_definition()
-            self.event_queue.publish('SelectedClassChanged', origin=self)
-            self.event_queue.publish('SelectedCategoryChanged', origin=self)
-            self.event_queue.publish('MethodSelected', origin=self)
+            self.event_queue.publish("SelectedClassChanged", origin=self)
+            self.event_queue.publish("SelectedCategoryChanged", origin=self)
+            self.event_queue.publish("MethodSelected", origin=self)
         except (DomainException, GemstoneDomainException, GemstoneError) as error:
-            messagebox.showerror('Delete Class', str(error))
+            messagebox.showerror("Delete Class", str(error))
 
     def class_definition_is_visible(self):
         return str(self.class_definition_frame) in self.class_content_paned.panes()
@@ -5621,56 +6197,54 @@ class ClassSelection(FramedWidget):
             self.ensure_class_definition_is_visible()
             self.refresh_class_definition()
             return
-        self.class_definition_text.config(state='normal')
-        self.class_definition_text.delete('1.0', tk.END)
-        self.class_definition_text.config(state='disabled')
+        self.class_definition_text.config(state="normal")
+        self.class_definition_text.delete("1.0", tk.END)
+        self.class_definition_text.config(state="disabled")
         self.remember_class_definition_sash_position()
         if self.class_definition_is_visible():
             self.class_content_paned.forget(self.class_definition_frame)
 
     def formatted_class_definition(self, class_definition):
-        class_name = class_definition.get('class_name') or ''
-        superclass_name = class_definition.get('superclass_name') or 'Object'
-        package_name = class_definition.get('package_name') or ''
-        inst_var_names = class_definition.get('inst_var_names') or []
-        class_var_names = class_definition.get('class_var_names') or []
-        class_inst_var_names = class_definition.get('class_inst_var_names') or []
-        pool_dictionary_names = class_definition.get('pool_dictionary_names') or []
+        class_name = class_definition.get("class_name") or ""
+        superclass_name = class_definition.get("superclass_name") or "Object"
+        package_name = class_definition.get("package_name") or ""
+        inst_var_names = class_definition.get("inst_var_names") or []
+        class_var_names = class_definition.get("class_var_names") or []
+        class_inst_var_names = class_definition.get("class_inst_var_names") or []
+        pool_dictionary_names = class_definition.get("pool_dictionary_names") or []
         return (
             f"{superclass_name} subclass: '{class_name}'\n"
-            f'    instVarNames: {self.symbol_array_literal(inst_var_names)}\n'
-            f'    classVars: {self.symbol_array_literal(class_var_names)}\n'
-            f'    classInstVars: {self.symbol_array_literal(class_inst_var_names)}\n'
-            f'    poolDictionaries: {self.symbol_array_literal(pool_dictionary_names)}\n'
-            f'    inDictionary: {package_name}'
+            f"    instVarNames: {self.symbol_array_literal(inst_var_names)}\n"
+            f"    classVars: {self.symbol_array_literal(class_var_names)}\n"
+            f"    classInstVars: {self.symbol_array_literal(class_inst_var_names)}\n"
+            f"    poolDictionaries: {self.symbol_array_literal(pool_dictionary_names)}\n"
+            f"    inDictionary: {package_name}"
         )
 
     def symbol_array_literal(self, symbol_names):
         if not symbol_names:
-            return '#()'
-        return '#(%s)' % ' '.join(symbol_names)
+            return "#()"
+        return "#(%s)" % " ".join(symbol_names)
 
     def refresh_class_definition(self):
         if not self.show_class_definition_var.get():
             return
-        class_definition_text = ''
+        class_definition_text = ""
         selected_class = self.gemstone_session_record.selected_class
         if selected_class:
             try:
-                class_definition = (
-                    self.gemstone_session_record.gemstone_browser_session.get_class_definition(
-                        selected_class,
-                    )
+                class_definition = self.gemstone_session_record.gemstone_browser_session.get_class_definition(
+                    selected_class,
                 )
                 class_definition_text = self.formatted_class_definition(
                     class_definition,
                 )
             except (GemstoneDomainException, GemstoneError):
-                class_definition_text = ''
-        self.class_definition_text.config(state='normal')
-        self.class_definition_text.delete('1.0', tk.END)
-        self.class_definition_text.insert('1.0', class_definition_text)
-        self.class_definition_text.config(state='disabled')
+                class_definition_text = ""
+        self.class_definition_text.config(state="normal")
+        self.class_definition_text.delete("1.0", tk.END)
+        self.class_definition_text.insert("1.0", class_definition_text)
+        self.class_definition_text.config(state="disabled")
         self.class_definition_cursor_position_indicator.update_position()
 
     def run_all_tests(self):
@@ -5680,38 +6254,45 @@ class ClassSelection(FramedWidget):
             return
         class_name = listbox.get(selection[0])
         self.browser_window.application.begin_foreground_activity(
-            'Running tests in %s...' % class_name
+            "Running tests in %s..." % class_name
         )
         try:
             try:
                 result = self.gemstone_session_record.run_gemstone_tests(class_name)
                 self.show_test_result(result)
             except (DomainException, GemstoneDomainException) as domain_exception:
-                messagebox.showerror('Run All Tests', str(domain_exception))
+                messagebox.showerror("Run All Tests", str(domain_exception))
             except GemstoneError as e:
                 self.browser_window.application.open_debugger(e)
         finally:
             self.browser_window.application.end_foreground_activity()
 
-                    
-class CategorySelection(FramedWidget):        
-    def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
-        super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
 
-        self.selection_list = InteractiveSelectionList(self, self.get_all_categories, self.get_selected_category, self.select_category)
-        self.selection_list.grid(row=0, column=0, sticky='nsew')
+class CategorySelection(FramedWidget):
+    def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
+        super().__init__(
+            parent, browser_window, event_queue, row, column, colspan=colspan
+        )
+
+        self.selection_list = InteractiveSelectionList(
+            self,
+            self.get_all_categories,
+            self.get_selected_category,
+            self.select_category,
+        )
+        self.selection_list.grid(row=0, column=0, sticky="nsew")
 
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
-        self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
-        self.event_queue.subscribe('SelectedPackageChanged', self.repopulate)
-        self.event_queue.subscribe('ClassesChanged', self.repopulate)
-        self.event_queue.subscribe('MethodsChanged', self.repopulate)
-        self.event_queue.subscribe('Committed', self.repopulate)
-        self.event_queue.subscribe('Aborted', self.repopulate)
-        self.selection_list.selection_listbox.bind('<Button-3>', self.show_context_menu)
-        
+        self.event_queue.subscribe("SelectedClassChanged", self.repopulate)
+        self.event_queue.subscribe("SelectedPackageChanged", self.repopulate)
+        self.event_queue.subscribe("ClassesChanged", self.repopulate)
+        self.event_queue.subscribe("MethodsChanged", self.repopulate)
+        self.event_queue.subscribe("Committed", self.repopulate)
+        self.event_queue.subscribe("Aborted", self.repopulate)
+        self.selection_list.selection_listbox.bind("<Button-3>", self.show_context_menu)
+
     def repopulate(self, origin=None):
         if origin is self:
             return
@@ -5719,10 +6300,12 @@ class CategorySelection(FramedWidget):
 
     def get_all_categories(self):
         if self.gemstone_session_record.selected_class:
-            return ['all'] + list(self.gemstone_session_record.get_categories_in_class(
-                self.gemstone_session_record.selected_class, 
-                self.gemstone_session_record.show_instance_side
-            ))
+            return ["all"] + list(
+                self.gemstone_session_record.get_categories_in_class(
+                    self.gemstone_session_record.selected_class,
+                    self.gemstone_session_record.show_instance_side,
+                )
+            )
         return []
 
     def get_selected_category(self):
@@ -5730,26 +6313,28 @@ class CategorySelection(FramedWidget):
 
     def select_category(self, selected_category):
         self.gemstone_session_record.select_method_category(selected_category)
-        self.event_queue.publish('SelectedCategoryChanged', origin=self)
+        self.event_queue.publish("SelectedCategoryChanged", origin=self)
 
     def show_context_menu(self, event):
         listbox = self.selection_list.selection_listbox
         has_selection = listbox.size() > 0
         if has_selection:
             selected_index = listbox.nearest(event.y)
-            listbox.selection_clear(0, 'end')
+            listbox.selection_clear(0, "end")
             listbox.selection_set(selected_index)
         menu = tk.Menu(self, tearoff=0)
-        read_only = self.browser_window.application.integrated_session_state.is_mcp_busy()
+        read_only = (
+            self.browser_window.application.integrated_session_state.is_mcp_busy()
+        )
         write_command_state = tk.DISABLED if read_only else tk.NORMAL
         delete_command_state = write_command_state if has_selection else tk.DISABLED
         menu.add_command(
-            label='Add Category',
+            label="Add Category",
             command=self.add_category,
             state=write_command_state,
         )
         menu.add_command(
-            label='Delete Category',
+            label="Delete Category",
             command=self.delete_category,
             state=delete_command_state,
         )
@@ -5758,9 +6343,9 @@ class CategorySelection(FramedWidget):
     def add_category(self):
         selected_class = self.gemstone_session_record.selected_class
         if not selected_class:
-            messagebox.showerror('Add Category', 'Select a class first.')
+            messagebox.showerror("Add Category", "Select a class first.")
             return
-        category_name = simpledialog.askstring('Add Category', 'Category name:')
+        category_name = simpledialog.askstring("Add Category", "Category name:")
         if category_name is None:
             return
         category_name = category_name.strip()
@@ -5774,9 +6359,9 @@ class CategorySelection(FramedWidget):
             )
             self.gemstone_session_record.select_method_category(category_name)
             self.selection_list.repopulate()
-            self.event_queue.publish('SelectedCategoryChanged', origin=self)
+            self.event_queue.publish("SelectedCategoryChanged", origin=self)
         except (DomainException, GemstoneDomainException, GemstoneError) as error:
-            messagebox.showerror('Add Category', str(error))
+            messagebox.showerror("Add Category", str(error))
 
     def delete_category(self):
         selected_class = self.gemstone_session_record.selected_class
@@ -5787,15 +6372,14 @@ class CategorySelection(FramedWidget):
         if not selected_indices:
             return
         selected_category = listbox.get(selected_indices[0])
-        if selected_category == 'all':
-            messagebox.showerror('Delete Category', 'The all category cannot be deleted.')
+        if selected_category == "all":
+            messagebox.showerror(
+                "Delete Category", "The all category cannot be deleted."
+            )
             return
         should_delete = messagebox.askyesno(
-            'Delete Category',
-            (
-                'Delete category %s from class %s? '
-                'This cannot be undone.'
-            )
+            "Delete Category",
+            ("Delete category %s from class %s? " "This cannot be undone.")
             % (selected_category, selected_class),
         )
         if not should_delete:
@@ -5820,17 +6404,19 @@ class CategorySelection(FramedWidget):
                 self.gemstone_session_record.select_method_category(None)
                 self.gemstone_session_record.select_method_symbol(None)
             self.selection_list.repopulate()
-            self.event_queue.publish('SelectedCategoryChanged', origin=self)
+            self.event_queue.publish("SelectedCategoryChanged", origin=self)
         except (DomainException, GemstoneDomainException, GemstoneError) as error:
-            messagebox.showerror('Delete Category', str(error))
+            messagebox.showerror("Delete Category", str(error))
 
-        
-class MethodSelection(FramedWidget):        
+
+class MethodSelection(FramedWidget):
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
-        super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
+        super().__init__(
+            parent, browser_window, event_queue, row, column, colspan=colspan
+        )
 
         self.method_content_paned = ttk.PanedWindow(self, orient=tk.VERTICAL)
-        self.method_content_paned.grid(row=0, column=0, sticky='nsew')
+        self.method_content_paned.grid(row=0, column=0, sticky="nsew")
         self.method_hierarchy_sash_fraction = 0.65
 
         self.method_selection_frame = ttk.Frame(self.method_content_paned)
@@ -5838,31 +6424,36 @@ class MethodSelection(FramedWidget):
         self.method_selection_frame.columnconfigure(0, weight=1)
         self.method_content_paned.add(self.method_selection_frame, weight=3)
 
-        self.selection_list = InteractiveSelectionList(self.method_selection_frame, self.get_all_methods, self.get_selected_method, self.select_method)
-        self.selection_list.grid(row=0, column=0, sticky='nsew')
+        self.selection_list = InteractiveSelectionList(
+            self.method_selection_frame,
+            self.get_all_methods,
+            self.get_selected_method,
+            self.select_method,
+        )
+        self.selection_list.grid(row=0, column=0, sticky="nsew")
         self.controls_frame = ttk.Frame(self)
-        self.controls_frame.grid(row=1, column=0, sticky='ew')
+        self.controls_frame.grid(row=1, column=0, sticky="ew")
         self.controls_frame.columnconfigure(0, weight=1)
         self.show_method_hierarchy_var = tk.BooleanVar(value=False)
         self.show_method_hierarchy_checkbox = tk.Checkbutton(
             self.controls_frame,
-            text='Inheritance',
+            text="Inheritance",
             variable=self.show_method_hierarchy_var,
             command=self.toggle_method_hierarchy,
         )
-        self.show_method_hierarchy_checkbox.grid(row=0, column=0, sticky='w')
+        self.show_method_hierarchy_checkbox.grid(row=0, column=0, sticky="w")
         self.method_hierarchy_frame = ttk.Frame(self.method_content_paned)
         self.method_hierarchy_frame.rowconfigure(0, weight=1)
         self.method_hierarchy_frame.columnconfigure(0, weight=1)
         self.method_hierarchy_tree = ttk.Treeview(
             self.method_hierarchy_frame,
-            show='tree',
+            show="tree",
         )
-        self.method_hierarchy_tree.heading('#0', text='Class')
-        self.method_hierarchy_tree.column('#0', width=240, anchor='w')
-        self.method_hierarchy_tree.grid(row=0, column=0, sticky='nsew')
+        self.method_hierarchy_tree.heading("#0", text="Class")
+        self.method_hierarchy_tree.column("#0", width=240, anchor="w")
+        self.method_hierarchy_tree.grid(row=0, column=0, sticky="nsew")
         self.method_hierarchy_tree.bind(
-            '<<TreeviewSelect>>',
+            "<<TreeviewSelect>>",
             self.method_hierarchy_selected,
         )
         self.syncing_method_hierarchy_selection = False
@@ -5872,16 +6463,16 @@ class MethodSelection(FramedWidget):
         self.columnconfigure(0, weight=1)
 
         # Subscribe to event_queue events
-        self.event_queue.subscribe('SelectedPackageChanged', self.repopulate)
-        self.event_queue.subscribe('SelectedClassChanged', self.repopulate)
-        self.event_queue.subscribe('SelectedCategoryChanged', self.repopulate)
-        self.event_queue.subscribe('ClassesChanged', self.repopulate)
-        self.event_queue.subscribe('MethodsChanged', self.repopulate)
-        self.event_queue.subscribe('Committed', self.repopulate)
-        self.event_queue.subscribe('MethodSelected', self.repopulate)
-        self.event_queue.subscribe('Aborted', self.repopulate)
+        self.event_queue.subscribe("SelectedPackageChanged", self.repopulate)
+        self.event_queue.subscribe("SelectedClassChanged", self.repopulate)
+        self.event_queue.subscribe("SelectedCategoryChanged", self.repopulate)
+        self.event_queue.subscribe("ClassesChanged", self.repopulate)
+        self.event_queue.subscribe("MethodsChanged", self.repopulate)
+        self.event_queue.subscribe("Committed", self.repopulate)
+        self.event_queue.subscribe("MethodSelected", self.repopulate)
+        self.event_queue.subscribe("Aborted", self.repopulate)
 
-        self.selection_list.selection_listbox.bind('<Button-3>', self.show_context_menu)
+        self.selection_list.selection_listbox.bind("<Button-3>", self.show_context_menu)
 
     def populate_text_editor(self, event):
         selected_listbox = event.widget
@@ -5891,11 +6482,11 @@ class MethodSelection(FramedWidget):
 
             self.gemstone_session_record.select_method_symbol(selected_method)
             self.selection_changed = False
-            self.event_queue.publish('MethodSelected', origin=self)
+            self.event_queue.publish("MethodSelected", origin=self)
 
         except IndexError:
             pass
-        
+
     def repopulate(self, origin=None):
         if origin is not self:
             self.selection_list.repopulate()
@@ -5912,75 +6503,69 @@ class MethodSelection(FramedWidget):
         self.gemstone_session_record.select_method_symbol(selected_method)
         if self.show_method_hierarchy_var.get():
             self.refresh_method_hierarchy()
-        self.event_queue.publish('MethodSelected', origin=self)
+        self.event_queue.publish("MethodSelected", origin=self)
 
     def new_method_argument_names(self, method_selector):
         selector_tokens = self.keyword_selector_tokens(method_selector)
         if selector_tokens:
-            return [
-                f'argument{index + 1}'
-                for index in range(len(selector_tokens))
-            ]
+            return [f"argument{index + 1}" for index in range(len(selector_tokens))]
         if self.is_binary_selector(method_selector):
-            return ['argument1']
+            return ["argument1"]
         return []
 
     def keyword_selector_tokens(self, method_selector):
-        if ':' not in method_selector:
+        if ":" not in method_selector:
             return []
-        selector_parts = method_selector.split(':')
-        if not selector_parts or selector_parts[-1] != '':
+        selector_parts = method_selector.split(":")
+        if not selector_parts or selector_parts[-1] != "":
             return []
         keyword_tokens = []
         for selector_part in selector_parts[:-1]:
             is_valid_selector_part = re.fullmatch(
-                r'[A-Za-z][A-Za-z0-9_]*',
+                r"[A-Za-z][A-Za-z0-9_]*",
                 selector_part,
             )
             if is_valid_selector_part is None:
                 return []
-            keyword_tokens.append(f'{selector_part}:')
+            keyword_tokens.append(f"{selector_part}:")
         return keyword_tokens
 
     def is_binary_selector(self, method_selector):
         if not method_selector:
             return False
-        binary_characters = '+-*/\\~<>=@%,|&?!'
-        return all(
-            character in binary_characters
-            for character in method_selector
-        )
+        binary_characters = "+-*/\\~<>=@%,|&?!"
+        return all(character in binary_characters for character in method_selector)
 
     def new_method_header(self, method_selector):
         selector_tokens = self.keyword_selector_tokens(method_selector)
         argument_names = self.new_method_argument_names(method_selector)
         if selector_tokens:
-            return ' '.join(
+            return " ".join(
                 [
-                    f'{selector_tokens[token_index]} {argument_names[token_index]}'
+                    f"{selector_tokens[token_index]} {argument_names[token_index]}"
                     for token_index in range(len(selector_tokens))
                 ]
             )
         if self.is_binary_selector(method_selector):
-            return f'{method_selector} {argument_names[0]}'
+            return f"{method_selector} {argument_names[0]}"
         return method_selector
 
     def new_method_source(self, method_selector):
         method_header = self.new_method_header(method_selector)
-        return f'{method_header}\n    ^self'
+        return f"{method_header}\n    ^self"
 
     def add_method(self):
         selected_class = self.gemstone_session_record.selected_class
         if not selected_class:
-            messagebox.showerror('Add Method', 'Select a class first.')
+            messagebox.showerror("Add Method", "Select a class first.")
             return
-        method_selector = simpledialog.askstring('Add Method', 'Method selector:')
+        method_selector = simpledialog.askstring("Add Method", "Method selector:")
         if method_selector is None:
             return
         method_selector = method_selector.strip()
         if not method_selector:
             return
-        method_category = 'as yet unclassified'
+        method_category = "as yet unclassified"
         show_instance_side = self.gemstone_session_record.show_instance_side
         try:
             method_source = self.new_method_source(method_selector)
@@ -5994,11 +6579,11 @@ class MethodSelection(FramedWidget):
             self.gemstone_session_record.select_method_symbol(method_selector)
             if self.show_method_hierarchy_var.get():
                 self.refresh_method_hierarchy()
-            self.event_queue.publish('SelectedClassChanged', origin=self)
-            self.event_queue.publish('SelectedCategoryChanged', origin=self)
-            self.event_queue.publish('MethodSelected', origin=self)
+            self.event_queue.publish("SelectedClassChanged", origin=self)
+            self.event_queue.publish("SelectedCategoryChanged", origin=self)
+            self.event_queue.publish("MethodSelected", origin=self)
         except (GemstoneDomainException, GemstoneError) as error:
-            messagebox.showerror('Add Method', str(error))
+            messagebox.showerror("Add Method", str(error))
 
     def toggle_method_hierarchy(self):
         if self.show_method_hierarchy_var.get():
@@ -6057,16 +6642,16 @@ class MethodSelection(FramedWidget):
             *self.method_hierarchy_tree.get_children(),
         )
         inheritance_entries = self.method_inheritance_entries()
-        parent_item_id = ''
+        parent_item_id = ""
         selected_item_id = None
         selected_class = self.gemstone_session_record.selected_class
         for inheritance_entry in inheritance_entries:
             item_id = self.method_hierarchy_tree.insert(
                 parent_item_id,
-                'end',
-                text=inheritance_entry['class_name'],
+                "end",
+                text=inheritance_entry["class_name"],
             )
-            if inheritance_entry['class_name'] == selected_class:
+            if inheritance_entry["class_name"] == selected_class:
                 selected_item_id = item_id
             parent_item_id = item_id
         if selected_item_id is None and parent_item_id:
@@ -6097,8 +6682,8 @@ class MethodSelection(FramedWidget):
             if compiled_method is not None:
                 inheritance_entries.append(
                     {
-                        'class_name': class_name,
-                        'method_selector': method_selector,
+                        "class_name": class_name,
+                        "method_selector": method_selector,
                     },
                 )
         return inheritance_entries
@@ -6109,14 +6694,12 @@ class MethodSelection(FramedWidget):
         while current_class_name:
             superclass_chain.append(current_class_name)
             try:
-                class_definition = (
-                    self.gemstone_session_record.gemstone_browser_session.get_class_definition(
-                        current_class_name,
-                    )
+                class_definition = self.gemstone_session_record.gemstone_browser_session.get_class_definition(
+                    current_class_name,
                 )
             except GemstoneDomainException:
                 class_definition = {}
-            current_class_name = class_definition.get('superclass_name')
+            current_class_name = class_definition.get("superclass_name")
         superclass_chain.reverse()
         return superclass_chain
 
@@ -6127,7 +6710,7 @@ class MethodSelection(FramedWidget):
             selected_item_id = event.widget.selection()[0]
         except IndexError:
             return
-        selected_class = event.widget.item(selected_item_id, 'text')
+        selected_class = event.widget.item(selected_item_id, "text")
         selected_method = self.gemstone_session_record.selected_method_symbol
         if not selected_class or not selected_method:
             return
@@ -6139,12 +6722,10 @@ class MethodSelection(FramedWidget):
                 selected_method,
             )
         else:
-            selected_method_category = (
-                self.gemstone_session_record.gemstone_browser_session.get_method_category(
-                    selected_class,
-                    selected_method,
-                    show_instance_side,
-                )
+            selected_method_category = self.gemstone_session_record.gemstone_browser_session.get_method_category(
+                selected_class,
+                selected_method,
+                show_instance_side,
             )
             self.gemstone_session_record.select_instance_side(show_instance_side)
             self.gemstone_session_record.select_class(selected_class)
@@ -6152,53 +6733,51 @@ class MethodSelection(FramedWidget):
                 selected_method_category,
             )
             self.gemstone_session_record.select_method_symbol(selected_method)
-        self.event_queue.publish('SelectedClassChanged', origin=self)
-        self.event_queue.publish('SelectedCategoryChanged', origin=self)
-        self.event_queue.publish('MethodSelected', origin=self)
+        self.event_queue.publish("SelectedClassChanged", origin=self)
+        self.event_queue.publish("SelectedCategoryChanged", origin=self)
+        self.event_queue.publish("MethodSelected", origin=self)
 
     def show_context_menu(self, event):
         listbox = self.selection_list.selection_listbox
         has_selection = listbox.size() > 0
         if has_selection:
             idx = listbox.nearest(event.y)
-            listbox.selection_clear(0, 'end')
+            listbox.selection_clear(0, "end")
             listbox.selection_set(idx)
         menu = tk.Menu(self, tearoff=0)
-        read_only = self.browser_window.application.integrated_session_state.is_mcp_busy()
+        read_only = (
+            self.browser_window.application.integrated_session_state.is_mcp_busy()
+        )
         write_command_state = tk.NORMAL
         run_command_state = tk.NORMAL
         if read_only:
             write_command_state = tk.DISABLED
             run_command_state = tk.DISABLED
-        delete_command_state = (
-            write_command_state if has_selection else tk.DISABLED
-        )
+        delete_command_state = write_command_state if has_selection else tk.DISABLED
         menu.add_command(
-            label='Add Method',
+            label="Add Method",
             command=self.add_method,
             state=write_command_state,
         )
         menu.add_command(
-            label='Delete Method',
+            label="Delete Method",
             command=self.delete_method,
             state=delete_command_state,
         )
         menu.add_separator()
         menu.add_command(
-            label='Run Test',
+            label="Run Test",
             command=self.run_test,
             state=run_command_state,
         )
         menu.add_command(
-            label='Debug Test',
+            label="Debug Test",
             command=self.debug_test,
             state=run_command_state,
         )
-        covering_tests_state = (
-            run_command_state if has_selection else tk.DISABLED
-        )
+        covering_tests_state = run_command_state if has_selection else tk.DISABLED
         menu.add_command(
-            label='Covering Tests',
+            label="Covering Tests",
             command=self.open_covering_tests,
             state=covering_tests_state,
         )
@@ -6213,11 +6792,8 @@ class MethodSelection(FramedWidget):
         show_instance_side = self.gemstone_session_record.show_instance_side
         method_selector = listbox.get(selection[0])
         should_delete = messagebox.askyesno(
-            'Delete Method',
-            (
-                'Delete %s>>%s? This cannot be undone.'
-            )
-            % (class_name, method_selector),
+            "Delete Method",
+            ("Delete %s>>%s? This cannot be undone.") % (class_name, method_selector),
         )
         if not should_delete:
             return
@@ -6230,10 +6806,10 @@ class MethodSelection(FramedWidget):
             self.selection_list.repopulate()
             if self.show_method_hierarchy_var.get():
                 self.refresh_method_hierarchy()
-            self.event_queue.publish('SelectedCategoryChanged', origin=self)
-            self.event_queue.publish('MethodSelected', origin=self)
+            self.event_queue.publish("SelectedCategoryChanged", origin=self)
+            self.event_queue.publish("MethodSelected", origin=self)
         except (DomainException, GemstoneDomainException, GemstoneError) as error:
-            messagebox.showerror('Delete Method', str(error))
+            messagebox.showerror("Delete Method", str(error))
 
     def run_test(self):
         listbox = self.selection_list.selection_listbox
@@ -6243,7 +6819,7 @@ class MethodSelection(FramedWidget):
         class_name = self.gemstone_session_record.selected_class
         method_selector = listbox.get(selection[0])
         self.browser_window.application.begin_foreground_activity(
-            'Running test %s>>%s...' % (class_name, method_selector)
+            "Running test %s>>%s..." % (class_name, method_selector)
         )
         try:
             try:
@@ -6253,7 +6829,7 @@ class MethodSelection(FramedWidget):
                 )
                 self.show_test_result(result)
             except (DomainException, GemstoneDomainException) as domain_exception:
-                messagebox.showerror('Run Test', str(domain_exception))
+                messagebox.showerror("Run Test", str(domain_exception))
             except GemstoneError as e:
                 self.browser_window.application.open_debugger(e)
         finally:
@@ -6267,7 +6843,7 @@ class MethodSelection(FramedWidget):
         class_name = self.gemstone_session_record.selected_class
         method_selector = listbox.get(selection[0])
         self.browser_window.application.begin_foreground_activity(
-            'Debugging test %s>>%s...' % (class_name, method_selector)
+            "Debugging test %s>>%s..." % (class_name, method_selector)
         )
         try:
             try:
@@ -6276,7 +6852,7 @@ class MethodSelection(FramedWidget):
                     method_selector,
                 )
             except (DomainException, GemstoneDomainException) as domain_exception:
-                messagebox.showerror('Debug Test', str(domain_exception))
+                messagebox.showerror("Debug Test", str(domain_exception))
             except GemstoneError as e:
                 self.browser_window.application.open_debugger(e)
         finally:
@@ -6293,7 +6869,7 @@ class MethodSelection(FramedWidget):
             method_selector,
         )
 
-        
+
 class NavigationHistory:
     def __init__(self, maximum_entries=200):
         self.maximum_entries = maximum_entries
@@ -6349,9 +6925,9 @@ class NavigationHistory:
         for index, entry in enumerate(self.entries):
             entry_details.append(
                 {
-                    'history_index': index,
-                    'entry': entry,
-                    'is_current': index == self.current_index,
+                    "history_index": index,
+                    "entry": entry,
+                    "is_current": index == self.current_index,
                 },
             )
         return entry_details
@@ -6364,7 +6940,7 @@ class DeduplicatedTabRegistry:
         self.key_by_tab_id = {}
         self.label_by_key = {}
 
-    def register_tab(self, tab_key, tab_widget, tab_label=''):
+    def register_tab(self, tab_key, tab_widget, tab_label=""):
         tab_id = str(tab_widget)
         self.tabs_by_key[tab_key] = tab_widget
         self.key_by_tab_id[tab_id] = tab_key
@@ -6395,70 +6971,72 @@ class DeduplicatedTabRegistry:
     def label_for_key(self, tab_key):
         if tab_key in self.label_by_key:
             return self.label_by_key[tab_key]
-        return ''
+        return ""
 
 
 class MethodEditor(FramedWidget):
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
-        super().__init__(parent, browser_window, event_queue, row, column, colspan=colspan)
+        super().__init__(
+            parent, browser_window, event_queue, row, column, colspan=colspan
+        )
 
         self.current_menu = None
         self.method_navigation_history = NavigationHistory()
         self.history_choice_indices = []
 
         self.navigation_bar = ttk.Frame(self)
-        self.navigation_bar.grid(row=0, column=0, sticky='ew')
+        self.navigation_bar.grid(row=0, column=0, sticky="ew")
         self.navigation_bar.columnconfigure(0, weight=1)
 
-        self.label_bar = tk.Label(self.navigation_bar, text='Method Editor', anchor='w')
-        self.label_bar.grid(row=0, column=0, sticky='ew')
+        self.label_bar = tk.Label(self.navigation_bar, text="Method Editor", anchor="w")
+        self.label_bar.grid(row=0, column=0, sticky="ew")
 
         self.back_button = ttk.Button(
             self.navigation_bar,
-            text='Back',
+            text="Back",
             command=self.go_to_previous_method,
         )
         self.back_button.grid(row=0, column=1, padx=(6, 0))
 
         self.forward_button = ttk.Button(
             self.navigation_bar,
-            text='Forward',
+            text="Forward",
             command=self.go_to_next_method,
         )
         self.forward_button.grid(row=0, column=2, padx=(4, 0))
 
         self.history_combobox = ttk.Combobox(
             self.navigation_bar,
-            state='readonly',
+            state="readonly",
             width=44,
         )
-        self.history_combobox.grid(row=0, column=3, padx=(6, 0), sticky='e')
+        self.history_combobox.grid(row=0, column=3, padx=(6, 0), sticky="e")
         self.history_combobox.bind(
-            '<<ComboboxSelected>>',
+            "<<ComboboxSelected>>",
             self.jump_to_selected_history_entry,
         )
 
         self.editor_notebook = ttk.Notebook(self)
-        self.editor_notebook.grid(row=1, column=0, sticky='nsew')
+        self.editor_notebook.grid(row=1, column=0, sticky="nsew")
         self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=1)
 
-        self.editor_notebook.bind('<Motion>', self.on_tab_motion)
-        self.editor_notebook.bind('<Leave>', self.on_tab_leave)
+        self.editor_notebook.bind("<Motion>", self.on_tab_motion)
+        self.editor_notebook.bind("<Leave>", self.on_tab_leave)
 
         self.open_tab_registry = DeduplicatedTabRegistry(self.editor_notebook)
         self.open_tabs = self.open_tab_registry.tabs_by_key
 
-        self.event_queue.subscribe('MethodSelected', self.open_method)
+        self.event_queue.subscribe("MethodSelected", self.open_method)
         self.event_queue.subscribe(
-            'MethodSelected',
+            "MethodSelected",
             self.record_method_navigation,
         )
-        self.event_queue.subscribe('MethodsChanged', self.repopulate)
-        self.event_queue.subscribe('Committed', self.repopulate)
-        self.event_queue.subscribe('Aborted', self.repopulate)
+        self.event_queue.subscribe("MethodsChanged", self.repopulate)
+        self.event_queue.subscribe("Committed", self.repopulate)
+        self.event_queue.subscribe("Aborted", self.repopulate)
         self.event_queue.subscribe(
-            'McpBusyStateChanged',
+            "McpBusyStateChanged",
             self.handle_mcp_busy_state_changed,
         )
         self.refresh_navigation_controls()
@@ -6499,8 +7077,8 @@ class MethodEditor(FramedWidget):
     def method_context_label(self, method_context):
         class_name, show_instance_side, method_symbol = method_context
         if show_instance_side:
-            return f'{class_name}>>{method_symbol}'
-        return f'{class_name} class>>{method_symbol}'
+            return f"{class_name}>>{method_symbol}"
+        return f"{class_name} class>>{method_symbol}"
 
     def record_method_navigation(self, origin=None):
         self.method_navigation_history.record(self.current_method_context())
@@ -6523,18 +7101,18 @@ class MethodEditor(FramedWidget):
         self.history_choice_indices = []
         history_labels = []
         for history_entry in reversed(history_entries):
-            history_index = history_entry['history_index']
-            method_context = history_entry['entry']
+            history_index = history_entry["history_index"]
+            method_context = history_entry["entry"]
             history_labels.append(self.method_context_label(method_context))
             self.history_choice_indices.append(history_index)
-        self.history_combobox['values'] = history_labels
+        self.history_combobox["values"] = history_labels
 
         if len(history_labels) > 0:
             current_history_index = self.method_navigation_history.current_index
             selected_index = len(history_labels) - current_history_index - 1
             self.history_combobox.current(selected_index)
         if len(history_labels) == 0:
-            self.history_combobox.set('')
+            self.history_combobox.set("")
 
     def jump_to_method_context(self, method_context):
         if method_context is None:
@@ -6599,24 +7177,24 @@ class MethodEditor(FramedWidget):
         for open_tab in self.open_tabs.values():
             open_tab.code_panel.set_read_only(read_only)
 
-    def handle_mcp_busy_state_changed(self, is_busy=False, operation_name=''):
+    def handle_mcp_busy_state_changed(self, is_busy=False, operation_name=""):
         self.set_read_only(is_busy)
 
     def on_tab_motion(self, event):
         try:
-            tab_index = self.editor_notebook.index('@%d,%d' % (event.x, event.y))
+            tab_index = self.editor_notebook.index("@%d,%d" % (event.x, event.y))
             if tab_index is not None:
                 tab_key = self.get_tab(tab_index).tab_key
                 if tab_key[1]:
-                    text = f'{tab_key[0]}>>{tab_key[2]}'
+                    text = f"{tab_key[0]}>>{tab_key[2]}"
                 else:
-                    text = f'{tab_key[0]} class>>{tab_key[2]}'
+                    text = f"{tab_key[0]} class>>{tab_key[2]}"
                 self.label_bar.config(text=text)
         except tk.TclError:
             pass
 
     def on_tab_leave(self, event):
-        self.label_bar.config(text='Method Editor')
+        self.label_bar.config(text="Method Editor")
 
 
 class CodePanel(tk.Frame):
@@ -6626,16 +7204,16 @@ class CodePanel(tk.Frame):
         self.application = application
         self.tab_key = tab_key
 
-        self.text_editor = tk.Text(self, tabs=('4',), wrap='none', undo=True)
+        self.text_editor = tk.Text(self, tabs=("4",), wrap="none", undo=True)
 
         self.scrollbar_y = tk.Scrollbar(
             self,
-            orient='vertical',
+            orient="vertical",
             command=self.text_editor.yview,
         )
         self.scrollbar_x = tk.Scrollbar(
             self,
-            orient='horizontal',
+            orient="horizontal",
             command=self.text_editor.xview,
         )
         self.line_number_column = CodeLineNumberColumn(
@@ -6650,16 +7228,16 @@ class CodePanel(tk.Frame):
         self.line_number_column.line_numbers_text.grid(
             row=0,
             column=0,
-            sticky='ns',
+            sticky="ns",
         )
-        self.text_editor.grid(row=0, column=1, sticky='nsew')
-        self.scrollbar_y.grid(row=0, column=2, sticky='ns')
-        self.scrollbar_x.grid(row=1, column=1, sticky='ew')
-        self.cursor_position_label = ttk.Label(self, text='Ln 1, Col 1')
+        self.text_editor.grid(row=0, column=1, sticky="nsew")
+        self.scrollbar_y.grid(row=0, column=2, sticky="ns")
+        self.scrollbar_x.grid(row=1, column=1, sticky="ew")
+        self.cursor_position_label = ttk.Label(self, text="Ln 1, Col 1")
         self.cursor_position_label.grid(
             row=2,
             column=1,
-            sticky='e',
+            sticky="e",
             pady=(2, 0),
         )
         self.cursor_position_indicator = TextCursorPositionIndicator(
@@ -6675,20 +7253,22 @@ class CodePanel(tk.Frame):
         self.text_editor.tag_configure("smalltalk_string", foreground="orange")
         self.text_editor.tag_configure("highlight", background="darkgrey")
         self.text_editor.tag_configure(
-            'breakpoint_marker',
-            background='#ff6b6b',
-            foreground='black',
+            "breakpoint_marker",
+            background="#ff6b6b",
+            foreground="black",
         )
 
-        self.text_editor.bind('<Control-a>', self.select_all_text_editor)
-        self.text_editor.bind('<Control-A>', self.select_all_text_editor)
-        self.text_editor.bind('<Control-c>', self.copy_text_editor_selection)
-        self.text_editor.bind('<Control-C>', self.copy_text_editor_selection)
-        self.text_editor.bind('<Control-v>', self.paste_into_text_editor)
-        self.text_editor.bind('<Control-V>', self.paste_into_text_editor)
-        self.text_editor.bind('<Control-z>', self.undo_text_editor)
-        self.text_editor.bind('<Control-Z>', self.undo_text_editor)
-        self.text_editor.bind('<KeyPress>', self.replace_selected_text_editor_before_typing, add='+')
+        self.text_editor.bind("<Control-a>", self.select_all_text_editor)
+        self.text_editor.bind("<Control-A>", self.select_all_text_editor)
+        self.text_editor.bind("<Control-c>", self.copy_text_editor_selection)
+        self.text_editor.bind("<Control-C>", self.copy_text_editor_selection)
+        self.text_editor.bind("<Control-v>", self.paste_into_text_editor)
+        self.text_editor.bind("<Control-V>", self.paste_into_text_editor)
+        self.text_editor.bind("<Control-z>", self.undo_text_editor)
+        self.text_editor.bind("<Control-Z>", self.undo_text_editor)
+        self.text_editor.bind(
+            "<KeyPress>", self.replace_selected_text_editor_before_typing, add="+"
+        )
         self.text_editor.bind("<KeyRelease>", self.on_key_release)
         self.text_editor.bind("<Button-3>", self.open_text_menu)
 
@@ -6717,9 +7297,7 @@ class CodePanel(tk.Frame):
         class_name = gemstone_session_record.selected_class
         method_selector = gemstone_session_record.selected_method_symbol
         show_instance_side = gemstone_session_record.show_instance_side
-        has_complete_context = (
-            class_name is not None and method_selector is not None
-        )
+        has_complete_context = class_name is not None and method_selector is not None
         if not has_complete_context:
             return None
         return (class_name, show_instance_side, method_selector)
@@ -6728,51 +7306,51 @@ class CodePanel(tk.Frame):
         try:
             return self.text_editor.get(tk.SEL_FIRST, tk.SEL_LAST).strip()
         except tk.TclError:
-            return ''
+            return ""
 
     def select_all_text_editor(self, event=None):
         select_all_in_text_widget(self.text_editor)
-        return 'break'
+        return "break"
 
     def copy_text_editor_selection(self, event=None):
         copy_selection_from_text_widget(self, self.text_editor)
-        return 'break'
+        return "break"
 
     def paste_into_text_editor(self, event=None):
         paste_text_into_widget(self, self.text_editor)
-        return 'break'
+        return "break"
 
     def undo_text_editor(self, event=None):
         undo_text_widget_edit(self.text_editor)
-        return 'break'
+        return "break"
 
     def replace_selected_text_editor_before_typing(self, event):
         replace_selected_range_before_typing(self.text_editor, event)
 
     def selector_token(self, token_text):
-        candidate = (token_text or '').strip()
+        candidate = (token_text or "").strip()
         if not candidate:
             return None
         is_identifier_selector = re.fullmatch(
-            r'[A-Za-z_]\w*(?::[A-Za-z_]\w*)*:?',
+            r"[A-Za-z_]\w*(?::[A-Za-z_]\w*)*:?",
             candidate,
         )
         if is_identifier_selector:
             return candidate
         keyword_tokens = re.findall(
-            r'[A-Za-z_]\w*:',
+            r"[A-Za-z_]\w*:",
             candidate,
         )
         if keyword_tokens:
-            return ''.join(keyword_tokens)
-        is_binary_selector = re.fullmatch(r'[-+*/\\~<>=@%,|&?!]+', candidate)
+            return "".join(keyword_tokens)
+        is_binary_selector = re.fullmatch(r"[-+*/\\~<>=@%,|&?!]+", candidate)
         if is_binary_selector:
             return candidate
         return None
 
     def cursor_offset(self):
         cursor_index = self.text_editor.index(tk.INSERT)
-        characters = self.text_editor.count('1.0', cursor_index, 'chars')
+        characters = self.text_editor.count("1.0", cursor_index, "chars")
         if not characters:
             return 0
         return int(characters[0])
@@ -6788,30 +7366,28 @@ class CodePanel(tk.Frame):
             show_instance_side,
         )
         cursor_offset = self.cursor_offset()
-        for send_entry in sends_payload.get('sends', []):
-            starts_before_or_at_cursor = (
-                send_entry['start_offset'] <= cursor_offset
-            )
-            ends_after_cursor = cursor_offset < send_entry['end_offset']
+        for send_entry in sends_payload.get("sends", []):
+            starts_before_or_at_cursor = send_entry["start_offset"] <= cursor_offset
+            ends_after_cursor = cursor_offset < send_entry["end_offset"]
             if starts_before_or_at_cursor and ends_after_cursor:
                 return send_entry
         return None
 
     def word_under_cursor(self):
-        line, column = self.text_editor.index(tk.INSERT).split('.')
-        line_text = self.text_editor.get(f'{line}.0', f'{line}.end')
+        line, column = self.text_editor.index(tk.INSERT).split(".")
+        line_text = self.text_editor.get(f"{line}.0", f"{line}.end")
         cursor_column = int(column)
         token_matches = [
             match
             for match in re.finditer(
-                r'[-+*/\\~<>=@%,|&?!]+|[A-Za-z_]\w*:?',
+                r"[-+*/\\~<>=@%,|&?!]+|[A-Za-z_]\w*:?",
                 line_text,
             )
             if match.start() <= cursor_column <= match.end()
         ]
         token_match = token_matches[0] if token_matches else None
         if token_match is None:
-            return ''
+            return ""
         return token_match.group(0)
 
     def selector_for_navigation(self):
@@ -6821,7 +7397,7 @@ class CodePanel(tk.Frame):
             return selector_from_selection
         send_entry = self.selector_entry_at_cursor()
         if send_entry is not None:
-            return send_entry['selector']
+            return send_entry["selector"]
         selector_from_cursor = self.selector_token(self.word_under_cursor())
         if selector_from_cursor is not None:
             return selector_from_cursor
@@ -6831,7 +7407,7 @@ class CodePanel(tk.Frame):
         return method_context[2]
 
     def open_text_menu(self, event):
-        self.text_editor.mark_set(tk.INSERT, f'@{event.x},{event.y}')
+        self.text_editor.mark_set(tk.INSERT, f"@{event.x},{event.y}")
         if self.current_context_menu:
             self.current_context_menu.unpost()
 
@@ -6843,20 +7419,20 @@ class CodePanel(tk.Frame):
             write_command_state = tk.DISABLED
             run_command_state = tk.DISABLED
         self.current_context_menu.add_command(
-            label='Select All',
+            label="Select All",
             command=self.select_all_text_editor,
         )
         self.current_context_menu.add_command(
-            label='Copy',
+            label="Copy",
             command=self.copy_text_editor_selection,
         )
         self.current_context_menu.add_command(
-            label='Paste',
+            label="Paste",
             command=self.paste_into_text_editor,
             state=write_command_state,
         )
         self.current_context_menu.add_command(
-            label='Undo',
+            label="Undo",
             command=self.undo_text_editor,
             state=write_command_state,
         )
@@ -6864,26 +7440,26 @@ class CodePanel(tk.Frame):
         active_editor_tab = self.active_editor_tab()
         if active_editor_tab is not None:
             self.current_context_menu.add_command(
-                label='Jump to Class',
+                label="Jump to Class",
                 command=self.jump_to_method_context,
             )
             self.current_context_menu.add_separator()
             self.current_context_menu.add_command(
-                label='Save',
+                label="Save",
                 command=self.save_current_tab,
                 state=write_command_state,
             )
             self.current_context_menu.add_command(
-                label='Close',
+                label="Close",
                 command=self.close_current_tab,
             )
             self.current_context_menu.add_command(
-                label='Set Breakpoint Here',
+                label="Set Breakpoint Here",
                 command=self.set_breakpoint_at_cursor,
                 state=write_command_state,
             )
             self.current_context_menu.add_command(
-                label='Clear Breakpoint Here',
+                label="Clear Breakpoint Here",
                 command=self.clear_breakpoint_at_cursor,
                 state=write_command_state,
             )
@@ -6891,61 +7467,61 @@ class CodePanel(tk.Frame):
         selected_text = self.selected_text()
         if selected_text:
             self.current_context_menu.add_command(
-                label='Run',
+                label="Run",
                 command=lambda: self.run_selected_text(selected_text),
                 state=run_command_state,
             )
             self.current_context_menu.add_command(
-                label='Inspect',
+                label="Inspect",
                 command=lambda: self.inspect_selected_text(selected_text),
                 state=run_command_state,
             )
             self.current_context_menu.add_command(
-                label='Graph Inspect',
+                label="Graph Inspect",
                 command=lambda: self.graph_inspect_selected_text(selected_text),
                 state=run_command_state,
             )
             self.current_context_menu.add_separator()
         self.current_context_menu.add_command(
-            label='Find Implementors',
+            label="Find Implementors",
             command=self.open_implementors_from_source,
         )
         self.current_context_menu.add_command(
-            label='Find Senders',
+            label="Find Senders",
             command=self.open_senders_from_source,
         )
         self.current_context_menu.add_command(
-            label='Find References',
+            label="Find References",
             command=self.find_references_from_source,
         )
         self.current_context_menu.add_separator()
         self.current_context_menu.add_command(
-            label='Apply Rename Method',
+            label="Apply Rename Method",
             command=self.apply_method_rename,
             state=write_command_state,
         )
         self.current_context_menu.add_command(
-            label='Apply Move Method',
+            label="Apply Move Method",
             command=self.apply_method_move,
             state=write_command_state,
         )
         self.current_context_menu.add_command(
-            label='Apply Add Parameter',
+            label="Apply Add Parameter",
             command=self.apply_method_add_parameter,
             state=write_command_state,
         )
         self.current_context_menu.add_command(
-            label='Apply Remove Parameter',
+            label="Apply Remove Parameter",
             command=self.apply_method_remove_parameter,
             state=write_command_state,
         )
         self.current_context_menu.add_command(
-            label='Apply Extract Method',
+            label="Apply Extract Method",
             command=self.apply_method_extract,
             state=write_command_state,
         )
         self.current_context_menu.add_command(
-            label='Apply Inline Method',
+            label="Apply Inline Method",
             command=self.apply_method_inline,
             state=write_command_state,
         )
@@ -6955,15 +7531,15 @@ class CodePanel(tk.Frame):
         parent_widget = self.master
         has_editor_tab_shape = (
             parent_widget is not None
-            and hasattr(parent_widget, 'save')
-            and hasattr(parent_widget, 'method_editor')
+            and hasattr(parent_widget, "save")
+            and hasattr(parent_widget, "method_editor")
         )
         if not has_editor_tab_shape:
             return None
         return parent_widget
 
     def is_debugger_source_panel(self):
-        debugger_tab = getattr(self.application, 'debugger_tab', None)
+        debugger_tab = getattr(self.application, "debugger_tab", None)
         if debugger_tab is None:
             return False
         return debugger_tab.code_panel is self
@@ -6987,8 +7563,8 @@ class CodePanel(tk.Frame):
         method_context = self.method_context()
         if method_context is None:
             messagebox.showwarning(
-                'No Method Context',
-                'Select or open a method before setting a breakpoint.',
+                "No Method Context",
+                "Select or open a method before setting a breakpoint.",
             )
             return
         class_name, show_instance_side, method_selector = method_context
@@ -7000,26 +7576,22 @@ class CodePanel(tk.Frame):
                 method_selector,
                 requested_source_offset,
             )
-            current_source = self.text_editor.get('1.0', 'end-1c')
+            current_source = self.text_editor.get("1.0", "end-1c")
             self.apply_breakpoint_markers(current_source)
-            resolved_source_offset = breakpoint_entry['source_offset']
+            resolved_source_offset = breakpoint_entry["source_offset"]
             if resolved_source_offset != requested_source_offset:
                 requested_line, requested_column = (
-                    self.line_and_column_for_source_offset(
-                        requested_source_offset
-                    )
+                    self.line_and_column_for_source_offset(requested_source_offset)
                 )
-                resolved_line, resolved_column = (
-                    self.line_and_column_for_source_offset(
-                        resolved_source_offset
-                    )
+                resolved_line, resolved_column = self.line_and_column_for_source_offset(
+                    resolved_source_offset
                 )
                 messagebox.showinfo(
-                    'Breakpoint Set',
+                    "Breakpoint Set",
                     (
-                        'Requested line %s, column %s. '
-                        'Breakpoint set at nearest executable location '
-                        'line %s, column %s.'
+                        "Requested line %s, column %s. "
+                        "Breakpoint set at nearest executable location "
+                        "line %s, column %s."
                     )
                     % (
                         requested_line,
@@ -7029,16 +7601,16 @@ class CodePanel(tk.Frame):
                     ),
                 )
         except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Set Breakpoint', str(domain_exception))
+            messagebox.showerror("Set Breakpoint", str(domain_exception))
         except GemstoneError as error:
-            messagebox.showerror('Set Breakpoint', str(error))
+            messagebox.showerror("Set Breakpoint", str(error))
 
     def clear_breakpoint_at_cursor(self):
         method_context = self.method_context()
         if method_context is None:
             messagebox.showwarning(
-                'No Method Context',
-                'Select or open a method before clearing a breakpoint.',
+                "No Method Context",
+                "Select or open a method before clearing a breakpoint.",
             )
             return
         class_name, show_instance_side, method_selector = method_context
@@ -7050,19 +7622,19 @@ class CodePanel(tk.Frame):
                 method_selector,
                 source_offset,
             )
-            current_source = self.text_editor.get('1.0', 'end-1c')
+            current_source = self.text_editor.get("1.0", "end-1c")
             self.apply_breakpoint_markers(current_source)
         except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Clear Breakpoint', str(domain_exception))
+            messagebox.showerror("Clear Breakpoint", str(domain_exception))
         except GemstoneError as error:
-            messagebox.showerror('Clear Breakpoint', str(error))
+            messagebox.showerror("Clear Breakpoint", str(error))
 
     def jump_to_method_context(self):
         method_context = self.method_context()
         if method_context is None:
             messagebox.showwarning(
-                'No Method Context',
-                'Select or open a method before running this operation.',
+                "No Method Context",
+                "Select or open a method before running this operation.",
             )
             return
         class_name, show_instance_side, method_selector = method_context
@@ -7080,8 +7652,8 @@ class CodePanel(tk.Frame):
     def run_selected_text(self, selected_text):
         if self.is_read_only():
             messagebox.showwarning(
-                'Read Only',
-                'MCP is busy. Run is disabled until MCP finishes.',
+                "Read Only",
+                "MCP is busy. Run is disabled until MCP finishes.",
             )
             return
         self.application.run_code(selected_text)
@@ -7089,8 +7661,8 @@ class CodePanel(tk.Frame):
     def inspect_selected_text(self, selected_text):
         if self.is_read_only():
             messagebox.showwarning(
-                'Read Only',
-                'MCP is busy. Inspect is disabled until MCP finishes.',
+                "Read Only",
+                "MCP is busy. Inspect is disabled until MCP finishes.",
             )
             return
         if self.is_debugger_source_panel():
@@ -7100,19 +7672,19 @@ class CodePanel(tk.Frame):
         try:
             inspected_object = self.gemstone_session_record.run_code(selected_text)
         except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Inspect Selection', str(domain_exception))
+            messagebox.showerror("Inspect Selection", str(domain_exception))
             return
         except GemstoneError as gemstone_exception:
-            messagebox.showerror('Inspect Selection', str(gemstone_exception))
+            messagebox.showerror("Inspect Selection", str(gemstone_exception))
             return
-        if hasattr(self.application, 'open_inspector_for_object'):
+        if hasattr(self.application, "open_inspector_for_object"):
             self.application.open_inspector_for_object(inspected_object)
 
     def graph_inspect_selected_text(self, selected_text):
         if self.is_read_only():
             messagebox.showwarning(
-                'Read Only',
-                'MCP is busy. Graph inspect is disabled until MCP finishes.',
+                "Read Only",
+                "MCP is busy. Graph inspect is disabled until MCP finishes.",
             )
             return
         if self.is_debugger_source_panel():
@@ -7122,20 +7694,20 @@ class CodePanel(tk.Frame):
         try:
             inspected_object = self.gemstone_session_record.run_code(selected_text)
         except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Graph Inspect Selection', str(domain_exception))
+            messagebox.showerror("Graph Inspect Selection", str(domain_exception))
             return
         except GemstoneError as gemstone_exception:
-            messagebox.showerror('Graph Inspect Selection', str(gemstone_exception))
+            messagebox.showerror("Graph Inspect Selection", str(gemstone_exception))
             return
-        if hasattr(self.application, 'open_graph_inspector_for_object'):
+        if hasattr(self.application, "open_graph_inspector_for_object"):
             self.application.open_graph_inspector_for_object(inspected_object)
 
     def open_implementors_from_source(self):
         selector = self.selector_for_navigation()
         if selector is None:
             messagebox.showwarning(
-                'No Selector',
-                'Could not determine a selector at the current cursor position.',
+                "No Selector",
+                "Could not determine a selector at the current cursor position.",
             )
             return
         self.application.open_implementors_dialog(method_symbol=selector)
@@ -7144,8 +7716,8 @@ class CodePanel(tk.Frame):
         selector = self.selector_for_navigation()
         if selector is None:
             messagebox.showwarning(
-                'No Selector',
-                'Could not determine a selector at the current cursor position.',
+                "No Selector",
+                "Could not determine a selector at the current cursor position.",
             )
             return
         self.application.open_senders_dialog(method_symbol=selector)
@@ -7153,10 +7725,10 @@ class CodePanel(tk.Frame):
     def class_name_for_reference_lookup(self):
         selected_text = self.selected_text()
         candidate = selected_text if selected_text else self.word_under_cursor()
-        candidate = (candidate or '').strip()
+        candidate = (candidate or "").strip()
         if not candidate:
             return None
-        class_name_match = re.search(r'[A-Za-z_]\w*', candidate)
+        class_name_match = re.search(r"[A-Za-z_]\w*", candidate)
         if class_name_match is None:
             return None
         return class_name_match.group(0)
@@ -7165,8 +7737,8 @@ class CodePanel(tk.Frame):
         class_name = self.class_name_for_reference_lookup()
         if class_name is None:
             messagebox.showwarning(
-                'No Class Name',
-                'Could not determine a class name at the current cursor position.',
+                "No Class Name",
+                "Could not determine a class name at the current cursor position.",
             )
             return
         self.application.open_find_dialog_for_class(class_name)
@@ -7175,8 +7747,8 @@ class CodePanel(tk.Frame):
         method_context = self.method_context()
         if method_context is None:
             messagebox.showwarning(
-                'No Method Context',
-                'Select or open a method before running this operation.',
+                "No Method Context",
+                "Select or open a method before running this operation.",
             )
             return
         class_name, show_instance_side, method_selector = method_context
@@ -7187,41 +7759,41 @@ class CodePanel(tk.Frame):
                 show_instance_side,
             )
         except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Operation Failed', str(domain_exception))
+            messagebox.showerror("Operation Failed", str(domain_exception))
             return
         except GemstoneError as gemstone_exception:
-            messagebox.showerror('Operation Failed', str(gemstone_exception))
+            messagebox.showerror("Operation Failed", str(gemstone_exception))
             return
         JsonResultDialog(self.application, title, analysis_result)
 
     def show_method_sends(self):
         self.run_method_analysis(
             self.gemstone_session_record.method_sends,
-            'Method Sends',
+            "Method Sends",
         )
 
     def show_method_structure(self):
         self.run_method_analysis(
             self.gemstone_session_record.method_structure_summary,
-            'Method Structure',
+            "Method Structure",
         )
 
     def show_method_control_flow(self):
         self.run_method_analysis(
             self.gemstone_session_record.method_control_flow_summary,
-            'Method Control Flow',
+            "Method Control Flow",
         )
 
     def show_method_ast(self):
         self.run_method_analysis(
             self.gemstone_session_record.method_ast,
-            'Method AST',
+            "Method AST",
         )
 
     def new_selector_name(self, default_selector):
         return simpledialog.askstring(
-            'Rename Method',
-            'New selector name:',
+            "Rename Method",
+            "New selector name:",
             initialvalue=default_selector,
             parent=self.application,
         )
@@ -7230,8 +7802,8 @@ class CodePanel(tk.Frame):
         method_context = self.method_context()
         if method_context is None:
             messagebox.showwarning(
-                'No Method Context',
-                'Select or open a method before running this operation.',
+                "No Method Context",
+                "Select or open a method before running this operation.",
             )
             return
         class_name, show_instance_side, old_selector = method_context
@@ -7240,14 +7812,14 @@ class CodePanel(tk.Frame):
             return
         if apply_change:
             should_apply = messagebox.askyesno(
-                'Confirm Rename',
+                "Confirm Rename",
                 (
-                    'Apply rename of %s to %s on %s (%s side)?'
+                    "Apply rename of %s to %s on %s (%s side)?"
                     % (
                         old_selector,
                         new_selector,
                         class_name,
-                        'instance' if show_instance_side else 'class',
+                        "instance" if show_instance_side else "class",
                     )
                 ),
             )
@@ -7269,18 +7841,18 @@ class CodePanel(tk.Frame):
                     new_selector,
                 )
         except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Operation Failed', str(domain_exception))
+            messagebox.showerror("Operation Failed", str(domain_exception))
             return
         except GemstoneError as gemstone_exception:
-            messagebox.showerror('Operation Failed', str(gemstone_exception))
+            messagebox.showerror("Operation Failed", str(gemstone_exception))
             return
         JsonResultDialog(
             self.application,
-            'Method Rename %s' % ('Apply' if apply_change else 'Preview'),
+            "Method Rename %s" % ("Apply" if apply_change else "Preview"),
             rename_result,
         )
         if apply_change:
-            self.application.event_queue.publish('MethodSelected', origin=self)
+            self.application.event_queue.publish("MethodSelected", origin=self)
 
     def preview_method_rename(self):
         self.run_method_rename(apply_change=False)
@@ -7289,33 +7861,33 @@ class CodePanel(tk.Frame):
         self.run_method_rename(apply_change=True)
 
     def side_input_to_boolean(self, side_input):
-        normalized_side = (side_input or '').strip().lower()
-        if normalized_side in ('instance', 'instance side', 'i'):
+        normalized_side = (side_input or "").strip().lower()
+        if normalized_side in ("instance", "instance side", "i"):
             return True
-        if normalized_side in ('class', 'class side', 'meta', 'c'):
+        if normalized_side in ("class", "class side", "meta", "c"):
             return False
         return None
 
     def move_target_details(self, show_instance_side):
         target_class_name = simpledialog.askstring(
-            'Move Method',
-            'Target class name:',
+            "Move Method",
+            "Target class name:",
             parent=self.application,
         )
         if not target_class_name:
             return None
-        default_side = 'instance' if show_instance_side else 'class'
+        default_side = "instance" if show_instance_side else "class"
         target_side = simpledialog.askstring(
-            'Move Method',
-            'Target side (instance/class):',
+            "Move Method",
+            "Target side (instance/class):",
             initialvalue=default_side,
             parent=self.application,
         )
         target_show_instance_side = self.side_input_to_boolean(target_side)
         if target_show_instance_side is None:
             messagebox.showerror(
-                'Invalid Side',
-                'Target side must be instance or class.',
+                "Invalid Side",
+                "Target side must be instance or class.",
             )
             return None
         return (target_class_name, target_show_instance_side)
@@ -7324,8 +7896,8 @@ class CodePanel(tk.Frame):
         method_context = self.method_context()
         if method_context is None:
             messagebox.showwarning(
-                'No Method Context',
-                'Select or open a method before running this operation.',
+                "No Method Context",
+                "Select or open a method before running this operation.",
             )
             return
         source_class_name, source_show_instance_side, method_selector = method_context
@@ -7337,23 +7909,23 @@ class CodePanel(tk.Frame):
         delete_source_method = True
         if apply_change:
             overwrite_target_method = messagebox.askyesno(
-                'Move Method',
-                'Overwrite target method when it already exists?',
+                "Move Method",
+                "Overwrite target method when it already exists?",
             )
             delete_source_method = messagebox.askyesno(
-                'Move Method',
-                'Delete source method after move?',
+                "Move Method",
+                "Delete source method after move?",
             )
             should_apply = messagebox.askyesno(
-                'Confirm Move',
+                "Confirm Move",
                 (
-                    'Apply move of %s from %s (%s side) to %s (%s side)?'
+                    "Apply move of %s from %s (%s side) to %s (%s side)?"
                     % (
                         method_selector,
                         source_class_name,
-                        'instance' if source_show_instance_side else 'class',
+                        "instance" if source_show_instance_side else "class",
                         target_class_name,
-                        'instance' if target_show_instance_side else 'class',
+                        "instance" if target_show_instance_side else "class",
                     )
                 ),
             )
@@ -7379,20 +7951,20 @@ class CodePanel(tk.Frame):
                     method_selector,
                 )
         except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Operation Failed', str(domain_exception))
+            messagebox.showerror("Operation Failed", str(domain_exception))
             return
         except GemstoneError as gemstone_exception:
-            messagebox.showerror('Operation Failed', str(gemstone_exception))
+            messagebox.showerror("Operation Failed", str(gemstone_exception))
             return
         JsonResultDialog(
             self.application,
-            'Method Move %s' % ('Apply' if apply_change else 'Preview'),
+            "Method Move %s" % ("Apply" if apply_change else "Preview"),
             move_result,
         )
         if apply_change:
-            self.application.event_queue.publish('SelectedClassChanged')
-            self.application.event_queue.publish('SelectedCategoryChanged')
-            self.application.event_queue.publish('MethodSelected')
+            self.application.event_queue.publish("SelectedClassChanged")
+            self.application.event_queue.publish("SelectedCategoryChanged")
+            self.application.event_queue.publish("MethodSelected")
 
     def preview_method_move(self):
         self.run_method_move(apply_change=False)
@@ -7402,25 +7974,25 @@ class CodePanel(tk.Frame):
 
     def parameter_keyword_input(self):
         return simpledialog.askstring(
-            'Add Parameter',
-            'Parameter keyword (for example with:):',
-            initialvalue='with:',
+            "Add Parameter",
+            "Parameter keyword (for example with:):",
+            initialvalue="with:",
             parent=self.application,
         )
 
     def parameter_name_input(self):
         return simpledialog.askstring(
-            'Add Parameter',
-            'Parameter name:',
-            initialvalue='newValue',
+            "Add Parameter",
+            "Parameter name:",
+            initialvalue="newValue",
             parent=self.application,
         )
 
     def default_argument_source_input(self):
         return simpledialog.askstring(
-            'Add Parameter',
-            'Default argument source expression:',
-            initialvalue='nil',
+            "Add Parameter",
+            "Default argument source expression:",
+            initialvalue="nil",
             parent=self.application,
         )
 
@@ -7428,8 +8000,8 @@ class CodePanel(tk.Frame):
         method_context = self.method_context()
         if method_context is None:
             messagebox.showwarning(
-                'No Method Context',
-                'Select or open a method before running this operation.',
+                "No Method Context",
+                "Select or open a method before running this operation.",
             )
             return
         class_name, show_instance_side, method_selector = method_context
@@ -7444,9 +8016,9 @@ class CodePanel(tk.Frame):
             return
         if apply_change:
             should_apply = messagebox.askyesno(
-                'Confirm Add Parameter',
+                "Confirm Add Parameter",
                 (
-                    'Apply add-parameter on %s>>%s with keyword %s?'
+                    "Apply add-parameter on %s>>%s with keyword %s?"
                     % (
                         class_name,
                         method_selector,
@@ -7458,36 +8030,40 @@ class CodePanel(tk.Frame):
                 return
         try:
             if apply_change:
-                add_parameter_result = self.gemstone_session_record.apply_method_add_parameter(
-                    class_name,
-                    show_instance_side,
-                    method_selector,
-                    parameter_keyword,
-                    parameter_name,
-                    default_argument_source,
+                add_parameter_result = (
+                    self.gemstone_session_record.apply_method_add_parameter(
+                        class_name,
+                        show_instance_side,
+                        method_selector,
+                        parameter_keyword,
+                        parameter_name,
+                        default_argument_source,
+                    )
                 )
             else:
-                add_parameter_result = self.gemstone_session_record.preview_method_add_parameter(
-                    class_name,
-                    show_instance_side,
-                    method_selector,
-                    parameter_keyword,
-                    parameter_name,
-                    default_argument_source,
+                add_parameter_result = (
+                    self.gemstone_session_record.preview_method_add_parameter(
+                        class_name,
+                        show_instance_side,
+                        method_selector,
+                        parameter_keyword,
+                        parameter_name,
+                        default_argument_source,
+                    )
                 )
         except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Operation Failed', str(domain_exception))
+            messagebox.showerror("Operation Failed", str(domain_exception))
             return
         except GemstoneError as gemstone_exception:
-            messagebox.showerror('Operation Failed', str(gemstone_exception))
+            messagebox.showerror("Operation Failed", str(gemstone_exception))
             return
         JsonResultDialog(
             self.application,
-            'Add Parameter %s' % ('Apply' if apply_change else 'Preview'),
+            "Add Parameter %s" % ("Apply" if apply_change else "Preview"),
             add_parameter_result,
         )
         if apply_change:
-            self.application.event_queue.publish('MethodSelected', origin=self)
+            self.application.event_queue.publish("MethodSelected", origin=self)
 
     def preview_method_add_parameter(self):
         self.run_method_add_parameter(apply_change=False)
@@ -7497,8 +8073,8 @@ class CodePanel(tk.Frame):
 
     def remove_parameter_keyword_input(self):
         return simpledialog.askstring(
-            'Remove Parameter',
-            'Parameter keyword to remove:',
+            "Remove Parameter",
+            "Parameter keyword to remove:",
             parent=self.application,
         )
 
@@ -7506,8 +8082,8 @@ class CodePanel(tk.Frame):
         method_context = self.method_context()
         if method_context is None:
             messagebox.showwarning(
-                'No Method Context',
-                'Select or open a method before running this operation.',
+                "No Method Context",
+                "Select or open a method before running this operation.",
             )
             return
         class_name, show_instance_side, method_selector = method_context
@@ -7515,19 +8091,19 @@ class CodePanel(tk.Frame):
         if not parameter_keyword:
             return
         rewrite_source_senders = messagebox.askyesno(
-            'Remove Parameter',
-            'Rewrite same-class senders that use this keyword selector?',
+            "Remove Parameter",
+            "Rewrite same-class senders that use this keyword selector?",
         )
         overwrite_new_method = False
         if apply_change:
             overwrite_new_method = messagebox.askyesno(
-                'Remove Parameter',
-                'Overwrite generated selector when it already exists?',
+                "Remove Parameter",
+                "Overwrite generated selector when it already exists?",
             )
             should_apply = messagebox.askyesno(
-                'Confirm Remove Parameter',
+                "Confirm Remove Parameter",
                 (
-                    'Apply remove-parameter on %s>>%s removing %s?'
+                    "Apply remove-parameter on %s>>%s removing %s?"
                     % (
                         class_name,
                         method_selector,
@@ -7539,35 +8115,39 @@ class CodePanel(tk.Frame):
                 return
         try:
             if apply_change:
-                remove_parameter_result = self.gemstone_session_record.apply_method_remove_parameter(
-                    class_name,
-                    show_instance_side,
-                    method_selector,
-                    parameter_keyword,
-                    overwrite_new_method=overwrite_new_method,
-                    rewrite_source_senders=rewrite_source_senders,
+                remove_parameter_result = (
+                    self.gemstone_session_record.apply_method_remove_parameter(
+                        class_name,
+                        show_instance_side,
+                        method_selector,
+                        parameter_keyword,
+                        overwrite_new_method=overwrite_new_method,
+                        rewrite_source_senders=rewrite_source_senders,
+                    )
                 )
             else:
-                remove_parameter_result = self.gemstone_session_record.preview_method_remove_parameter(
-                    class_name,
-                    show_instance_side,
-                    method_selector,
-                    parameter_keyword,
-                    rewrite_source_senders=rewrite_source_senders,
+                remove_parameter_result = (
+                    self.gemstone_session_record.preview_method_remove_parameter(
+                        class_name,
+                        show_instance_side,
+                        method_selector,
+                        parameter_keyword,
+                        rewrite_source_senders=rewrite_source_senders,
+                    )
                 )
         except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Operation Failed', str(domain_exception))
+            messagebox.showerror("Operation Failed", str(domain_exception))
             return
         except GemstoneError as gemstone_exception:
-            messagebox.showerror('Operation Failed', str(gemstone_exception))
+            messagebox.showerror("Operation Failed", str(gemstone_exception))
             return
         JsonResultDialog(
             self.application,
-            'Remove Parameter %s' % ('Apply' if apply_change else 'Preview'),
+            "Remove Parameter %s" % ("Apply" if apply_change else "Preview"),
             remove_parameter_result,
         )
         if apply_change:
-            self.application.event_queue.publish('MethodSelected', origin=self)
+            self.application.event_queue.publish("MethodSelected", origin=self)
 
     def preview_method_remove_parameter(self):
         self.run_method_remove_parameter(apply_change=False)
@@ -7584,7 +8164,7 @@ class CodePanel(tk.Frame):
         )
 
     def text_offset_for_index(self, text_index):
-        characters = self.text_editor.count('1.0', text_index, 'chars')
+        characters = self.text_editor.count("1.0", text_index, "chars")
         if not characters:
             return 0
         return int(characters[0])
@@ -7595,35 +8175,28 @@ class CodePanel(tk.Frame):
             selection_end_index = self.text_editor.index(tk.SEL_LAST)
         except tk.TclError:
             return None
-        selection_start_offset = self.text_offset_for_index(
-            selection_start_index
-        )
+        selection_start_offset = self.text_offset_for_index(selection_start_index)
         selection_end_offset = self.text_offset_for_index(selection_end_index)
         if selection_start_offset <= selection_end_offset:
             return (selection_start_offset, selection_end_offset)
         return (selection_end_offset, selection_start_offset)
 
     def selector_from_words(self, text):
-        words = re.findall(r'[A-Za-z0-9]+', text)
+        words = re.findall(r"[A-Za-z0-9]+", text)
         if not words:
-            return 'extractedPart'
-        capitalized_words = ''.join(
-            word[0:1].upper() + word[1:]
-            for word in words
-            if word
+            return "extractedPart"
+        capitalized_words = "".join(
+            word[0:1].upper() + word[1:] for word in words if word
         )
         if not capitalized_words:
-            return 'extractedPart'
-        selector = 'extracted%s' % capitalized_words
-        normalized_selector = re.sub(r'[^A-Za-z0-9_]', '', selector)
+            return "extractedPart"
+        selector = "extracted%s" % capitalized_words
+        normalized_selector = re.sub(r"[^A-Za-z0-9_]", "", selector)
         if not normalized_selector:
-            return 'extractedPart'
+            return "extractedPart"
         if normalized_selector[0].isdigit():
-            normalized_selector = 'extracted%s' % normalized_selector
-        return (
-            normalized_selector[0].lower()
-            + normalized_selector[1:]
-        )
+            normalized_selector = "extracted%s" % normalized_selector
+        return normalized_selector[0].lower() + normalized_selector[1:]
 
     def method_argument_names_from_ast_header(
         self,
@@ -7631,13 +8204,13 @@ class CodePanel(tk.Frame):
         method_selector,
     ):
         selector_tokens = [
-            '%s:' % selector_part
-            for selector_part in method_selector.split(':')
+            "%s:" % selector_part
+            for selector_part in method_selector.split(":")
             if selector_part
         ]
         if not selector_tokens:
             return []
-        header_source = method_ast_payload.get('header_source', '')
+        header_source = method_ast_payload.get("header_source", "")
         cursor = 0
         argument_names = []
         for selector_token in selector_tokens:
@@ -7650,7 +8223,7 @@ class CodePanel(tk.Frame):
             while cursor < len(header_source) and header_source[cursor].isspace():
                 cursor = cursor + 1
             argument_match = re.match(
-                r'[A-Za-z_][A-Za-z0-9_]*',
+                r"[A-Za-z_][A-Za-z0-9_]*",
                 header_source[cursor:],
             )
             if argument_match is None:
@@ -7666,7 +8239,7 @@ class CodePanel(tk.Frame):
         selected_statement_entries,
         method_selector,
     ):
-        method_temporaries = method_ast_payload.get('temporaries', [])
+        method_temporaries = method_ast_payload.get("temporaries", [])
         method_arguments = self.method_argument_names_from_ast_header(
             method_ast_payload,
             method_selector,
@@ -7678,8 +8251,8 @@ class CodePanel(tk.Frame):
         assignment_targets = []
         for statement_entry in selected_statement_entries:
             assignment_match = re.match(
-                r'\s*([A-Za-z_][A-Za-z0-9_]*)\s*:=',
-                statement_entry.get('source', ''),
+                r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*:=",
+                statement_entry.get("source", ""),
             )
             has_assignment = assignment_match is not None
             if has_assignment:
@@ -7688,18 +8261,16 @@ class CodePanel(tk.Frame):
                     assignment_targets.append(target_name)
         inferred_argument_names = []
         for statement_entry in selected_statement_entries:
-            statement_source = statement_entry.get('source', '')
+            statement_source = statement_entry.get("source", "")
             identifier_matches = re.finditer(
-                r'[A-Za-z_][A-Za-z0-9_]*',
+                r"[A-Za-z_][A-Za-z0-9_]*",
                 statement_source,
             )
             for identifier_match in identifier_matches:
                 identifier_name = identifier_match.group(0)
                 is_scoped = identifier_name in scoped_names
                 is_assigned = identifier_name in assignment_targets
-                is_already_inferred = (
-                    identifier_name in inferred_argument_names
-                )
+                is_already_inferred = identifier_name in inferred_argument_names
                 if is_scoped and not is_assigned and not is_already_inferred:
                     inferred_argument_names.append(identifier_name)
         return inferred_argument_names
@@ -7710,35 +8281,29 @@ class CodePanel(tk.Frame):
         inferred_argument_names,
     ):
         if not selected_statement_entries:
-            return 'extractedPart'
+            return "extractedPart"
         first_statement = selected_statement_entries[0]
-        statement_source = first_statement.get('source', '').strip()
+        statement_source = first_statement.get("source", "").strip()
         assignment_match = re.match(
-            r'([A-Za-z_]\w*)\s*:=',
+            r"([A-Za-z_]\w*)\s*:=",
             statement_source,
         )
         if assignment_match:
             variable_name = assignment_match.group(1)
-            base_selector = self.selector_from_words(
-                'compute %s' % variable_name
-            )
+            base_selector = self.selector_from_words("compute %s" % variable_name)
         else:
-            sends = first_statement.get('sends', [])
+            sends = first_statement.get("sends", [])
             if sends:
-                base_selector = self.selector_from_words(
-                    sends[0].get('selector', '')
-                )
+                base_selector = self.selector_from_words(sends[0].get("selector", ""))
             else:
                 base_selector = self.selector_from_words(statement_source)
         if not inferred_argument_names:
             return base_selector
-        keyword_tokens = ['%s:' % base_selector]
+        keyword_tokens = ["%s:" % base_selector]
         for argument_name in inferred_argument_names[1:]:
-            keyword_token = (
-                re.sub(r'[^A-Za-z0-9_]', '', argument_name) or 'with'
-            )
-            keyword_tokens.append('%s:' % keyword_token)
-        return ''.join(keyword_tokens)
+            keyword_token = re.sub(r"[^A-Za-z0-9_]", "", argument_name) or "with"
+            keyword_tokens.append("%s:" % keyword_token)
+        return "".join(keyword_tokens)
 
     def selected_statement_entries_from_offsets(
         self,
@@ -7747,33 +8312,30 @@ class CodePanel(tk.Frame):
     ):
         if selection_offsets is None:
             raise DomainException(
-                'Select one or more top-level statements before extracting.'
+                "Select one or more top-level statements before extracting."
             )
-        statements = method_ast_payload.get('statements', [])
+        statements = method_ast_payload.get("statements", [])
         if not statements:
-            raise DomainException('No extractable top-level statements found.')
+            raise DomainException("No extractable top-level statements found.")
         selection_start_offset, selection_end_offset = selection_offsets
         selected_statement_entries = [
             statement_entry
             for statement_entry in statements
             if (
-                statement_entry['start_offset'] >= selection_start_offset
-                and statement_entry['end_offset'] <= selection_end_offset
+                statement_entry["start_offset"] >= selection_start_offset
+                and statement_entry["end_offset"] <= selection_end_offset
             )
         ]
         if not selected_statement_entries:
             raise DomainException(
-                (
-                    'Selection must fully cover one or more '
-                    'top-level statements.'
-                )
+                ("Selection must fully cover one or more " "top-level statements.")
             )
         sorted_statement_entries = sorted(
             selected_statement_entries,
-            key=lambda statement_entry: statement_entry['statement_index'],
+            key=lambda statement_entry: statement_entry["statement_index"],
         )
         statement_indexes = [
-            statement_entry['statement_index']
+            statement_entry["statement_index"]
             for statement_entry in sorted_statement_entries
         ]
         expected_statement_indexes = list(
@@ -7784,7 +8346,7 @@ class CodePanel(tk.Frame):
         )
         if statement_indexes != expected_statement_indexes:
             raise DomainException(
-                'Selection must cover contiguous top-level statements.'
+                "Selection must cover contiguous top-level statements."
             )
         return sorted_statement_entries
 
@@ -7792,8 +8354,8 @@ class CodePanel(tk.Frame):
         method_context = self.method_context()
         if method_context is None:
             messagebox.showwarning(
-                'No Method Context',
-                'Select or open a method before running this operation.',
+                "No Method Context",
+                "Select or open a method before running this operation.",
             )
             return
         class_name, show_instance_side, method_selector = method_context
@@ -7801,7 +8363,7 @@ class CodePanel(tk.Frame):
             selection_offsets = self.selected_text_offsets()
             if selection_offsets is None:
                 raise DomainException(
-                    'Select one or more top-level statements before extracting.'
+                    "Select one or more top-level statements before extracting."
                 )
             method_ast_payload = self.gemstone_session_record.method_ast(
                 class_name,
@@ -7813,7 +8375,7 @@ class CodePanel(tk.Frame):
                 selection_offsets,
             )
             statement_indexes = [
-                statement_entry['statement_index']
+                statement_entry["statement_index"]
                 for statement_entry in selected_statement_entries
             ]
             inferred_argument_names = self.inferred_extract_argument_names(
@@ -7827,16 +8389,16 @@ class CodePanel(tk.Frame):
             )
         except (DomainException, GemstoneDomainException) as domain_exception:
             messagebox.showerror(
-                'Extract Method',
+                "Extract Method",
                 str(domain_exception),
             )
             return
         except GemstoneError as gemstone_exception:
-            messagebox.showerror('Extract Method', str(gemstone_exception))
+            messagebox.showerror("Extract Method", str(gemstone_exception))
             return
         new_selector = self.new_selector_input(
-            'Extract Method',
-            'Name for extracted method:',
+            "Extract Method",
+            "Name for extracted method:",
             initial_value=suggested_selector,
         )
         if not new_selector:
@@ -7844,13 +8406,13 @@ class CodePanel(tk.Frame):
         overwrite_new_method = False
         if apply_change:
             overwrite_new_method = messagebox.askyesno(
-                'Extract Method',
-                'Overwrite extracted method when it already exists?',
+                "Extract Method",
+                "Overwrite extracted method when it already exists?",
             )
             should_apply = messagebox.askyesno(
-                'Confirm Extract Method',
+                "Confirm Extract Method",
                 (
-                    'Apply extract-method on %s>>%s to %s using statements %s?'
+                    "Apply extract-method on %s>>%s to %s using statements %s?"
                     % (
                         class_name,
                         method_selector,
@@ -7880,18 +8442,18 @@ class CodePanel(tk.Frame):
                     statement_indexes,
                 )
         except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Operation Failed', str(domain_exception))
+            messagebox.showerror("Operation Failed", str(domain_exception))
             return
         except GemstoneError as gemstone_exception:
-            messagebox.showerror('Operation Failed', str(gemstone_exception))
+            messagebox.showerror("Operation Failed", str(gemstone_exception))
             return
         JsonResultDialog(
             self.application,
-            'Extract Method %s' % ('Apply' if apply_change else 'Preview'),
+            "Extract Method %s" % ("Apply" if apply_change else "Preview"),
             extract_result,
         )
         if apply_change:
-            self.application.event_queue.publish('MethodSelected', origin=self)
+            self.application.event_queue.publish("MethodSelected", origin=self)
 
     def preview_method_extract(self):
         self.run_method_extract(apply_change=False)
@@ -7901,16 +8463,16 @@ class CodePanel(tk.Frame):
 
     def inline_selector_input(self):
         return self.new_selector_input(
-            'Inline Method',
-            'Inline selector:',
+            "Inline Method",
+            "Inline selector:",
         )
 
     def run_method_inline(self, apply_change):
         method_context = self.method_context()
         if method_context is None:
             messagebox.showwarning(
-                'No Method Context',
-                'Select or open a method before running this operation.',
+                "No Method Context",
+                "Select or open a method before running this operation.",
             )
             return
         class_name, show_instance_side, caller_selector = method_context
@@ -7920,13 +8482,13 @@ class CodePanel(tk.Frame):
         delete_inlined_method = False
         if apply_change:
             delete_inlined_method = messagebox.askyesno(
-                'Inline Method',
-                'Delete the inlined callee method after rewriting caller?',
+                "Inline Method",
+                "Delete the inlined callee method after rewriting caller?",
             )
             should_apply = messagebox.askyesno(
-                'Confirm Inline Method',
+                "Confirm Inline Method",
                 (
-                    'Apply inline-method in %s>>%s for selector %s?'
+                    "Apply inline-method in %s>>%s for selector %s?"
                     % (
                         class_name,
                         caller_selector,
@@ -7953,18 +8515,18 @@ class CodePanel(tk.Frame):
                     inline_selector,
                 )
         except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Operation Failed', str(domain_exception))
+            messagebox.showerror("Operation Failed", str(domain_exception))
             return
         except GemstoneError as gemstone_exception:
-            messagebox.showerror('Operation Failed', str(gemstone_exception))
+            messagebox.showerror("Operation Failed", str(gemstone_exception))
             return
         JsonResultDialog(
             self.application,
-            'Inline Method %s' % ('Apply' if apply_change else 'Preview'),
+            "Inline Method %s" % ("Apply" if apply_change else "Preview"),
             inline_result,
         )
         if apply_change:
-            self.application.event_queue.publish('MethodSelected', origin=self)
+            self.application.event_queue.publish("MethodSelected", origin=self)
 
     def preview_method_inline(self):
         self.run_method_inline(apply_change=False)
@@ -7973,17 +8535,23 @@ class CodePanel(tk.Frame):
         self.run_method_inline(apply_change=True)
 
     def apply_syntax_highlighting(self, text):
-        for match in re.finditer(r'\b(class|self|super|true|false|nil)\b', text):
+        for match in re.finditer(r"\b(class|self|super|true|false|nil)\b", text):
             start, end = match.span()
-            self.text_editor.tag_add("smalltalk_keyword", f"1.0 + {start} chars", f"1.0 + {end} chars")
+            self.text_editor.tag_add(
+                "smalltalk_keyword", f"1.0 + {start} chars", f"1.0 + {end} chars"
+            )
 
         for match in re.finditer(r'".*?"', text):
             start, end = match.span()
-            self.text_editor.tag_add("smalltalk_comment", f"1.0 + {start} chars", f"1.0 + {end} chars")
+            self.text_editor.tag_add(
+                "smalltalk_comment", f"1.0 + {start} chars", f"1.0 + {end} chars"
+            )
 
-        for match in re.finditer(r'\'.*?\'', text):
+        for match in re.finditer(r"\'.*?\'", text):
             start, end = match.span()
-            self.text_editor.tag_add("smalltalk_string", f"1.0 + {start} chars", f"1.0 + {end} chars")
+            self.text_editor.tag_add(
+                "smalltalk_string", f"1.0 + {start} chars", f"1.0 + {end} chars"
+            )
 
     def on_key_release(self, event):
         text = self.text_editor.get("1.0", tk.END)
@@ -7991,7 +8559,7 @@ class CodePanel(tk.Frame):
         self.apply_breakpoint_markers(text)
 
     def line_and_column_for_source_offset(self, source_offset):
-        source_text = self.text_editor.get('1.0', 'end-1c')
+        source_text = self.text_editor.get("1.0", "end-1c")
         source_length = len(source_text)
         normalized_source_offset = source_offset
         if normalized_source_offset < 1:
@@ -8000,9 +8568,9 @@ class CodePanel(tk.Frame):
         if normalized_source_offset > maximum_offset:
             normalized_source_offset = maximum_offset
         index_text = self.text_editor.index(
-            f'1.0 + {normalized_source_offset - 1} chars'
+            f"1.0 + {normalized_source_offset - 1} chars"
         )
-        line_text, column_text = index_text.split('.')
+        line_text, column_text = index_text.split(".")
         return int(line_text), int(column_text) + 1
 
     def breakpoint_entries_for_current_method(self):
@@ -8018,26 +8586,22 @@ class CodePanel(tk.Frame):
         breakpoint_count = len(breakpoint_entries)
         while index < breakpoint_count:
             breakpoint_entry = breakpoint_entries[index]
-            same_class = breakpoint_entry['class_name'] == class_name
-            same_side = (
-                breakpoint_entry['show_instance_side'] == show_instance_side
-            )
-            same_selector = (
-                breakpoint_entry['method_selector'] == method_selector
-            )
+            same_class = breakpoint_entry["class_name"] == class_name
+            same_side = breakpoint_entry["show_instance_side"] == show_instance_side
+            same_selector = breakpoint_entry["method_selector"] == method_selector
             if same_class and same_side and same_selector:
                 matching_breakpoints.append(breakpoint_entry)
             index += 1
         return matching_breakpoints
 
     def apply_breakpoint_markers(self, source):
-        self.text_editor.tag_remove('breakpoint_marker', '1.0', tk.END)
+        self.text_editor.tag_remove("breakpoint_marker", "1.0", tk.END)
         breakpoint_entries = self.breakpoint_entries_for_current_method()
         source_length = len(source)
         index = 0
         breakpoint_count = len(breakpoint_entries)
         while index < breakpoint_count:
-            source_offset = breakpoint_entries[index]['source_offset']
+            source_offset = breakpoint_entries[index]["source_offset"]
             normalized_source_offset = source_offset
             if normalized_source_offset < 1:
                 normalized_source_offset = 1
@@ -8045,19 +8609,17 @@ class CodePanel(tk.Frame):
                 normalized_source_offset = source_length
             if source_length > 0:
                 start_position = self.text_editor.index(
-                    f'1.0 + {normalized_source_offset - 1} chars'
+                    f"1.0 + {normalized_source_offset - 1} chars"
                 )
                 self.text_editor.tag_add(
-                    'breakpoint_marker',
+                    "breakpoint_marker",
                     start_position,
-                    f'{start_position} + 1c',
+                    f"{start_position} + 1c",
                 )
             index += 1
 
     def refresh(self, source, mark=None):
-        text_editor_was_disabled = (
-            self.text_editor.cget('state') == tk.DISABLED
-        )
+        text_editor_was_disabled = self.text_editor.cget("state") == tk.DISABLED
         if text_editor_was_disabled:
             self.text_editor.configure(state=tk.NORMAL)
         self.text_editor.delete("1.0", tk.END)
@@ -8070,7 +8632,7 @@ class CodePanel(tk.Frame):
         self.cursor_position_indicator.update_position()
         if text_editor_was_disabled:
             self.text_editor.configure(state=tk.DISABLED)
-        
+
 
 class EditorTab(tk.Frame):
     def __init__(self, parent, browser_window, method_editor, tab_key):
@@ -8085,7 +8647,7 @@ class EditorTab(tk.Frame):
             self.browser_window.application,
             tab_key=tab_key,
         )
-        self.code_panel.grid(row=0, column=0, sticky='nsew')
+        self.code_panel.grid(row=0, column=0, sticky="nsew")
 
         # Configure the grid weights for resizing
         self.grid_rowconfigure(0, weight=1)
@@ -8097,24 +8659,33 @@ class EditorTab(tk.Frame):
         return None
 
     def save(self):
-        (selected_class, show_instance_side, method_symbol) = self.tab_key
-        self.browser_window.gemstone_session_record.update_method_source(selected_class, show_instance_side, method_symbol, self.code_panel.text_editor.get("1.0", "end-1c"))
-        self.browser_window.event_queue.publish('MethodSelected', origin=self)
+        selected_class, show_instance_side, method_symbol = self.tab_key
+        self.browser_window.gemstone_session_record.update_method_source(
+            selected_class,
+            show_instance_side,
+            method_symbol,
+            self.code_panel.text_editor.get("1.0", "end-1c"),
+        )
+        self.browser_window.event_queue.publish("MethodSelected", origin=self)
         self.repopulate()
-        
+
     def repopulate(self):
-        (selected_class, show_instance_side, method_symbol) = self.tab_key
-        gemstone_method = self.browser_window.gemstone_session_record.get_method(*self.tab_key)
+        selected_class, show_instance_side, method_symbol = self.tab_key
+        gemstone_method = self.browser_window.gemstone_session_record.get_method(
+            *self.tab_key
+        )
         if gemstone_method:
             method_source = gemstone_method.sourceString().to_py
             self.code_panel.refresh(method_source)
         else:
             self.method_editor.close_tab(self)
-        
-        
+
+
 class BrowserWindow(ttk.PanedWindow):
     def __init__(self, parent, application):
-        super().__init__(parent, orient=tk.VERTICAL)  # Make BrowserWindow a vertical paned window
+        super().__init__(
+            parent, orient=tk.VERTICAL
+        )  # Make BrowserWindow a vertical paned window
 
         self.application = application
 
@@ -8123,17 +8694,27 @@ class BrowserWindow(ttk.PanedWindow):
         self.bottom_frame = ttk.Frame(self)
 
         # Add frames to the PanedWindow
-        self.add(self.top_frame)   # Add the top frame (row 0)
+        self.add(self.top_frame)  # Add the top frame (row 0)
         self.add(self.bottom_frame)  # Add the bottom frame (row 1)
 
         # Add widgets to top_frame (similar to row 0 previously)
-        self.packages_widget = PackageSelection(self.top_frame, self, self.event_queue, 0, 0)
-        self.classes_widget = ClassSelection(self.top_frame, self, self.event_queue, 0, 1)
-        self.categories_widget = CategorySelection(self.top_frame, self, self.event_queue, 0, 2)
-        self.methods_widget = MethodSelection(self.top_frame, self, self.event_queue, 0, 3)
+        self.packages_widget = PackageSelection(
+            self.top_frame, self, self.event_queue, 0, 0
+        )
+        self.classes_widget = ClassSelection(
+            self.top_frame, self, self.event_queue, 0, 1
+        )
+        self.categories_widget = CategorySelection(
+            self.top_frame, self, self.event_queue, 0, 2
+        )
+        self.methods_widget = MethodSelection(
+            self.top_frame, self, self.event_queue, 0, 3
+        )
 
         # Add MethodEditor to bottom_frame (similar to row 1 previously)
-        self.editor_area_widget = MethodEditor(self.bottom_frame, self, self.event_queue, 0, 0, colspan=4)
+        self.editor_area_widget = MethodEditor(
+            self.bottom_frame, self, self.event_queue, 0, 0, colspan=4
+        )
 
         # Configure grid in top_frame and bottom_frame for proper resizing
         self.top_frame.columnconfigure(0, weight=1)
@@ -8148,7 +8729,7 @@ class BrowserWindow(ttk.PanedWindow):
     @property
     def event_queue(self):
         return self.application.event_queue
-    
+
     @property
     def gemstone_session_record(self):
         return self.application.gemstone_session_record
@@ -8174,22 +8755,28 @@ class ObjectInspector(ttk.Frame):
         self.pagination_mode = None
         self.dictionary_keys = []
         self.actual_values = []
-        self.treeview_heading = 'Name'
+        self.treeview_heading = "Name"
 
         # Create a Treeview widget in the inspector
-        self.treeview = ttk.Treeview(self, columns=('Name', 'Class', 'Value'), show='headings')
-        self.treeview.heading('Name', text='Name')
-        self.treeview.heading('Class', text='Class')
-        self.treeview.heading('Value', text='Value')
-        self.treeview.grid(row=0, column=0, sticky='nsew')
+        self.treeview = ttk.Treeview(
+            self, columns=("Name", "Class", "Value"), show="headings"
+        )
+        self.treeview.heading("Name", text="Name")
+        self.treeview.heading("Class", text="Class")
+        self.treeview.heading("Value", text="Value")
+        self.treeview.grid(row=0, column=0, sticky="nsew")
 
         self.footer = ttk.Frame(self)
-        self.footer.grid(row=1, column=0, sticky='ew', pady=(4, 0))
-        self.status_label = ttk.Label(self.footer, text='')
-        self.status_label.grid(row=0, column=0, sticky='w')
-        self.previous_button = ttk.Button(self.footer, text='Previous', command=self.on_previous_page)
+        self.footer.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        self.status_label = ttk.Label(self.footer, text="")
+        self.status_label.grid(row=0, column=0, sticky="w")
+        self.previous_button = ttk.Button(
+            self.footer, text="Previous", command=self.on_previous_page
+        )
         self.previous_button.grid(row=0, column=1, padx=(8, 0))
-        self.next_button = ttk.Button(self.footer, text='Next', command=self.on_next_page)
+        self.next_button = ttk.Button(
+            self.footer, text="Next", command=self.on_next_page
+        )
         self.next_button.grid(row=0, column=2, padx=(4, 0))
 
         self.columnconfigure(0, weight=1)
@@ -8198,17 +8785,17 @@ class ObjectInspector(ttk.Frame):
 
         if values is not None:
             self.pagination_mode = None
-            self.load_rows(list(values.items()), 'Name', len(values))
+            self.load_rows(list(values.items()), "Name", len(values))
         else:
             self.inspect_object(an_object)
 
         # Bind double-click event to open nested inspectors
-        self.treeview.bind('<Double-1>', self.on_item_double_click)
-        self.treeview.bind('<Button-3>', self.open_object_menu)
-        self.treeview.bind('<Button-1>', self.close_object_menu, add='+')
+        self.treeview.bind("<Double-1>", self.on_item_double_click)
+        self.treeview.bind("<Button-3>", self.open_object_menu)
+        self.treeview.bind("<Button-1>", self.close_object_menu, add="+")
 
     def class_name_of(self, an_object):
-        class_name = 'Unknown'
+        class_name = "Unknown"
         if an_object is not None:
             try:
                 class_name_candidate = an_object.gemstone_class().asString().to_py
@@ -8221,29 +8808,29 @@ class ObjectInspector(ttk.Frame):
 
     def normalized_text(self, text_value):
         if isinstance(text_value, str):
-            return ' '.join(text_value.split())
-        return ''
+            return " ".join(text_value.split())
+        return ""
 
     def string_value_via_as_string(self, an_object):
         if an_object is None:
-            return ''
+            return ""
         try:
             return self.normalized_text(an_object.asString().to_py)
         except GemstoneError:
-            return ''
+            return ""
 
     def string_value_via_print_string(self, an_object):
         if an_object is None:
-            return ''
+            return ""
         try:
             return self.normalized_text(an_object.printString().to_py)
         except GemstoneError:
-            return ''
+            return ""
 
     def oop_label_of(self, an_object):
         if an_object is None:
-            return ''
-        oop_label = ''
+            return ""
+        oop_label = ""
         try:
             oop_value = an_object.oop
             if isinstance(oop_value, int):
@@ -8255,7 +8842,7 @@ class ObjectInspector(ttk.Frame):
         return oop_label
 
     def value_label(self, an_object):
-        label = '<unavailable>'
+        label = "<unavailable>"
         if an_object is not None:
             as_string_value = self.string_value_via_as_string(an_object)
             if as_string_value:
@@ -8264,40 +8851,46 @@ class ObjectInspector(ttk.Frame):
                 print_string_value = self.string_value_via_print_string(an_object)
                 if print_string_value:
                     label = print_string_value
-            if label == '<unavailable>':
-                label = f'<{self.class_name_of(an_object)}>'
+            if label == "<unavailable>":
+                label = f"<{self.class_name_of(an_object)}>"
         return label
 
     def tab_label_for(self, an_object):
         if an_object is None:
-            return 'Context'
+            return "Context"
 
         class_name = self.class_name_of(an_object)
         value = self.value_label(an_object)
-        value_placeholder = f'<{class_name}>'
-        include_value = value not in ('<unavailable>', value_placeholder, class_name)
+        value_placeholder = f"<{class_name}>"
+        include_value = value not in ("<unavailable>", value_placeholder, class_name)
 
         tab_label = class_name
         if include_value:
-            tab_label = f'{class_name} {value}'
+            tab_label = f"{class_name} {value}"
 
         oop_label = self.oop_label_of(an_object)
         if oop_label:
-            tab_label = f'{oop_label}:{tab_label}'
+            tab_label = f"{oop_label}:{tab_label}"
         return tab_label
 
     def class_name_has_dictionary_semantics(self, class_name):
-        dictionary_markers = ('Dictionary', 'KeyValue')
+        dictionary_markers = ("Dictionary", "KeyValue")
         return any(marker in class_name for marker in dictionary_markers)
 
     def class_name_has_indexed_collection_semantics(self, class_name):
-        indexed_markers = ('Array', 'OrderedCollection', 'SortedCollection', 'SequenceableCollection', 'List')
+        indexed_markers = (
+            "Array",
+            "OrderedCollection",
+            "SortedCollection",
+            "SequenceableCollection",
+            "List",
+        )
         return any(marker in class_name for marker in indexed_markers)
 
     def inspect_object(self, an_object):
         if an_object is None:
             self.pagination_mode = None
-            self.load_rows([], 'Name', 0)
+            self.load_rows([], "Name", 0)
             return
 
         try:
@@ -8308,7 +8901,9 @@ class ObjectInspector(ttk.Frame):
         if is_class:
             self.pagination_mode = None
             inspected_values = self.inspect_class(an_object)
-            self.load_rows(list(inspected_values.items()), 'Name', len(inspected_values))
+            self.load_rows(
+                list(inspected_values.items()), "Name", len(inspected_values)
+            )
             return
 
         class_name = self.class_name_of(an_object)
@@ -8320,13 +8915,15 @@ class ObjectInspector(ttk.Frame):
 
         indexed_collection_is_configured = False
         if self.class_name_has_indexed_collection_semantics(class_name):
-            indexed_collection_is_configured = self.configure_indexed_collection_rows(an_object)
+            indexed_collection_is_configured = self.configure_indexed_collection_rows(
+                an_object
+            )
         if indexed_collection_is_configured:
             return
 
         self.pagination_mode = None
         inspected_values = self.inspect_instance(an_object)
-        self.load_rows(list(inspected_values.items()), 'Name', len(inspected_values))
+        self.load_rows(list(inspected_values.items()), "Name", len(inspected_values))
 
     def configure_dictionary_rows(self, an_object):
         try:
@@ -8334,10 +8931,10 @@ class ObjectInspector(ttk.Frame):
         except GemstoneError:
             return False
 
-        self.pagination_mode = 'dictionary'
+        self.pagination_mode = "dictionary"
         self.current_page = 0
         self.total_items = len(self.dictionary_keys)
-        self.treeview_heading = 'Key'
+        self.treeview_heading = "Key"
         self.refresh_rows_for_current_page()
         return True
 
@@ -8356,10 +8953,10 @@ class ObjectInspector(ttk.Frame):
         if not can_access_index_one:
             return False
 
-        self.pagination_mode = 'indexed'
+        self.pagination_mode = "indexed"
         self.current_page = 0
         self.total_items = total_items
-        self.treeview_heading = 'Index'
+        self.treeview_heading = "Index"
         self.refresh_rows_for_current_page()
         return True
 
@@ -8398,22 +8995,24 @@ class ObjectInspector(ttk.Frame):
             except GemstoneError:
                 pass
             if value_found:
-                rows.append((f'[{one_based_index}]', value))
+                rows.append((f"[{one_based_index}]", value))
         return rows
 
     def refresh_rows_for_current_page(self):
         start_index, end_index = self.row_range_for_current_page()
         rows = []
-        if self.pagination_mode == 'dictionary':
+        if self.pagination_mode == "dictionary":
             rows = self.dictionary_rows_for_range(start_index, end_index)
-        if self.pagination_mode == 'indexed':
+        if self.pagination_mode == "indexed":
             rows = self.indexed_rows_for_range(start_index, end_index)
         self.load_rows(rows, self.treeview_heading, self.total_items)
 
     def inspect_instance(self, an_object):
         # AI: Regular instances expose their instance variables via instVarNamed:.
         values = {}
-        for i, instvar_name in enumerate(an_object.gemstone_class().allInstVarNames(), start=1):
+        for i, instvar_name in enumerate(
+            an_object.gemstone_class().allInstVarNames(), start=1
+        ):
             try:
                 values[instvar_name.to_py] = an_object.instVarNamed(instvar_name)
             except GemstoneError:
@@ -8438,7 +9037,9 @@ class ObjectInspector(ttk.Frame):
                     pass
         except (GemstoneError, AttributeError):
             pass
-        for i, instvar_name in enumerate(an_object.gemstone_class().allInstVarNames(), start=1):
+        for i, instvar_name in enumerate(
+            an_object.gemstone_class().allInstVarNames(), start=1
+        ):
             try:
                 values[instvar_name.to_py] = an_object.instVarAt(i)
             except GemstoneError:
@@ -8448,7 +9049,7 @@ class ObjectInspector(ttk.Frame):
     def load_rows(self, rows, first_column_title, total_items):
         self.treeview_heading = first_column_title
         self.total_items = total_items
-        self.treeview.heading('Name', text=self.treeview_heading)
+        self.treeview.heading("Name", text=self.treeview_heading)
 
         for existing_item in self.treeview.get_children():
             self.treeview.delete(existing_item)
@@ -8456,8 +9057,8 @@ class ObjectInspector(ttk.Frame):
 
         for row_name, row_value in rows:
             self.treeview.insert(
-                '',
-                'end',
+                "",
+                "end",
                 values=(
                     row_name,
                     self.class_name_of(row_value),
@@ -8470,14 +9071,19 @@ class ObjectInspector(ttk.Frame):
 
     def update_footer(self):
         start_index, end_index = self.row_range_for_current_page()
-        show_page_window = self.pagination_mode in ('dictionary', 'indexed') and self.total_items > self.page_size
+        show_page_window = (
+            self.pagination_mode in ("dictionary", "indexed")
+            and self.total_items > self.page_size
+        )
         if show_page_window:
-            self.status_label.configure(text=f'Items {start_index + 1}-{end_index} of {self.total_items}')
+            self.status_label.configure(
+                text=f"Items {start_index + 1}-{end_index} of {self.total_items}"
+            )
         if not show_page_window:
             if self.total_items == 1:
-                self.status_label.configure(text='1 item')
+                self.status_label.configure(text="1 item")
             if self.total_items != 1:
-                self.status_label.configure(text=f'{self.total_items} items')
+                self.status_label.configure(text=f"{self.total_items} items")
 
         self.previous_button.configure(state=tk.DISABLED)
         self.next_button.configure(state=tk.DISABLED)
@@ -8488,14 +9094,19 @@ class ObjectInspector(ttk.Frame):
                 self.next_button.configure(state=tk.NORMAL)
 
     def on_previous_page(self):
-        can_page_backwards = self.pagination_mode in ('dictionary', 'indexed') and self.current_page > 0
+        can_page_backwards = (
+            self.pagination_mode in ("dictionary", "indexed") and self.current_page > 0
+        )
         if can_page_backwards:
             self.current_page -= 1
             self.refresh_rows_for_current_page()
 
     def on_next_page(self):
         start_index, end_index = self.row_range_for_current_page()
-        can_page_forwards = self.pagination_mode in ('dictionary', 'indexed') and end_index < self.total_items
+        can_page_forwards = (
+            self.pagination_mode in ("dictionary", "indexed")
+            and end_index < self.total_items
+        )
         if can_page_forwards:
             self.current_page += 1
             self.refresh_rows_for_current_page()
@@ -8505,7 +9116,7 @@ class ObjectInspector(ttk.Frame):
         if value is None:
             return
 
-        if hasattr(self.master, 'open_or_select_object'):
+        if hasattr(self.master, "open_or_select_object"):
             self.master.open_or_select_object(value)
             return
 
@@ -8518,7 +9129,7 @@ class ObjectInspector(ttk.Frame):
                 graph_inspect_action=self.graph_inspect_action,
             )
         except GemstoneError as e:
-            messagebox.showerror('Inspector', f'Cannot inspect this object:\n{e}')
+            messagebox.showerror("Inspector", f"Cannot inspect this object:\n{e}")
             return
         self.master.add(new_tab, text=tab_label)
         self.master.select(new_tab)
@@ -8563,15 +9174,15 @@ class ObjectInspector(ttk.Frame):
         object_menu = tk.Menu(self, tearoff=0)
         if self.external_inspect_action is not None:
             object_menu.add_command(
-                label='Inspect',
+                label="Inspect",
                 command=self.inspect_selected_row_in_external_inspector,
             )
         if self.graph_inspect_action is not None:
             object_menu.add_command(
-                label='Graph Inspect',
+                label="Graph Inspect",
                 command=self.graph_inspect_selected_row,
             )
-        has_menu_entries = object_menu.index('end') is not None
+        has_menu_entries = object_menu.index("end") is not None
         if not has_menu_entries:
             return
         try:
@@ -8585,7 +9196,6 @@ class ObjectInspector(ttk.Frame):
             return
         self.current_object_menu.destroy()
         self.current_object_menu = None
-
 
 
 class Explorer(ttk.Notebook):
@@ -8616,14 +9226,16 @@ class Explorer(ttk.Notebook):
         self.add(context_frame, text=tab_label)
         context_key = None
         if values is not None and an_object is None:
-            context_key = ('context', str(id(context_frame)))
-        self.register_object_tab(context_frame, an_object, tab_label, object_key=context_key)
+            context_key = ("context", str(id(context_frame)))
+        self.register_object_tab(
+            context_frame, an_object, tab_label, object_key=context_key
+        )
 
     def object_key_for(self, an_object):
         if an_object is None:
-            return ('none',)
+            return ("none",)
 
-        oop_label = ''
+        oop_label = ""
         try:
             oop_value = an_object.oop
             if isinstance(oop_value, int):
@@ -8634,8 +9246,8 @@ class Explorer(ttk.Notebook):
             pass
 
         if oop_label:
-            return ('oop', oop_label)
-        return ('identity', str(id(an_object)))
+            return ("oop", oop_label)
+        return ("identity", str(id(an_object)))
 
     def register_object_tab(self, tab_widget, an_object, tab_label, object_key=None):
         if object_key is None:
@@ -8656,7 +9268,7 @@ class Explorer(ttk.Notebook):
                 graph_inspect_action=self.graph_inspect_action,
             )
         except GemstoneError as e:
-            messagebox.showerror('Inspector', f'Cannot inspect this object:\n{e}')
+            messagebox.showerror("Inspector", f"Cannot inspect this object:\n{e}")
             return
         tab_label = new_tab.tab_label_for(an_object)
         self.add(new_tab, text=tab_label)
@@ -8688,52 +9300,52 @@ class InspectorTab(ttk.Frame):
         self.navigation_selection_in_progress = False
 
         self.actions_frame = ttk.Frame(self)
-        self.actions_frame.grid(row=0, column=0, sticky='ew', padx=10, pady=(10, 5))
+        self.actions_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
         self.actions_frame.columnconfigure(4, weight=1)
 
-        self.title_label = ttk.Label(self.actions_frame, text='Inspector')
-        self.title_label.grid(row=0, column=0, sticky='w')
+        self.title_label = ttk.Label(self.actions_frame, text="Inspector")
+        self.title_label.grid(row=0, column=0, sticky="w")
 
         self.back_button = ttk.Button(
             self.actions_frame,
-            text='Back',
+            text="Back",
             command=self.go_to_previous_object,
         )
         self.back_button.grid(row=0, column=1, padx=(6, 0))
 
         self.forward_button = ttk.Button(
             self.actions_frame,
-            text='Forward',
+            text="Forward",
             command=self.go_to_next_object,
         )
         self.forward_button.grid(row=0, column=2, padx=(4, 0))
 
         self.history_combobox = ttk.Combobox(
             self.actions_frame,
-            state='readonly',
+            state="readonly",
             width=44,
         )
-        self.history_combobox.grid(row=0, column=3, padx=(6, 0), sticky='e')
+        self.history_combobox.grid(row=0, column=3, padx=(6, 0), sticky="e")
         self.history_combobox.bind(
-            '<<ComboboxSelected>>',
+            "<<ComboboxSelected>>",
             self.jump_to_selected_history_entry,
         )
 
         self.close_button = ttk.Button(
             self.actions_frame,
-            text='Close',
+            text="Close",
             command=self.application.close_inspector_tab,
         )
-        self.close_button.grid(row=0, column=5, sticky='e')
+        self.close_button.grid(row=0, column=5, sticky="e")
 
         self.explorer = Explorer(
             self,
             an_object=an_object,
             graph_inspect_action=graph_inspect_action,
         )
-        self.explorer.grid(row=1, column=0, sticky='nsew', padx=10, pady=(0, 10))
+        self.explorer.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
         self.explorer.bind(
-            '<<NotebookTabChanged>>',
+            "<<NotebookTabChanged>>",
             self.handle_explorer_tab_changed,
         )
 
@@ -8768,18 +9380,18 @@ class InspectorTab(ttk.Frame):
         self.history_choice_indices = []
         history_labels = []
         for history_entry in reversed(history_entries):
-            history_index = history_entry['history_index']
-            object_context = history_entry['entry']
+            history_index = history_entry["history_index"]
+            object_context = history_entry["entry"]
             history_labels.append(self.object_context_label(object_context))
             self.history_choice_indices.append(history_index)
-        self.history_combobox['values'] = history_labels
+        self.history_combobox["values"] = history_labels
 
         if len(history_labels) > 0:
             current_history_index = self.object_navigation_history.current_index
             selected_index = len(history_labels) - current_history_index - 1
             self.history_combobox.current(selected_index)
         if len(history_labels) == 0:
-            self.history_combobox.set('')
+            self.history_combobox.set("")
 
     def jump_to_object_context(self, object_context):
         if object_context is None:
@@ -8856,11 +9468,11 @@ class GraphObjectRegistry:
 
     def oop_key_for(self, an_object):
         if an_object is None:
-            return ('none',)
+            return ("none",)
         try:
             oop_label = an_object.oop
             if oop_label is not None:
-                return ('oop', str(oop_label))
+                return ("oop", str(oop_label))
         except (
             AttributeError,
             GemstoneError,
@@ -8870,7 +9482,7 @@ class GraphObjectRegistry:
             RuntimeError,
         ):
             pass
-        return ('identity', str(id(an_object)))
+        return ("identity", str(id(an_object)))
 
     def contains_object(self, an_object):
         return self.oop_key_for(an_object) in self.nodes_by_oop_key
@@ -8911,15 +9523,15 @@ class GraphNodeInspectorHost(ttk.Frame):
             external_inspect_action=None,
             graph_inspect_action=None,
         )
-        self.inspector.pack(fill='both', expand=True)
+        self.inspector.pack(fill="both", expand=True)
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
     def open_or_select_object(self, value):
         selected_item = self.inspector.treeview.focus()
-        instvar_label = ''
+        instvar_label = ""
         if selected_item:
-            row_values = self.inspector.treeview.item(selected_item, 'values')
+            row_values = self.inspector.treeview.item(selected_item, "values")
             if row_values:
                 instvar_label = row_values[0]
         self.on_navigate_to_child(value, instvar_label)
@@ -8930,8 +9542,8 @@ class ObjectDetailDialog:
         self.graph_node = graph_node
         self.on_add_to_graph = on_add_to_graph
         self.dialog = tk.Toplevel(parent)
-        self.dialog.title(f'Graph Node: {graph_node.label}')
-        self.dialog.geometry('650x420')
+        self.dialog.title(f"Graph Node: {graph_node.label}")
+        self.dialog.geometry("650x420")
         self.dialog.grab_set()
         self.inspector_host = GraphNodeInspectorHost(
             self.dialog,
@@ -8939,7 +9551,7 @@ class ObjectDetailDialog:
             graph_node=graph_node,
             on_navigate_to_child=self.navigate_to_child,
         )
-        self.inspector_host.pack(fill='both', expand=True)
+        self.inspector_host.pack(fill="both", expand=True)
 
     def navigate_to_child(self, target_object, instvar_label):
         self.on_add_to_graph(self.graph_node, target_object, instvar_label)
@@ -8957,17 +9569,17 @@ class GraphCanvas(ttk.Frame):
 
         self.canvas = tk.Canvas(
             self,
-            bg='white',
+            bg="white",
             scrollregion=(0, 0, 2000, 2000),
         )
         horizontal_scrollbar = ttk.Scrollbar(
             self,
-            orient='horizontal',
+            orient="horizontal",
             command=self.canvas.xview,
         )
         vertical_scrollbar = ttk.Scrollbar(
             self,
-            orient='vertical',
+            orient="vertical",
             command=self.canvas.yview,
         )
         self.canvas.configure(
@@ -8975,16 +9587,16 @@ class GraphCanvas(ttk.Frame):
             yscrollcommand=vertical_scrollbar.set,
         )
 
-        self.canvas.grid(row=0, column=0, sticky='nsew')
-        vertical_scrollbar.grid(row=0, column=1, sticky='ns')
-        horizontal_scrollbar.grid(row=1, column=0, sticky='ew')
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        vertical_scrollbar.grid(row=0, column=1, sticky="ns")
+        horizontal_scrollbar.grid(row=1, column=0, sticky="ew")
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
-        self.canvas.bind('<Button-1>', self.on_canvas_press)
-        self.canvas.bind('<B1-Motion>', self.on_canvas_drag)
-        self.canvas.bind('<ButtonRelease-1>', self.on_canvas_release)
-        self.canvas.bind('<Button-3>', self.on_canvas_right_click)
+        self.canvas.bind("<Button-1>", self.on_canvas_press)
+        self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
+        self.canvas.bind("<Button-3>", self.on_canvas_right_click)
 
     def add_object_to_graph(self, an_object, source_node=None, instvar_label=None):
         if an_object is None:
@@ -8994,7 +9606,7 @@ class GraphCanvas(ttk.Frame):
             target_node = existing_node
         else:
             oop_key = self.registry.oop_key_for(an_object)
-            class_name = '?'
+            class_name = "?"
             try:
                 class_name = an_object.gemstone_class().asString().to_py
             except (
@@ -9005,8 +9617,8 @@ class GraphCanvas(ttk.Frame):
                 ValueError,
             ):
                 pass
-            oop_string = oop_key[1] if oop_key[0] == 'oop' else '?'
-            label = f'{oop_string}:{class_name}'
+            oop_string = oop_key[1] if oop_key[0] == "oop" else "?"
+            label = f"{oop_string}:{class_name}"
             target_node = GraphNode(an_object, oop_key, class_name, label)
             self.place_new_node(target_node)
             self.draw_node(target_node)
@@ -9042,24 +9654,24 @@ class GraphCanvas(ttk.Frame):
             y1,
             x2,
             y2,
-            fill='#e8f0fe',
-            outline='#3366cc',
+            fill="#e8f0fe",
+            outline="#3366cc",
             width=2,
         )
-        oop_string = node.oop_key[1] if node.oop_key[0] == 'oop' else '?'
+        oop_string = node.oop_key[1] if node.oop_key[0] == "oop" else "?"
         oop_text_id = self.canvas.create_text(
             node.x,
             y1 + 14,
             text=oop_string,
-            font=('TkDefaultFont', 9, 'bold'),
-            fill='#3366cc',
+            font=("TkDefaultFont", 9, "bold"),
+            fill="#3366cc",
         )
         class_text_id = self.canvas.create_text(
             node.x,
             y1 + 32,
             text=node.class_name,
-            font=('TkDefaultFont', 9),
-            fill='#222222',
+            font=("TkDefaultFont", 9),
+            fill="#222222",
         )
         node.canvas_item_ids = [rectangle_id, oop_text_id, class_text_id]
 
@@ -9070,8 +9682,8 @@ class GraphCanvas(ttk.Frame):
         half_height = GRAPH_NODE_HEIGHT / 2
         if delta_x == 0 and delta_y == 0:
             return from_node.x + half_width, from_node.y
-        scale_x = abs(half_width / delta_x) if delta_x != 0 else float('inf')
-        scale_y = abs(half_height / delta_y) if delta_y != 0 else float('inf')
+        scale_x = abs(half_width / delta_x) if delta_x != 0 else float("inf")
+        scale_y = abs(half_height / delta_y) if delta_y != 0 else float("inf")
         scale = min(scale_x, scale_y)
         return from_node.x + delta_x * scale, from_node.y + delta_y * scale
 
@@ -9087,16 +9699,16 @@ class GraphCanvas(ttk.Frame):
             y2,
             arrow=tk.LAST,
             arrowshape=(10, 12, 5),
-            fill='#444444',
+            fill="#444444",
             width=1.5,
         )
         label_id = self.canvas.create_text(
             midpoint_x,
             midpoint_y - 10,
             text=edge.instvar_label,
-            font=('TkDefaultFont', 9),
-            fill='#222288',
-            anchor='s',
+            font=("TkDefaultFont", 9),
+            fill="#222288",
+            anchor="s",
         )
         edge.canvas_item_ids = [line_id, label_id]
 
@@ -9150,7 +9762,7 @@ class GraphCanvas(ttk.Frame):
             return
         menu = tk.Menu(self, tearoff=0)
         menu.add_command(
-            label='Inspect Object',
+            label="Inspect Object",
             command=lambda: self.node_detail_action(node),
         )
         try:
@@ -9181,7 +9793,7 @@ class GraphCanvas(ttk.Frame):
         )
 
     def clear_all(self):
-        self.canvas.delete('all')
+        self.canvas.delete("all")
         self.registry = GraphObjectRegistry()
         self.expand_scroll_region()
 
@@ -9192,21 +9804,21 @@ class GraphTab(ttk.Frame):
         self.application = application
 
         actions_frame = ttk.Frame(self)
-        actions_frame.grid(row=0, column=0, sticky='ew', padx=10, pady=(10, 5))
+        actions_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
 
-        ttk.Label(actions_frame, text='Graph Inspector').grid(
+        ttk.Label(actions_frame, text="Graph Inspector").grid(
             row=0,
             column=0,
-            sticky='w',
+            sticky="w",
         )
-        ttk.Button(actions_frame, text='Clear', command=self.clear_graph).grid(
+        ttk.Button(actions_frame, text="Clear", command=self.clear_graph).grid(
             row=0,
             column=1,
             padx=(6, 0),
         )
         ttk.Button(
             actions_frame,
-            text='Close',
+            text="Close",
             command=self.application.close_graph_tab,
         ).grid(row=0, column=2, padx=(6, 0))
 
@@ -9214,7 +9826,7 @@ class GraphTab(ttk.Frame):
             self,
             node_detail_action=self.open_node_detail,
         )
-        self.graph_canvas.grid(row=1, column=0, sticky='nsew', padx=10, pady=(0, 10))
+        self.graph_canvas.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
 
         self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=1)
@@ -9246,8 +9858,12 @@ class GraphTab(ttk.Frame):
 
 
 class DebuggerWindow(ttk.PanedWindow):
-    def __init__(self, parent, application, gemstone_session_record, event_queue, exception):
-        super().__init__(parent, orient=tk.VERTICAL)  # Make DebuggerWindow a vertical paned window
+    def __init__(
+        self, parent, application, gemstone_session_record, event_queue, exception
+    ):
+        super().__init__(
+            parent, orient=tk.VERTICAL
+        )  # Make DebuggerWindow a vertical paned window
 
         self.application = application
         self.exception = exception
@@ -9265,24 +9881,30 @@ class DebuggerWindow(ttk.PanedWindow):
         self.add(self.explorer_frame, weight=1)
 
         # Add DebuggerControls to the top of the call_stack_frame
-        self.debugger_controls = DebuggerControls(self.call_stack_frame, self, self.event_queue)
+        self.debugger_controls = DebuggerControls(
+            self.call_stack_frame, self, self.event_queue
+        )
         self.debugger_controls.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
         self.close_button = self.debugger_controls.close_button
 
         # Add a Treeview widget to the top frame, below DebuggerControls, to represent the three-column list
-        self.listbox = ttk.Treeview(self.call_stack_frame, columns=('Level', 'Column1', 'Column2'), show='headings')
-        self.listbox.heading('Level', text='Level')
-        self.listbox.heading('Column1', text='Class Name')
-        self.listbox.heading('Column2', text='Method Name')
+        self.listbox = ttk.Treeview(
+            self.call_stack_frame,
+            columns=("Level", "Column1", "Column2"),
+            show="headings",
+        )
+        self.listbox.heading("Level", text="Level")
+        self.listbox.heading("Column1", text="Class Name")
+        self.listbox.heading("Column2", text="Method Name")
         self.listbox.grid(row=1, column=0, sticky="nsew")
-        
+
         self.debug_session = GemstoneDebugSession(self.exception)
         self.stack_frames = self.debug_session.call_stack()
-        
+
         # Bind item selection to method execution
         self.listbox.bind("<ButtonRelease-1>", self.on_listbox_select)
         self.listbox.bind("<Double-1>", self.open_method_from_selected_frame)
-        
+
         # Add a Text widget to the bottom frame (text editor)
         self.code_panel = CodePanel(self.code_panel_frame, application=application)
         self.code_panel.grid(row=0, column=0, sticky="nsew")
@@ -9309,24 +9931,32 @@ class DebuggerWindow(ttk.PanedWindow):
     @property
     def is_running(self):
         return bool(self.stack_frames)
-    
+
     def refresh(self):
         # Clear the existing contents of the listbox
         for item in self.listbox.get_children():
             self.listbox.delete(item)
-        
+
         # Re-populate the listbox with updated stack frames
         for frame in self.stack_frames:
             iid = str(frame.level)
-            self.listbox.insert('', 'end', iid=iid, values=(frame.level, frame.class_name, frame.method_name))
-        
+            self.listbox.insert(
+                "",
+                "end",
+                iid=iid,
+                values=(frame.level, frame.class_name, frame.method_name),
+            )
+
         # Select the first entry in the listbox by iid
         if self.stack_frames:
             first_iid = str(1)
             self.listbox.selection_set(first_iid)
             self.listbox.focus(first_iid)
 
-            self.code_panel.refresh(self.stack_frames[1].method_source, mark=self.stack_frames[1].step_point_offset)
+            self.code_panel.refresh(
+                self.stack_frames[1].method_source,
+                mark=self.stack_frames[1].step_point_offset,
+            )
             self.refresh_explorer(self.stack_frames[1])
 
     def refresh_explorer(self, frame):
@@ -9338,14 +9968,14 @@ class DebuggerWindow(ttk.PanedWindow):
         explorer = Explorer(
             self.explorer_frame,
             frame,
-            values=dict([('self', frame.self)] + list(frame.vars.items())),
-            root_tab_label='Context',
+            values=dict([("self", frame.self)] + list(frame.vars.items())),
+            root_tab_label="Context",
             external_inspect_action=self.application.open_inspector_for_object,
             graph_inspect_action=self.application.open_graph_inspector_for_object,
         )
         self.explorer = explorer
         explorer.grid(row=0, column=0, sticky="nsew")
-    
+
     def on_listbox_select(self, event):
         frame = self.get_selected_stack_frame()
         if frame:
@@ -9354,7 +9984,7 @@ class DebuggerWindow(ttk.PanedWindow):
 
     def open_method_from_selected_frame(self, event):
         self.open_selected_frame_method()
-            
+
     def get_selected_stack_frame(self):
         selected_item = self.listbox.focus()
         if selected_item:
@@ -9368,7 +9998,7 @@ class DebuggerWindow(ttk.PanedWindow):
         return False, None
 
     def value_for_named_instance_variable_on_frame_self(self, frame, variable_name):
-        frame_self = getattr(frame, 'self', None)
+        frame_self = getattr(frame, "self", None)
         if frame_self is None:
             return False, None
         inst_var_names = []
@@ -9377,7 +10007,7 @@ class DebuggerWindow(ttk.PanedWindow):
         except (GemstoneError, AttributeError):
             return False, None
         for one_based_index, inst_var_name in enumerate(inst_var_names, start=1):
-            candidate_name = ''
+            candidate_name = ""
             try:
                 candidate_name = inst_var_name.to_py
             except AttributeError:
@@ -9403,7 +10033,7 @@ class DebuggerWindow(ttk.PanedWindow):
 
     def value_for_source_expression(self, frame, source_expression):
         expression = source_expression.strip()
-        if expression == 'self':
+        if expression == "self":
             return frame.self
         local_value_found, local_value = self.value_for_named_local_on_frame(
             frame,
@@ -9428,15 +10058,15 @@ class DebuggerWindow(ttk.PanedWindow):
         expression = source_expression.strip()
         if not expression:
             messagebox.showwarning(
-                'No Selection',
-                'Select source text in the debugger method pane to inspect it.',
+                "No Selection",
+                "Select source text in the debugger method pane to inspect it.",
             )
             return
         frame = self.get_selected_stack_frame()
         if frame is None:
             messagebox.showwarning(
-                'No Stack Frame',
-                'Select a stack frame before inspecting source text.',
+                "No Stack Frame",
+                "Select a stack frame before inspecting source text.",
             )
             return
         try:
@@ -9445,7 +10075,7 @@ class DebuggerWindow(ttk.PanedWindow):
                 expression,
             )
         except (DomainException, GemstoneDomainException, GemstoneError) as error:
-            messagebox.showerror('Inspect Expression', str(error))
+            messagebox.showerror("Inspect Expression", str(error))
             return
         self.application.open_inspector_for_object(inspected_object)
 
@@ -9453,15 +10083,15 @@ class DebuggerWindow(ttk.PanedWindow):
         expression = source_expression.strip()
         if not expression:
             messagebox.showwarning(
-                'No Selection',
-                'Select source text in the debugger method pane to inspect it.',
+                "No Selection",
+                "Select source text in the debugger method pane to inspect it.",
             )
             return
         frame = self.get_selected_stack_frame()
         if frame is None:
             messagebox.showwarning(
-                'No Stack Frame',
-                'Select a stack frame before inspecting source text.',
+                "No Stack Frame",
+                "Select a stack frame before inspecting source text.",
             )
             return
         try:
@@ -9470,7 +10100,7 @@ class DebuggerWindow(ttk.PanedWindow):
                 expression,
             )
         except (DomainException, GemstoneDomainException, GemstoneError) as error:
-            messagebox.showerror('Inspect Expression', str(error))
+            messagebox.showerror("Inspect Expression", str(error))
             return
         self.application.open_graph_inspector_for_object(inspected_object)
 
@@ -9479,7 +10109,7 @@ class DebuggerWindow(ttk.PanedWindow):
             return None
         class_name = frame.class_name
         show_instance_side = True
-        class_side_suffix = ' class'
+        class_side_suffix = " class"
         if class_name.endswith(class_side_suffix):
             class_name = class_name[: -len(class_side_suffix)]
             show_instance_side = False
@@ -9502,7 +10132,7 @@ class DebuggerWindow(ttk.PanedWindow):
             if self.application.browser_tab:
                 self.application.notebook.select(self.application.browser_tab)
         except (DomainException, GemstoneDomainException, GemstoneError) as error:
-            messagebox.showerror('Browse Frame Method', str(error))
+            messagebox.showerror("Browse Frame Method", str(error))
 
     def selected_frame_level(self):
         frame = self.get_selected_stack_frame()
@@ -9516,13 +10146,13 @@ class DebuggerWindow(ttk.PanedWindow):
             self.finish(action_outcome.result)
         else:
             self.refresh()
-        
+
     def continue_running(self):
         frame_level = self.selected_frame_level()
         if frame_level:
             action_outcome = self.debug_session.continue_running()
             self.apply_debug_action_outcome(action_outcome)
-    
+
     def step_over(self):
         frame_level = self.selected_frame_level()
         if frame_level:
@@ -9534,7 +10164,7 @@ class DebuggerWindow(ttk.PanedWindow):
         if frame_level:
             action_outcome = self.debug_session.step_into(frame_level)
             self.apply_debug_action_outcome(action_outcome)
-                
+
     def step_through(self):
         frame_level = self.selected_frame_level()
         if frame_level:
@@ -9546,7 +10176,7 @@ class DebuggerWindow(ttk.PanedWindow):
         if frame_level:
             outcome = self.debug_session.restart_frame(frame_level)
             self.apply_debug_action_outcome(outcome)
-            
+
     def stop(self):
         frame_level = self.selected_frame_level()
         if frame_level:
@@ -9566,7 +10196,7 @@ class DebuggerWindow(ttk.PanedWindow):
         except tk.TclError:
             pass
         self.destroy()
-                
+
     def finish(self, result):
         self.stack_frames = None
 
@@ -9581,21 +10211,21 @@ class DebuggerWindow(ttk.PanedWindow):
         self.add(self.finished_frame, weight=1)
 
         self.finished_actions = ttk.Frame(self.finished_frame)
-        self.finished_actions.grid(row=0, column=0, sticky='ew', padx=5, pady=(5, 0))
+        self.finished_actions.grid(row=0, column=0, sticky="ew", padx=5, pady=(5, 0))
         self.finished_actions.columnconfigure(0, weight=1)
 
         self.close_button = ttk.Button(
             self.finished_actions,
-            text='Close',
+            text="Close",
             command=self.dismiss,
         )
-        self.close_button.grid(row=0, column=1, sticky='e')
+        self.close_button.grid(row=0, column=1, sticky="e")
 
         self.result_text = tk.Text(self.finished_frame)
-        self.result_text.insert('1.0', result.asString().to_py)
-        self.result_text.grid(row=1, column=0, sticky='nsew', padx=5, pady=(5, 5))
-        
-            
+        self.result_text.insert("1.0", result.asString().to_py)
+        self.result_text.grid(row=1, column=0, sticky="nsew", padx=5, pady=(5, 5))
+
+
 class DebuggerControls(ttk.Frame):
     def __init__(self, parent, debugger, event_queue):
         super().__init__(parent)
@@ -9603,7 +10233,9 @@ class DebuggerControls(ttk.Frame):
         self.event_queue = event_queue
 
         # Create buttons for Debugger Controls
-        self.continue_button = ttk.Button(self, text="Continue", command=self.handle_continue)
+        self.continue_button = ttk.Button(
+            self, text="Continue", command=self.handle_continue
+        )
         self.continue_button.grid(row=0, column=0, padx=5, pady=5)
 
         self.over_button = ttk.Button(self, text="Over", command=self.handle_over)
@@ -9612,10 +10244,14 @@ class DebuggerControls(ttk.Frame):
         self.into_button = ttk.Button(self, text="Into", command=self.handle_into)
         self.into_button.grid(row=0, column=2, padx=5, pady=5)
 
-        self.through_button = ttk.Button(self, text="Through", command=self.handle_through)
+        self.through_button = ttk.Button(
+            self, text="Through", command=self.handle_through
+        )
         self.through_button.grid(row=0, column=3, padx=5, pady=5)
 
-        self.restart_button = ttk.Button(self, text='Restart', command=self.handle_restart)
+        self.restart_button = ttk.Button(
+            self, text="Restart", command=self.handle_restart
+        )
         self.restart_button.grid(row=0, column=4, padx=5, pady=5)
 
         self.stop_button = ttk.Button(self, text="Stop", command=self.handle_stop)
@@ -9623,7 +10259,7 @@ class DebuggerControls(ttk.Frame):
 
         self.browse_button = ttk.Button(
             self,
-            text='Browse Method',
+            text="Browse Method",
             command=self.handle_browse,
         )
         self.browse_button.grid(row=0, column=6, padx=5, pady=5)
@@ -9631,10 +10267,10 @@ class DebuggerControls(ttk.Frame):
         self.columnconfigure(7, weight=1)
         self.close_button = ttk.Button(
             self,
-            text='Close',
+            text="Close",
             command=self.handle_close,
         )
-        self.close_button.grid(row=0, column=8, padx=5, pady=5, sticky='e')
+        self.close_button.grid(row=0, column=8, padx=5, pady=5, sticky="e")
 
     def handle_continue(self):
         self.debugger.continue_running()
@@ -9644,7 +10280,7 @@ class DebuggerControls(ttk.Frame):
 
     def handle_into(self):
         self.debugger.step_into()
-        
+
     def handle_through(self):
         self.debugger.step_through()
 
@@ -9661,9 +10297,8 @@ class DebuggerControls(ttk.Frame):
         self.debugger.dismiss()
 
 
-        
 class LoginFrame(ttk.Frame):
-    def __init__(self, parent, default_stone_name='gs64stone'):
+    def __init__(self, parent, default_stone_name="gs64stone"):
         super().__init__(parent)
         self.parent = parent
         self.error_label = None
@@ -9676,7 +10311,7 @@ class LoginFrame(ttk.Frame):
         self.form_frame.grid(
             row=0,
             column=0,
-            sticky='n',
+            sticky="n",
             padx=20,
             pady=20,
         )
@@ -9685,55 +10320,55 @@ class LoginFrame(ttk.Frame):
 
         ttk.Label(
             self.form_frame,
-            text='Connect to GemStone',
+            text="Connect to GemStone",
         ).grid(
             column=0,
             row=0,
             columnspan=2,
-            sticky='w',
+            sticky="w",
             pady=(0, 12),
         )
 
         # Username label and entry
-        ttk.Label(self.form_frame, text='Username:').grid(
+        ttk.Label(self.form_frame, text="Username:").grid(
             column=0,
             row=1,
-            sticky='e',
+            sticky="e",
             padx=(0, 8),
             pady=2,
         )
         self.username_entry = ttk.Entry(self.form_frame)
-        self.username_entry.insert(0, 'DataCurator')
-        self.username_entry.grid(column=1, row=1, sticky='ew', pady=2)
+        self.username_entry.insert(0, "DataCurator")
+        self.username_entry.grid(column=1, row=1, sticky="ew", pady=2)
 
         # Password label and entry
-        ttk.Label(self.form_frame, text='Password:').grid(
+        ttk.Label(self.form_frame, text="Password:").grid(
             column=0,
             row=2,
-            sticky='e',
+            sticky="e",
             padx=(0, 8),
             pady=2,
         )
-        self.password_entry = ttk.Entry(self.form_frame, show='*')
-        self.password_entry.insert(0, 'swordfish')
-        self.password_entry.grid(column=1, row=2, sticky='ew', pady=2)
+        self.password_entry = ttk.Entry(self.form_frame, show="*")
+        self.password_entry.insert(0, "swordfish")
+        self.password_entry.grid(column=1, row=2, sticky="ew", pady=2)
 
-        ttk.Label(self.form_frame, text='Stone name:').grid(
+        ttk.Label(self.form_frame, text="Stone name:").grid(
             column=0,
             row=3,
-            sticky='e',
+            sticky="e",
             padx=(0, 8),
             pady=2,
         )
         self.stone_name_entry = ttk.Entry(self.form_frame)
         self.stone_name_entry.insert(0, default_stone_name)
-        self.stone_name_entry.grid(column=1, row=3, sticky='ew', pady=2)
+        self.stone_name_entry.grid(column=1, row=3, sticky="ew", pady=2)
 
         # Remote checkbox
         self.remote_var = tk.BooleanVar()
         self.remote_checkbox = ttk.Checkbutton(
             self.form_frame,
-            text='Login RPC?',
+            text="Login RPC?",
             variable=self.remote_var,
             command=self.toggle_remote_widgets,
         )
@@ -9741,27 +10376,27 @@ class LoginFrame(ttk.Frame):
             column=0,
             row=4,
             columnspan=2,
-            sticky='w',
+            sticky="w",
             pady=(8, 2),
         )
 
         # Remote widgets (initially hidden)
-        self.netldi_name_label = ttk.Label(self.form_frame, text='Netldi name:')
+        self.netldi_name_label = ttk.Label(self.form_frame, text="Netldi name:")
         self.netldi_name_entry = ttk.Entry(self.form_frame)
-        self.netldi_name_entry.insert(0, 'gs64-ldi')
+        self.netldi_name_entry.insert(0, "gs64-ldi")
 
-        self.rpc_hostname_label = ttk.Label(self.form_frame, text='RPC host name:')
+        self.rpc_hostname_label = ttk.Label(self.form_frame, text="RPC host name:")
         self.rpc_hostname_entry = ttk.Entry(self.form_frame)
-        self.rpc_hostname_entry.insert(0, 'localhost')
+        self.rpc_hostname_entry.insert(0, "localhost")
 
         # Login button
-        ttk.Button(self.form_frame, text='Login', command=self.attempt_login).grid(
+        ttk.Button(self.form_frame, text="Login", command=self.attempt_login).grid(
             column=1,
             row=8,
-            sticky='e',
+            sticky="e",
             pady=(10, 0),
         )
-        
+
     @property
     def login_rpc(self):
         return self.remote_var.get()
@@ -9772,26 +10407,26 @@ class LoginFrame(ttk.Frame):
             self.netldi_name_label.grid(
                 column=0,
                 row=5,
-                sticky='e',
+                sticky="e",
                 padx=(0, 8),
                 pady=2,
             )
-            self.netldi_name_entry.grid(column=1, row=5, sticky='ew', pady=2)
+            self.netldi_name_entry.grid(column=1, row=5, sticky="ew", pady=2)
             self.rpc_hostname_label.grid(
                 column=0,
                 row=6,
-                sticky='e',
+                sticky="e",
                 padx=(0, 8),
                 pady=2,
             )
-            self.rpc_hostname_entry.grid(column=1, row=6, sticky='ew', pady=2)
+            self.rpc_hostname_entry.grid(column=1, row=6, sticky="ew", pady=2)
         else:
             # Hide the remote widgets
             self.netldi_name_label.grid_remove()
             self.netldi_name_entry.grid_remove()
             self.rpc_hostname_label.grid_remove()
             self.rpc_hostname_entry.grid_remove()
-            
+
     def attempt_login(self):
         if self.error_label:
             self.error_label.destroy()
@@ -9803,104 +10438,110 @@ class LoginFrame(ttk.Frame):
         rpc_hostname = self.rpc_hostname_entry.get()
         try:
             if self.login_rpc:
-                gemstone_session_record = GemstoneSessionRecord.log_in_rpc(username, password, rpc_hostname, stone_name, netldi_name)
+                gemstone_session_record = GemstoneSessionRecord.log_in_rpc(
+                    username, password, rpc_hostname, stone_name, netldi_name
+                )
             else:
-                gemstone_session_record = GemstoneSessionRecord.log_in_linked(username, password, stone_name)
-            self.parent.event_queue.publish('LoggedInSuccessfully', gemstone_session_record)
+                gemstone_session_record = GemstoneSessionRecord.log_in_linked(
+                    username, password, stone_name
+                )
+            self.parent.event_queue.publish(
+                "LoggedInSuccessfully", gemstone_session_record
+            )
         except DomainException as ex:
             self.error_label = ttk.Label(
                 self.form_frame,
                 text=str(ex),
-                foreground='red',
+                foreground="red",
             )
             self.error_label.grid(
                 column=0,
                 row=7,
                 columnspan=2,
-                sticky='w',
+                sticky="w",
                 pady=(8, 0),
             )
 
 
-def new_application_argument_parser(default_mode='ide'):
+def new_application_argument_parser(default_mode="ide"):
     argument_parser = argparse.ArgumentParser(
-        description='Run Swordfish IDE and MCP server.'
+        description="Run Swordfish IDE and MCP server."
     )
-    default_headless_mcp = default_mode == 'mcp-headless'
+    default_headless_mcp = default_mode == "mcp-headless"
     argument_parser.add_argument(
-        'stone_name',
-        nargs='?',
-        default='gs64stone',
-        help='GemStone stone name to prefill in login form.',
+        "stone_name",
+        nargs="?",
+        default="gs64stone",
+        help="GemStone stone name to prefill in login form.",
     )
     argument_parser.add_argument(
-        '--headless-mcp',
-        action='store_true',
+        "--headless-mcp",
+        action="store_true",
         default=default_headless_mcp,
-        help='Run MCP only (headless, no GUI).',
+        help="Run MCP only (headless, no GUI).",
     )
     argument_parser.add_argument(
-        '--mode',
+        "--mode",
         default=None,
-        choices=['ide', 'mcp-headless'],
+        choices=["ide", "mcp-headless"],
         help=argparse.SUPPRESS,
     )
     argument_parser.add_argument(
-        '--transport',
-        default='stdio',
-        choices=['stdio', 'streamable-http'],
-        help='MCP transport type for --headless-mcp mode.',
+        "--transport",
+        default="stdio",
+        choices=["stdio", "streamable-http"],
+        help="MCP transport type for --headless-mcp mode.",
     )
     argument_parser.add_argument(
-        '--mcp-host',
-        default='127.0.0.1',
-        help='Host interface for embedded MCP and streamable-http mode.',
+        "--mcp-host",
+        default="127.0.0.1",
+        help="Host interface for embedded MCP and streamable-http mode.",
     )
     argument_parser.add_argument(
-        '--mcp-port',
+        "--mcp-port",
         default=8000,
         type=int,
-        help='TCP port for embedded MCP and streamable-http mode.',
+        help="TCP port for embedded MCP and streamable-http mode.",
     )
     argument_parser.add_argument(
-        '--mcp-http-path',
-        default='/mcp',
-        help='HTTP path for embedded MCP and streamable-http mode.',
+        "--mcp-http-path",
+        default="/mcp",
+        help="HTTP path for embedded MCP and streamable-http mode.",
     )
     argument_parser.add_argument(
-        '--allow-eval',
-        action='store_true',
-        help='Enable gs_eval and gs_debug_eval (disabled by default).',
+        "--allow-eval",
+        action="store_true",
+        help="Enable gs_eval and gs_debug_eval (disabled by default).",
     )
     argument_parser.add_argument(
-        '--allow-compile',
-        action='store_true',
-        help='Enable gs_compile_method tool (disabled by default).',
+        "--allow-compile",
+        action="store_true",
+        help="Enable gs_compile_method tool (disabled by default).",
     )
     argument_parser.add_argument(
-        '--allow-commit',
-        action='store_true',
-        help='Enable gs_commit tool (disabled by default).',
+        "--allow-commit",
+        action="store_true",
+        help="Enable gs_commit tool (disabled by default).",
     )
     argument_parser.add_argument(
-        '--allow-mcp-commit-when-gui',
-        action='store_true',
+        "--allow-mcp-commit-when-gui",
+        action="store_true",
         help=(
-            'Allow gs_commit even when MCP is attached to an IDE-owned '
-            'session (disabled by default).'
+            "Allow gs_commit even when MCP is attached to an IDE-owned "
+            "session (disabled by default)."
         ),
     )
     argument_parser.add_argument(
-        '--allow-tracing',
-        action='store_true',
-        help='Enable gs_tracer_* and evidence tools (disabled by default).',
+        "--allow-tracing",
+        action="store_true",
+        help="Enable gs_tracer_* and evidence tools (disabled by default).",
     )
     argument_parser.add_argument(
-        '--require-gemstone-ast',
-        action='store_true',
+        "--require-gemstone-ast",
+        action="store_true",
         help=(
-            'Require real GemStone AST backend for refactoring tools. '
-            'When enabled, heuristic refactorings are blocked.'
+            "Require real GemStone AST backend for refactoring tools. "
+            "When enabled, heuristic refactorings are blocked."
         ),
     )
     return argument_parser
@@ -9924,9 +10565,9 @@ def run_mcp_server(arguments, integrated_session_state=None):
 
 def validate_application_arguments(argument_parser, arguments):
     if arguments.mcp_port <= 0:
-        argument_parser.error('--mcp-port must be greater than zero.')
-    if not arguments.mcp_http_path.startswith('/'):
-        argument_parser.error('--mcp-http-path must start with /.')
+        argument_parser.error("--mcp-port must be greater than zero.")
+    if not arguments.mcp_http_path.startswith("/"):
+        argument_parser.error("--mcp-http-path must start with /.")
 
 
 def runtime_mcp_config_from_arguments(arguments):
@@ -9943,14 +10584,14 @@ def runtime_mcp_config_from_arguments(arguments):
     )
 
 
-def run_application(default_mode='ide'):
+def run_application(default_mode="ide"):
     argument_parser = new_application_argument_parser(default_mode=default_mode)
     arguments = argument_parser.parse_args()
     validate_application_arguments(argument_parser, arguments)
     run_headless_mcp = arguments.headless_mcp
-    if arguments.mode == 'mcp-headless':
+    if arguments.mode == "mcp-headless":
         run_headless_mcp = True
-    if arguments.mode == 'ide':
+    if arguments.mode == "ide":
         run_headless_mcp = False
     if run_headless_mcp:
         run_mcp_server(arguments)
@@ -9961,6 +10602,7 @@ def run_application(default_mode='ide'):
         mcp_runtime_config=runtime_mcp_config_from_arguments(arguments),
     )
     app.mainloop()
+
 
 if __name__ == "__main__":
     run_application()
