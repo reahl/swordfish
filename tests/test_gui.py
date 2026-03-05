@@ -1,5 +1,7 @@
 import tkinter as tk
 import types
+import os
+import tempfile
 from tkinter import ttk
 from unittest.mock import ANY
 from unittest.mock import Mock
@@ -30,8 +32,12 @@ from reahl.swordfish.main import CoveringTestsBrowseDialog
 from reahl.swordfish.main import GemstoneSessionRecord
 from reahl.swordfish.main import InspectorTab
 from reahl.swordfish.main import ObjectInspector
+from reahl.swordfish.main import McpRuntimeConfig
+from reahl.swordfish.main import load_saved_mcp_runtime_config
+from reahl.swordfish.main import mcp_runtime_config_file_path
 from reahl.swordfish.main import run_application
 from reahl.swordfish.main import run_mcp_server
+from reahl.swordfish.main import save_mcp_runtime_config
 from reahl.swordfish.main import CoveringTestsSearchDialog
 from reahl.swordfish.main import Swordfish
 
@@ -1618,7 +1624,7 @@ def test_swordfish_custom_default_stone_name_prefills_login_field(fixture):
 
 
 def test_run_application_uses_default_stone_name_when_arg_not_given():
-    """AI: run_application should construct Swordfish with gs64stone by default and start embedded MCP."""
+    """AI: run_application should construct Swordfish with gs64stone by default and leave embedded MCP stopped."""
     with patch("reahl.swordfish.main.Swordfish") as mock_swordfish:
         app_instance = Mock()
         mock_swordfish.return_value = app_instance
@@ -1627,13 +1633,13 @@ def test_run_application_uses_default_stone_name_when_arg_not_given():
         mock_swordfish.assert_called_once()
         swordfish_call_arguments = mock_swordfish.call_args.kwargs
         assert swordfish_call_arguments["default_stone_name"] == "gs64stone"
-        assert swordfish_call_arguments["start_embedded_mcp"]
+        assert not swordfish_call_arguments["start_embedded_mcp"]
         assert swordfish_call_arguments["mcp_runtime_config"].mcp_host == "127.0.0.1"
         app_instance.mainloop.assert_called_once()
 
 
 def test_run_application_uses_cli_stone_name_when_given():
-    """AI: run_application should pass an explicitly provided stone name into Swordfish with embedded MCP enabled."""
+    """AI: run_application should pass an explicitly provided stone name into Swordfish with embedded MCP stopped."""
     with patch("reahl.swordfish.main.Swordfish") as mock_swordfish:
         app_instance = Mock()
         mock_swordfish.return_value = app_instance
@@ -1642,8 +1648,89 @@ def test_run_application_uses_cli_stone_name_when_given():
         mock_swordfish.assert_called_once()
         swordfish_call_arguments = mock_swordfish.call_args.kwargs
         assert swordfish_call_arguments["default_stone_name"] == "myStone"
-        assert swordfish_call_arguments["start_embedded_mcp"]
+        assert not swordfish_call_arguments["start_embedded_mcp"]
         app_instance.mainloop.assert_called_once()
+
+
+def test_run_application_uses_saved_mcp_config_when_no_cli_runtime_overrides():
+    """AI: run_application should load saved MCP runtime settings when no explicit MCP CLI overrides are supplied."""
+    saved_runtime_config = McpRuntimeConfig(
+        allow_eval=True,
+        allow_compile=True,
+        allow_commit=True,
+        allow_tracing=True,
+        allow_mcp_commit_when_gui=True,
+        require_gemstone_ast=True,
+        mcp_host="10.0.0.5",
+        mcp_port=9177,
+        mcp_http_path="/saved",
+    )
+    with patch("reahl.swordfish.main.Swordfish") as mock_swordfish:
+        app_instance = Mock()
+        mock_swordfish.return_value = app_instance
+        with patch(
+            "reahl.swordfish.main.load_saved_mcp_runtime_config",
+            return_value=saved_runtime_config,
+        ):
+            with patch("sys.argv", ["swordfish"]):
+                run_application()
+        swordfish_call_arguments = mock_swordfish.call_args.kwargs
+        resolved_runtime_config = swordfish_call_arguments["mcp_runtime_config"]
+        assert resolved_runtime_config.allow_eval
+        assert resolved_runtime_config.allow_compile
+        assert resolved_runtime_config.allow_commit
+        assert resolved_runtime_config.allow_tracing
+        assert resolved_runtime_config.allow_mcp_commit_when_gui
+        assert resolved_runtime_config.require_gemstone_ast
+        assert resolved_runtime_config.mcp_host == "10.0.0.5"
+        assert resolved_runtime_config.mcp_port == 9177
+        assert resolved_runtime_config.mcp_http_path == "/saved"
+
+
+def test_run_application_cli_runtime_overrides_take_precedence_over_saved_mcp_config():
+    """AI: Explicit MCP CLI flags should override matching saved MCP config fields while leaving the rest unchanged."""
+    saved_runtime_config = McpRuntimeConfig(
+        allow_eval=False,
+        allow_compile=True,
+        allow_commit=False,
+        allow_tracing=True,
+        allow_mcp_commit_when_gui=False,
+        require_gemstone_ast=False,
+        mcp_host="10.0.0.5",
+        mcp_port=9177,
+        mcp_http_path="/saved",
+    )
+    with patch("reahl.swordfish.main.Swordfish") as mock_swordfish:
+        app_instance = Mock()
+        mock_swordfish.return_value = app_instance
+        with patch(
+            "reahl.swordfish.main.load_saved_mcp_runtime_config",
+            return_value=saved_runtime_config,
+        ):
+            with patch(
+                "sys.argv",
+                [
+                    "swordfish",
+                    "--allow-eval",
+                    "--allow-mcp-commit-when-gui",
+                    "--mcp-host",
+                    "127.0.0.1",
+                    "--mcp-port",
+                    "8123",
+                ],
+            ):
+                run_application()
+        swordfish_call_arguments = mock_swordfish.call_args.kwargs
+        resolved_runtime_config = swordfish_call_arguments["mcp_runtime_config"]
+        assert resolved_runtime_config.allow_eval
+        assert resolved_runtime_config.allow_compile
+        assert not resolved_runtime_config.allow_commit
+        assert resolved_runtime_config.allow_tracing
+        assert resolved_runtime_config.allow_mcp_commit_when_gui
+        assert not resolved_runtime_config.require_gemstone_ast
+        assert resolved_runtime_config.mcp_host == "127.0.0.1"
+        assert resolved_runtime_config.mcp_port == 8123
+        assert resolved_runtime_config.mcp_http_path == "/saved"
 
 
 def test_run_application_starts_headless_mcp_when_headless_flag_is_set():
@@ -1694,6 +1781,33 @@ def test_run_application_supports_legacy_headless_mode_argument():
     mock_run_mcp_server.assert_called_once()
 
 
+def test_save_and_load_mcp_runtime_config_uses_xdg_home_location():
+    """AI: MCP runtime config should persist under XDG config home and round-trip all permission flags."""
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": temporary_directory}):
+            runtime_config = McpRuntimeConfig(
+                allow_eval=True,
+                allow_compile=True,
+                allow_commit=True,
+                allow_tracing=True,
+                allow_mcp_commit_when_gui=True,
+                require_gemstone_ast=True,
+                mcp_host="127.0.0.1",
+                mcp_port=8123,
+                mcp_http_path="/saved",
+            )
+            save_mcp_runtime_config(runtime_config)
+            loaded_runtime_config = load_saved_mcp_runtime_config()
+            expected_config_path = os.path.join(
+                temporary_directory,
+                "swordfish",
+                "mcp.json",
+            )
+            assert mcp_runtime_config_file_path() == expected_config_path
+            assert loaded_runtime_config is not None
+            assert loaded_runtime_config.to_dict() == runtime_config.to_dict()
+
+
 def test_run_mcp_server_passes_streamable_http_options_to_create_server():
     """AI: MCP startup should forward host/port/path options to create_server and run with the requested transport."""
     arguments = types.SimpleNamespace(
@@ -1725,6 +1839,85 @@ def test_run_mcp_server_passes_streamable_http_options_to_create_server():
         mcp_streamable_http_path="/running-ide",
     )
     mock_server.run.assert_called_once_with(transport="streamable-http")
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_configure_mcp_server_updates_and_saves_config_without_forcing_restart(
+    fixture,
+):
+    """AI: MCP config dialog apply should persist settings and defer applying them to running MCP until restart."""
+    fixture.simulate_login()
+    updated_runtime_config = McpRuntimeConfig(
+        allow_eval=True,
+        allow_compile=True,
+        allow_commit=True,
+        allow_tracing=True,
+        allow_mcp_commit_when_gui=True,
+        require_gemstone_ast=True,
+        mcp_host="127.0.0.1",
+        mcp_port=9177,
+        mcp_http_path="/updated",
+    )
+    with fixture.app.embedded_mcp_server_controller.lock:
+        fixture.app.embedded_mcp_server_controller.running = True
+        fixture.app.embedded_mcp_server_controller.applied_runtime_config = (
+            fixture.app.mcp_runtime_config.copy()
+        )
+    fake_dialog = types.SimpleNamespace(result=updated_runtime_config)
+
+    with patch("reahl.swordfish.main.McpConfigurationDialog", return_value=fake_dialog):
+        with patch.object(fixture.app, "wait_window") as wait_window:
+            with patch.object(
+                fixture.app.embedded_mcp_server_controller,
+                "stop",
+            ) as stop_server:
+                with patch.object(fixture.app, "start_mcp_server") as start_server:
+                    with patch(
+                        "reahl.swordfish.main.save_mcp_runtime_config"
+                    ) as save_runtime_config:
+                        fixture.app.configure_mcp_server_from_menu()
+
+    wait_window.assert_called_once_with(fake_dialog)
+    stop_server.assert_not_called()
+    start_server.assert_not_called()
+    save_runtime_config.assert_called_once_with(fixture.app.mcp_runtime_config)
+    assert fixture.app.mcp_runtime_config.to_dict() == updated_runtime_config.to_dict()
+    assert fixture.app.embedded_mcp_server_status()["restart_required_for_config"]
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_collaboration_status_mentions_restart_when_running_config_is_outdated(
+    fixture,
+):
+    """AI: Collaboration status should tell the user to restart MCP when config changed while MCP is running."""
+    fixture.simulate_login()
+    configured_runtime_config = McpRuntimeConfig(
+        mcp_host="127.0.0.1",
+        mcp_port=9100,
+        mcp_http_path="/configured",
+    )
+    active_runtime_config = McpRuntimeConfig(
+        mcp_host="127.0.0.1",
+        mcp_port=8000,
+        mcp_http_path="/mcp",
+    )
+    with fixture.app.embedded_mcp_server_controller.lock:
+        fixture.app.embedded_mcp_server_controller.running = True
+        fixture.app.embedded_mcp_server_controller.starting = False
+        fixture.app.embedded_mcp_server_controller.stopping = False
+        fixture.app.embedded_mcp_server_controller.runtime_config = (
+            configured_runtime_config
+        )
+        fixture.app.embedded_mcp_server_controller.applied_runtime_config = (
+            active_runtime_config
+        )
+
+    fixture.app.refresh_collaboration_status()
+    fixture.app.update()
+
+    assert "MCP config changed; stop and start MCP to apply latest settings." in (
+        fixture.app.collaboration_status_text.get()
+    )
 
 
 @with_fixtures(SwordfishAppFixture)
