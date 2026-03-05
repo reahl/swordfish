@@ -2199,6 +2199,17 @@ def register_tools(
         )
 
     @mcp_server.tool()
+    def gs_ide_open_run_window(
+        connection_id,
+        source='',
+    ):
+        return perform_ide_navigation_action(
+            connection_id,
+            'open_run_window',
+            {'source': source},
+        )
+
+    @mcp_server.tool()
     def gs_ide_open_debugger(
         connection_id,
         debug_id,

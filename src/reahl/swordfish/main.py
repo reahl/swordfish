@@ -3949,6 +3949,10 @@ class Swordfish(tk.Tk):
             "McpIdeNavigationRequested",
             self.handle_mcp_ide_navigation_requested,
         )
+        self.event_queue.subscribe(
+            "OpenRunWindow",
+            self.handle_open_run_window,
+        )
         self.integrated_session_state.subscribe_mcp_busy_state(
             self.publish_mcp_busy_state_event,
         )
@@ -4336,6 +4340,10 @@ class Swordfish(tk.Tk):
         if not last_error_message:
             self.last_mcp_server_error_message = None
         self.refresh_collaboration_status()
+
+    def handle_open_run_window(self, source=""):
+        self.run_code()
+        self.run_tab.present_source(source, run_immediately=False)
 
     def handle_model_refresh_requested(self, change_kind=""):
         self.process_pending_model_refresh_requests()
@@ -4778,6 +4786,23 @@ class Swordfish(tk.Tk):
                 exception,
                 ask_before_open=ask_before_open,
             )
+        if action_name == "open_run_window":
+            source = action_parameters.get("source", "")
+            if not isinstance(source, str):
+                return {
+                    "ok": False,
+                    "error": {"message": "source must be a string."},
+                }
+            if not self.is_logged_in:
+                return {
+                    "ok": False,
+                    "error": {"message": "No active GemStone session in the IDE."},
+                }
+            self.event_queue.publish("OpenRunWindow", source=source)
+            return {
+                "ok": True,
+                "source": source,
+            }
         if action_name == "query_current_view":
             return self.current_ide_view_state()
         return {
@@ -9132,6 +9157,7 @@ class ObjectInspector(ttk.Frame):
         self.total_items = 0
         self.pagination_mode = None
         self.dictionary_keys = []
+        self.set_as_array = None
         self.actual_values = []
         self.treeview_heading = "Name"
 
@@ -9265,6 +9291,40 @@ class ObjectInspector(ttk.Frame):
         )
         return any(marker in class_name for marker in indexed_markers)
 
+    def class_name_has_set_semantics(self, class_name):
+        set_markers = ("Set", "Bag")
+        return any(marker in class_name for marker in set_markers)
+
+    def configure_set_rows(self, an_object):
+        try:
+            self.set_as_array = an_object.asArray()
+        except GemstoneError:
+            return False
+        try:
+            total_items = self.set_as_array.size().to_py
+        except GemstoneError:
+            return False
+        self.pagination_mode = "set"
+        self.current_page = 0
+        self.total_items = total_items
+        self.treeview_heading = "Element"
+        self.refresh_rows_for_current_page()
+        return True
+
+    def set_rows_for_range(self, start_index, end_index):
+        rows = []
+        for one_based_index in range(start_index + 1, end_index + 1):
+            value_found = False
+            value = None
+            try:
+                value = self.set_as_array.at(one_based_index)
+                value_found = True
+            except GemstoneError:
+                pass
+            if value_found:
+                rows.append((f'[{one_based_index}]', value))
+        return rows
+
     def inspect_object(self, an_object):
         if an_object is None:
             self.pagination_mode = None
@@ -9297,6 +9357,12 @@ class ObjectInspector(ttk.Frame):
                 an_object
             )
         if indexed_collection_is_configured:
+            return
+
+        set_is_configured = False
+        if self.class_name_has_set_semantics(class_name):
+            set_is_configured = self.configure_set_rows(an_object)
+        if set_is_configured:
             return
 
         self.pagination_mode = None
@@ -9383,6 +9449,8 @@ class ObjectInspector(ttk.Frame):
             rows = self.dictionary_rows_for_range(start_index, end_index)
         if self.pagination_mode == "indexed":
             rows = self.indexed_rows_for_range(start_index, end_index)
+        if self.pagination_mode == "set":
+            rows = self.set_rows_for_range(start_index, end_index)
         self.load_rows(rows, self.treeview_heading, self.total_items)
 
     def inspect_instance(self, an_object):
