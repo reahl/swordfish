@@ -1806,6 +1806,14 @@ class MainMenu(tk.Menu):
                 run_command_state = tk.DISABLED
             self.file_menu.add_command(label="Find", command=self.show_find_dialog)
             self.file_menu.add_command(
+                label="Implementors",
+                command=self.show_find_implementors_dialog,
+            )
+            self.file_menu.add_command(
+                label="Senders",
+                command=self.show_find_senders_dialog,
+            )
+            self.file_menu.add_command(
                 label="Run",
                 command=self.show_run_dialog,
                 state=run_command_state,
@@ -1820,6 +1828,12 @@ class MainMenu(tk.Menu):
 
     def show_find_dialog(self):
         self.parent.open_find_dialog()
+
+    def show_find_implementors_dialog(self):
+        self.parent.open_implementors_dialog()
+
+    def show_find_senders_dialog(self):
+        self.parent.open_senders_dialog()
 
     def show_run_dialog(self):
         self.parent.run_code()
@@ -6180,7 +6194,7 @@ class ClassSelection(FramedWidget):
             state=delete_command_state,
         )
         menu.add_command(
-            label="Find References",
+            label="References",
             command=self.find_references_for_selected_class,
             state=tk.NORMAL if has_selection else tk.DISABLED,
         )
@@ -6229,7 +6243,7 @@ class ClassSelection(FramedWidget):
             self.current_context_menu.unpost()
         menu = self.current_context_menu = tk.Menu(self, tearoff=0)
         menu.add_command(
-            label="Find References",
+            label="References",
             command=self.find_references_for_selected_class,
             state=tk.NORMAL if has_selection else tk.DISABLED,
         )
@@ -7642,15 +7656,15 @@ class CodePanel(tk.Frame):
             )
             self.current_context_menu.add_separator()
         self.current_context_menu.add_command(
-            label="Find Implementors",
+            label="Implementors",
             command=self.open_implementors_from_source,
         )
         self.current_context_menu.add_command(
-            label="Find Senders",
+            label="Senders",
             command=self.open_senders_from_source,
         )
         self.current_context_menu.add_command(
-            label="Find References",
+            label="References",
             command=self.find_references_from_source,
         )
         self.current_context_menu.add_separator()
