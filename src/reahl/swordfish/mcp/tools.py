@@ -4833,10 +4833,17 @@ def register_tools(
                 "tests_passed": test_result["has_passed"],
             }
         except GemstoneError as error:
+            debug_session = GemstoneDebugSession(error)
+            debug_id = add_debug_session(connection_id, debug_session)
             return {
-                "ok": False,
+                "ok": True,
                 "connection_id": connection_id,
+                "test_case_class_name": test_case_class_name,
+                "test_method_selector": test_method_selector,
+                "completed": False,
+                "debug_id": debug_id,
                 "error": gemstone_error_payload(error),
+                "debug": debug_payload(debug_session),
             }
         except GemstoneApiError as error:
             return {
@@ -6329,7 +6336,7 @@ def register_tools(
         connection_id,
         class_name,
         method_selector,
-        source_offset,
+        source_offset: int,
         show_instance_side=True,
     ):
         try:
