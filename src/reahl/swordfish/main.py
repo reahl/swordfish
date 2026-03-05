@@ -4447,6 +4447,120 @@ class Swordfish(tk.Tk):
                 oop_labels,
                 clear_existing=clear_existing,
             )
+        if action_name == "select_class":
+            class_name = action_parameters.get("class_name")
+            if not isinstance(class_name, str):
+                return {
+                    "ok": False,
+                    "error": {"message": "class_name must be a string."},
+                }
+            class_name = class_name.strip()
+            if not class_name:
+                return {
+                    "ok": False,
+                    "error": {"message": "class_name cannot be empty."},
+                }
+            show_instance_side = action_parameters.get("show_instance_side", True)
+            if not isinstance(show_instance_side, bool):
+                return {
+                    "ok": False,
+                    "error": {"message": "show_instance_side must be a boolean."},
+                }
+            if not self.is_logged_in:
+                return {
+                    "ok": False,
+                    "error": {"message": "No active GemStone session in the IDE."},
+                }
+            try:
+                self.handle_find_selection(show_instance_side, class_name)
+            except (
+                DomainException,
+                GemstoneDomainException,
+                GemstoneError,
+            ) as error:
+                return {
+                    "ok": False,
+                    "error": {"message": str(error)},
+                }
+            return {
+                "ok": True,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+            }
+        if action_name == "open_method":
+            class_name = action_parameters.get("class_name")
+            if not isinstance(class_name, str):
+                return {
+                    "ok": False,
+                    "error": {"message": "class_name must be a string."},
+                }
+            class_name = class_name.strip()
+            if not class_name:
+                return {
+                    "ok": False,
+                    "error": {"message": "class_name cannot be empty."},
+                }
+            method_symbol = action_parameters.get("method_symbol")
+            if not isinstance(method_symbol, str):
+                return {
+                    "ok": False,
+                    "error": {"message": "method_symbol must be a string."},
+                }
+            method_symbol = method_symbol.strip()
+            if not method_symbol:
+                return {
+                    "ok": False,
+                    "error": {"message": "method_symbol cannot be empty."},
+                }
+            show_instance_side = action_parameters.get("show_instance_side", True)
+            if not isinstance(show_instance_side, bool):
+                return {
+                    "ok": False,
+                    "error": {"message": "show_instance_side must be a boolean."},
+                }
+            if not self.is_logged_in:
+                return {
+                    "ok": False,
+                    "error": {"message": "No active GemStone session in the IDE."},
+                }
+            try:
+                self.handle_sender_selection(
+                    class_name,
+                    show_instance_side,
+                    method_symbol,
+                )
+            except (
+                DomainException,
+                GemstoneDomainException,
+                GemstoneError,
+            ) as error:
+                return {
+                    "ok": False,
+                    "error": {"message": str(error)},
+                }
+            return {
+                "ok": True,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "method_symbol": method_symbol,
+            }
+        if action_name == "open_debugger_for_exception":
+            exception = action_parameters.get("exception")
+            if exception is None:
+                return {
+                    "ok": False,
+                    "error": {"message": "exception is required."},
+                }
+            ask_before_open = action_parameters.get("ask_before_open", False)
+            if not isinstance(ask_before_open, bool):
+                return {
+                    "ok": False,
+                    "error": {"message": "ask_before_open must be a boolean."},
+                }
+            return self.open_debugger_for_mcp_exception(
+                exception,
+                ask_before_open=ask_before_open,
+            )
         return {
             "ok": False,
             "error": {"message": f"Unknown IDE navigation action: {action_name}."},
@@ -4535,6 +4649,25 @@ class Swordfish(tk.Tk):
                 "Debugging is disabled while MCP is running an operation.",
             )
             return
+        self.open_debugger_with_optional_confirmation(
+            exception,
+            ask_before_open=False,
+        )
+
+    def open_debugger_with_optional_confirmation(
+        self,
+        exception,
+        ask_before_open=False,
+    ):
+        if ask_before_open:
+            response = messagebox.askquestion(
+                "Open Debugger",
+                "MCP requested opening a debugger for a failure. Open it now?",
+                icon="warning",
+                type="okcancel",
+            )
+            if response == "cancel":
+                return False
         if self.debugger_tab:
             if self.debugger_tab.is_running:
                 response = messagebox.askquestion(
@@ -4544,11 +4677,37 @@ class Swordfish(tk.Tk):
                     type="okcancel",
                 )
                 if response == "cancel":
-                    return
+                    return False
             self.debugger_tab.destroy()
 
         self.add_debugger_tab(exception)
         self.select_debugger_tab()
+        return True
+
+    def open_debugger_for_mcp_exception(
+        self,
+        exception,
+        ask_before_open=False,
+    ):
+        if not self.is_logged_in:
+            return {
+                "ok": False,
+                "error": {"message": "No active GemStone session in the IDE."},
+            }
+        debugger_opened = self.open_debugger_with_optional_confirmation(
+            exception,
+            ask_before_open=ask_before_open,
+        )
+        if not debugger_opened:
+            return {
+                "ok": False,
+                "cancelled": True,
+                "error": {"message": "Debugger opening cancelled by user."},
+            }
+        return {
+            "ok": True,
+            "debugger_opened": True,
+        }
 
     def add_debugger_tab(self, exception):
         self.debugger_tab = DebuggerWindow(

@@ -58,46 +58,46 @@ def register_tools(
     require_gemstone_ast=False,
 ):
     if not isinstance(allow_commit_when_gui, bool):
-        raise ValueError('allow_commit_when_gui must be a boolean.')
+        raise ValueError("allow_commit_when_gui must be a boolean.")
     if integrated_session_state is None:
         integrated_session_state = IntegratedSessionState()
 
-    identifier_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*$')
-    unary_selector_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*$')
-    keyword_selector_pattern = re.compile('^([A-Za-z][A-Za-z0-9_]*:)+$')
-    keyword_token_pattern = re.compile('^[A-Za-z][A-Za-z0-9_]*:$')
-    tracer_alias_selector_prefix = 'swordfishMcpTracerOriginal__'
+    identifier_pattern = re.compile("^[A-Za-z][A-Za-z0-9_]*$")
+    unary_selector_pattern = re.compile("^[A-Za-z][A-Za-z0-9_]*$")
+    keyword_selector_pattern = re.compile("^([A-Za-z][A-Za-z0-9_]*:)+$")
+    keyword_token_pattern = re.compile("^[A-Za-z][A-Za-z0-9_]*:$")
+    tracer_alias_selector_prefix = "swordfishMcpTracerOriginal__"
     collected_sender_evidence = {}
     planned_sender_tests = {}
 
     def tool_name_writes_model(tool_name):
         if tool_name in {
-            'gs_begin',
-            'gs_begin_if_needed',
-            'gs_commit',
-            'gs_abort',
-            'gs_eval',
-            'gs_debug_eval',
-            'gs_set_method_category',
-            'gs_delete_method',
-            'gs_delete_class',
-            'gs_global_set',
-            'gs_global_remove',
-            'gs_ast_install',
-            'gs_tracer_install',
-            'gs_tracer_uninstall',
-            'gs_tracer_enable',
-            'gs_tracer_disable',
-            'gs_tracer_trace_selector',
-            'gs_tracer_untrace_selector',
-            'gs_tracer_clear_observed_senders',
+            "gs_begin",
+            "gs_begin_if_needed",
+            "gs_commit",
+            "gs_abort",
+            "gs_eval",
+            "gs_debug_eval",
+            "gs_set_method_category",
+            "gs_delete_method",
+            "gs_delete_class",
+            "gs_global_set",
+            "gs_global_remove",
+            "gs_ast_install",
+            "gs_tracer_install",
+            "gs_tracer_uninstall",
+            "gs_tracer_enable",
+            "gs_tracer_disable",
+            "gs_tracer_trace_selector",
+            "gs_tracer_untrace_selector",
+            "gs_tracer_clear_observed_senders",
         }:
             return True
         for write_prefix in (
-            'gs_create_',
-            'gs_install_',
-            'gs_compile_',
-            'gs_apply_',
+            "gs_create_",
+            "gs_install_",
+            "gs_compile_",
+            "gs_apply_",
         ):
             if tool_name.startswith(write_prefix):
                 return True
@@ -106,7 +106,7 @@ def register_tools(
     def should_refresh_model(tool_name, tool_result):
         if not isinstance(tool_result, dict):
             return False
-        if not tool_result.get('ok'):
+        if not tool_result.get("ok"):
             return False
         return tool_name_writes_model(tool_name)
 
@@ -125,9 +125,7 @@ def register_tools(
                 try:
                     tool_result = function(*function_arguments, **function_keywords)
                     if should_refresh_model(function.__name__, tool_result):
-                        integrated_session_state.request_model_refresh(
-                            'transaction'
-                        )
+                        integrated_session_state.request_model_refresh("transaction")
                     return tool_result
                 finally:
                     integrated_session_state.end_mcp_operation()
@@ -159,17 +157,17 @@ def register_tools(
             gemstone_session = integrated_session_state.ide_session_for_mcp()
             if gemstone_session is None:
                 return None, {
-                    'ok': False,
-                    'error': {
-                        'message': 'Unknown connection_id.',
+                    "ok": False,
+                    "error": {
+                        "message": "Unknown connection_id.",
                     },
                 }
             return gemstone_session, None
         if not has_connection(connection_id):
             return None, {
-                'ok': False,
-                'error': {
-                    'message': 'Unknown connection_id.',
+                "ok": False,
+                "error": {
+                    "message": "Unknown connection_id.",
                 },
             }
         return get_session(connection_id), None
@@ -178,21 +176,20 @@ def register_tools(
         metadata = metadata_for_connection_id(connection_id)
         if metadata is None:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {
-                    'message': 'Unknown connection_id.',
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {
+                    "message": "Unknown connection_id.",
                 },
             }
-        if metadata.get('transaction_active'):
+        if metadata.get("transaction_active"):
             return None
         return {
-            'ok': False,
-            'connection_id': connection_id,
-            'error': {
-                'message': (
-                    'No active transaction. '
-                    'Call gs_begin before write operations.'
+            "ok": False,
+            "connection_id": connection_id,
+            "error": {
+                "message": (
+                    "No active transaction. " "Call gs_begin before write operations."
                 ),
             },
         }
@@ -212,36 +209,34 @@ def register_tools(
     def get_active_debug_session(connection_id, debug_id):
         if not has_debug_session(debug_id):
             return None, {
-                'ok': False,
-                'connection_id': connection_id,
-                'debug_id': debug_id,
-                'error': {'message': 'Unknown debug_id.'},
+                "ok": False,
+                "connection_id": connection_id,
+                "debug_id": debug_id,
+                "error": {"message": "Unknown debug_id."},
             }
         debug_metadata = get_debug_metadata(debug_id)
-        if debug_metadata['connection_id'] != connection_id:
+        if debug_metadata["connection_id"] != connection_id:
             return None, {
-                'ok': False,
-                'connection_id': connection_id,
-                'debug_id': debug_id,
-                'error': {
-                    'message': 'debug_id is not associated with connection_id.'
-                },
+                "ok": False,
+                "connection_id": connection_id,
+                "debug_id": debug_id,
+                "error": {"message": "debug_id is not associated with connection_id."},
             }
         return get_debug_session(debug_id), None
 
     def disabled_tool_response(connection_id, message):
         return {
-            'ok': False,
-            'connection_id': connection_id,
-            'error': {'message': message},
+            "ok": False,
+            "connection_id": connection_id,
+            "error": {"message": message},
         }
 
     def tracing_disabled_tool_response(connection_id, tool_name):
         return disabled_tool_response(
             connection_id,
             (
-                '%s is disabled. '
-                'Start swordfish --headless-mcp with --allow-tracing to enable.'
+                "%s is disabled. "
+                "Start swordfish --headless-mcp with --allow-tracing to enable."
             )
             % tool_name,
         )
@@ -255,34 +250,34 @@ def register_tools(
         connection_id,
         tool_name,
         action_name,
-        approval_mode='explicit_confirmation',
-        resolution_hint='',
+        approval_mode="explicit_confirmation",
+        resolution_hint="",
     ):
-        message = '%s requires human approval for %s.' % (
+        message = "%s requires human approval for %s." % (
             tool_name,
             action_name,
         )
         message = (
             message
-            + ' Retry with approved_by_user=true and '
-            + 'a non-empty approval_note.'
+            + " Retry with approved_by_user=true and "
+            + "a non-empty approval_note."
         )
         retry_arguments = {
-            'approved_by_user': True,
-            'approval_note': '<human-approval-note>',
+            "approved_by_user": True,
+            "approval_note": "<human-approval-note>",
         }
         if resolution_hint:
-            message = message + ' ' + resolution_hint
+            message = message + " " + resolution_hint
         response = disabled_tool_response(
             connection_id,
             message,
         )
-        response['error']['approval'] = {
-            'required': True,
-            'tool_name': tool_name,
-            'action_name': action_name,
-            'mode': approval_mode,
-            'retry_arguments': retry_arguments,
+        response["error"]["approval"] = {
+            "required": True,
+            "tool_name": tool_name,
+            "action_name": action_name,
+            "mode": approval_mode,
+            "retry_arguments": retry_arguments,
         }
         return response
 
@@ -296,7 +291,7 @@ def register_tools(
         try:
             approved_by_user = validated_boolean_like(
                 approved_by_user,
-                'approved_by_user',
+                "approved_by_user",
             )
         except DomainException as error:
             return disabled_tool_response(connection_id, str(error))
@@ -309,7 +304,7 @@ def register_tools(
         try:
             validated_non_empty_string_stripped(
                 approval_note,
-                'approval_note',
+                "approval_note",
             )
         except DomainException as error:
             return disabled_tool_response(connection_id, str(error))
@@ -317,14 +312,14 @@ def register_tools(
 
     def validated_identifier(input_value, argument_name):
         if not isinstance(input_value, str):
-            raise DomainException('%s must be a string.' % argument_name)
+            raise DomainException("%s must be a string." % argument_name)
         if not input_value:
-            raise DomainException('%s cannot be empty.' % argument_name)
+            raise DomainException("%s cannot be empty." % argument_name)
         if not identifier_pattern.match(input_value):
             raise DomainException(
                 (
-                    '%s must contain only letters, digits, and underscores '
-                    'and start with a letter.'
+                    "%s must contain only letters, digits, and underscores "
+                    "and start with a letter."
                 )
                 % argument_name
             )
@@ -334,22 +329,22 @@ def register_tools(
         if input_values is None:
             return []
         if not isinstance(input_values, list):
-            raise DomainException('%s must be a list of strings.' % argument_name)
+            raise DomainException("%s must be a list of strings." % argument_name)
         validated_values = []
         for index, input_value in enumerate(input_values):
             validated_values.append(
                 validated_identifier(
                     input_value,
-                    '%s[%s]' % (argument_name, index),
+                    "%s[%s]" % (argument_name, index),
                 )
             )
         return validated_values
 
     def validated_non_empty_string(input_value, argument_name):
         if not isinstance(input_value, str):
-            raise DomainException('%s must be a string.' % argument_name)
+            raise DomainException("%s must be a string." % argument_name)
         if not input_value:
-            raise DomainException('%s cannot be empty.' % argument_name)
+            raise DomainException("%s cannot be empty." % argument_name)
         return input_value
 
     def validated_non_empty_string_stripped(input_value, argument_name):
@@ -358,27 +353,24 @@ def register_tools(
             argument_name,
         ).strip()
         if not normalized_input_value:
-            raise DomainException('%s cannot be blank.' % argument_name)
+            raise DomainException("%s cannot be blank." % argument_name)
         return normalized_input_value
 
     def validated_optional_package_name(package_name):
         if package_name is None:
-            return ''
+            return ""
         if not isinstance(package_name, str):
-            raise DomainException('package_name must be a string.')
+            raise DomainException("package_name must be a string.")
         return package_name.strip()
 
     def validated_existing_package_name(browser_session, package_name):
         package_name = validated_non_empty_string_stripped(
             package_name,
-            'package_name',
+            "package_name",
         )
         if not browser_session.installed_package_named(package_name):
             raise DomainException(
-                (
-                    'Unknown package_name. '
-                    'Create/install package first.'
-                )
+                ("Unknown package_name. " "Create/install package first.")
             )
         return package_name
 
@@ -389,7 +381,7 @@ def register_tools(
     ):
         in_dictionary = validated_non_empty_string_stripped(
             in_dictionary,
-            'in_dictionary',
+            "in_dictionary",
         )
         package_name = validated_optional_package_name(package_name)
         if package_name:
@@ -398,27 +390,27 @@ def register_tools(
                 package_name,
             )
             return in_dictionary, package_name
-        return in_dictionary, ''
+        return in_dictionary, ""
 
     def validated_non_negative_integer_or_none(input_value, argument_name):
         if input_value is None:
             return None
         if not isinstance(input_value, int):
-            raise DomainException('%s must be an integer or None.' % argument_name)
+            raise DomainException("%s must be an integer or None." % argument_name)
         if input_value < 0:
-            raise DomainException('%s cannot be negative.' % argument_name)
+            raise DomainException("%s cannot be negative." % argument_name)
         return input_value
 
     def validated_positive_integer(input_value, argument_name):
         if not isinstance(input_value, int):
-            raise DomainException('%s must be an integer.' % argument_name)
+            raise DomainException("%s must be an integer." % argument_name)
         if input_value <= 0:
-            raise DomainException('%s must be greater than zero.' % argument_name)
+            raise DomainException("%s must be greater than zero." % argument_name)
         return input_value
 
     def validated_boolean(input_value, argument_name):
         if not isinstance(input_value, bool):
-            raise DomainException('%s must be a boolean.' % argument_name)
+            raise DomainException("%s must be a boolean." % argument_name)
         return input_value
 
     def validated_boolean_like(input_value, argument_name):
@@ -426,16 +418,16 @@ def register_tools(
             return input_value
         if isinstance(input_value, str):
             normalized_input_value = input_value.strip().lower()
-            if normalized_input_value == 'true':
+            if normalized_input_value == "true":
                 return True
-            if normalized_input_value == 'false':
+            if normalized_input_value == "false":
                 return False
-        raise DomainException('%s must be a boolean.' % argument_name)
+        raise DomainException("%s must be a boolean." % argument_name)
 
     def current_eval_mode():
         if not allow_eval:
-            return 'disabled'
-        return 'approval_required'
+            return "disabled"
+        return "approval_required"
 
     def commit_allowed_for_current_mode():
         if not allow_commit:
@@ -446,66 +438,62 @@ def register_tools(
 
     def current_commit_approval_mode():
         if not commit_allowed_for_current_mode():
-            return 'disabled'
-        return 'explicit_confirmation'
+            return "disabled"
+        return "explicit_confirmation"
 
     def policy_flags():
         gui_active = gui_session_is_active()
         return {
-            'allow_eval': allow_eval,
-            'allow_eval_write': False,
-            'allow_compile': allow_compile,
-            'allow_commit': commit_allowed_for_current_mode(),
-            'allow_tracing': allow_tracing,
-            'require_gemstone_ast': require_gemstone_ast,
-            'gui_session_active': gui_active,
-            'gui_controls_session': gui_active,
-            'mcp_can_connect_sessions': not gui_active,
-            'mcp_can_disconnect_sessions': not gui_active,
-            'mcp_commit_allowed_when_gui': allow_commit_when_gui,
-            'eval_mode': current_eval_mode(),
-            'commit_approval_mode': current_commit_approval_mode(),
-            'eval_requires_unsafe': True,
-            'eval_requires_human_approval': allow_eval,
-            'commit_requires_human_approval': commit_allowed_for_current_mode(),
-            'writes_require_active_transaction': True,
-            'ide_navigation_available': (
-                gui_active
-                and integrated_session_state.has_ide_navigation_action()
+            "allow_eval": allow_eval,
+            "allow_eval_write": False,
+            "allow_compile": allow_compile,
+            "allow_commit": commit_allowed_for_current_mode(),
+            "allow_tracing": allow_tracing,
+            "require_gemstone_ast": require_gemstone_ast,
+            "gui_session_active": gui_active,
+            "gui_controls_session": gui_active,
+            "mcp_can_connect_sessions": not gui_active,
+            "mcp_can_disconnect_sessions": not gui_active,
+            "mcp_commit_allowed_when_gui": allow_commit_when_gui,
+            "eval_mode": current_eval_mode(),
+            "commit_approval_mode": current_commit_approval_mode(),
+            "eval_requires_unsafe": True,
+            "eval_requires_human_approval": allow_eval,
+            "commit_requires_human_approval": commit_allowed_for_current_mode(),
+            "writes_require_active_transaction": True,
+            "ide_navigation_available": (
+                gui_active and integrated_session_state.has_ide_navigation_action()
             ),
         }
 
     def require_ide_navigation_connection(connection_id):
         if not integrated_session_state.is_ide_connection_id(connection_id):
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {
-                    'message': (
-                        'IDE navigation tools require the shared IDE '
-                        'connection_id.'
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {
+                    "message": (
+                        "IDE navigation tools require the shared IDE " "connection_id."
                     ),
                 },
             }
         if not integrated_session_state.is_ide_gui_active():
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {
-                    'message': (
-                        'IDE GUI is not active. '
-                        'Start the Swordfish GUI and log in first.'
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {
+                    "message": (
+                        "IDE GUI is not active. "
+                        "Start the Swordfish GUI and log in first."
                     ),
                 },
             }
         if not integrated_session_state.has_ide_navigation_action():
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {
-                    'message': (
-                        'IDE navigation is unavailable in this session.'
-                    ),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {
+                    "message": ("IDE navigation is unavailable in this session."),
                 },
             }
         return None
@@ -514,73 +502,40 @@ def register_tools(
         if isinstance(oop_value, int):
             if oop_value <= 0:
                 raise DomainException(
-                    '%s entries must be positive integers.' % argument_name
+                    "%s entries must be positive integers." % argument_name
                 )
             return str(oop_value)
         if isinstance(oop_value, str):
             normalized_value = oop_value.strip()
             if not normalized_value.isdigit():
                 raise DomainException(
-                    '%s entries must contain digits only.' % argument_name
+                    "%s entries must contain digits only." % argument_name
                 )
             if int(normalized_value) <= 0:
                 raise DomainException(
-                    '%s entries must be positive integers.' % argument_name
+                    "%s entries must be positive integers." % argument_name
                 )
             return normalized_value
         raise DomainException(
-            '%s entries must be integers or numeric strings.' % argument_name
+            "%s entries must be integers or numeric strings." % argument_name
         )
 
     def validated_oop_labels(input_values, argument_name):
         if not isinstance(input_values, list):
-            raise DomainException('%s must be a list.' % argument_name)
+            raise DomainException("%s must be a list." % argument_name)
         validated_values = []
         for input_value in input_values:
-            validated_values.append(
-                validated_oop_label(input_value, argument_name)
-            )
+            validated_values.append(validated_oop_label(input_value, argument_name))
         if len(validated_values) < 1:
-            raise DomainException('%s must contain at least one oop.' % argument_name)
+            raise DomainException("%s must contain at least one oop." % argument_name)
         return validated_values
-
-    def oop_labels_from_stack_trace_text(stack_trace_text):
-        oop_labels = []
-        seen_oops = set()
-        explicit_oop_pattern = re.compile(
-            r'(?i)\boop\b\s*[:=#]?\s*([1-9]\d+)\b'
-        )
-        parenthesized_oop_pattern = re.compile(r'\(([1-9]\d{2,})\)')
-        fallback_large_number_pattern = re.compile(r'\b([1-9]\d{4,})\b')
-
-        for oop_match in explicit_oop_pattern.finditer(stack_trace_text):
-            oop_label = oop_match.group(1)
-            if oop_label not in seen_oops:
-                seen_oops.add(oop_label)
-                oop_labels.append(oop_label)
-        for oop_match in parenthesized_oop_pattern.finditer(stack_trace_text):
-            oop_label = oop_match.group(1)
-            if oop_label not in seen_oops:
-                seen_oops.add(oop_label)
-                oop_labels.append(oop_label)
-        if len(oop_labels) < 1:
-            for oop_match in fallback_large_number_pattern.finditer(
-                stack_trace_text
-            ):
-                oop_label = oop_match.group(1)
-                if oop_label not in seen_oops:
-                    seen_oops.add(oop_label)
-                    oop_labels.append(oop_label)
-        return oop_labels
 
     def perform_ide_navigation_action(
         connection_id,
         action_name,
         action_parameters,
     ):
-        connection_error_response = require_ide_navigation_connection(
-            connection_id
-        )
+        connection_error_response = require_ide_navigation_connection(connection_id)
         if connection_error_response is not None:
             return connection_error_response
         action_response = integrated_session_state.perform_ide_navigation_action(
@@ -589,45 +544,44 @@ def register_tools(
         )
         if not isinstance(action_response, dict):
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {
-                    'message': 'IDE navigation action returned an invalid response.'
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {
+                    "message": "IDE navigation action returned an invalid response."
                 },
             }
         response = dict(action_response)
-        response['connection_id'] = connection_id
+        response["connection_id"] = connection_id
         return response
 
     def source_code_character_map_for_eval(source):
         code_character_map = [True for _ in source]
         index = 0
-        state = 'code'
+        state = "code"
         while index < len(source):
             character = source[index]
-            if state == 'code':
+            if state == "code":
                 if character == "'":
                     code_character_map[index] = False
-                    state = 'string'
+                    state = "string"
                 elif character == '"':
                     code_character_map[index] = False
-                    state = 'comment'
-            elif state == 'string':
+                    state = "comment"
+            elif state == "string":
                 code_character_map[index] = False
                 if character == "'":
                     has_escaped_quote = (
-                        index + 1 < len(source)
-                        and source[index + 1] == "'"
+                        index + 1 < len(source) and source[index + 1] == "'"
                     )
                     if has_escaped_quote:
                         code_character_map[index + 1] = False
                         index = index + 1
                     else:
-                        state = 'code'
-            elif state == 'comment':
+                        state = "code"
+            elif state == "comment":
                 code_character_map[index] = False
                 if character == '"':
-                    state = 'code'
+                    state = "code"
             index = index + 1
         return code_character_map
 
@@ -635,90 +589,90 @@ def register_tools(
         code_character_map = source_code_character_map_for_eval(source)
         fragments = []
         for index in range(len(source)):
-            fragments.append(source[index] if code_character_map[index] else ' ')
-        return ''.join(fragments)
+            fragments.append(source[index] if code_character_map[index] else " ")
+        return "".join(fragments)
 
     def write_reason_for_eval_source(source):
         code_only_source = code_only_source_for_eval(source)
         if re.search(
-            r'\bSystem\s+(commit|abort|abortTransaction|begin|beginTransaction)\b',
+            r"\bSystem\s+(commit|abort|abortTransaction|begin|beginTransaction)\b",
             code_only_source,
         ):
-            return 'transaction_control'
+            return "transaction_control"
         if re.search(
-            r'\b(commit|abort|abortTransaction|begin|beginTransaction)\b',
+            r"\b(commit|abort|abortTransaction|begin|beginTransaction)\b",
             code_only_source,
         ):
-            return 'transaction_control'
+            return "transaction_control"
         if re.search(
-            r'\b(compileMethod:|compile:|subclass:)\b',
+            r"\b(compileMethod:|compile:|subclass:)\b",
             code_only_source,
         ):
-            return 'code_definition'
+            return "code_definition"
         if re.search(
-            r'\b(removeSelector:|removeClass:|deleteClass)\b',
+            r"\b(removeSelector:|removeClass:|deleteClass)\b",
             code_only_source,
         ):
-            return 'code_removal'
+            return "code_removal"
         if re.search(
-            r'\bat:\s*[^.;\n]*\bput:',
+            r"\bat:\s*[^.;\n]*\bput:",
             code_only_source,
         ):
-            return 'global_mutation'
+            return "global_mutation"
         if re.search(
-            r'\b(category:|classify:)\b',
+            r"\b(category:|classify:)\b",
             code_only_source,
         ):
-            return 'method_category_mutation'
+            return "method_category_mutation"
         return None
 
     def transaction_state_effect_for_eval_source(source):
         code_only_source = code_only_source_for_eval(source)
         if re.search(
-            r'\b(System\s+)?(commit|abort|abortTransaction)\b',
+            r"\b(System\s+)?(commit|abort|abortTransaction)\b",
             code_only_source,
         ):
-            return 'inactive'
+            return "inactive"
         if re.search(
-            r'\b(System\s+)?(begin|beginTransaction)\b',
+            r"\b(System\s+)?(begin|beginTransaction)\b",
             code_only_source,
         ):
-            return 'active'
-        return 'unknown'
+            return "active"
+        return "unknown"
 
     def guidance_intents():
         return [
-            'general',
-            'navigation',
-            'sender_analysis',
-            'refactor',
-            'runtime_evidence',
+            "general",
+            "navigation",
+            "sender_analysis",
+            "refactor",
+            "runtime_evidence",
         ]
 
     def guidance_for_intent(intent, selector, change_kind=None):
         selector_is_common_hotspot = selector in {
-            'ifTrue:',
-            'ifFalse:',
-            'ifTrue:ifFalse:',
-            'value',
-            'default',
-            'yourself',
+            "ifTrue:",
+            "ifFalse:",
+            "ifTrue:ifFalse:",
+            "value",
+            "default",
+            "yourself",
         }
         decision_rules = [
             {
-                'when': 'You can use an explicit gs_* tool.',
-                'prefer_tools': ['gs_* explicit tool'],
-                'avoid_tools': ['gs_eval'],
-                'reason': (
-                    'Explicit tools are safer, easier to validate, '
-                    'and less likely to produce ambiguous failures.'
+                "when": "You can use an explicit gs_* tool.",
+                "prefer_tools": ["gs_* explicit tool"],
+                "avoid_tools": ["gs_eval"],
+                "reason": (
+                    "Explicit tools are safer, easier to validate, "
+                    "and less likely to produce ambiguous failures."
                 ),
             },
             {
-                'when': 'You are changing code.',
-                'prefer_tools': ['gs_begin', 'write tool', 'gs_commit or gs_abort'],
-                'avoid_tools': ['implicit transaction assumptions'],
-                'reason': 'Write operations require explicit transaction flow.',
+                "when": "You are changing code.",
+                "prefer_tools": ["gs_begin", "write tool", "gs_commit or gs_abort"],
+                "avoid_tools": ["implicit transaction assumptions"],
+                "reason": "Write operations require explicit transaction flow.",
             },
         ]
         cautions = []
@@ -726,283 +680,284 @@ def register_tools(
         if allow_eval:
             decision_rules.append(
                 {
-                    'when': 'You are using gs_eval or gs_debug_eval.',
-                    'prefer_tools': [
-                        'human-approved eval bypass for motivated cases only'
+                    "when": "You are using gs_eval or gs_debug_eval.",
+                    "prefer_tools": [
+                        "human-approved eval bypass for motivated cases only"
                     ],
-                    'avoid_tools': ['routine writes via gs_eval'],
-                    'reason': (
-                        'Eval is powerful and should be exceptional. '
-                        'Use structured tools first; use eval bypass only when '
-                        'a human explicitly approves and the reason is clear.'
+                    "avoid_tools": ["routine writes via gs_eval"],
+                    "reason": (
+                        "Eval is powerful and should be exceptional. "
+                        "Use structured tools first; use eval bypass only when "
+                        "a human explicitly approves and the reason is clear."
                     ),
                 }
             )
             cautions.append(
                 (
-                    'gs_eval and gs_debug_eval require approved_by_user=true '
-                    'with a non-empty approval_note and reason. '
-                    'Prefer structured tools for routine work.'
+                    "gs_eval and gs_debug_eval require approved_by_user=true "
+                    "with a non-empty approval_note and reason. "
+                    "Prefer structured tools for routine work."
                 )
             )
         if commit_allowed_for_current_mode():
             cautions.append(
                 (
-                    'gs_commit requires explicit confirmation: '
-                    'approved_by_user=true and non-empty approval_note.'
+                    "gs_commit requires explicit confirmation: "
+                    "approved_by_user=true and non-empty approval_note."
                 )
             )
         elif allow_commit and gui_session_is_active():
             cautions.append(
                 (
-                    'gs_commit is disabled while the IDE owns the active '
-                    'session unless the server is started with '
-                    '--allow-mcp-commit-when-gui.'
+                    "gs_commit is disabled while the IDE owns the active "
+                    "session unless the server is started with "
+                    "--allow-mcp-commit-when-gui."
                 )
             )
-        if intent == 'general':
+        if intent == "general":
             workflow = [
                 {
-                    'step': 1,
-                    'action': 'Inspect server capabilities and policy switches.',
-                    'tools': ['gs_capabilities'],
+                    "step": 1,
+                    "action": "Inspect server capabilities and policy switches.",
+                    "tools": ["gs_capabilities"],
                 },
                 {
-                    'step': 2,
-                    'action': 'Load workflow guidance for your task.',
-                    'tools': ['gs_guidance'],
+                    "step": 2,
+                    "action": "Load workflow guidance for your task.",
+                    "tools": ["gs_guidance"],
                 },
                 {
-                    'step': 3,
-                    'action': 'Verify AST support status when strict AST mode is on.',
-                    'tools': ['gs_ast_status', 'gs_ast_install'],
+                    "step": 3,
+                    "action": "Verify AST support status when strict AST mode is on.",
+                    "tools": ["gs_ast_status", "gs_ast_install"],
                 },
                 {
-                    'step': 4,
-                    'action': 'Connect and check transaction state.',
-                    'tools': ['gs_connect', 'gs_transaction_status'],
+                    "step": 4,
+                    "action": "Connect and check transaction state.",
+                    "tools": ["gs_connect", "gs_transaction_status"],
                 },
                 {
-                    'step': 5,
-                    'action': 'For new module scaffolding, use explicit package tools.',
-                    'tools': [
-                        'gs_create_package',
-                        'gs_create_dictionary',
-                        'gs_install_package',
-                        'gs_create_class_in_package',
-                        'gs_create_test_case_class',
+                    "step": 5,
+                    "action": "For new module scaffolding, use explicit package tools.",
+                    "tools": [
+                        "gs_create_package",
+                        "gs_create_dictionary",
+                        "gs_install_package",
+                        "gs_create_class_in_package",
+                        "gs_create_test_case_class",
                     ],
                 },
             ]
-        if intent == 'navigation':
+        if intent == "navigation":
             workflow = [
                 {
-                    'step': 1,
-                    'action': 'Find candidate classes/selectors.',
-                    'tools': ['gs_find_classes', 'gs_find_selectors'],
+                    "step": 1,
+                    "action": "Find candidate classes/selectors.",
+                    "tools": ["gs_find_classes", "gs_find_selectors"],
                 },
                 {
-                    'step': 2,
-                    'action': 'Find implementors and static senders.',
-                    'tools': ['gs_find_implementors', 'gs_find_senders'],
+                    "step": 2,
+                    "action": "Find implementors and static senders.",
+                    "tools": ["gs_find_implementors", "gs_find_senders"],
                 },
                 {
-                    'step': 3,
-                    'action': 'Inspect source for shortlisted methods.',
-                    'tools': [
-                        'gs_get_method_source',
-                        'gs_method_ast',
-                        'gs_method_sends',
-                        'gs_method_structure_summary',
-                        'gs_method_control_flow_summary',
-                        'gs_query_methods_by_ast_pattern',
+                    "step": 3,
+                    "action": "Inspect source for shortlisted methods.",
+                    "tools": [
+                        "gs_get_method_source",
+                        "gs_method_ast",
+                        "gs_method_sends",
+                        "gs_method_structure_summary",
+                        "gs_method_control_flow_summary",
+                        "gs_query_methods_by_ast_pattern",
                     ],
                 },
             ]
-        if intent == 'sender_analysis':
+        if intent == "sender_analysis":
             workflow = [
                 {
-                    'step': 1,
-                    'action': 'Start with static senders.',
-                    'tools': ['gs_find_senders'],
+                    "step": 1,
+                    "action": "Start with static senders.",
+                    "tools": ["gs_find_senders"],
                 },
                 {
-                    'step': 2,
-                    'action': 'If sender set is broad, build candidate tests.',
-                    'tools': ['gs_plan_evidence_tests'],
+                    "step": 2,
+                    "action": "If sender set is broad, build candidate tests.",
+                    "tools": ["gs_plan_evidence_tests"],
                 },
                 {
-                    'step': 3,
-                    'action': 'Collect runtime sender evidence from tests.',
-                    'tools': ['gs_collect_sender_evidence'],
+                    "step": 3,
+                    "action": "Collect runtime sender evidence from tests.",
+                    "tools": ["gs_collect_sender_evidence"],
                 },
             ]
-        if intent == 'refactor':
-            preview_tools = ['gs_preview_selector_rename']
-            apply_tools = ['gs_apply_selector_rename']
-            if change_kind == 'rename_method':
-                preview_tools = ['gs_preview_rename_method']
-                apply_tools = ['gs_apply_rename_method']
-            if change_kind == 'move_method':
-                preview_tools = ['gs_preview_move_method']
-                apply_tools = ['gs_apply_move_method']
-            if change_kind == 'add_parameter':
-                preview_tools = ['gs_preview_add_parameter']
-                apply_tools = ['gs_apply_add_parameter']
-            if change_kind == 'remove_parameter':
-                preview_tools = ['gs_preview_remove_parameter']
-                apply_tools = ['gs_apply_remove_parameter']
-            if change_kind == 'extract_method':
-                preview_tools = ['gs_preview_extract_method']
-                apply_tools = ['gs_apply_extract_method']
-            if change_kind == 'inline_method':
-                preview_tools = ['gs_preview_inline_method']
-                apply_tools = ['gs_apply_inline_method']
+        if intent == "refactor":
+            preview_tools = ["gs_preview_selector_rename"]
+            apply_tools = ["gs_apply_selector_rename"]
+            if change_kind == "rename_method":
+                preview_tools = ["gs_preview_rename_method"]
+                apply_tools = ["gs_apply_rename_method"]
+            if change_kind == "move_method":
+                preview_tools = ["gs_preview_move_method"]
+                apply_tools = ["gs_apply_move_method"]
+            if change_kind == "add_parameter":
+                preview_tools = ["gs_preview_add_parameter"]
+                apply_tools = ["gs_apply_add_parameter"]
+            if change_kind == "remove_parameter":
+                preview_tools = ["gs_preview_remove_parameter"]
+                apply_tools = ["gs_apply_remove_parameter"]
+            if change_kind == "extract_method":
+                preview_tools = ["gs_preview_extract_method"]
+                apply_tools = ["gs_apply_extract_method"]
+            if change_kind == "inline_method":
+                preview_tools = ["gs_preview_inline_method"]
+                apply_tools = ["gs_apply_inline_method"]
             if change_kind is None:
                 preview_tools = [
-                    'gs_preview_selector_rename',
-                    'gs_preview_rename_method',
-                    'gs_preview_move_method',
-                    'gs_preview_add_parameter',
-                    'gs_preview_remove_parameter',
-                    'gs_preview_extract_method',
-                    'gs_preview_inline_method',
+                    "gs_preview_selector_rename",
+                    "gs_preview_rename_method",
+                    "gs_preview_move_method",
+                    "gs_preview_add_parameter",
+                    "gs_preview_remove_parameter",
+                    "gs_preview_extract_method",
+                    "gs_preview_inline_method",
                 ]
                 apply_tools = [
-                    'gs_apply_selector_rename',
-                    'gs_apply_rename_method',
-                    'gs_apply_move_method',
-                    'gs_apply_add_parameter',
-                    'gs_apply_remove_parameter',
-                    'gs_apply_extract_method',
-                    'gs_apply_inline_method',
+                    "gs_apply_selector_rename",
+                    "gs_apply_rename_method",
+                    "gs_apply_move_method",
+                    "gs_apply_add_parameter",
+                    "gs_apply_remove_parameter",
+                    "gs_apply_extract_method",
+                    "gs_apply_inline_method",
                 ]
             workflow = [
                 {
-                    'step': 1,
-                    'action': 'Preview refactor impact before changing code.',
-                    'tools': preview_tools,
+                    "step": 1,
+                    "action": "Preview refactor impact before changing code.",
+                    "tools": preview_tools,
                 },
                 {
-                    'step': 2,
-                    'action': 'Collect evidence for ambiguous selectors.',
-                    'tools': [
-                        'gs_find_senders',
-                        'gs_plan_evidence_tests',
-                        'gs_collect_sender_evidence',
+                    "step": 2,
+                    "action": "Collect evidence for ambiguous selectors.",
+                    "tools": [
+                        "gs_find_senders",
+                        "gs_plan_evidence_tests",
+                        "gs_collect_sender_evidence",
                     ],
                 },
                 {
-                    'step': 3,
-                    'action': 'Apply change, then run tests.',
-                    'tools': apply_tools + [
-                        'gs_run_gemstone_tests',
-                        'gs_run_tests_in_package',
-                        'gs_run_test_method',
+                    "step": 3,
+                    "action": "Apply change, then run tests.",
+                    "tools": apply_tools
+                    + [
+                        "gs_run_gemstone_tests",
+                        "gs_run_tests_in_package",
+                        "gs_run_test_method",
                     ],
                 },
             ]
-            if change_kind == 'remove_parameter':
+            if change_kind == "remove_parameter":
                 decision_rules.append(
                     {
-                        'when': 'You remove a parameter and want to reduce wrapper reliance.',
-                        'prefer_tools': [
-                            'gs_preview_remove_parameter(rewrite_source_senders=true)',
-                            'gs_apply_remove_parameter(rewrite_source_senders=true)',
+                        "when": "You remove a parameter and want to reduce wrapper reliance.",
+                        "prefer_tools": [
+                            "gs_preview_remove_parameter(rewrite_source_senders=true)",
+                            "gs_apply_remove_parameter(rewrite_source_senders=true)",
                         ],
-                        'avoid_tools': [
-                            'leaving all local callers on compatibility wrapper',
+                        "avoid_tools": [
+                            "leaving all local callers on compatibility wrapper",
                         ],
-                        'reason': (
-                            'Optional same-class caller rewrites move local senders '
-                            'to the new selector while preserving old entrypoint compatibility.'
+                        "reason": (
+                            "Optional same-class caller rewrites move local senders "
+                            "to the new selector while preserving old entrypoint compatibility."
                         ),
                     }
                 )
-        if intent == 'runtime_evidence':
+        if intent == "runtime_evidence":
             workflow = [
                 {
-                    'step': 1,
-                    'action': 'Set breakpoints in suspected methods.',
-                    'tools': [
-                        'gs_breakpoint_set',
-                        'gs_breakpoint_list',
+                    "step": 1,
+                    "action": "Set breakpoints in suspected methods.",
+                    "tools": [
+                        "gs_breakpoint_set",
+                        "gs_breakpoint_list",
                     ],
                 },
                 {
-                    'step': 2,
-                    'action': 'Install and enable tracer once per image/session.',
-                    'tools': [
-                        'gs_tracer_install',
-                        'gs_tracer_status',
-                        'gs_tracer_enable',
+                    "step": 2,
+                    "action": "Install and enable tracer once per image/session.",
+                    "tools": [
+                        "gs_tracer_install",
+                        "gs_tracer_status",
+                        "gs_tracer_enable",
                     ],
                 },
                 {
-                    'step': 3,
-                    'action': 'Trace a selector and run relevant tests.',
-                    'tools': [
-                        'gs_tracer_trace_selector',
-                        'gs_run_test_method or gs_run_tests_in_package',
+                    "step": 3,
+                    "action": "Trace a selector and run relevant tests.",
+                    "tools": [
+                        "gs_tracer_trace_selector",
+                        "gs_run_test_method or gs_run_tests_in_package",
                     ],
                 },
                 {
-                    'step': 4,
-                    'action': (
-                        'Read observed senders, then clear breakpoints and '
-                        'untrace when done.'
+                    "step": 4,
+                    "action": (
+                        "Read observed senders, then clear breakpoints and "
+                        "untrace when done."
                     ),
-                    'tools': [
-                        'gs_tracer_find_observed_senders',
-                        'gs_breakpoint_clear or gs_breakpoint_clear_all',
-                        'gs_tracer_untrace_selector',
+                    "tools": [
+                        "gs_tracer_find_observed_senders",
+                        "gs_breakpoint_clear or gs_breakpoint_clear_all",
+                        "gs_tracer_untrace_selector",
                     ],
                 },
             ]
         if selector_is_common_hotspot:
             cautions.append(
                 (
-                    'Selector %s is often high-fanout. '
-                    'Static senders may contain many unrelated call sites.'
+                    "Selector %s is often high-fanout. "
+                    "Static senders may contain many unrelated call sites."
                 )
                 % selector
             )
         if selector_is_common_hotspot and not allow_tracing:
             cautions.append(
                 (
-                    'Runtime evidence tools are disabled. '
-                    'Start swordfish --headless-mcp with --allow-tracing '
-                    'for observed caller evidence.'
+                    "Runtime evidence tools are disabled. "
+                    "Start swordfish --headless-mcp with --allow-tracing "
+                    "for observed caller evidence."
                 )
             )
         if selector_is_common_hotspot and allow_tracing:
             decision_rules.append(
                 {
-                    'when': 'Selector fanout is high or ambiguous.',
-                    'prefer_tools': [
-                        'gs_plan_evidence_tests',
-                        'gs_collect_sender_evidence',
+                    "when": "Selector fanout is high or ambiguous.",
+                    "prefer_tools": [
+                        "gs_plan_evidence_tests",
+                        "gs_collect_sender_evidence",
                     ],
-                    'avoid_tools': ['static sender list as sole proof'],
-                    'reason': (
-                        'Observed sender evidence narrows the static superset '
-                        'to callers actually exercised by tests.'
+                    "avoid_tools": ["static sender list as sole proof"],
+                    "reason": (
+                        "Observed sender evidence narrows the static superset "
+                        "to callers actually exercised by tests."
                     ),
                 }
             )
         if require_gemstone_ast:
             cautions.append(
                 (
-                    'Strict AST mode is active. Install AST support with '
-                    'gs_ast_install and verify with gs_ast_status.'
+                    "Strict AST mode is active. Install AST support with "
+                    "gs_ast_install and verify with gs_ast_status."
                 )
             )
         return {
-            'intent': intent,
-            'selector': selector,
-            'workflow': workflow,
-            'decision_rules': decision_rules,
-            'cautions': cautions,
+            "intent": intent,
+            "selector": selector,
+            "workflow": workflow,
+            "decision_rules": decision_rules,
+            "cautions": cautions,
         }
 
     def ast_status_for_browser_session(browser_session):
@@ -1010,57 +965,55 @@ def register_tools(
         expected_version = AST_SUPPORT_VERSION
         support_class_exists = browser_session.run_code(
             (
-                '| swordfishDictionary |\n'
-                'swordfishDictionary := System myUserProfile symbolList '
+                "| swordfishDictionary |\n"
+                "swordfishDictionary := System myUserProfile symbolList "
                 "objectNamed: #'Reahl-Swordfish'.\n"
-                'swordfishDictionary notNil and: [\n'
-                '    swordfishDictionary includesKey: #SwordfishMcpAstSupport\n'
-                ']'
+                "swordfishDictionary notNil and: [\n"
+                "    swordfishDictionary includesKey: #SwordfishMcpAstSupport\n"
+                "]"
             )
         ).to_py
         manifest_exists = browser_session.run_code(
-            'UserGlobals includesKey: #SwordfishMcpAstManifest'
+            "UserGlobals includesKey: #SwordfishMcpAstManifest"
         ).to_py
-        installed_source_hash = ''
-        installed_version = ''
-        installed_at = ''
+        installed_source_hash = ""
+        installed_version = ""
+        installed_at = ""
         if manifest_exists:
             installed_source_hash = browser_session.run_code(
                 (
-                    '(UserGlobals at: #SwordfishMcpAstManifest) '
+                    "(UserGlobals at: #SwordfishMcpAstManifest) "
                     "at: #sourceHash ifAbsent: ['']"
                 )
             ).to_py
             installed_version = browser_session.run_code(
                 (
-                    '(UserGlobals at: #SwordfishMcpAstManifest) '
+                    "(UserGlobals at: #SwordfishMcpAstManifest) "
                     "at: #version ifAbsent: ['']"
                 )
             ).to_py
             installed_at = browser_session.run_code(
                 (
-                    '(UserGlobals at: #SwordfishMcpAstManifest) '
+                    "(UserGlobals at: #SwordfishMcpAstManifest) "
                     "at: #installedAt ifAbsent: ['']"
                 )
             ).to_py
         hashes_match = manifest_exists and (
             installed_source_hash == expected_source_hash
         )
-        versions_match = manifest_exists and (
-            installed_version == expected_version
-        )
+        versions_match = manifest_exists and (installed_version == expected_version)
         manifest_matches = hashes_match and versions_match
         return {
-            'ast_support_installed': support_class_exists,
-            'ast_manifest_installed': manifest_exists,
-            'expected_version': expected_version,
-            'installed_version': installed_version,
-            'versions_match': versions_match,
-            'expected_source_hash': expected_source_hash,
-            'installed_source_hash': installed_source_hash,
-            'hashes_match': hashes_match,
-            'manifest_matches': manifest_matches,
-            'installed_at': installed_at,
+            "ast_support_installed": support_class_exists,
+            "ast_manifest_installed": manifest_exists,
+            "expected_version": expected_version,
+            "installed_version": installed_version,
+            "versions_match": versions_match,
+            "expected_source_hash": expected_source_hash,
+            "installed_source_hash": installed_source_hash,
+            "hashes_match": hashes_match,
+            "manifest_matches": manifest_matches,
+            "installed_at": installed_at,
         }
 
     def ast_manifest_install_script(browser_session):
@@ -1072,18 +1025,16 @@ def register_tools(
         expected_hash_literal = browser_session.smalltalk_string_literal(
             expected_source_hash
         )
-        installed_by_literal = browser_session.smalltalk_string_literal(
-            'swordfish'
-        )
+        installed_by_literal = browser_session.smalltalk_string_literal("swordfish")
         return (
-            '| manifest |\n'
-            'manifest := Dictionary new.\n'
-            'manifest at: #version put: %s.\n'
-            'manifest at: #sourceHash put: %s.\n'
-            'manifest at: #installedBy put: %s.\n'
-            'manifest at: #installedAt put: DateAndTime now printString.\n'
-            'UserGlobals at: #SwordfishMcpAstManifest put: manifest.\n'
-            'true'
+            "| manifest |\n"
+            "manifest := Dictionary new.\n"
+            "manifest at: #version put: %s.\n"
+            "manifest at: #sourceHash put: %s.\n"
+            "manifest at: #installedBy put: %s.\n"
+            "manifest at: #installedAt put: DateAndTime now printString.\n"
+            "UserGlobals at: #SwordfishMcpAstManifest put: manifest.\n"
+            "true"
         ) % (
             expected_version_literal,
             expected_hash_literal,
@@ -1091,12 +1042,10 @@ def register_tools(
         )
 
     def install_ast_support_in_browser_session(browser_session):
-        if not browser_session.installed_package_named('Reahl-Swordfish'):
-            browser_session.create_and_install_package('Reahl-Swordfish')
+        if not browser_session.installed_package_named("Reahl-Swordfish"):
+            browser_session.create_and_install_package("Reahl-Swordfish")
         browser_session.run_code(ast_support_source())
-        browser_session.run_code(
-            ast_manifest_install_script(browser_session)
-        )
+        browser_session.run_code(ast_manifest_install_script(browser_session))
 
     def tracer_status_for_browser_session(browser_session):
         return browser_session.tracer_status()
@@ -1110,19 +1059,17 @@ def register_tools(
         expected_hash_literal = browser_session.smalltalk_string_literal(
             expected_source_hash
         )
-        installed_by_literal = browser_session.smalltalk_string_literal(
-            'swordfish'
-        )
+        installed_by_literal = browser_session.smalltalk_string_literal("swordfish")
         return (
-            '| manifest |\n'
-            'manifest := Dictionary new.\n'
-            'manifest at: #version put: %s.\n'
-            'manifest at: #sourceHash put: %s.\n'
-            'manifest at: #installedBy put: %s.\n'
-            'manifest at: #installedAt put: DateAndTime now printString.\n'
-            'UserGlobals at: #SwordfishMcpTracerManifest put: manifest.\n'
-            'UserGlobals at: #SwordfishMcpTracerEnabled put: false.\n'
-            'true'
+            "| manifest |\n"
+            "manifest := Dictionary new.\n"
+            "manifest at: #version put: %s.\n"
+            "manifest at: #sourceHash put: %s.\n"
+            "manifest at: #installedBy put: %s.\n"
+            "manifest at: #installedAt put: DateAndTime now printString.\n"
+            "UserGlobals at: #SwordfishMcpTracerManifest put: manifest.\n"
+            "UserGlobals at: #SwordfishMcpTracerEnabled put: false.\n"
+            "true"
         ) % (
             expected_version_literal,
             expected_hash_literal,
@@ -1135,7 +1082,7 @@ def register_tools(
     def selector_tokens_for_browser_session(browser_session, method_name):
         return (
             browser_session.selector_keyword_tokens(method_name)
-            if ':' in method_name
+            if ":" in method_name
             else [method_name]
         )
 
@@ -1155,21 +1102,17 @@ def register_tools(
         )
         if len(old_tokens) != len(new_tokens):
             raise DomainException(
-                'old_selector and new_selector must have the same arity.'
+                "old_selector and new_selector must have the same arity."
             )
         selector_token_ranges = browser_session.selector_token_ranges_in_source(
             source,
             old_tokens,
         )
         if not selector_token_ranges:
-            raise DomainException(
-                'Could not locate selector tokens in method source.'
-            )
-        replacement_plan = (
-            browser_session.replacement_plan_for_selector_tokens(
-                [selector_token_ranges[0]],
-                new_tokens,
-            )
+            raise DomainException("Could not locate selector tokens in method source.")
+        replacement_plan = browser_session.replacement_plan_for_selector_tokens(
+            [selector_token_ranges[0]],
+            new_tokens,
         )
         return browser_session.source_with_replaced_selector_tokens(
             source,
@@ -1190,42 +1133,41 @@ def register_tools(
         caller_class_name_literal = browser_session.smalltalk_string_literal(
             caller_class_name
         )
-        caller_method_selector_literal = (
-            browser_session.selector_reference_expression(sender_method_selector)
+        caller_method_selector_literal = browser_session.selector_reference_expression(
+            sender_method_selector
         )
         caller_show_instance_side_literal = (
-            'true' if caller_show_instance_side else 'false'
+            "true" if caller_show_instance_side else "false"
         )
-        if ':' in sender_method_selector:
+        if ":" in sender_method_selector:
             method_tokens = browser_session.selector_keyword_tokens(
                 sender_method_selector
             )
             alias_tokens = browser_session.selector_keyword_tokens(alias_selector)
             argument_names = [
-                'argument%s' % (index + 1)
-                for index in range(len(method_tokens))
+                "argument%s" % (index + 1) for index in range(len(method_tokens))
             ]
             method_header_tokens = [
-                '%s %s' % (method_tokens[index], argument_names[index])
+                "%s %s" % (method_tokens[index], argument_names[index])
                 for index in range(len(method_tokens))
             ]
             alias_send_tokens = [
-                '%s %s' % (alias_tokens[index], argument_names[index])
+                "%s %s" % (alias_tokens[index], argument_names[index])
                 for index in range(len(alias_tokens))
             ]
-            method_header = ' '.join(method_header_tokens)
-            alias_send = ' '.join(alias_send_tokens)
+            method_header = " ".join(method_header_tokens)
+            alias_send = " ".join(alias_send_tokens)
         else:
             method_header = sender_method_selector
             alias_send = alias_selector
         return (
-            '%s\n'
-            '    SwordfishMcpTracer\n'
-            '        recordSenderExecutionForTarget: %s\n'
-            '        callerClassName: %s\n'
-            '        callerMethodSelector: %s\n'
-            '        callerShowInstanceSide: %s.\n'
-            '    ^self %s'
+            "%s\n"
+            "    SwordfishMcpTracer\n"
+            "        recordSenderExecutionForTarget: %s\n"
+            "        callerClassName: %s\n"
+            "        callerMethodSelector: %s\n"
+            "        callerShowInstanceSide: %s.\n"
+            "    ^self %s"
         ) % (
             method_header,
             target_selector_literal,
@@ -1238,140 +1180,140 @@ def register_tools(
     def tracer_class_method_sources():
         return [
             (
-                'edgeCounts\n'
-                '    ^UserGlobals\n'
-                '        at: #SwordfishMcpTracerEdgeCounts\n'
-                '        ifAbsentPut: [ Dictionary new ]'
+                "edgeCounts\n"
+                "    ^UserGlobals\n"
+                "        at: #SwordfishMcpTracerEdgeCounts\n"
+                "        ifAbsentPut: [ Dictionary new ]"
             ),
             (
-                'clearEdgeCounts\n'
-                '    UserGlobals at: #SwordfishMcpTracerEdgeCounts put: Dictionary new.\n'
-                '    true'
+                "clearEdgeCounts\n"
+                "    UserGlobals at: #SwordfishMcpTracerEdgeCounts put: Dictionary new.\n"
+                "    true"
             ),
             (
-                'instrumentation\n'
-                '    ^UserGlobals\n'
-                '        at: #SwordfishMcpTracerInstrumentation\n'
-                '        ifAbsentPut: [ Dictionary new ]'
+                "instrumentation\n"
+                "    ^UserGlobals\n"
+                "        at: #SwordfishMcpTracerInstrumentation\n"
+                "        ifAbsentPut: [ Dictionary new ]"
             ),
             (
-                'instrumentationEntriesForTarget: aTargetSelector\n'
-                '    ^self instrumentation\n'
-                '        at: aTargetSelector asString\n'
-                '        ifAbsent: [ OrderedCollection new ]'
+                "instrumentationEntriesForTarget: aTargetSelector\n"
+                "    ^self instrumentation\n"
+                "        at: aTargetSelector asString\n"
+                "        ifAbsent: [ OrderedCollection new ]"
             ),
             (
-                'instrumentationReportForTarget: aTargetSelector\n'
-                '    | instrumentationEntries stream |\n'
-                '    instrumentationEntries := self instrumentationEntriesForTarget: aTargetSelector.\n'
-                '    stream := WriteStream on: String new.\n'
-                '    instrumentationEntries withIndexDo: [ :entry :index |\n'
-                '        stream nextPutAll: (entry at: 1).\n'
-                '        stream nextPut: $|.\n'
-                '        stream nextPutAll: ((entry at: 2) ifTrue: [ \'true\' ] ifFalse: [ \'false\' ]).\n'
-                '        stream nextPut: $|.\n'
-                '        stream nextPutAll: (entry at: 3).\n'
-                '        stream nextPut: $|.\n'
-                '        stream nextPutAll: (entry at: 4).\n'
-                '        index < instrumentationEntries size\n'
-                '            ifTrue: [ stream nextPut: Character lf ]\n'
-                '    ].\n'
-                '    ^stream contents'
+                "instrumentationReportForTarget: aTargetSelector\n"
+                "    | instrumentationEntries stream |\n"
+                "    instrumentationEntries := self instrumentationEntriesForTarget: aTargetSelector.\n"
+                "    stream := WriteStream on: String new.\n"
+                "    instrumentationEntries withIndexDo: [ :entry :index |\n"
+                "        stream nextPutAll: (entry at: 1).\n"
+                "        stream nextPut: $|.\n"
+                "        stream nextPutAll: ((entry at: 2) ifTrue: [ 'true' ] ifFalse: [ 'false' ]).\n"
+                "        stream nextPut: $|.\n"
+                "        stream nextPutAll: (entry at: 3).\n"
+                "        stream nextPut: $|.\n"
+                "        stream nextPutAll: (entry at: 4).\n"
+                "        index < instrumentationEntries size\n"
+                "            ifTrue: [ stream nextPut: Character lf ]\n"
+                "    ].\n"
+                "    ^stream contents"
             ),
             (
-                'clearInstrumentationForTarget: aTargetSelector\n'
-                '    self instrumentation\n'
-                '        removeKey: aTargetSelector asString\n'
-                '        ifAbsent: [ ].\n'
-                '    true'
+                "clearInstrumentationForTarget: aTargetSelector\n"
+                "    self instrumentation\n"
+                "        removeKey: aTargetSelector asString\n"
+                "        ifAbsent: [ ].\n"
+                "    true"
             ),
             (
-                'registerInstrumentationForTarget: aTargetSelector callerClassName: callerClassName callerMethodSelector: callerMethodSelector callerShowInstanceSide: callerShowInstanceSide aliasSelector: aliasSelector\n'
-                '    | instrumentationEntry instrumentationEntries |\n'
-                '    instrumentationEntry := Array\n'
-                '        with: callerClassName\n'
-                '        with: callerShowInstanceSide\n'
-                '        with: callerMethodSelector asString\n'
-                '        with: aliasSelector asString.\n'
-                '    instrumentationEntries := self instrumentation\n'
-                '        at: aTargetSelector asString\n'
-                '        ifAbsentPut: [ OrderedCollection new ].\n'
-                '    (instrumentationEntries includes: instrumentationEntry)\n'
-                '        ifFalse: [ instrumentationEntries add: instrumentationEntry ].\n'
-                '    true'
+                "registerInstrumentationForTarget: aTargetSelector callerClassName: callerClassName callerMethodSelector: callerMethodSelector callerShowInstanceSide: callerShowInstanceSide aliasSelector: aliasSelector\n"
+                "    | instrumentationEntry instrumentationEntries |\n"
+                "    instrumentationEntry := Array\n"
+                "        with: callerClassName\n"
+                "        with: callerShowInstanceSide\n"
+                "        with: callerMethodSelector asString\n"
+                "        with: aliasSelector asString.\n"
+                "    instrumentationEntries := self instrumentation\n"
+                "        at: aTargetSelector asString\n"
+                "        ifAbsentPut: [ OrderedCollection new ].\n"
+                "    (instrumentationEntries includes: instrumentationEntry)\n"
+                "        ifFalse: [ instrumentationEntries add: instrumentationEntry ].\n"
+                "    true"
             ),
             (
-                'selectorEdgeCountsFor: aSelector\n'
-                '    ^self edgeCounts\n'
-                '        at: aSelector asString\n'
-                '        ifAbsentPut: [ Dictionary new ]'
+                "selectorEdgeCountsFor: aSelector\n"
+                "    ^self edgeCounts\n"
+                "        at: aSelector asString\n"
+                "        ifAbsentPut: [ Dictionary new ]"
             ),
             (
-                'recordSenderExecutionForTarget: aTargetSelector callerClassName: callerClassName callerMethodSelector: callerMethodSelector callerShowInstanceSide: callerShowInstanceSide\n'
-                '    | edge selectorEdgeCounts |\n'
-                '    (UserGlobals at: #SwordfishMcpTracerEnabled ifAbsent: [ false ])\n'
-                '        ifFalse: [ ^self ].\n'
-                '    edge := Array\n'
-                '        with: callerClassName\n'
-                '        with: callerShowInstanceSide\n'
-                '        with: callerMethodSelector asString.\n'
-                '    selectorEdgeCounts := self selectorEdgeCountsFor: aTargetSelector.\n'
-                '    selectorEdgeCounts\n'
-                '        at: edge\n'
-                '        put: ((selectorEdgeCounts at: edge ifAbsent: [ 0 ]) + 1).\n'
-                '    ^self'
+                "recordSenderExecutionForTarget: aTargetSelector callerClassName: callerClassName callerMethodSelector: callerMethodSelector callerShowInstanceSide: callerShowInstanceSide\n"
+                "    | edge selectorEdgeCounts |\n"
+                "    (UserGlobals at: #SwordfishMcpTracerEnabled ifAbsent: [ false ])\n"
+                "        ifFalse: [ ^self ].\n"
+                "    edge := Array\n"
+                "        with: callerClassName\n"
+                "        with: callerShowInstanceSide\n"
+                "        with: callerMethodSelector asString.\n"
+                "    selectorEdgeCounts := self selectorEdgeCountsFor: aTargetSelector.\n"
+                "    selectorEdgeCounts\n"
+                "        at: edge\n"
+                "        put: ((selectorEdgeCounts at: edge ifAbsent: [ 0 ]) + 1).\n"
+                "    ^self"
             ),
             (
-                'observedEdgesFor: aSelector\n'
-                '    | selectorEdgeCounts observedEdges |\n'
-                '    selectorEdgeCounts := self edgeCounts\n'
-                '        at: aSelector asString\n'
-                '        ifAbsent: [ Dictionary new ].\n'
-                '    observedEdges := OrderedCollection new.\n'
-                '    selectorEdgeCounts keysAndValuesDo: [ :edge :count |\n'
-                '        observedEdges add: (Array\n'
-                '            with: (edge at: 1)\n'
-                '            with: (edge at: 2)\n'
-                '            with: (edge at: 3)\n'
-                '            with: count)\n'
-                '    ].\n'
-                '    ^observedEdges asArray'
+                "observedEdgesFor: aSelector\n"
+                "    | selectorEdgeCounts observedEdges |\n"
+                "    selectorEdgeCounts := self edgeCounts\n"
+                "        at: aSelector asString\n"
+                "        ifAbsent: [ Dictionary new ].\n"
+                "    observedEdges := OrderedCollection new.\n"
+                "    selectorEdgeCounts keysAndValuesDo: [ :edge :count |\n"
+                "        observedEdges add: (Array\n"
+                "            with: (edge at: 1)\n"
+                "            with: (edge at: 2)\n"
+                "            with: (edge at: 3)\n"
+                "            with: count)\n"
+                "    ].\n"
+                "    ^observedEdges asArray"
             ),
             (
-                'observedEdgesReportFor: aSelector\n'
-                '    | observedEdges stream |\n'
-                '    observedEdges := self observedEdgesFor: aSelector.\n'
-                '    stream := WriteStream on: String new.\n'
-                '    observedEdges withIndexDo: [ :edge :index |\n'
-                '        stream nextPutAll: (edge at: 1).\n'
-                '        stream nextPut: $|.\n'
-                '        stream nextPutAll: ((edge at: 2) ifTrue: [ \'true\' ] ifFalse: [ \'false\' ]).\n'
-                '        stream nextPut: $|.\n'
-                '        stream nextPutAll: (edge at: 3).\n'
-                '        stream nextPut: $|.\n'
-                '        stream nextPutAll: (edge at: 4) printString.\n'
-                '        index < observedEdges size\n'
-                '            ifTrue: [ stream nextPut: Character lf ]\n'
-                '    ].\n'
-                '    ^stream contents'
+                "observedEdgesReportFor: aSelector\n"
+                "    | observedEdges stream |\n"
+                "    observedEdges := self observedEdgesFor: aSelector.\n"
+                "    stream := WriteStream on: String new.\n"
+                "    observedEdges withIndexDo: [ :edge :index |\n"
+                "        stream nextPutAll: (edge at: 1).\n"
+                "        stream nextPut: $|.\n"
+                "        stream nextPutAll: ((edge at: 2) ifTrue: [ 'true' ] ifFalse: [ 'false' ]).\n"
+                "        stream nextPut: $|.\n"
+                "        stream nextPutAll: (edge at: 3).\n"
+                "        stream nextPut: $|.\n"
+                "        stream nextPutAll: (edge at: 4) printString.\n"
+                "        index < observedEdges size\n"
+                "            ifTrue: [ stream nextPut: Character lf ]\n"
+                "    ].\n"
+                "    ^stream contents"
             ),
         ]
 
     def install_tracer_methods(browser_session):
         for method_source in tracer_class_method_sources():
             browser_session.compile_method(
-                'SwordfishMcpTracer',
+                "SwordfishMcpTracer",
                 False,
                 method_source,
-                'tracing',
+                "tracing",
             )
 
     def tracer_status_error_response(connection_id):
         return disabled_tool_response(
             connection_id,
             (
-                'Tracer manifest does not match local MCP source. '
-                'Run gs_tracer_install or use force=True.'
+                "Tracer manifest does not match local MCP source. "
+                "Run gs_tracer_install or use force=True."
             ),
         )
 
@@ -1404,9 +1346,9 @@ def register_tools(
     ):
         evidence_run_id = uuid.uuid4().hex
         collected_sender_evidence[evidence_run_id] = {
-            'connection_id': connection_id,
-            'method_name': method_name,
-            'created_at_epoch_seconds': int(time.time()),
+            "connection_id": connection_id,
+            "method_name": method_name,
+            "created_at_epoch_seconds": int(time.time()),
             **evidence_payload,
         }
         return evidence_run_id
@@ -1418,9 +1360,9 @@ def register_tools(
     ):
         test_plan_id = uuid.uuid4().hex
         planned_sender_tests[test_plan_id] = {
-            'connection_id': connection_id,
-            'method_name': method_name,
-            'created_at_epoch_seconds': int(time.time()),
+            "connection_id": connection_id,
+            "method_name": method_name,
+            "created_at_epoch_seconds": int(time.time()),
             **test_plan_payload,
         }
         return test_plan_id
@@ -1448,15 +1390,11 @@ def register_tools(
     ):
         test_plan = planned_sender_tests.get(test_plan_id)
         if test_plan is None:
-            raise DomainException('Unknown test_plan_id.')
-        if test_plan['connection_id'] != connection_id:
-            raise DomainException(
-                'test_plan_id is not associated with connection_id.'
-            )
-        if test_plan['method_name'] != method_name:
-            raise DomainException(
-                'test_plan_id does not match method_name.'
-            )
+            raise DomainException("Unknown test_plan_id.")
+        if test_plan["connection_id"] != connection_id:
+            raise DomainException("test_plan_id is not associated with connection_id.")
+        if test_plan["method_name"] != method_name:
+            raise DomainException("test_plan_id does not match method_name.")
         return test_plan
 
     def validate_sender_evidence_for_selector(
@@ -1467,29 +1405,27 @@ def register_tools(
     ):
         evidence_record = collected_sender_evidence.get(evidence_run_id)
         if evidence_record is None:
-            raise DomainException('Unknown evidence_run_id.')
-        if evidence_record['connection_id'] != connection_id:
+            raise DomainException("Unknown evidence_run_id.")
+        if evidence_record["connection_id"] != connection_id:
             raise DomainException(
-                'evidence_run_id is not associated with connection_id.'
+                "evidence_run_id is not associated with connection_id."
             )
-        if evidence_record['method_name'] != selector_name:
-            raise DomainException(
-                'evidence_run_id does not match old_selector.'
-            )
-        created_at_epoch_seconds = evidence_record['created_at_epoch_seconds']
+        if evidence_record["method_name"] != selector_name:
+            raise DomainException("evidence_run_id does not match old_selector.")
+        created_at_epoch_seconds = evidence_record["created_at_epoch_seconds"]
         evidence_age_seconds = int(time.time()) - created_at_epoch_seconds
         if evidence_age_seconds > evidence_max_age_seconds:
             raise DomainException(
-                'evidence_run_id is older than evidence_max_age_seconds.'
+                "evidence_run_id is older than evidence_max_age_seconds."
             )
-        if evidence_record['observed_total_count'] <= 0:
+        if evidence_record["observed_total_count"] <= 0:
             raise DomainException(
-                'evidence_run_id does not include observed sender evidence.'
+                "evidence_run_id does not include observed sender evidence."
             )
         return {
-            'evidence_run_id': evidence_run_id,
-            'created_at_epoch_seconds': created_at_epoch_seconds,
-            'evidence_age_seconds': evidence_age_seconds,
+            "evidence_run_id": evidence_run_id,
+            "created_at_epoch_seconds": created_at_epoch_seconds,
+            "evidence_age_seconds": evidence_age_seconds,
         }
 
     def tracer_observed_senders_for_selector(
@@ -1510,8 +1446,7 @@ def register_tools(
         if isinstance(input_value, (bool, int, float, str)):
             return input_value
         raise DomainException(
-            '%s must be None, bool, int, float, or string.'
-            % argument_name
+            "%s must be None, bool, int, float, or string." % argument_name
         )
 
     def validated_selector(input_value, argument_name):
@@ -1521,34 +1456,29 @@ def register_tools(
         if not matches_unary_selector and not matches_keyword_selector:
             raise DomainException(
                 (
-                    '%s must be a unary selector (exampleSelector) '
-                    'or keyword selector (example:with:).'
+                    "%s must be a unary selector (exampleSelector) "
+                    "or keyword selector (example:with:)."
                 )
                 % argument_name
             )
         return input_value
 
     def validated_selector_rename_pair(old_selector, new_selector):
-        old_selector = validated_selector(old_selector, 'old_selector')
-        new_selector = validated_selector(new_selector, 'new_selector')
-        if old_selector.count(':') != new_selector.count(':'):
+        old_selector = validated_selector(old_selector, "old_selector")
+        new_selector = validated_selector(new_selector, "new_selector")
+        if old_selector.count(":") != new_selector.count(":"):
             raise DomainException(
-                'old_selector and new_selector must have the same arity.'
+                "old_selector and new_selector must have the same arity."
             )
         if old_selector == new_selector:
-            raise DomainException(
-                'old_selector and new_selector cannot be the same.'
-            )
+            raise DomainException("old_selector and new_selector cannot be the same.")
         return old_selector, new_selector
 
     def validated_keyword_parameter_token(input_value, argument_name):
         input_value = validated_non_empty_string(input_value, argument_name)
         if not keyword_token_pattern.match(input_value):
             raise DomainException(
-                (
-                    '%s must be a keyword token ending in : '
-                    '(example: timeout:).'
-                )
+                ("%s must be a keyword token ending in : " "(example: timeout:).")
                 % argument_name
             )
         return input_value
@@ -1556,15 +1486,13 @@ def register_tools(
     def validated_statement_indexes(input_value, argument_name):
         if not isinstance(input_value, list) or not input_value:
             raise DomainException(
-                '%s must be a non-empty list of integers.'
-                % argument_name
+                "%s must be a non-empty list of integers." % argument_name
             )
         validated_indexes = []
         for index_value in input_value:
             if not isinstance(index_value, int) or index_value <= 0:
                 raise DomainException(
-                    '%s must contain positive integers only.'
-                    % argument_name
+                    "%s must contain positive integers only." % argument_name
                 )
             if index_value not in validated_indexes:
                 validated_indexes.append(index_value)
@@ -1572,26 +1500,26 @@ def register_tools(
 
     def supported_ast_query_sort_fields():
         return [
-            'scan_order',
-            'class_name',
-            'method_selector',
-            'send_count',
-            'keyword_send_count',
-            'unary_send_count',
-            'binary_send_count',
-            'block_count',
-            'return_count',
-            'cascade_count',
-            'assignment_count',
-            'statement_terminator_count',
-            'explicit_self_send_count',
-            'explicit_super_send_count',
-            'body_line_count',
-            'statement_count',
-            'temporary_count',
-            'branch_selector_count',
-            'loop_selector_count',
-            'max_block_nesting_depth',
+            "scan_order",
+            "class_name",
+            "method_selector",
+            "send_count",
+            "keyword_send_count",
+            "unary_send_count",
+            "binary_send_count",
+            "block_count",
+            "return_count",
+            "cascade_count",
+            "assignment_count",
+            "statement_terminator_count",
+            "explicit_self_send_count",
+            "explicit_super_send_count",
+            "body_line_count",
+            "statement_count",
+            "temporary_count",
+            "branch_selector_count",
+            "loop_selector_count",
+            "max_block_nesting_depth",
         ]
 
     def validated_ast_query_sort_by(input_value, argument_name):
@@ -1599,97 +1527,95 @@ def register_tools(
         supported_fields = supported_ast_query_sort_fields()
         if input_value not in supported_fields:
             raise DomainException(
-                '%s must be one of: %s.'
+                "%s must be one of: %s."
                 % (
                     argument_name,
-                    ', '.join(supported_fields),
+                    ", ".join(supported_fields),
                 )
             )
         return input_value
 
     def validated_ast_pattern(input_value, argument_name):
         if not isinstance(input_value, dict):
-            raise DomainException('%s must be a dictionary.' % argument_name)
+            raise DomainException("%s must be a dictionary." % argument_name)
         supported_integer_fields = [
-            'min_send_count',
-            'max_send_count',
-            'min_keyword_send_count',
-            'max_keyword_send_count',
-            'min_unary_send_count',
-            'max_unary_send_count',
-            'min_binary_send_count',
-            'max_binary_send_count',
-            'min_block_count',
-            'max_block_count',
-            'min_return_count',
-            'max_return_count',
-            'min_cascade_count',
-            'max_cascade_count',
-            'min_assignment_count',
-            'max_assignment_count',
-            'min_statement_terminator_count',
-            'max_statement_terminator_count',
-            'min_explicit_self_send_count',
-            'max_explicit_self_send_count',
-            'min_explicit_super_send_count',
-            'max_explicit_super_send_count',
-            'min_body_line_count',
-            'max_body_line_count',
-            'min_statement_count',
-            'max_statement_count',
-            'min_temporary_count',
-            'max_temporary_count',
-            'min_branch_selector_count',
-            'max_branch_selector_count',
-            'min_loop_selector_count',
-            'max_loop_selector_count',
-            'min_max_block_nesting_depth',
-            'max_max_block_nesting_depth',
+            "min_send_count",
+            "max_send_count",
+            "min_keyword_send_count",
+            "max_keyword_send_count",
+            "min_unary_send_count",
+            "max_unary_send_count",
+            "min_binary_send_count",
+            "max_binary_send_count",
+            "min_block_count",
+            "max_block_count",
+            "min_return_count",
+            "max_return_count",
+            "min_cascade_count",
+            "max_cascade_count",
+            "min_assignment_count",
+            "max_assignment_count",
+            "min_statement_terminator_count",
+            "max_statement_terminator_count",
+            "min_explicit_self_send_count",
+            "max_explicit_self_send_count",
+            "min_explicit_super_send_count",
+            "max_explicit_super_send_count",
+            "min_body_line_count",
+            "max_body_line_count",
+            "min_statement_count",
+            "max_statement_count",
+            "min_temporary_count",
+            "max_temporary_count",
+            "min_branch_selector_count",
+            "max_branch_selector_count",
+            "min_loop_selector_count",
+            "max_loop_selector_count",
+            "min_max_block_nesting_depth",
+            "max_max_block_nesting_depth",
         ]
         supported_list_fields = [
-            'required_selectors',
-            'any_required_selectors',
-            'excluded_selectors',
-            'required_send_types',
-            'excluded_send_types',
-            'required_receiver_hints',
-            'excluded_receiver_hints',
+            "required_selectors",
+            "any_required_selectors",
+            "excluded_selectors",
+            "required_send_types",
+            "excluded_send_types",
+            "required_receiver_hints",
+            "excluded_receiver_hints",
         ]
         supported_string_fields = [
-            'method_selector_regex',
+            "method_selector_regex",
         ]
         supported_fields = set(
-            supported_integer_fields
-            + supported_list_fields
-            + supported_string_fields
+            supported_integer_fields + supported_list_fields + supported_string_fields
         )
         for pattern_key in input_value.keys():
             if pattern_key not in supported_fields:
                 raise DomainException(
-                    'Unsupported ast_pattern field: %s.' % pattern_key
+                    "Unsupported ast_pattern field: %s." % pattern_key
                 )
         validated_pattern = {}
         selector_list_fields = {
-            'required_selectors',
-            'any_required_selectors',
-            'excluded_selectors',
+            "required_selectors",
+            "any_required_selectors",
+            "excluded_selectors",
         }
         send_type_list_fields = {
-            'required_send_types',
-            'excluded_send_types',
+            "required_send_types",
+            "excluded_send_types",
         }
         receiver_hint_list_fields = {
-            'required_receiver_hints',
-            'excluded_receiver_hints',
+            "required_receiver_hints",
+            "excluded_receiver_hints",
         }
-        supported_send_types = {'keyword', 'unary', 'binary'}
-        supported_receiver_hints = {'self', 'super', 'unknown'}
+        supported_send_types = {"keyword", "unary", "binary"}
+        supported_receiver_hints = {"self", "super", "unknown"}
         for field_name in supported_integer_fields:
             if field_name in input_value:
                 field_value = input_value[field_name]
                 if not isinstance(field_value, int) or field_value < 0:
                     raise DomainException(
-                        '%s.%s must be a non-negative integer.'
+                        "%s.%s must be a non-negative integer."
                         % (
                             argument_name,
                             field_name,
@@ -1701,7 +1627,7 @@ def register_tools(
                 field_values = input_value[field_name]
                 if not isinstance(field_values, list):
                     raise DomainException(
-                        '%s.%s must be a list.'
+                        "%s.%s must be a list."
                         % (
                             argument_name,
                             field_name,
@@ -1711,7 +1637,7 @@ def register_tools(
                     validated_pattern[field_name] = [
                         validated_selector(
                             field_value,
-                            '%s.%s' % (argument_name, field_name),
+                            "%s.%s" % (argument_name, field_name),
                         )
                         for field_value in field_values
                     ]
@@ -1720,17 +1646,15 @@ def register_tools(
                     for field_value in field_values:
                         field_value = validated_non_empty_string(
                             field_value,
-                            '%s.%s' % (argument_name, field_name),
+                            "%s.%s" % (argument_name, field_name),
                         )
                         if field_value not in supported_send_types:
                             raise DomainException(
-                                (
-                                    '%s.%s entries must be one of: %s.'
-                                )
+                                ("%s.%s entries must be one of: %s.")
                                 % (
                                     argument_name,
                                     field_name,
-                                    ', '.join(sorted(supported_send_types)),
+                                    ", ".join(sorted(supported_send_types)),
                                 )
                             )
                         if field_value not in validated_values:
@@ -1741,69 +1665,65 @@ def register_tools(
                     for field_value in field_values:
                         field_value = validated_non_empty_string(
                             field_value,
-                            '%s.%s' % (argument_name, field_name),
+                            "%s.%s" % (argument_name, field_name),
                         )
                         if field_value not in supported_receiver_hints:
                             raise DomainException(
-                                (
-                                    '%s.%s entries must be one of: %s.'
-                                )
+                                ("%s.%s entries must be one of: %s.")
                                 % (
                                     argument_name,
                                     field_name,
-                                    ', '.join(
-                                        sorted(supported_receiver_hints)
-                                    ),
+                                    ", ".join(sorted(supported_receiver_hints)),
                                 )
                             )
                         if field_value not in validated_values:
                             validated_values.append(field_value)
                     validated_pattern[field_name] = validated_values
-        if 'method_selector_regex' in input_value:
+        if "method_selector_regex" in input_value:
             method_selector_regex = validated_non_empty_string(
-                input_value['method_selector_regex'],
-                '%s.method_selector_regex' % argument_name,
+                input_value["method_selector_regex"],
+                "%s.method_selector_regex" % argument_name,
             )
             try:
                 re.compile(method_selector_regex)
             except re.error as error:
                 raise DomainException(
-                    '%s.method_selector_regex is not valid regex: %s.'
+                    "%s.method_selector_regex is not valid regex: %s."
                     % (
                         argument_name,
                         error,
                     )
                 )
-            validated_pattern['method_selector_regex'] = method_selector_regex
+            validated_pattern["method_selector_regex"] = method_selector_regex
         range_field_pairs = [
-            ('min_send_count', 'max_send_count'),
-            ('min_keyword_send_count', 'max_keyword_send_count'),
-            ('min_unary_send_count', 'max_unary_send_count'),
-            ('min_binary_send_count', 'max_binary_send_count'),
-            ('min_block_count', 'max_block_count'),
-            ('min_return_count', 'max_return_count'),
-            ('min_cascade_count', 'max_cascade_count'),
-            ('min_assignment_count', 'max_assignment_count'),
+            ("min_send_count", "max_send_count"),
+            ("min_keyword_send_count", "max_keyword_send_count"),
+            ("min_unary_send_count", "max_unary_send_count"),
+            ("min_binary_send_count", "max_binary_send_count"),
+            ("min_block_count", "max_block_count"),
+            ("min_return_count", "max_return_count"),
+            ("min_cascade_count", "max_cascade_count"),
+            ("min_assignment_count", "max_assignment_count"),
             (
-                'min_statement_terminator_count',
-                'max_statement_terminator_count',
+                "min_statement_terminator_count",
+                "max_statement_terminator_count",
             ),
             (
-                'min_explicit_self_send_count',
-                'max_explicit_self_send_count',
+                "min_explicit_self_send_count",
+                "max_explicit_self_send_count",
             ),
             (
-                'min_explicit_super_send_count',
-                'max_explicit_super_send_count',
+                "min_explicit_super_send_count",
+                "max_explicit_super_send_count",
             ),
-            ('min_body_line_count', 'max_body_line_count'),
-            ('min_statement_count', 'max_statement_count'),
-            ('min_temporary_count', 'max_temporary_count'),
-            ('min_branch_selector_count', 'max_branch_selector_count'),
-            ('min_loop_selector_count', 'max_loop_selector_count'),
+            ("min_body_line_count", "max_body_line_count"),
+            ("min_statement_count", "max_statement_count"),
+            ("min_temporary_count", "max_temporary_count"),
+            ("min_branch_selector_count", "max_branch_selector_count"),
+            ("min_loop_selector_count", "max_loop_selector_count"),
             (
-                'min_max_block_nesting_depth',
-                'max_max_block_nesting_depth',
+                "min_max_block_nesting_depth",
+                "max_max_block_nesting_depth",
             ),
         ]
         for min_field_name, max_field_name in range_field_pairs:
@@ -1816,9 +1736,7 @@ def register_tools(
                 max_field_value = validated_pattern[max_field_name]
                 if min_field_value > max_field_value:
                     raise DomainException(
-                        (
-                            '%s.%s cannot be greater than %s.%s.'
-                        )
+                        ("%s.%s cannot be greater than %s.%s.")
                         % (
                             argument_name,
                             min_field_name,
@@ -1832,11 +1750,11 @@ def register_tools(
         stack_frames = debug_session.call_stack()
         return [
             {
-                'level': frame.level,
-                'class_name': frame.class_name,
-                'method_name': frame.method_name,
-                'method_source': frame.method_source,
-                'step_point_offset': frame.step_point_offset,
+                "level": frame.level,
+                "class_name": frame.class_name,
+                "method_name": frame.method_name,
+                "method_source": frame.method_source,
+                "step_point_offset": frame.step_point_offset,
             }
             for frame in stack_frames
         ]
@@ -1846,7 +1764,7 @@ def register_tools(
 
     def debug_payload(debug_session):
         return {
-            'stack_frames': serialized_debug_frames(debug_session),
+            "stack_frames": serialized_debug_frames(debug_session),
         }
 
     def debug_action_response(
@@ -1858,73 +1776,71 @@ def register_tools(
         if action_outcome.has_completed:
             remove_debug_session(debug_id)
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'debug_id': debug_id,
-                'completed': True,
-                'output': debug_session.rendered_result_payload(
-                    action_outcome.result
-                ),
+                "ok": True,
+                "connection_id": connection_id,
+                "debug_id": debug_id,
+                "completed": True,
+                "output": debug_session.rendered_result_payload(action_outcome.result),
             }
         return {
-            'ok': True,
-            'connection_id': connection_id,
-            'debug_id': debug_id,
-            'completed': False,
-            'error': gemstone_error_payload(debug_session.exception),
-            'debug': debug_payload(debug_session),
+            "ok": True,
+            "connection_id": connection_id,
+            "debug_id": debug_id,
+            "completed": False,
+            "error": gemstone_error_payload(debug_session.exception),
+            "debug": debug_payload(debug_session),
         }
 
     @mcp_server.tool()
     def gs_connect(
         connection_mode,
-        gemstone_user_name='',
-        gemstone_password='',
-        stone_name='gs64stone',
-        rpc_hostname='localhost',
-        netldi_name='gemnetobject',
+        gemstone_user_name="",
+        gemstone_password="",
+        stone_name="gs64stone",
+        rpc_hostname="localhost",
+        netldi_name="gemnetobject",
     ):
         if integrated_session_state.has_ide_session():
             gemstone_session = integrated_session_state.ide_session_for_mcp()
             if gemstone_session is None:
                 return {
-                    'ok': False,
-                    'error': {
-                        'message': 'IDE session is no longer available.',
+                    "ok": False,
+                    "error": {
+                        "message": "IDE session is no longer available.",
                     },
                 }
             try:
                 summary = session_summary(gemstone_session)
             except GemstoneError as error:
                 return {
-                    'ok': False,
-                    'error': gemstone_error_payload(error),
+                    "ok": False,
+                    "error": gemstone_error_payload(error),
                 }
             return {
-                'ok': True,
-                'connection_id': integrated_session_state.ide_connection_id(),
-                'connection_mode': 'ide_attached',
-                'session': summary,
-                'managed_by_ide': True,
+                "ok": True,
+                "connection_id": integrated_session_state.ide_connection_id(),
+                "connection_mode": "ide_attached",
+                "session": summary,
+                "managed_by_ide": True,
             }
         if gui_session_is_active():
             return {
-                'ok': False,
-                'error': {
-                    'message': (
-                        'gs_connect is disabled while the IDE is active '
-                        'without a logged-in session. Log in from the IDE '
-                        'first, then attach using gs_connect.'
+                "ok": False,
+                "error": {
+                    "message": (
+                        "gs_connect is disabled while the IDE is active "
+                        "without a logged-in session. Log in from the IDE "
+                        "first, then attach using gs_connect."
                     ),
                 },
             }
-        if connection_mode == 'linked':
+        if connection_mode == "linked":
             gemstone_session = create_linked_session(
                 gemstone_user_name,
                 gemstone_password,
                 stone_name,
             )
-        elif connection_mode == 'rpc':
+        elif connection_mode == "rpc":
             gemstone_session = create_rpc_session(
                 gemstone_user_name,
                 gemstone_password,
@@ -1934,11 +1850,10 @@ def register_tools(
             )
         else:
             return {
-                'ok': False,
-                'error': {
-                    'message': (
-                        'Invalid connection_mode value. '
-                        "Expected 'linked' or 'rpc'."
+                "ok": False,
+                "error": {
+                    "message": (
+                        "Invalid connection_mode value. " "Expected 'linked' or 'rpc'."
                     )
                 },
             }
@@ -1948,22 +1863,22 @@ def register_tools(
         except GemstoneError as error:
             close_session(gemstone_session)
             return {
-                'ok': False,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "error": gemstone_error_payload(error),
             }
 
         connection_id = add_connection(
             gemstone_session,
             {
-                'connection_mode': connection_mode,
-                'transaction_active': False,
+                "connection_mode": connection_mode,
+                "transaction_active": False,
             },
         )
         return {
-            'ok': True,
-            'connection_id': connection_id,
-            'connection_mode': connection_mode,
-            'session': summary,
+            "ok": True,
+            "connection_id": connection_id,
+            "connection_mode": connection_mode,
+            "session": summary,
         }
 
     @mcp_server.tool()
@@ -1976,23 +1891,20 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_disconnect is disabled while the IDE controls '
-                    'session ownership.'
+                    "gs_disconnect is disabled while the IDE controls "
+                    "session ownership."
                 ),
             )
         if integrated_session_state.is_ide_connection_id(connection_id):
             return disabled_tool_response(
                 connection_id,
-                (
-                    'gs_disconnect is disabled while the IDE owns '
-                    'the active session.'
-                ),
+                ("gs_disconnect is disabled while the IDE owns " "the active session."),
             )
         if not has_connection(connection_id):
             return {
-                'ok': False,
-                'error': {
-                    'message': 'Unknown connection_id.',
+                "ok": False,
+                "error": {
+                    "message": "Unknown connection_id.",
                 },
             }
 
@@ -2003,13 +1915,13 @@ def register_tools(
             close_session(gemstone_session)
         except GemstoneError as error:
             return {
-                'ok': False,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "error": gemstone_error_payload(error),
             }
 
         return {
-            'ok': True,
-            'connection_id': connection_id,
+            "ok": True,
+            "connection_id": connection_id,
         }
 
     @mcp_server.tool()
@@ -2021,24 +1933,24 @@ def register_tools(
             begin_transaction(gemstone_session)
             metadata = metadata_for_connection_id(connection_id)
             if metadata is not None:
-                metadata['transaction_active'] = True
+                metadata["transaction_active"] = True
             if integrated_session_state.is_ide_connection_id(connection_id):
                 integrated_session_state.mark_ide_transaction_active()
             return {
-                'ok': True,
-                'connection_id': connection_id,
+                "ok": True,
+                "connection_id": connection_id,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -2049,53 +1961,53 @@ def register_tools(
         metadata = metadata_for_connection_id(connection_id)
         if metadata is None:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': 'Unknown connection_id.'},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": "Unknown connection_id."},
             }
-        if metadata.get('transaction_active'):
+        if metadata.get("transaction_active"):
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'began_transaction': False,
-                'transaction_active': True,
+                "ok": True,
+                "connection_id": connection_id,
+                "began_transaction": False,
+                "transaction_active": True,
             }
         try:
             begin_transaction(gemstone_session)
-            metadata['transaction_active'] = True
+            metadata["transaction_active"] = True
             if integrated_session_state.is_ide_connection_id(connection_id):
                 integrated_session_state.mark_ide_transaction_active()
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'began_transaction': True,
-                'transaction_active': True,
+                "ok": True,
+                "connection_id": connection_id,
+                "began_transaction": True,
+                "transaction_active": True,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
     def gs_commit(
         connection_id,
         approved_by_user=False,
-        approval_note='',
+        approval_note="",
     ):
         if not allow_commit:
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_commit is disabled. '
-                    'Start swordfish --headless-mcp with --allow-commit to enable.'
+                    "gs_commit is disabled. "
+                    "Start swordfish --headless-mcp with --allow-commit to enable."
                 ),
             )
         if (
@@ -2105,15 +2017,15 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_commit is disabled while the IDE owns the session. '
-                    'Use the IDE commit action or start swordfish --headless-mcp with '
-                    '--allow-mcp-commit-when-gui.'
+                    "gs_commit is disabled while the IDE owns the session. "
+                    "Use the IDE commit action or start swordfish --headless-mcp with "
+                    "--allow-mcp-commit-when-gui."
                 ),
             )
         approval_error_response = require_explicit_user_confirmation(
             connection_id,
-            'gs_commit',
-            'commit',
+            "gs_commit",
+            "commit",
             approved_by_user,
             approval_note,
         )
@@ -2126,24 +2038,24 @@ def register_tools(
             commit_transaction(gemstone_session)
             metadata = metadata_for_connection_id(connection_id)
             if metadata is not None:
-                metadata['transaction_active'] = False
+                metadata["transaction_active"] = False
             if integrated_session_state.is_ide_connection_id(connection_id):
                 integrated_session_state.mark_ide_transaction_inactive()
             return {
-                'ok': True,
-                'connection_id': connection_id,
+                "ok": True,
+                "connection_id": connection_id,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -2154,15 +2066,15 @@ def register_tools(
         metadata = metadata_for_connection_id(connection_id)
         if metadata is None:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': 'Unknown connection_id.'},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": "Unknown connection_id."},
             }
         return {
-            'ok': True,
-            'connection_id': connection_id,
-            'connection_mode': metadata['connection_mode'],
-            'transaction_active': metadata.get('transaction_active', False),
+            "ok": True,
+            "connection_id": connection_id,
+            "connection_mode": metadata["connection_mode"],
+            "transaction_active": metadata.get("transaction_active", False),
         }
 
     @mcp_server.tool()
@@ -2170,19 +2082,19 @@ def register_tools(
         metadata = metadata_for_connection_id(connection_id)
         if metadata is None:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': 'Unknown connection_id.'},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": "Unknown connection_id."},
             }
         return {
-            'ok': True,
-            'connection_id': connection_id,
-            'connection_mode': metadata['connection_mode'],
-            'gui_session_active': integrated_session_state.is_ide_gui_active(),
-            'ide_navigation_available': (
+            "ok": True,
+            "connection_id": connection_id,
+            "connection_mode": metadata["connection_mode"],
+            "gui_session_active": integrated_session_state.is_ide_gui_active(),
+            "ide_navigation_available": (
                 integrated_session_state.has_ide_navigation_action()
             ),
-            'shared_ide_connection_id': integrated_session_state.ide_connection_id(),
+            "shared_ide_connection_id": integrated_session_state.ide_connection_id(),
         }
 
     @mcp_server.tool()
@@ -2192,65 +2104,128 @@ def register_tools(
         clear_existing=False,
     ):
         try:
-            oop_labels = validated_oop_labels(oops, 'oops')
+            oop_labels = validated_oop_labels(oops, "oops")
             clear_existing = validated_boolean_like(
                 clear_existing,
-                'clear_existing',
+                "clear_existing",
             )
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         return perform_ide_navigation_action(
             connection_id,
-            'open_graph_for_oops',
+            "open_graph_for_oops",
             {
-                'oop_labels': oop_labels,
-                'clear_existing': clear_existing,
+                "oop_labels": oop_labels,
+                "clear_existing": clear_existing,
             },
         )
 
     @mcp_server.tool()
-    def gs_ide_open_graph_for_stack_trace(
+    def gs_ide_select_class(
         connection_id,
-        stack_trace,
-        clear_existing=False,
+        class_name,
+        show_instance_side=True,
     ):
         try:
-            stack_trace = validated_non_empty_string(stack_trace, 'stack_trace')
-            clear_existing = validated_boolean_like(
-                clear_existing,
-                'clear_existing',
+            class_name = validated_non_empty_string_stripped(
+                class_name,
+                "class_name",
+            )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                "show_instance_side",
             )
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
-        oop_labels = oop_labels_from_stack_trace_text(stack_trace)
-        if len(oop_labels) < 1:
-            return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {
-                    'message': (
-                        'No oop labels were found in stack_trace. '
-                        'Pass explicit oops to gs_ide_open_graph_for_oops.'
-                    ),
-                },
-            }
-        navigation_response = perform_ide_navigation_action(
+        return perform_ide_navigation_action(
             connection_id,
-            'open_graph_for_oops',
+            "select_class",
             {
-                'oop_labels': oop_labels,
-                'clear_existing': clear_existing,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
             },
         )
-        navigation_response['extracted_oops'] = oop_labels
+
+    @mcp_server.tool()
+    def gs_ide_open_method(
+        connection_id,
+        class_name,
+        method_selector,
+        show_instance_side=True,
+    ):
+        try:
+            class_name = validated_non_empty_string_stripped(
+                class_name,
+                "class_name",
+            )
+            method_selector = validated_non_empty_string_stripped(
+                method_selector,
+                "method_selector",
+            )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                "show_instance_side",
+            )
+        except DomainException as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
+            }
+        return perform_ide_navigation_action(
+            connection_id,
+            "open_method",
+            {
+                "class_name": class_name,
+                "method_symbol": method_selector,
+                "show_instance_side": show_instance_side,
+            },
+        )
+
+    @mcp_server.tool()
+    def gs_ide_open_debugger(
+        connection_id,
+        debug_id,
+        ask_before_open=True,
+    ):
+        try:
+            debug_id = validated_non_empty_string_stripped(
+                debug_id,
+                "debug_id",
+            )
+            ask_before_open = validated_boolean_like(
+                ask_before_open,
+                "ask_before_open",
+            )
+        except DomainException as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
+            }
+        debug_session, error_response = get_active_debug_session(
+            connection_id,
+            debug_id,
+        )
+        if error_response is not None:
+            return error_response
+        navigation_response = perform_ide_navigation_action(
+            connection_id,
+            "open_debugger_for_exception",
+            {
+                "exception": debug_session.exception,
+                "ask_before_open": ask_before_open,
+            },
+        )
+        navigation_response["debug_id"] = debug_id
         return navigation_response
 
     @mcp_server.tool()
@@ -2261,146 +2236,147 @@ def register_tools(
         if gui_active:
             shared_connection_id = integrated_session_state.ide_connection_id()
         return {
-            'ok': True,
-            'server_name': 'SwordfishMCP',
-            'policy': policy_flags(),
-            'shared_ide_connection_id': shared_connection_id,
-            'ast_backend': ast_backend,
-            'ast_support': {
-                'expected_version': AST_SUPPORT_VERSION,
-                'expected_source_hash': ast_support_source_hash(),
-                'tools': [
-                    'gs_ast_status',
-                    'gs_ast_install',
+            "ok": True,
+            "server_name": "SwordfishMCP",
+            "policy": policy_flags(),
+            "shared_ide_connection_id": shared_connection_id,
+            "ast_backend": ast_backend,
+            "ast_support": {
+                "expected_version": AST_SUPPORT_VERSION,
+                "expected_source_hash": ast_support_source_hash(),
+                "tools": [
+                    "gs_ast_status",
+                    "gs_ast_install",
                 ],
             },
-            'guidance_intents': guidance_intents(),
-            'recommended_bootstrap': [
-                'gs_capabilities',
-                'gs_guidance',
-                'gs_connect',
-                'gs_transaction_status',
+            "guidance_intents": guidance_intents(),
+            "recommended_bootstrap": [
+                "gs_capabilities",
+                "gs_guidance",
+                "gs_connect",
+                "gs_transaction_status",
             ],
-            'tool_groups': {
-                'ide_navigation': [
-                    'gs_ide_navigation_status',
-                    'gs_ide_open_graph_for_oops',
-                    'gs_ide_open_graph_for_stack_trace',
+            "tool_groups": {
+                "ide_navigation": [
+                    "gs_ide_navigation_status",
+                    "gs_ide_open_graph_for_oops",
+                    "gs_ide_select_class",
+                    "gs_ide_open_method",
+                    "gs_ide_open_debugger",
                 ],
-                'navigation': [
-                    'gs_list_categories',
-                    'gs_list_dictionaries',
-                    'gs_list_rowan_packages',
-                    'gs_rowan_installed',
-                    'gs_list_classes_in_category',
-                    'gs_list_classes_in_dictionary',
-                    'gs_list_classes_in_rowan_package',
-                    'gs_find_classes',
-                    'gs_find_selectors',
-                    'gs_find_implementors',
-                    'gs_find_senders',
-                    'gs_ast_status',
-                    'gs_get_method_source',
-                    'gs_method_ast',
-                    'gs_method_sends',
-                    'gs_method_structure_summary',
-                    'gs_method_control_flow_summary',
-                    'gs_query_methods_by_ast_pattern',
-                    'gs_breakpoint_list',
+                "navigation": [
+                    "gs_list_categories",
+                    "gs_list_dictionaries",
+                    "gs_list_rowan_packages",
+                    "gs_rowan_installed",
+                    "gs_list_classes_in_category",
+                    "gs_list_classes_in_dictionary",
+                    "gs_list_classes_in_rowan_package",
+                    "gs_find_classes",
+                    "gs_find_selectors",
+                    "gs_find_implementors",
+                    "gs_find_senders",
+                    "gs_ast_status",
+                    "gs_get_method_source",
+                    "gs_method_ast",
+                    "gs_method_sends",
+                    "gs_method_structure_summary",
+                    "gs_method_control_flow_summary",
+                    "gs_query_methods_by_ast_pattern",
+                    "gs_breakpoint_list",
                 ],
-                'debugging': [
-                    'gs_debug_eval',
-                    'gs_debug_stack',
-                    'gs_debug_continue',
-                    'gs_debug_step_over',
-                    'gs_debug_step_into',
-                    'gs_debug_step_through',
-                    'gs_debug_restart_frame',
-                    'gs_debug_stop',
-                    'gs_breakpoint_set',
-                    'gs_breakpoint_list',
-                    'gs_breakpoint_clear',
-                    'gs_breakpoint_clear_all',
+                "debugging": [
+                    "gs_debug_eval",
+                    "gs_debug_stack",
+                    "gs_debug_continue",
+                    "gs_debug_step_over",
+                    "gs_debug_step_into",
+                    "gs_debug_step_through",
+                    "gs_debug_restart_frame",
+                    "gs_debug_stop",
+                    "gs_breakpoint_set",
+                    "gs_breakpoint_list",
+                    "gs_breakpoint_clear",
+                    "gs_breakpoint_clear_all",
                 ],
-                'safe_write': [
-                    'gs_begin',
-                    'gs_create_package',
-                    'gs_create_dictionary',
-                    'gs_install_package',
-                    'gs_compile_method',
-                    'gs_create_class',
-                    'gs_create_class_in_package',
-                    'gs_create_test_case_class',
-                    'gs_apply_selector_rename',
-                    'gs_apply_rename_method',
-                    'gs_apply_move_method',
-                    'gs_apply_add_parameter',
-                    'gs_apply_remove_parameter',
-                    'gs_apply_extract_method',
-                    'gs_apply_inline_method',
-                    'gs_commit',
-                    'gs_abort',
+                "safe_write": [
+                    "gs_begin",
+                    "gs_create_package",
+                    "gs_create_dictionary",
+                    "gs_install_package",
+                    "gs_compile_method",
+                    "gs_create_class",
+                    "gs_create_class_in_package",
+                    "gs_create_test_case_class",
+                    "gs_apply_selector_rename",
+                    "gs_apply_rename_method",
+                    "gs_apply_move_method",
+                    "gs_apply_add_parameter",
+                    "gs_apply_remove_parameter",
+                    "gs_apply_extract_method",
+                    "gs_apply_inline_method",
+                    "gs_commit",
+                    "gs_abort",
                 ],
-                'refactor': [
-                    'gs_preview_selector_rename',
-                    'gs_apply_selector_rename',
-                    'gs_preview_rename_method',
-                    'gs_apply_rename_method',
-                    'gs_preview_move_method',
-                    'gs_apply_move_method',
-                    'gs_preview_add_parameter',
-                    'gs_apply_add_parameter',
-                    'gs_preview_remove_parameter',
-                    'gs_apply_remove_parameter',
-                    'gs_preview_extract_method',
-                    'gs_apply_extract_method',
-                    'gs_preview_inline_method',
-                    'gs_apply_inline_method',
+                "refactor": [
+                    "gs_preview_selector_rename",
+                    "gs_apply_selector_rename",
+                    "gs_preview_rename_method",
+                    "gs_apply_rename_method",
+                    "gs_preview_move_method",
+                    "gs_apply_move_method",
+                    "gs_preview_add_parameter",
+                    "gs_apply_add_parameter",
+                    "gs_preview_remove_parameter",
+                    "gs_apply_remove_parameter",
+                    "gs_preview_extract_method",
+                    "gs_apply_extract_method",
+                    "gs_preview_inline_method",
+                    "gs_apply_inline_method",
                 ],
-                'evidence': [
-                    'gs_plan_evidence_tests',
-                    'gs_collect_sender_evidence',
-                    'gs_tracer_*',
+                "evidence": [
+                    "gs_plan_evidence_tests",
+                    "gs_collect_sender_evidence",
+                    "gs_tracer_*",
                 ],
-                'ast_support': [
-                    'gs_ast_status',
-                    'gs_ast_install',
+                "ast_support": [
+                    "gs_ast_status",
+                    "gs_ast_install",
                 ],
             },
         }
 
     @mcp_server.tool()
-    def gs_guidance(intent='general', selector=None, change_kind=None):
+    def gs_guidance(intent="general", selector=None, change_kind=None):
         try:
-            intent = validated_non_empty_string(intent, 'intent').strip().lower()
+            intent = validated_non_empty_string(intent, "intent").strip().lower()
             if intent not in guidance_intents():
                 raise DomainException(
-                    'intent must be one of: %s.'
-                    % ', '.join(guidance_intents())
+                    "intent must be one of: %s." % ", ".join(guidance_intents())
                 )
             if selector is not None:
                 selector = validated_non_empty_string(
                     selector,
-                    'selector',
+                    "selector",
                 ).strip()
             if change_kind is not None:
                 change_kind = validated_non_empty_string(
                     change_kind,
-                    'change_kind',
+                    "change_kind",
                 ).strip()
             guidance = guidance_for_intent(intent, selector, change_kind)
             return {
-                'ok': True,
-                'policy': policy_flags(),
-                'intent': intent,
-                'selector': selector,
-                'change_kind': change_kind,
-                'guidance': guidance,
+                "ok": True,
+                "policy": policy_flags(),
+                "intent": intent,
+                "selector": selector,
+                "change_kind": change_kind,
+                "guidance": guidance,
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'error': {'message': str(error)},
+                "ok": False,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -2412,24 +2388,24 @@ def register_tools(
             abort_transaction(gemstone_session)
             metadata = metadata_for_connection_id(connection_id)
             if metadata is not None:
-                metadata['transaction_active'] = False
+                metadata["transaction_active"] = False
             if integrated_session_state.is_ide_connection_id(connection_id):
                 integrated_session_state.mark_ide_transaction_inactive()
             return {
-                'ok': True,
-                'connection_id': connection_id,
+                "ok": True,
+                "connection_id": connection_id,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -2439,15 +2415,15 @@ def register_tools(
             return error_response
         try:
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'categories': browser_session.list_categories(),
+                "ok": True,
+                "connection_id": connection_id,
+                "categories": browser_session.list_categories(),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
 
     @mcp_server.tool()
@@ -2457,15 +2433,15 @@ def register_tools(
             return error_response
         try:
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'dictionaries': browser_session.list_dictionaries(),
+                "ok": True,
+                "connection_id": connection_id,
+                "dictionaries": browser_session.list_dictionaries(),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
 
     @mcp_server.tool()
@@ -2475,15 +2451,15 @@ def register_tools(
             return error_response
         try:
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'rowan_installed': browser_session.rowan_installed(),
+                "ok": True,
+                "connection_id": connection_id,
+                "rowan_installed": browser_session.rowan_installed(),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
 
     @mcp_server.tool()
@@ -2493,23 +2469,23 @@ def register_tools(
             return error_response
         try:
             if not browser_session.rowan_installed():
-                raise DomainException('Rowan is not installed on this stone.')
+                raise DomainException("Rowan is not installed on this stone.")
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'packages': browser_session.list_rowan_packages(),
+                "ok": True,
+                "connection_id": connection_id,
+                "packages": browser_session.list_rowan_packages(),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -2520,27 +2496,25 @@ def register_tools(
         try:
             category_name = validated_non_empty_string_stripped(
                 category_name,
-                'category_name',
+                "category_name",
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'category_name': category_name,
-                'classes': browser_session.list_classes_in_category(
-                    category_name
-                ),
+                "ok": True,
+                "connection_id": connection_id,
+                "category_name": category_name,
+                "classes": browser_session.list_classes_in_category(category_name),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -2551,27 +2525,25 @@ def register_tools(
         try:
             dictionary_name = validated_non_empty_string_stripped(
                 dictionary_name,
-                'dictionary_name',
+                "dictionary_name",
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'dictionary_name': dictionary_name,
-                'classes': browser_session.list_classes_in_dictionary(
-                    dictionary_name
-                ),
+                "ok": True,
+                "connection_id": connection_id,
+                "dictionary_name": dictionary_name,
+                "classes": browser_session.list_classes_in_dictionary(dictionary_name),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -2582,29 +2554,27 @@ def register_tools(
         try:
             package_name = validated_non_empty_string_stripped(
                 package_name,
-                'package_name',
+                "package_name",
             )
             if not browser_session.rowan_installed():
-                raise DomainException('Rowan is not installed on this stone.')
+                raise DomainException("Rowan is not installed on this stone.")
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'package_name': package_name,
-                'classes': browser_session.list_classes_in_rowan_package(
-                    package_name
-                ),
+                "ok": True,
+                "connection_id": connection_id,
+                "package_name": package_name,
+                "classes": browser_session.list_classes_in_rowan_package(package_name),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -2615,25 +2585,25 @@ def register_tools(
         try:
             package_name = validated_non_empty_string_stripped(
                 package_name,
-                'package_name',
+                "package_name",
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'package_name': package_name,
-                'exists': browser_session.installed_package_named(package_name),
+                "ok": True,
+                "connection_id": connection_id,
+                "package_name": package_name,
+                "exists": browser_session.installed_package_named(package_name),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -2642,8 +2612,8 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_create_package is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_create_package is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -2656,35 +2626,35 @@ def register_tools(
         try:
             package_name = validated_non_empty_string_stripped(
                 package_name,
-                'package_name',
+                "package_name",
             )
             browser_session.create_and_install_package(package_name)
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'package_name': package_name,
-                'installed': True,
-                'visible_in_package_list': browser_session.installed_package_named(
+                "ok": True,
+                "connection_id": connection_id,
+                "package_name": package_name,
+                "installed": True,
+                "visible_in_package_list": browser_session.installed_package_named(
                     package_name
                 ),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -2693,8 +2663,8 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_create_dictionary is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_create_dictionary is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -2707,34 +2677,34 @@ def register_tools(
         try:
             dictionary_name = validated_non_empty_string_stripped(
                 dictionary_name,
-                'dictionary_name',
+                "dictionary_name",
             )
             browser_session.create_dictionary(dictionary_name)
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'dictionary_name': dictionary_name,
-                'visible_in_dictionary_list': (
+                "ok": True,
+                "connection_id": connection_id,
+                "dictionary_name": dictionary_name,
+                "visible_in_dictionary_list": (
                     dictionary_name in browser_session.list_dictionaries()
                 ),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -2743,8 +2713,8 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_install_package is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_install_package is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -2757,31 +2727,31 @@ def register_tools(
         try:
             package_name = validated_non_empty_string_stripped(
                 package_name,
-                'package_name',
+                "package_name",
             )
             browser_session.install_package(package_name)
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'package_name': package_name,
+                "ok": True,
+                "connection_id": connection_id,
+                "package_name": package_name,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -2796,36 +2766,35 @@ def register_tools(
         try:
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'show_instance_side': show_instance_side,
-                'method_categories': browser_session.list_method_categories(
-                    class_name,
-                    show_instance_side
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "method_categories": browser_session.list_method_categories(
+                    class_name, show_instance_side
                 ),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
     def gs_list_methods(
         connection_id,
         class_name,
-        method_category='all',
+        method_category="all",
         show_instance_side=True,
     ):
         browser_session, error_response = get_browser_session(connection_id)
@@ -2834,15 +2803,15 @@ def register_tools(
         try:
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'method_category': method_category,
-                'show_instance_side': show_instance_side,
-                'selectors': browser_session.list_methods(
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "method_category": method_category,
+                "show_instance_side": show_instance_side,
+                "selectors": browser_session.list_methods(
                     class_name,
                     method_category,
                     show_instance_side,
@@ -2850,15 +2819,15 @@ def register_tools(
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -2874,15 +2843,15 @@ def register_tools(
         try:
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'method_selector': method_selector,
-                'show_instance_side': show_instance_side,
-                'source': browser_session.get_method_source(
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "method_selector": method_selector,
+                "show_instance_side": show_instance_side,
+                "source": browser_session.get_method_source(
                     class_name,
                     method_selector,
                     show_instance_side,
@@ -2890,21 +2859,21 @@ def register_tools(
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -2914,22 +2883,22 @@ def register_tools(
             return error_response
         try:
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'search_input': search_input,
-                'class_names': browser_session.find_classes(search_input),
+                "ok": True,
+                "connection_id": connection_id,
+                "search_input": search_input,
+                "class_names": browser_session.find_classes(search_input),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -2943,14 +2912,14 @@ def register_tools(
         if error_response:
             return error_response
         try:
-            class_name = validated_identifier(class_name, 'class_name')
+            class_name = validated_identifier(class_name, "class_name")
             method_selector = validated_non_empty_string(
                 method_selector,
-                'method_selector',
+                "method_selector",
             )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             started_at = time.perf_counter()
             sends_result = browser_session.method_sends(
@@ -2960,33 +2929,33 @@ def register_tools(
             )
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'method_selector': method_selector,
-                'show_instance_side': show_instance_side,
-                'total_count': sends_result['total_count'],
-                'elapsed_ms': elapsed_ms,
-                'sends': sends_result['sends'],
-                'analysis_limitations': sends_result['analysis_limitations'],
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "method_selector": method_selector,
+                "show_instance_side": show_instance_side,
+                "total_count": sends_result["total_count"],
+                "elapsed_ms": elapsed_ms,
+                "sends": sends_result["sends"],
+                "analysis_limitations": sends_result["analysis_limitations"],
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3000,14 +2969,14 @@ def register_tools(
         if error_response:
             return error_response
         try:
-            class_name = validated_identifier(class_name, 'class_name')
+            class_name = validated_identifier(class_name, "class_name")
             method_selector = validated_non_empty_string(
                 method_selector,
-                'method_selector',
+                "method_selector",
             )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             started_at = time.perf_counter()
             method_ast = browser_session.method_ast(
@@ -3017,31 +2986,31 @@ def register_tools(
             )
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'method_selector': method_selector,
-                'show_instance_side': show_instance_side,
-                'elapsed_ms': elapsed_ms,
-                'ast': method_ast,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "method_selector": method_selector,
+                "show_instance_side": show_instance_side,
+                "elapsed_ms": elapsed_ms,
+                "ast": method_ast,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3055,14 +3024,14 @@ def register_tools(
         if error_response:
             return error_response
         try:
-            class_name = validated_identifier(class_name, 'class_name')
+            class_name = validated_identifier(class_name, "class_name")
             method_selector = validated_non_empty_string(
                 method_selector,
-                'method_selector',
+                "method_selector",
             )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             started_at = time.perf_counter()
             summary = browser_session.method_structure_summary(
@@ -3072,31 +3041,31 @@ def register_tools(
             )
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'method_selector': method_selector,
-                'show_instance_side': show_instance_side,
-                'elapsed_ms': elapsed_ms,
-                'summary': summary,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "method_selector": method_selector,
+                "show_instance_side": show_instance_side,
+                "elapsed_ms": elapsed_ms,
+                "summary": summary,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3110,14 +3079,14 @@ def register_tools(
         if error_response:
             return error_response
         try:
-            class_name = validated_identifier(class_name, 'class_name')
+            class_name = validated_identifier(class_name, "class_name")
             method_selector = validated_non_empty_string(
                 method_selector,
-                'method_selector',
+                "method_selector",
             )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             started_at = time.perf_counter()
             summary = browser_session.method_control_flow_summary(
@@ -3127,31 +3096,31 @@ def register_tools(
             )
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'method_selector': method_selector,
-                'show_instance_side': show_instance_side,
-                'elapsed_ms': elapsed_ms,
-                'summary': summary,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "method_selector": method_selector,
+                "show_instance_side": show_instance_side,
+                "elapsed_ms": elapsed_ms,
+                "summary": summary,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3161,9 +3130,9 @@ def register_tools(
         package_name=None,
         class_name=None,
         show_instance_side=True,
-        method_category='all',
+        method_category="all",
         max_results=None,
-        sort_by='scan_order',
+        sort_by="scan_order",
         sort_descending=False,
     ):
         browser_session, error_response = get_browser_session(connection_id)
@@ -3172,37 +3141,37 @@ def register_tools(
         try:
             ast_pattern = validated_ast_pattern(
                 ast_pattern,
-                'ast_pattern',
+                "ast_pattern",
             )
             if package_name is not None:
                 package_name = validated_non_empty_string(
                     package_name,
-                    'package_name',
+                    "package_name",
                 )
             if class_name is not None:
                 class_name = validated_identifier(
                     class_name,
-                    'class_name',
+                    "class_name",
                 )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             method_category = validated_non_empty_string(
                 method_category,
-                'method_category',
+                "method_category",
             )
             max_results = validated_non_negative_integer_or_none(
                 max_results,
-                'max_results',
+                "max_results",
             )
             sort_by = validated_ast_query_sort_by(
                 sort_by,
-                'sort_by',
+                "sort_by",
             )
             sort_descending = validated_boolean_like(
                 sort_descending,
-                'sort_descending',
+                "sort_descending",
             )
             started_at = time.perf_counter()
             query_result = browser_session.query_methods_by_ast_pattern(
@@ -3217,43 +3186,41 @@ def register_tools(
             )
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'ast_pattern': ast_pattern,
-                'package_name': package_name,
-                'class_name': class_name,
-                'show_instance_side': show_instance_side,
-                'method_category': method_category,
-                'max_results': max_results,
-                'sort_by': sort_by,
-                'sort_descending': sort_descending,
-                'elapsed_ms': elapsed_ms,
-                'match_count': query_result['match_count'],
-                'scanned_method_count': query_result['scanned_method_count'],
-                'truncated': query_result['truncated'],
-                'result_sort_by': query_result['sort_by'],
-                'result_sort_descending': query_result[
-                    'sort_descending'
-                ],
-                'matches': query_result['matches'],
+                "ok": True,
+                "connection_id": connection_id,
+                "ast_pattern": ast_pattern,
+                "package_name": package_name,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "method_category": method_category,
+                "max_results": max_results,
+                "sort_by": sort_by,
+                "sort_descending": sort_descending,
+                "elapsed_ms": elapsed_ms,
+                "match_count": query_result["match_count"],
+                "scanned_method_count": query_result["scanned_method_count"],
+                "truncated": query_result["truncated"],
+                "result_sort_by": query_result["sort_by"],
+                "result_sort_descending": query_result["sort_descending"],
+                "matches": query_result["matches"],
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3263,16 +3230,16 @@ def register_tools(
             return error_response
         try:
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'search_input': search_input,
-                'selectors': browser_session.find_selectors(search_input),
+                "ok": True,
+                "connection_id": connection_id,
+                "search_input": search_input,
+                "selectors": browser_session.find_selectors(search_input),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
 
     @mcp_server.tool()
@@ -3286,12 +3253,12 @@ def register_tools(
         if error_response:
             return error_response
         try:
-            method_name = validated_non_empty_string(method_name, 'method_name')
+            method_name = validated_non_empty_string(method_name, "method_name")
             max_results = validated_non_negative_integer_or_none(
                 max_results,
-                'max_results',
+                "max_results",
             )
-            count_only = validated_boolean(count_only, 'count_only')
+            count_only = validated_boolean(count_only, "count_only")
             started_at = time.perf_counter()
             search_result = browser_session.find_implementors_with_summary(
                 method_name,
@@ -3300,33 +3267,33 @@ def register_tools(
             )
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'method_name': method_name,
-                'max_results': max_results,
-                'count_only': count_only,
-                'total_count': search_result['total_count'],
-                'returned_count': search_result['returned_count'],
-                'elapsed_ms': elapsed_ms,
-                'implementors': search_result['implementors'],
+                "ok": True,
+                "connection_id": connection_id,
+                "method_name": method_name,
+                "max_results": max_results,
+                "count_only": count_only,
+                "total_count": search_result["total_count"],
+                "returned_count": search_result["returned_count"],
+                "elapsed_ms": elapsed_ms,
+                "implementors": search_result["implementors"],
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3340,12 +3307,12 @@ def register_tools(
         if error_response:
             return error_response
         try:
-            method_name = validated_non_empty_string(method_name, 'method_name')
+            method_name = validated_non_empty_string(method_name, "method_name")
             max_results = validated_non_negative_integer_or_none(
                 max_results,
-                'max_results',
+                "max_results",
             )
-            count_only = validated_boolean(count_only, 'count_only')
+            count_only = validated_boolean(count_only, "count_only")
             started_at = time.perf_counter()
             search_result = browser_session.find_senders(
                 method_name,
@@ -3354,33 +3321,33 @@ def register_tools(
             )
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'method_name': method_name,
-                'max_results': max_results,
-                'count_only': count_only,
-                'total_count': search_result['total_count'],
-                'returned_count': search_result['returned_count'],
-                'elapsed_ms': elapsed_ms,
-                'senders': search_result['senders'],
+                "ok": True,
+                "connection_id": connection_id,
+                "method_name": method_name,
+                "max_results": max_results,
+                "count_only": count_only,
+                "total_count": search_result["total_count"],
+                "returned_count": search_result["returned_count"],
+                "elapsed_ms": elapsed_ms,
+                "senders": search_result["senders"],
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3391,22 +3358,22 @@ def register_tools(
         try:
             ast_status = ast_status_for_browser_session(browser_session)
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'require_gemstone_ast': require_gemstone_ast,
+                "ok": True,
+                "connection_id": connection_id,
+                "require_gemstone_ast": require_gemstone_ast,
                 **ast_status,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3415,8 +3382,8 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_ast_install is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_ast_install is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -3429,21 +3396,21 @@ def register_tools(
         try:
             install_ast_support_in_browser_session(browser_session)
             return {
-                'ok': True,
-                'connection_id': connection_id,
+                "ok": True,
+                "connection_id": connection_id,
                 **ast_status_for_browser_session(browser_session),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3454,22 +3421,22 @@ def register_tools(
         try:
             tracer_status = tracer_status_for_browser_session(browser_session)
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'tracing_allowed': allow_tracing,
+                "ok": True,
+                "connection_id": connection_id,
+                "tracing_allowed": allow_tracing,
                 **tracer_status,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3478,13 +3445,13 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_tracer_install is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_tracer_install is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         tracing_error_response = require_tracing_enabled(
             connection_id,
-            'gs_tracer_install',
+            "gs_tracer_install",
         )
         if tracing_error_response:
             return tracing_error_response
@@ -3498,21 +3465,21 @@ def register_tools(
         try:
             install_tracer_in_browser_session(browser_session)
             return {
-                'ok': True,
-                'connection_id': connection_id,
+                "ok": True,
+                "connection_id": connection_id,
                 **tracer_status_for_browser_session(browser_session),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3521,13 +3488,13 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_tracer_enable is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_tracer_enable is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         tracing_error_response = require_tracing_enabled(
             connection_id,
-            'gs_tracer_enable',
+            "gs_tracer_enable",
         )
         if tracing_error_response:
             return tracing_error_response
@@ -3539,33 +3506,33 @@ def register_tools(
             return transaction_error_response
         browser_session = browser_session_for_policy(gemstone_session)
         try:
-            force = validated_boolean(force, 'force')
+            force = validated_boolean(force, "force")
             tracer_status = tracer_status_for_browser_session(browser_session)
-            if not force and not tracer_status['manifest_matches']:
+            if not force and not tracer_status["manifest_matches"]:
                 return tracer_status_error_response(connection_id)
             enable_tracer_in_browser_session(browser_session)
             return {
-                'ok': True,
-                'connection_id': connection_id,
+                "ok": True,
+                "connection_id": connection_id,
                 **tracer_status_for_browser_session(browser_session),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3574,13 +3541,13 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_tracer_disable is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_tracer_disable is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         tracing_error_response = require_tracing_enabled(
             connection_id,
-            'gs_tracer_disable',
+            "gs_tracer_disable",
         )
         if tracing_error_response:
             return tracing_error_response
@@ -3594,21 +3561,21 @@ def register_tools(
         try:
             browser_session.disable_tracer()
             return {
-                'ok': True,
-                'connection_id': connection_id,
+                "ok": True,
+                "connection_id": connection_id,
                 **tracer_status_for_browser_session(browser_session),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3617,13 +3584,13 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_tracer_uninstall is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_tracer_uninstall is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         tracing_error_response = require_tracing_enabled(
             connection_id,
-            'gs_tracer_uninstall',
+            "gs_tracer_uninstall",
         )
         if tracing_error_response:
             return tracing_error_response
@@ -3637,21 +3604,21 @@ def register_tools(
         try:
             browser_session.uninstall_tracer()
             return {
-                'ok': True,
-                'connection_id': connection_id,
+                "ok": True,
+                "connection_id": connection_id,
                 **tracer_status_for_browser_session(browser_session),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3664,13 +3631,13 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_tracer_trace_selector is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_tracer_trace_selector is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         tracing_error_response = require_tracing_enabled(
             connection_id,
-            'gs_tracer_trace_selector',
+            "gs_tracer_trace_selector",
         )
         if tracing_error_response:
             return tracing_error_response
@@ -3682,13 +3649,13 @@ def register_tools(
             return transaction_error_response
         browser_session = browser_session_for_policy(gemstone_session)
         try:
-            method_name = validated_selector(method_name, 'method_name')
+            method_name = validated_selector(method_name, "method_name")
             max_results = validated_non_negative_integer_or_none(
                 max_results,
-                'max_results',
+                "max_results",
             )
             tracer_status = tracer_status_for_browser_session(browser_session)
-            if not tracer_status['manifest_matches']:
+            if not tracer_status["manifest_matches"]:
                 return tracer_status_error_response(connection_id)
             trace_result = trace_selector_in_browser_session(
                 browser_session,
@@ -3696,27 +3663,27 @@ def register_tools(
                 max_results,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
+                "ok": True,
+                "connection_id": connection_id,
                 **trace_result,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3728,13 +3695,13 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_tracer_untrace_selector is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_tracer_untrace_selector is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         tracing_error_response = require_tracing_enabled(
             connection_id,
-            'gs_tracer_untrace_selector',
+            "gs_tracer_untrace_selector",
         )
         if tracing_error_response:
             return tracing_error_response
@@ -3746,33 +3713,33 @@ def register_tools(
             return transaction_error_response
         browser_session = browser_session_for_policy(gemstone_session)
         try:
-            method_name = validated_selector(method_name, 'method_name')
+            method_name = validated_selector(method_name, "method_name")
             untrace_result = untrace_selector_in_browser_session(
                 browser_session,
                 method_name,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
+                "ok": True,
+                "connection_id": connection_id,
                 **untrace_result,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3781,13 +3748,13 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_tracer_clear_observed_senders is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_tracer_clear_observed_senders is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         tracing_error_response = require_tracing_enabled(
             connection_id,
-            'gs_tracer_clear_observed_senders',
+            "gs_tracer_clear_observed_senders",
         )
         if tracing_error_response:
             return tracing_error_response
@@ -3800,31 +3767,31 @@ def register_tools(
         browser_session = browser_session_for_policy(gemstone_session)
         try:
             if method_name is not None:
-                method_name = validated_selector(method_name, 'method_name')
+                method_name = validated_selector(method_name, "method_name")
             browser_session.clear_observed_senders(method_name)
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'method_name': method_name,
-                'cleared': True,
+                "ok": True,
+                "connection_id": connection_id,
+                "method_name": method_name,
+                "cleared": True,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3836,7 +3803,7 @@ def register_tools(
     ):
         tracing_error_response = require_tracing_enabled(
             connection_id,
-            'gs_tracer_find_observed_senders',
+            "gs_tracer_find_observed_senders",
         )
         if tracing_error_response:
             return tracing_error_response
@@ -3844,12 +3811,12 @@ def register_tools(
         if error_response:
             return error_response
         try:
-            method_name = validated_selector(method_name, 'method_name')
+            method_name = validated_selector(method_name, "method_name")
             max_results = validated_non_negative_integer_or_none(
                 max_results,
-                'max_results',
+                "max_results",
             )
-            count_only = validated_boolean(count_only, 'count_only')
+            count_only = validated_boolean(count_only, "count_only")
             started_at = time.perf_counter()
             observed_senders_result = tracer_observed_senders_for_selector(
                 browser_session,
@@ -3859,38 +3826,34 @@ def register_tools(
             )
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'method_name': method_name,
-                'max_results': max_results,
-                'count_only': count_only,
-                'total_count': observed_senders_result['total_count'],
-                'returned_count': observed_senders_result['returned_count'],
-                'total_observed_calls': observed_senders_result[
-                    'total_observed_calls'
-                ],
-                'elapsed_ms': elapsed_ms,
-                'observed_senders': observed_senders_result[
-                    'observed_senders'
-                ],
+                "ok": True,
+                "connection_id": connection_id,
+                "method_name": method_name,
+                "max_results": max_results,
+                "count_only": count_only,
+                "total_count": observed_senders_result["total_count"],
+                "returned_count": observed_senders_result["returned_count"],
+                "total_observed_calls": observed_senders_result["total_observed_calls"],
+                "elapsed_ms": elapsed_ms,
+                "observed_senders": observed_senders_result["observed_senders"],
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3904,7 +3867,7 @@ def register_tools(
     ):
         tracing_error_response = require_tracing_enabled(
             connection_id,
-            'gs_plan_evidence_tests',
+            "gs_plan_evidence_tests",
         )
         if tracing_error_response:
             return tracing_error_response
@@ -3912,25 +3875,25 @@ def register_tools(
         if error_response:
             return error_response
         try:
-            method_name = validated_selector(method_name, 'method_name')
+            method_name = validated_selector(method_name, "method_name")
             max_depth = validated_non_negative_integer_or_none(
                 max_depth,
-                'max_depth',
+                "max_depth",
             )
             max_nodes = validated_positive_integer(
                 max_nodes,
-                'max_nodes',
+                "max_nodes",
             )
             max_senders_per_selector = validated_positive_integer(
                 max_senders_per_selector,
-                'max_senders_per_selector',
+                "max_senders_per_selector",
             )
             max_test_methods = validated_positive_integer(
                 max_test_methods,
-                'max_test_methods',
+                "max_test_methods",
             )
             if max_depth is None:
-                raise DomainException('max_depth cannot be None.')
+                raise DomainException("max_depth cannot be None.")
             test_plan = sender_test_plan_for_selector(
                 browser_session,
                 method_name,
@@ -3945,33 +3908,33 @@ def register_tools(
                 test_plan,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'method_name': method_name,
-                'test_plan_id': test_plan_id,
-                'plan': test_plan,
-                'workflow_guidance': [
-                    'Pass this test_plan_id to gs_collect_sender_evidence to execute planned tests.',
-                    'If plan.candidate_test_count is 0, use explicit package_name or test_case_class_name during evidence collection.',
+                "ok": True,
+                "connection_id": connection_id,
+                "method_name": method_name,
+                "test_plan_id": test_plan_id,
+                "plan": test_plan,
+                "workflow_guidance": [
+                    "Pass this test_plan_id to gs_collect_sender_evidence to execute planned tests.",
+                    "If plan.candidate_test_count is 0, use explicit package_name or test_case_class_name during evidence collection.",
                 ],
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -3993,13 +3956,13 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_collect_sender_evidence is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_collect_sender_evidence is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         tracing_error_response = require_tracing_enabled(
             connection_id,
-            'gs_collect_sender_evidence',
+            "gs_collect_sender_evidence",
         )
         if tracing_error_response:
             return tracing_error_response
@@ -4011,49 +3974,49 @@ def register_tools(
             return transaction_error_response
         browser_session = browser_session_for_policy(gemstone_session)
         try:
-            method_name = validated_selector(method_name, 'method_name')
+            method_name = validated_selector(method_name, "method_name")
             max_results = validated_non_negative_integer_or_none(
                 max_results,
-                'max_results',
+                "max_results",
             )
             max_planned_tests = validated_non_negative_integer_or_none(
                 max_planned_tests,
-                'max_planned_tests',
+                "max_planned_tests",
             )
-            count_only = validated_boolean(count_only, 'count_only')
-            clear_observed = validated_boolean(clear_observed, 'clear_observed')
-            untrace_after = validated_boolean(untrace_after, 'untrace_after')
+            count_only = validated_boolean(count_only, "count_only")
+            clear_observed = validated_boolean(clear_observed, "clear_observed")
+            untrace_after = validated_boolean(untrace_after, "untrace_after")
             stop_on_first_observed = validated_boolean(
                 stop_on_first_observed,
-                'stop_on_first_observed',
+                "stop_on_first_observed",
             )
             if test_case_class_name is not None:
                 test_case_class_name = validated_identifier(
                     test_case_class_name,
-                    'test_case_class_name',
+                    "test_case_class_name",
                 )
             if test_method_selector is not None:
                 test_method_selector = validated_non_empty_string(
                     test_method_selector,
-                    'test_method_selector',
+                    "test_method_selector",
                 )
                 if test_case_class_name is None:
                     raise DomainException(
-                        'test_case_class_name is required when test_method_selector is provided.'
+                        "test_case_class_name is required when test_method_selector is provided."
                     )
             if package_name is not None:
                 package_name = validated_non_empty_string(
                     package_name,
-                    'package_name',
+                    "package_name",
                 )
             if package_name is not None and test_case_class_name is not None:
                 raise DomainException(
-                    'Specify either package_name or test_case_class_name, not both.'
+                    "Specify either package_name or test_case_class_name, not both."
                 )
             if test_plan_id is not None:
                 test_plan_id = validated_non_empty_string(
                     test_plan_id,
-                    'test_plan_id',
+                    "test_plan_id",
                 )
             started_at = time.perf_counter()
             ensure_tracer_manifest_matches(browser_session)
@@ -4073,24 +4036,24 @@ def register_tools(
                     method_name,
                     test_plan_id,
                 )
-                planned_tests = test_plan['candidate_tests']
+                planned_tests = test_plan["candidate_tests"]
                 if max_planned_tests is not None:
                     planned_tests = planned_tests[:max_planned_tests]
             keep_running_planned_tests = True
             for planned_test in planned_tests:
                 if keep_running_planned_tests:
                     planned_test_result = browser_session.run_test_method(
-                        planned_test['test_case_class_name'],
-                        planned_test['test_method_selector'],
+                        planned_test["test_case_class_name"],
+                        planned_test["test_method_selector"],
                     )
                     test_runs.append(
                         {
-                            'scope': 'planned_test_method',
-                            'target': planned_test['test_case_class_name'],
-                            'selector': planned_test['test_method_selector'],
-                            'depth': planned_test['depth'],
-                            'tests_passed': planned_test_result['has_passed'],
-                            'result': planned_test_result,
+                            "scope": "planned_test_method",
+                            "target": planned_test["test_case_class_name"],
+                            "selector": planned_test["test_method_selector"],
+                            "depth": planned_test["depth"],
+                            "tests_passed": planned_test_result["has_passed"],
+                            "result": planned_test_result,
                         }
                     )
                     if stop_on_first_observed:
@@ -4100,9 +4063,7 @@ def register_tools(
                             max_results=1,
                             count_only=True,
                         )
-                        has_observed_sender = (
-                            observed_snapshot['total_count'] > 0
-                        )
+                        has_observed_sender = observed_snapshot["total_count"] > 0
                         if has_observed_sender:
                             keep_running_planned_tests = False
             should_run_explicit_tests = keep_running_planned_tests
@@ -4113,33 +4074,31 @@ def register_tools(
                 )
                 test_runs.append(
                     {
-                        'scope': 'test_method',
-                        'target': test_case_class_name,
-                        'selector': test_method_selector,
-                        'tests_passed': test_result['has_passed'],
-                        'result': test_result,
+                        "scope": "test_method",
+                        "target": test_case_class_name,
+                        "selector": test_method_selector,
+                        "tests_passed": test_result["has_passed"],
+                        "result": test_result,
                     }
                 )
             elif should_run_explicit_tests and package_name is not None:
                 test_result = browser_session.run_tests_in_package(package_name)
                 test_runs.append(
                     {
-                        'scope': 'package',
-                        'target': package_name,
-                        'tests_passed': test_result['has_passed'],
-                        'result': test_result,
+                        "scope": "package",
+                        "target": package_name,
+                        "tests_passed": test_result["has_passed"],
+                        "result": test_result,
                     }
                 )
             elif should_run_explicit_tests and test_case_class_name is not None:
-                test_result = browser_session.run_gemstone_tests(
-                    test_case_class_name
-                )
+                test_result = browser_session.run_gemstone_tests(test_case_class_name)
                 test_runs.append(
                     {
-                        'scope': 'test_case_class',
-                        'target': test_case_class_name,
-                        'tests_passed': test_result['has_passed'],
-                        'result': test_result,
+                        "scope": "test_case_class",
+                        "target": test_case_class_name,
+                        "tests_passed": test_result["has_passed"],
+                        "result": test_result,
                     }
                 )
             observed_senders_result = tracer_observed_senders_for_selector(
@@ -4159,56 +4118,54 @@ def register_tools(
                 connection_id,
                 method_name,
                 {
-                    'trace_result': trace_result,
-                    'test_runs': test_runs,
-                    'observed_total_count': observed_senders_result[
-                        'total_count'
-                    ],
-                    'observed_total_calls': observed_senders_result[
-                        'total_observed_calls'
+                    "trace_result": trace_result,
+                    "test_runs": test_runs,
+                    "observed_total_count": observed_senders_result["total_count"],
+                    "observed_total_calls": observed_senders_result[
+                        "total_observed_calls"
                     ],
                 },
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'method_name': method_name,
-                'test_plan_id': test_plan_id,
-                'planned_test_count': len(planned_tests),
-                'max_planned_tests': max_planned_tests,
-                'stop_on_first_observed': stop_on_first_observed,
-                'max_results': max_results,
-                'count_only': count_only,
-                'clear_observed': clear_observed,
-                'untrace_after': untrace_after,
-                'trace': trace_result,
-                'test_runs': test_runs,
-                'observed': observed_senders_result,
-                'untrace': untrace_result,
-                'evidence_run_id': evidence_run_id,
-                'elapsed_ms': elapsed_ms,
-                'workflow_guidance': [
-                    'Use this evidence_run_id when applying selector rename with require_observed_sender_evidence=True.',
-                    'If observed.total_count is 0, rerun with broader tests or a deeper gs_plan_evidence_tests plan.',
+                "ok": True,
+                "connection_id": connection_id,
+                "method_name": method_name,
+                "test_plan_id": test_plan_id,
+                "planned_test_count": len(planned_tests),
+                "max_planned_tests": max_planned_tests,
+                "stop_on_first_observed": stop_on_first_observed,
+                "max_results": max_results,
+                "count_only": count_only,
+                "clear_observed": clear_observed,
+                "untrace_after": untrace_after,
+                "trace": trace_result,
+                "test_runs": test_runs,
+                "observed": observed_senders_result,
+                "untrace": untrace_result,
+                "evidence_run_id": evidence_run_id,
+                "elapsed_ms": elapsed_ms,
+                "workflow_guidance": [
+                    "Use this evidence_run_id when applying selector rename with require_observed_sender_evidence=True.",
+                    "If observed.total_count is 0, rerun with broader tests or a deeper gs_plan_evidence_tests plan.",
                 ],
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -4217,15 +4174,15 @@ def register_tools(
         class_name,
         source,
         show_instance_side=True,
-        method_category='as yet unclassified',
+        method_category="as yet unclassified",
         in_dictionary=None,
     ):
         if not allow_compile:
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_compile_method is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_compile_method is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4236,20 +4193,20 @@ def register_tools(
             return transaction_error_response
         browser_session = browser_session_for_policy(gemstone_session)
         try:
-            class_name = validated_identifier(class_name, 'class_name')
-            source = validated_non_empty_string(source, 'source')
+            class_name = validated_identifier(class_name, "class_name")
+            source = validated_non_empty_string(source, "source")
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             method_category = validated_non_empty_string(
                 method_category,
-                'method_category',
+                "method_category",
             )
             if in_dictionary is not None:
                 in_dictionary = validated_non_empty_string_stripped(
                     in_dictionary,
-                    'in_dictionary',
+                    "in_dictionary",
                 )
                 browser_session.compile_method_in_dictionary(
                     class_name,
@@ -4266,49 +4223,49 @@ def register_tools(
                     method_category,
                 )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'show_instance_side': show_instance_side,
-                'method_category': method_category,
-                'in_dictionary': in_dictionary,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "method_category": method_category,
+                "in_dictionary": in_dictionary,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
     def gs_create_class(
         connection_id,
         class_name,
-        superclass_name='Object',
+        superclass_name="Object",
         inst_var_names=None,
         class_var_names=None,
         class_inst_var_names=None,
         pool_dictionary_names=None,
-        in_dictionary='UserGlobals',
+        in_dictionary="UserGlobals",
     ):
         if not allow_compile:
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_create_class is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_create_class is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4319,30 +4276,30 @@ def register_tools(
             return transaction_error_response
         browser_session = browser_session_for_policy(gemstone_session)
         try:
-            class_name = validated_identifier(class_name, 'class_name')
+            class_name = validated_identifier(class_name, "class_name")
             superclass_name = validated_identifier(
                 superclass_name,
-                'superclass_name',
+                "superclass_name",
             )
             in_dictionary = validated_non_empty_string_stripped(
                 in_dictionary,
-                'in_dictionary',
+                "in_dictionary",
             )
             inst_var_names = validated_identifier_names(
                 inst_var_names,
-                'inst_var_names',
+                "inst_var_names",
             )
             class_var_names = validated_identifier_names(
                 class_var_names,
-                'class_var_names',
+                "class_var_names",
             )
             class_inst_var_names = validated_identifier_names(
                 class_inst_var_names,
-                'class_inst_var_names',
+                "class_inst_var_names",
             )
             pool_dictionary_names = validated_identifier_names(
                 pool_dictionary_names,
-                'pool_dictionary_names',
+                "pool_dictionary_names",
             )
             browser_session.create_class(
                 class_name=class_name,
@@ -4354,33 +4311,33 @@ def register_tools(
                 in_dictionary=in_dictionary,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'superclass_name': superclass_name,
-                'inst_var_names': inst_var_names,
-                'class_var_names': class_var_names,
-                'class_inst_var_names': class_inst_var_names,
-                'pool_dictionary_names': pool_dictionary_names,
-                'in_dictionary': in_dictionary,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "superclass_name": superclass_name,
+                "inst_var_names": inst_var_names,
+                "class_var_names": class_var_names,
+                "class_inst_var_names": class_inst_var_names,
+                "pool_dictionary_names": pool_dictionary_names,
+                "in_dictionary": in_dictionary,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -4388,19 +4345,19 @@ def register_tools(
         connection_id,
         class_name,
         package_name,
-        superclass_name='Object',
+        superclass_name="Object",
         inst_var_names=None,
         class_var_names=None,
         class_inst_var_names=None,
         pool_dictionary_names=None,
-        in_dictionary='UserGlobals',
+        in_dictionary="UserGlobals",
     ):
         if not allow_compile:
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_create_class is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_create_class is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4411,10 +4368,10 @@ def register_tools(
             return transaction_error_response
         browser_session = browser_session_for_policy(gemstone_session)
         try:
-            class_name = validated_identifier(class_name, 'class_name')
+            class_name = validated_identifier(class_name, "class_name")
             superclass_name = validated_identifier(
                 superclass_name,
-                'superclass_name',
+                "superclass_name",
             )
             package_name = validated_existing_package_name(
                 browser_session,
@@ -4422,23 +4379,23 @@ def register_tools(
             )
             in_dictionary = validated_non_empty_string_stripped(
                 in_dictionary,
-                'in_dictionary',
+                "in_dictionary",
             )
             inst_var_names = validated_identifier_names(
                 inst_var_names,
-                'inst_var_names',
+                "inst_var_names",
             )
             class_var_names = validated_identifier_names(
                 class_var_names,
-                'class_var_names',
+                "class_var_names",
             )
             class_inst_var_names = validated_identifier_names(
                 class_inst_var_names,
-                'class_inst_var_names',
+                "class_inst_var_names",
             )
             pool_dictionary_names = validated_identifier_names(
                 pool_dictionary_names,
-                'pool_dictionary_names',
+                "pool_dictionary_names",
             )
             browser_session.create_class(
                 class_name=class_name,
@@ -4454,49 +4411,49 @@ def register_tools(
                 package_name,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'superclass_name': superclass_name,
-                'inst_var_names': inst_var_names,
-                'class_var_names': class_var_names,
-                'class_inst_var_names': class_inst_var_names,
-                'pool_dictionary_names': pool_dictionary_names,
-                'in_dictionary': in_dictionary,
-                'package_name': package_name,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "superclass_name": superclass_name,
+                "inst_var_names": inst_var_names,
+                "class_var_names": class_var_names,
+                "class_inst_var_names": class_inst_var_names,
+                "pool_dictionary_names": pool_dictionary_names,
+                "in_dictionary": in_dictionary,
+                "package_name": package_name,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
     def gs_create_test_case_class(
         connection_id,
         class_name,
-        in_dictionary='UserGlobals',
-        package_name='',
+        in_dictionary="UserGlobals",
+        package_name="",
     ):
         if not allow_compile:
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_create_test_case_class is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_create_test_case_class is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4507,7 +4464,7 @@ def register_tools(
             return transaction_error_response
         browser_session = browser_session_for_policy(gemstone_session)
         try:
-            class_name = validated_identifier(class_name, 'class_name')
+            class_name = validated_identifier(class_name, "class_name")
             in_dictionary, package_name = resolved_class_creation_target(
                 browser_session,
                 in_dictionary,
@@ -4523,30 +4480,30 @@ def register_tools(
                     package_name,
                 )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'superclass_name': 'TestCase',
-                'in_dictionary': in_dictionary,
-                'package_name': package_name,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "superclass_name": "TestCase",
+                "in_dictionary": in_dictionary,
+                "package_name": package_name,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -4555,46 +4512,44 @@ def register_tools(
         if error_response:
             return error_response
         try:
-            class_name = validated_identifier(class_name, 'class_name')
+            class_name = validated_identifier(class_name, "class_name")
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'class_definition': browser_session.get_class_definition(
-                    class_name
-                ),
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "class_definition": browser_session.get_class_definition(class_name),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
     def gs_delete_class(
         connection_id,
         class_name,
-        in_dictionary='UserGlobals',
+        in_dictionary="UserGlobals",
     ):
         if not allow_compile:
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_delete_class is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_delete_class is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4605,38 +4560,38 @@ def register_tools(
             return transaction_error_response
         browser_session = browser_session_for_policy(gemstone_session)
         try:
-            class_name = validated_identifier(class_name, 'class_name')
+            class_name = validated_identifier(class_name, "class_name")
             in_dictionary = validated_identifier(
                 in_dictionary,
-                'in_dictionary',
+                "in_dictionary",
             )
             browser_session.delete_class(
                 class_name=class_name,
                 in_dictionary=in_dictionary,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'in_dictionary': in_dictionary,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "in_dictionary": in_dictionary,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -4650,8 +4605,8 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_delete_method is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_delete_method is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4662,14 +4617,14 @@ def register_tools(
             return transaction_error_response
         browser_session = browser_session_for_policy(gemstone_session)
         try:
-            class_name = validated_identifier(class_name, 'class_name')
+            class_name = validated_identifier(class_name, "class_name")
             method_selector = validated_non_empty_string(
                 method_selector,
-                'method_selector',
+                "method_selector",
             )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             browser_session.delete_method(
                 class_name=class_name,
@@ -4677,29 +4632,29 @@ def register_tools(
                 show_instance_side=show_instance_side,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'method_selector': method_selector,
-                'show_instance_side': show_instance_side,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "method_selector": method_selector,
+                "show_instance_side": show_instance_side,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -4714,8 +4669,8 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_set_method_category is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_set_method_category is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4726,18 +4681,18 @@ def register_tools(
             return transaction_error_response
         browser_session = browser_session_for_policy(gemstone_session)
         try:
-            class_name = validated_identifier(class_name, 'class_name')
+            class_name = validated_identifier(class_name, "class_name")
             method_selector = validated_non_empty_string(
                 method_selector,
-                'method_selector',
+                "method_selector",
             )
             method_category = validated_non_empty_string(
                 method_category,
-                'method_category',
+                "method_category",
             )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             browser_session.set_method_category(
                 class_name=class_name,
@@ -4746,30 +4701,30 @@ def register_tools(
                 show_instance_side=show_instance_side,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'method_selector': method_selector,
-                'method_category': method_category,
-                'show_instance_side': show_instance_side,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "method_selector": method_selector,
+                "method_category": method_category,
+                "show_instance_side": show_instance_side,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -4781,33 +4736,33 @@ def register_tools(
             if package_name is not None:
                 package_name = validated_non_empty_string(
                     package_name,
-                    'package_name',
+                    "package_name",
                 )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'package_name': package_name,
-                'test_case_classes': browser_session.list_test_case_classes(
+                "ok": True,
+                "connection_id": connection_id,
+                "package_name": package_name,
+                "test_case_classes": browser_session.list_test_case_classes(
                     package_name
                 ),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -4818,33 +4773,33 @@ def register_tools(
         try:
             package_name = validated_non_empty_string(
                 package_name,
-                'package_name',
+                "package_name",
             )
             test_result = browser_session.run_tests_in_package(package_name)
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'package_name': package_name,
-                'result': test_result,
-                'tests_passed': test_result['has_passed'],
+                "ok": True,
+                "connection_id": connection_id,
+                "package_name": package_name,
+                "result": test_result,
+                "tests_passed": test_result["has_passed"],
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -4859,41 +4814,41 @@ def register_tools(
         try:
             test_case_class_name = validated_identifier(
                 test_case_class_name,
-                'test_case_class_name',
+                "test_case_class_name",
             )
             test_method_selector = validated_non_empty_string(
                 test_method_selector,
-                'test_method_selector',
+                "test_method_selector",
             )
             test_result = browser_session.run_test_method(
                 test_case_class_name,
                 test_method_selector,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'test_case_class_name': test_case_class_name,
-                'test_method_selector': test_method_selector,
-                'result': test_result,
-                'tests_passed': test_result['has_passed'],
+                "ok": True,
+                "connection_id": connection_id,
+                "test_case_class_name": test_case_class_name,
+                "test_method_selector": test_method_selector,
+                "result": test_result,
+                "tests_passed": test_result["has_passed"],
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -4908,14 +4863,14 @@ def register_tools(
         if error_response:
             return error_response
         try:
-            class_name = validated_identifier(class_name, 'class_name')
+            class_name = validated_identifier(class_name, "class_name")
             old_selector, new_selector = validated_selector_rename_pair(
                 old_selector,
                 new_selector,
             )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             preview = browser_session.method_rename_preview(
                 class_name,
@@ -4924,31 +4879,31 @@ def register_tools(
                 new_selector,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'show_instance_side': show_instance_side,
-                'old_selector': old_selector,
-                'new_selector': new_selector,
-                'preview': preview,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "old_selector": old_selector,
+                "new_selector": new_selector,
+                "preview": preview,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -4963,8 +4918,8 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_apply_rename_method is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_apply_rename_method is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4975,14 +4930,14 @@ def register_tools(
             return transaction_error_response
         browser_session = browser_session_for_policy(gemstone_session)
         try:
-            class_name = validated_identifier(class_name, 'class_name')
+            class_name = validated_identifier(class_name, "class_name")
             old_selector, new_selector = validated_selector_rename_pair(
                 old_selector,
                 new_selector,
             )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             result = browser_session.apply_method_rename(
                 class_name,
@@ -4991,31 +4946,31 @@ def register_tools(
                 new_selector,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'show_instance_side': show_instance_side,
-                'old_selector': old_selector,
-                'new_selector': new_selector,
-                'result': result,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "old_selector": old_selector,
+                "new_selector": new_selector,
+                "result": result,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -5033,23 +4988,23 @@ def register_tools(
         try:
             source_class_name = validated_identifier(
                 source_class_name,
-                'source_class_name',
+                "source_class_name",
             )
             target_class_name = validated_identifier(
                 target_class_name,
-                'target_class_name',
+                "target_class_name",
             )
             method_selector = validated_selector(
                 method_selector,
-                'method_selector',
+                "method_selector",
             )
             source_show_instance_side = validated_boolean_like(
                 source_show_instance_side,
-                'source_show_instance_side',
+                "source_show_instance_side",
             )
             target_show_instance_side = validated_boolean_like(
                 target_show_instance_side,
-                'target_show_instance_side',
+                "target_show_instance_side",
             )
             preview = browser_session.method_move_preview(
                 source_class_name,
@@ -5059,32 +5014,32 @@ def register_tools(
                 method_selector,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'source_class_name': source_class_name,
-                'source_show_instance_side': source_show_instance_side,
-                'target_class_name': target_class_name,
-                'target_show_instance_side': target_show_instance_side,
-                'method_selector': method_selector,
-                'preview': preview,
+                "ok": True,
+                "connection_id": connection_id,
+                "source_class_name": source_class_name,
+                "source_show_instance_side": source_show_instance_side,
+                "target_class_name": target_class_name,
+                "target_show_instance_side": target_show_instance_side,
+                "method_selector": method_selector,
+                "preview": preview,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -5102,8 +5057,8 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_apply_move_method is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_apply_move_method is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5116,31 +5071,31 @@ def register_tools(
         try:
             source_class_name = validated_identifier(
                 source_class_name,
-                'source_class_name',
+                "source_class_name",
             )
             target_class_name = validated_identifier(
                 target_class_name,
-                'target_class_name',
+                "target_class_name",
             )
             method_selector = validated_selector(
                 method_selector,
-                'method_selector',
+                "method_selector",
             )
             source_show_instance_side = validated_boolean_like(
                 source_show_instance_side,
-                'source_show_instance_side',
+                "source_show_instance_side",
             )
             target_show_instance_side = validated_boolean_like(
                 target_show_instance_side,
-                'target_show_instance_side',
+                "target_show_instance_side",
             )
             overwrite_target_method = validated_boolean_like(
                 overwrite_target_method,
-                'overwrite_target_method',
+                "overwrite_target_method",
             )
             delete_source_method = validated_boolean_like(
                 delete_source_method,
-                'delete_source_method',
+                "delete_source_method",
             )
             result = browser_session.apply_method_move(
                 source_class_name,
@@ -5152,34 +5107,34 @@ def register_tools(
                 delete_source_method=delete_source_method,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'source_class_name': source_class_name,
-                'source_show_instance_side': source_show_instance_side,
-                'target_class_name': target_class_name,
-                'target_show_instance_side': target_show_instance_side,
-                'method_selector': method_selector,
-                'overwrite_target_method': overwrite_target_method,
-                'delete_source_method': delete_source_method,
-                'result': result,
+                "ok": True,
+                "connection_id": connection_id,
+                "source_class_name": source_class_name,
+                "source_show_instance_side": source_show_instance_side,
+                "target_class_name": target_class_name,
+                "target_show_instance_side": target_show_instance_side,
+                "method_selector": method_selector,
+                "overwrite_target_method": overwrite_target_method,
+                "delete_source_method": delete_source_method,
+                "result": result,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -5198,31 +5153,29 @@ def register_tools(
         try:
             class_name = validated_identifier(
                 class_name,
-                'class_name',
+                "class_name",
             )
             method_selector = validated_selector(
                 method_selector,
-                'method_selector',
+                "method_selector",
             )
-            if ':' not in method_selector:
-                raise DomainException(
-                    'method_selector must be a keyword selector.'
-                )
+            if ":" not in method_selector:
+                raise DomainException("method_selector must be a keyword selector.")
             parameter_keyword = validated_keyword_parameter_token(
                 parameter_keyword,
-                'parameter_keyword',
+                "parameter_keyword",
             )
             parameter_name = validated_identifier(
                 parameter_name,
-                'parameter_name',
+                "parameter_name",
             )
             default_argument_source = validated_non_empty_string(
                 default_argument_source,
-                'default_argument_source',
+                "default_argument_source",
             )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             preview = browser_session.method_add_parameter_preview(
                 class_name,
@@ -5233,33 +5186,33 @@ def register_tools(
                 default_argument_source,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'show_instance_side': show_instance_side,
-                'method_selector': method_selector,
-                'parameter_keyword': parameter_keyword,
-                'parameter_name': parameter_name,
-                'default_argument_source': default_argument_source,
-                'preview': preview,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "method_selector": method_selector,
+                "parameter_keyword": parameter_keyword,
+                "parameter_name": parameter_name,
+                "default_argument_source": default_argument_source,
+                "preview": preview,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -5276,8 +5229,8 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_apply_add_parameter is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_apply_add_parameter is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5290,31 +5243,29 @@ def register_tools(
         try:
             class_name = validated_identifier(
                 class_name,
-                'class_name',
+                "class_name",
             )
             method_selector = validated_selector(
                 method_selector,
-                'method_selector',
+                "method_selector",
             )
-            if ':' not in method_selector:
-                raise DomainException(
-                    'method_selector must be a keyword selector.'
-                )
+            if ":" not in method_selector:
+                raise DomainException("method_selector must be a keyword selector.")
             parameter_keyword = validated_keyword_parameter_token(
                 parameter_keyword,
-                'parameter_keyword',
+                "parameter_keyword",
             )
             parameter_name = validated_identifier(
                 parameter_name,
-                'parameter_name',
+                "parameter_name",
             )
             default_argument_source = validated_non_empty_string(
                 default_argument_source,
-                'default_argument_source',
+                "default_argument_source",
             )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             result = browser_session.apply_method_add_parameter(
                 class_name,
@@ -5325,33 +5276,33 @@ def register_tools(
                 default_argument_source,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'show_instance_side': show_instance_side,
-                'method_selector': method_selector,
-                'parameter_keyword': parameter_keyword,
-                'parameter_name': parameter_name,
-                'default_argument_source': default_argument_source,
-                'result': result,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "method_selector": method_selector,
+                "parameter_keyword": parameter_keyword,
+                "parameter_name": parameter_name,
+                "default_argument_source": default_argument_source,
+                "result": result,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -5369,27 +5320,25 @@ def register_tools(
         try:
             class_name = validated_identifier(
                 class_name,
-                'class_name',
+                "class_name",
             )
             method_selector = validated_selector(
                 method_selector,
-                'method_selector',
+                "method_selector",
             )
-            if ':' not in method_selector:
-                raise DomainException(
-                    'method_selector must be a keyword selector.'
-                )
+            if ":" not in method_selector:
+                raise DomainException("method_selector must be a keyword selector.")
             parameter_keyword = validated_keyword_parameter_token(
                 parameter_keyword,
-                'parameter_keyword',
+                "parameter_keyword",
             )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             rewrite_source_senders = validated_boolean_like(
                 rewrite_source_senders,
-                'rewrite_source_senders',
+                "rewrite_source_senders",
             )
             preview = browser_session.method_remove_parameter_preview(
                 class_name,
@@ -5399,32 +5348,32 @@ def register_tools(
                 rewrite_source_senders=rewrite_source_senders,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'show_instance_side': show_instance_side,
-                'method_selector': method_selector,
-                'parameter_keyword': parameter_keyword,
-                'rewrite_source_senders': rewrite_source_senders,
-                'preview': preview,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "method_selector": method_selector,
+                "parameter_keyword": parameter_keyword,
+                "rewrite_source_senders": rewrite_source_senders,
+                "preview": preview,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -5441,8 +5390,8 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_apply_remove_parameter is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_apply_remove_parameter is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5455,31 +5404,29 @@ def register_tools(
         try:
             class_name = validated_identifier(
                 class_name,
-                'class_name',
+                "class_name",
             )
             method_selector = validated_selector(
                 method_selector,
-                'method_selector',
+                "method_selector",
             )
-            if ':' not in method_selector:
-                raise DomainException(
-                    'method_selector must be a keyword selector.'
-                )
+            if ":" not in method_selector:
+                raise DomainException("method_selector must be a keyword selector.")
             parameter_keyword = validated_keyword_parameter_token(
                 parameter_keyword,
-                'parameter_keyword',
+                "parameter_keyword",
             )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             overwrite_new_method = validated_boolean_like(
                 overwrite_new_method,
-                'overwrite_new_method',
+                "overwrite_new_method",
             )
             rewrite_source_senders = validated_boolean_like(
                 rewrite_source_senders,
-                'rewrite_source_senders',
+                "rewrite_source_senders",
             )
             result = browser_session.apply_method_remove_parameter(
                 class_name,
@@ -5490,33 +5437,33 @@ def register_tools(
                 rewrite_source_senders=rewrite_source_senders,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'show_instance_side': show_instance_side,
-                'method_selector': method_selector,
-                'parameter_keyword': parameter_keyword,
-                'overwrite_new_method': overwrite_new_method,
-                'rewrite_source_senders': rewrite_source_senders,
-                'result': result,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "method_selector": method_selector,
+                "parameter_keyword": parameter_keyword,
+                "overwrite_new_method": overwrite_new_method,
+                "rewrite_source_senders": rewrite_source_senders,
+                "result": result,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -5534,27 +5481,25 @@ def register_tools(
         try:
             class_name = validated_identifier(
                 class_name,
-                'class_name',
+                "class_name",
             )
             method_selector = validated_selector(
                 method_selector,
-                'method_selector',
+                "method_selector",
             )
             new_selector = validated_selector(
                 new_selector,
-                'new_selector',
+                "new_selector",
             )
-            if ':' in new_selector:
-                raise DomainException(
-                    'new_selector must be a unary selector.'
-                )
+            if ":" in new_selector:
+                raise DomainException("new_selector must be a unary selector.")
             statement_indexes = validated_statement_indexes(
                 statement_indexes,
-                'statement_indexes',
+                "statement_indexes",
             )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             preview = browser_session.method_extract_preview(
                 class_name,
@@ -5564,32 +5509,32 @@ def register_tools(
                 statement_indexes,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'show_instance_side': show_instance_side,
-                'method_selector': method_selector,
-                'new_selector': new_selector,
-                'statement_indexes': statement_indexes,
-                'preview': preview,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "method_selector": method_selector,
+                "new_selector": new_selector,
+                "statement_indexes": statement_indexes,
+                "preview": preview,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -5606,8 +5551,8 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_apply_extract_method is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_apply_extract_method is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5620,31 +5565,29 @@ def register_tools(
         try:
             class_name = validated_identifier(
                 class_name,
-                'class_name',
+                "class_name",
             )
             method_selector = validated_selector(
                 method_selector,
-                'method_selector',
+                "method_selector",
             )
             new_selector = validated_selector(
                 new_selector,
-                'new_selector',
+                "new_selector",
             )
-            if ':' in new_selector:
-                raise DomainException(
-                    'new_selector must be a unary selector.'
-                )
+            if ":" in new_selector:
+                raise DomainException("new_selector must be a unary selector.")
             statement_indexes = validated_statement_indexes(
                 statement_indexes,
-                'statement_indexes',
+                "statement_indexes",
             )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             overwrite_new_method = validated_boolean_like(
                 overwrite_new_method,
-                'overwrite_new_method',
+                "overwrite_new_method",
             )
             result = browser_session.apply_method_extract(
                 class_name,
@@ -5655,33 +5598,33 @@ def register_tools(
                 overwrite_new_method=overwrite_new_method,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'show_instance_side': show_instance_side,
-                'method_selector': method_selector,
-                'new_selector': new_selector,
-                'statement_indexes': statement_indexes,
-                'overwrite_new_method': overwrite_new_method,
-                'result': result,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "method_selector": method_selector,
+                "new_selector": new_selector,
+                "statement_indexes": statement_indexes,
+                "overwrite_new_method": overwrite_new_method,
+                "result": result,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -5698,23 +5641,21 @@ def register_tools(
         try:
             class_name = validated_identifier(
                 class_name,
-                'class_name',
+                "class_name",
             )
             caller_selector = validated_selector(
                 caller_selector,
-                'caller_selector',
+                "caller_selector",
             )
             inline_selector = validated_selector(
                 inline_selector,
-                'inline_selector',
+                "inline_selector",
             )
-            if ':' in inline_selector:
-                raise DomainException(
-                    'inline_selector must be a unary selector.'
-                )
+            if ":" in inline_selector:
+                raise DomainException("inline_selector must be a unary selector.")
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             preview = browser_session.method_inline_preview(
                 class_name,
@@ -5723,31 +5664,31 @@ def register_tools(
                 inline_selector,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'show_instance_side': show_instance_side,
-                'caller_selector': caller_selector,
-                'inline_selector': inline_selector,
-                'preview': preview,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "caller_selector": caller_selector,
+                "inline_selector": inline_selector,
+                "preview": preview,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -5763,8 +5704,8 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_apply_inline_method is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_apply_inline_method is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5777,27 +5718,25 @@ def register_tools(
         try:
             class_name = validated_identifier(
                 class_name,
-                'class_name',
+                "class_name",
             )
             caller_selector = validated_selector(
                 caller_selector,
-                'caller_selector',
+                "caller_selector",
             )
             inline_selector = validated_selector(
                 inline_selector,
-                'inline_selector',
+                "inline_selector",
             )
-            if ':' in inline_selector:
-                raise DomainException(
-                    'inline_selector must be a unary selector.'
-                )
+            if ":" in inline_selector:
+                raise DomainException("inline_selector must be a unary selector.")
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
             delete_inlined_method = validated_boolean_like(
                 delete_inlined_method,
-                'delete_inlined_method',
+                "delete_inlined_method",
             )
             result = browser_session.apply_method_inline(
                 class_name,
@@ -5807,32 +5746,32 @@ def register_tools(
                 delete_inlined_method=delete_inlined_method,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'class_name': class_name,
-                'show_instance_side': show_instance_side,
-                'caller_selector': caller_selector,
-                'inline_selector': inline_selector,
-                'delete_inlined_method': delete_inlined_method,
-                'result': result,
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "caller_selector": caller_selector,
+                "inline_selector": inline_selector,
+                "delete_inlined_method": delete_inlined_method,
+                "result": result,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -5854,29 +5793,29 @@ def register_tools(
                 new_selector,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'old_selector': old_selector,
-                'new_selector': new_selector,
-                'preview': preview,
+                "ok": True,
+                "connection_id": connection_id,
+                "old_selector": old_selector,
+                "new_selector": new_selector,
+                "preview": preview,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -5892,8 +5831,8 @@ def register_tools(
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_apply_selector_rename is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_apply_selector_rename is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5910,21 +5849,21 @@ def register_tools(
             )
             require_observed_sender_evidence = validated_boolean(
                 require_observed_sender_evidence,
-                'require_observed_sender_evidence',
+                "require_observed_sender_evidence",
             )
             evidence_max_age_seconds = validated_positive_integer(
                 evidence_max_age_seconds,
-                'evidence_max_age_seconds',
+                "evidence_max_age_seconds",
             )
             evidence_validation = None
             if require_observed_sender_evidence:
                 if evidence_run_id is None:
                     raise DomainException(
-                        'evidence_run_id is required when require_observed_sender_evidence is true.'
+                        "evidence_run_id is required when require_observed_sender_evidence is true."
                     )
                 evidence_run_id = validated_non_empty_string(
                     evidence_run_id,
-                    'evidence_run_id',
+                    "evidence_run_id",
                 )
                 evidence_validation = validate_sender_evidence_for_selector(
                     connection_id,
@@ -5937,33 +5876,31 @@ def register_tools(
                 new_selector,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'old_selector': old_selector,
-                'new_selector': new_selector,
-                'require_observed_sender_evidence': (
-                    require_observed_sender_evidence
-                ),
-                'evidence_validation': evidence_validation,
-                'result': result,
+                "ok": True,
+                "connection_id": connection_id,
+                "old_selector": old_selector,
+                "new_selector": new_selector,
+                "require_observed_sender_evidence": (require_observed_sender_evidence),
+                "evidence_validation": evidence_validation,
+                "result": result,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -5971,14 +5908,14 @@ def register_tools(
         connection_id,
         symbol_name,
         literal_value,
-        in_dictionary='UserGlobals',
+        in_dictionary="UserGlobals",
     ):
         if not allow_compile:
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_global_set is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_global_set is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5989,14 +5926,14 @@ def register_tools(
             return transaction_error_response
         browser_session = browser_session_for_policy(gemstone_session)
         try:
-            symbol_name = validated_identifier(symbol_name, 'symbol_name')
+            symbol_name = validated_identifier(symbol_name, "symbol_name")
             literal_value = validated_literal_value(
                 literal_value,
-                'literal_value',
+                "literal_value",
             )
             in_dictionary = validated_identifier(
                 in_dictionary,
-                'in_dictionary',
+                "in_dictionary",
             )
             browser_session.global_set(
                 symbol_name=symbol_name,
@@ -6004,46 +5941,46 @@ def register_tools(
                 in_dictionary=in_dictionary,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'symbol_name': symbol_name,
-                'in_dictionary': in_dictionary,
-                'exists': browser_session.global_exists(
+                "ok": True,
+                "connection_id": connection_id,
+                "symbol_name": symbol_name,
+                "in_dictionary": in_dictionary,
+                "exists": browser_session.global_exists(
                     symbol_name,
                     in_dictionary,
                 ),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
     def gs_global_remove(
         connection_id,
         symbol_name,
-        in_dictionary='UserGlobals',
+        in_dictionary="UserGlobals",
     ):
         if not allow_compile:
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_global_remove is disabled. '
-                    'Start swordfish --headless-mcp with --allow-compile to enable.'
+                    "gs_global_remove is disabled. "
+                    "Start swordfish --headless-mcp with --allow-compile to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -6054,86 +5991,86 @@ def register_tools(
             return transaction_error_response
         browser_session = browser_session_for_policy(gemstone_session)
         try:
-            symbol_name = validated_identifier(symbol_name, 'symbol_name')
+            symbol_name = validated_identifier(symbol_name, "symbol_name")
             in_dictionary = validated_identifier(
                 in_dictionary,
-                'in_dictionary',
+                "in_dictionary",
             )
             browser_session.global_remove(
                 symbol_name=symbol_name,
                 in_dictionary=in_dictionary,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'symbol_name': symbol_name,
-                'in_dictionary': in_dictionary,
-                'exists': browser_session.global_exists(
+                "ok": True,
+                "connection_id": connection_id,
+                "symbol_name": symbol_name,
+                "in_dictionary": in_dictionary,
+                "exists": browser_session.global_exists(
                     symbol_name,
                     in_dictionary,
                 ),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
     def gs_global_exists(
         connection_id,
         symbol_name,
-        in_dictionary='UserGlobals',
+        in_dictionary="UserGlobals",
     ):
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
         try:
-            symbol_name = validated_identifier(symbol_name, 'symbol_name')
+            symbol_name = validated_identifier(symbol_name, "symbol_name")
             in_dictionary = validated_identifier(
                 in_dictionary,
-                'in_dictionary',
+                "in_dictionary",
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'symbol_name': symbol_name,
-                'in_dictionary': in_dictionary,
-                'exists': browser_session.global_exists(
+                "ok": True,
+                "connection_id": connection_id,
+                "symbol_name": symbol_name,
+                "in_dictionary": in_dictionary,
+                "exists": browser_session.global_exists(
                     symbol_name,
                     in_dictionary,
                 ),
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -6144,54 +6081,64 @@ def register_tools(
         try:
             test_result = browser_session.run_gemstone_tests(test_case_class_name)
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'test_case_class_name': test_case_class_name,
-                'result': test_result,
-                'tests_passed': test_result['has_passed'],
+                "ok": True,
+                "connection_id": connection_id,
+                "test_case_class_name": test_case_class_name,
+                "result": test_result,
+                "tests_passed": test_result["has_passed"],
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
     def gs_debug_eval(
         connection_id,
         source,
-        reason='',
+        reason="",
         approved_by_user=False,
-        approval_note='',
+        approval_note="",
+        open_ide_debugger_on_error=False,
+        ask_before_open_ide_debugger=True,
     ):
         if not allow_eval:
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_debug_eval is disabled. '
-                    'Start swordfish --headless-mcp with --allow-eval to enable.'
+                    "gs_debug_eval is disabled. "
+                    "Start swordfish --headless-mcp with --allow-eval to enable."
                 ),
             )
         try:
-            source = validated_non_empty_string(source, 'source')
-            reason = validated_non_empty_string_stripped(reason, 'reason')
+            source = validated_non_empty_string(source, "source")
+            reason = validated_non_empty_string_stripped(reason, "reason")
+            open_ide_debugger_on_error = validated_boolean_like(
+                open_ide_debugger_on_error,
+                "open_ide_debugger_on_error",
+            )
+            ask_before_open_ide_debugger = validated_boolean_like(
+                ask_before_open_ide_debugger,
+                "ask_before_open_ide_debugger",
+            )
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         approval_error_response = require_explicit_user_confirmation(
             connection_id,
-            'gs_debug_eval',
-            'eval bypass',
+            "gs_debug_eval",
+            "eval bypass",
             approved_by_user,
             approval_note or reason,
         )
@@ -6203,47 +6150,56 @@ def register_tools(
         metadata = metadata_for_connection_id(connection_id)
         if metadata is None:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': 'Unknown connection_id.'},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": "Unknown connection_id."},
             }
         try:
             output = browser_session.evaluate_source(source)
-            transaction_state_effect = (
-                transaction_state_effect_for_eval_source(source)
-            )
-            if transaction_state_effect == 'active':
-                metadata['transaction_active'] = True
+            transaction_state_effect = transaction_state_effect_for_eval_source(source)
+            if transaction_state_effect == "active":
+                metadata["transaction_active"] = True
                 if integrated_session_state.is_ide_connection_id(connection_id):
                     integrated_session_state.mark_ide_transaction_active()
-            if transaction_state_effect == 'inactive':
-                metadata['transaction_active'] = False
+            if transaction_state_effect == "inactive":
+                metadata["transaction_active"] = False
                 if integrated_session_state.is_ide_connection_id(connection_id):
                     integrated_session_state.mark_ide_transaction_inactive()
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'completed': True,
-                'eval_mode': current_eval_mode(),
-                'reason': reason,
-                'output': output,
+                "ok": True,
+                "connection_id": connection_id,
+                "completed": True,
+                "eval_mode": current_eval_mode(),
+                "reason": reason,
+                "output": output,
             }
         except GemstoneError as error:
             debug_session = GemstoneDebugSession(error)
             debug_id = add_debug_session(connection_id, debug_session)
+            ide_debugger_response = None
+            if open_ide_debugger_on_error:
+                ide_debugger_response = perform_ide_navigation_action(
+                    connection_id,
+                    "open_debugger_for_exception",
+                    {
+                        "exception": debug_session.exception,
+                        "ask_before_open": ask_before_open_ide_debugger,
+                    },
+                )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'debug_id': debug_id,
-                'completed': False,
-                'error': gemstone_error_payload(error),
-                'debug': debug_payload(debug_session),
+                "ok": True,
+                "connection_id": connection_id,
+                "debug_id": debug_id,
+                "completed": False,
+                "error": gemstone_error_payload(error),
+                "debug": debug_payload(debug_session),
+                "ide_debugger": ide_debugger_response,
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -6255,12 +6211,12 @@ def register_tools(
         if error_response:
             return error_response
         return {
-            'ok': True,
-            'connection_id': connection_id,
-            'debug_id': debug_id,
-            'completed': False,
-            'error': gemstone_error_payload(debug_session.exception),
-            'debug': debug_payload(debug_session),
+            "ok": True,
+            "connection_id": connection_id,
+            "debug_id": debug_id,
+            "completed": False,
+            "error": gemstone_error_payload(debug_session.exception),
+            "debug": debug_payload(debug_session),
         }
 
     @mcp_server.tool()
@@ -6355,17 +6311,17 @@ def register_tools(
         remove_debug_session(debug_id)
         if action_outcome.has_completed:
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'debug_id': debug_id,
-                'stopped': True,
+                "ok": True,
+                "connection_id": connection_id,
+                "debug_id": debug_id,
+                "stopped": True,
             }
         return {
-            'ok': False,
-            'connection_id': connection_id,
-            'debug_id': debug_id,
-            'stopped': False,
-            'error': gemstone_error_payload(debug_session.exception),
+            "ok": False,
+            "connection_id": connection_id,
+            "debug_id": debug_id,
+            "stopped": False,
+            "error": gemstone_error_payload(debug_session.exception),
         }
 
     @mcp_server.tool()
@@ -6377,24 +6333,24 @@ def register_tools(
         show_instance_side=True,
     ):
         try:
-            class_name = validated_identifier(class_name, 'class_name')
+            class_name = validated_identifier(class_name, "class_name")
             method_selector = validated_selector(
                 method_selector,
-                'method_selector',
+                "method_selector",
             )
             source_offset = validated_positive_integer(
                 source_offset,
-                'source_offset',
+                "source_offset",
             )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                'show_instance_side',
+                "show_instance_side",
             )
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
@@ -6407,21 +6363,21 @@ def register_tools(
                 source_offset,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'breakpoint': breakpoint_entry,
+                "ok": True,
+                "connection_id": connection_id,
+                "breakpoint": breakpoint_entry,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -6430,9 +6386,9 @@ def register_tools(
         if error_response:
             return error_response
         return {
-            'ok': True,
-            'connection_id': connection_id,
-            'breakpoints': serialized_breakpoints(browser_session),
+            "ok": True,
+            "connection_id": connection_id,
+            "breakpoints": serialized_breakpoints(browser_session),
         }
 
     @mcp_server.tool()
@@ -6440,13 +6396,13 @@ def register_tools(
         try:
             breakpoint_id = validated_non_empty_string(
                 breakpoint_id,
-                'breakpoint_id',
+                "breakpoint_id",
             )
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
@@ -6456,21 +6412,21 @@ def register_tools(
                 breakpoint_id,
             )
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'breakpoint': cleared_breakpoint,
+                "ok": True,
+                "connection_id": connection_id,
+                "breakpoint": cleared_breakpoint,
             }
         except (DomainException, GemstoneApiError) as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
 
     @mcp_server.tool()
@@ -6481,21 +6437,21 @@ def register_tools(
         try:
             cleared_breakpoints = browser_session.clear_all_breakpoints()
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'breakpoints': cleared_breakpoints,
+                "ok": True,
+                "connection_id": connection_id,
+                "breakpoints": cleared_breakpoints,
             }
         except GemstoneError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
 
     @mcp_server.tool()
@@ -6503,39 +6459,39 @@ def register_tools(
         connection_id,
         source,
         unsafe=False,
-        reason='',
+        reason="",
         approved_by_user=False,
-        approval_note='',
+        approval_note="",
     ):
         if not allow_eval:
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_eval is disabled. '
-                    'Start swordfish --headless-mcp with --allow-eval to enable.'
+                    "gs_eval is disabled. "
+                    "Start swordfish --headless-mcp with --allow-eval to enable."
                 ),
             )
         if not unsafe:
             return disabled_tool_response(
                 connection_id,
                 (
-                    'gs_eval requires unsafe=True. '
-                    'Prefer explicit gs_* tools when possible.'
+                    "gs_eval requires unsafe=True. "
+                    "Prefer explicit gs_* tools when possible."
                 ),
             )
         try:
-            source = validated_non_empty_string(source, 'source')
-            reason = validated_non_empty_string_stripped(reason, 'reason')
+            source = validated_non_empty_string(source, "source")
+            reason = validated_non_empty_string_stripped(reason, "reason")
         except DomainException as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
         approval_error_response = require_explicit_user_confirmation(
             connection_id,
-            'gs_eval',
-            'eval bypass',
+            "gs_eval",
+            "eval bypass",
             approved_by_user,
             approval_note or reason,
         )
@@ -6547,46 +6503,44 @@ def register_tools(
         metadata = metadata_for_connection_id(connection_id)
         if metadata is None:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': 'Unknown connection_id.'},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": "Unknown connection_id."},
             }
 
         try:
             output = browser_session.evaluate_source(source)
-            transaction_state_effect = (
-                transaction_state_effect_for_eval_source(source)
-            )
-            if transaction_state_effect == 'active':
-                metadata['transaction_active'] = True
+            transaction_state_effect = transaction_state_effect_for_eval_source(source)
+            if transaction_state_effect == "active":
+                metadata["transaction_active"] = True
                 if integrated_session_state.is_ide_connection_id(connection_id):
                     integrated_session_state.mark_ide_transaction_active()
-            if transaction_state_effect == 'inactive':
-                metadata['transaction_active'] = False
+            if transaction_state_effect == "inactive":
+                metadata["transaction_active"] = False
                 if integrated_session_state.is_ide_connection_id(connection_id):
                     integrated_session_state.mark_ide_transaction_inactive()
             return {
-                'ok': True,
-                'connection_id': connection_id,
-                'connection_mode': metadata['connection_mode'],
-                'unsafe': unsafe,
-                'reason': reason,
-                'eval_mode': current_eval_mode(),
-                'output': output,
+                "ok": True,
+                "connection_id": connection_id,
+                "connection_mode": metadata["connection_mode"],
+                "unsafe": unsafe,
+                "reason": reason,
+                "eval_mode": current_eval_mode(),
+                "output": output,
             }
         except GemstoneError as error:
             debug_session = GemstoneDebugSession(error)
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': gemstone_error_payload(error),
-                'debug': {
-                    'stack_frames': serialized_debug_frames(debug_session),
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
+                "debug": {
+                    "stack_frames": serialized_debug_frames(debug_session),
                 },
             }
         except GemstoneApiError as error:
             return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': str(error)},
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
             }
