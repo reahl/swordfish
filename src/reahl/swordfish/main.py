@@ -10926,10 +10926,10 @@ class DebuggerWindow(ttk.PanedWindow):
 
         # Select the first entry in the listbox by iid
         if self.stack_frames:
-            first_iid = str(self.stack_frames[0].level)
+            first_frame = next(iter(self.stack_frames))
+            first_iid = str(first_frame.level)
             self.listbox.selection_set(first_iid)
             self.listbox.focus(first_iid)
-            first_frame = self.stack_frames[0]
             self.code_panel.refresh(
                 first_frame.method_source,
                 mark=first_frame.step_point_offset,
@@ -10962,10 +10962,25 @@ class DebuggerWindow(ttk.PanedWindow):
     def open_method_from_selected_frame(self, event):
         self.open_selected_frame_method()
 
+    def stack_frame_for_level(self, level):
+        for frame in self.stack_frames:
+            if frame.level == level:
+                return frame
+        return None
+
     def get_selected_stack_frame(self):
-        selected_item = self.listbox.focus()
+        selected_items = self.listbox.selection()
+        selected_item = None
+        if selected_items:
+            selected_item = selected_items[0]
+        if selected_item is None:
+            selected_item = self.listbox.focus()
         if selected_item:
-            return self.stack_frames[int(selected_item)]
+            try:
+                selected_level = int(selected_item)
+            except ValueError:
+                return None
+            return self.stack_frame_for_level(selected_level)
         return None
 
     def value_for_named_local_on_frame(self, frame, variable_name):
