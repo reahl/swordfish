@@ -74,8 +74,8 @@ class McpDebugToolsFixture(Fixture):
         registrar = McpToolRegistrar()
         register_tools(
             registrar,
-            allow_eval=True,
-            allow_compile=True,
+            allow_eval_arbitrary=True,
+            allow_source_write=True,
             allow_commit=True,
             allow_tracing=True,
         )

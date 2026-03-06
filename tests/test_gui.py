@@ -1661,11 +1661,13 @@ def test_run_application_uses_cli_stone_name_when_given():
 def test_run_application_uses_saved_mcp_config_when_no_cli_runtime_overrides():
     """AI: run_application should load saved MCP runtime settings when no explicit MCP CLI overrides are supplied."""
     saved_runtime_config = McpRuntimeConfig(
-        allow_eval=True,
-        allow_compile=True,
+        allow_source_read=True,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
-        allow_mcp_commit_when_gui=True,
         require_gemstone_ast=True,
         mcp_host="10.0.0.5",
         mcp_port=9177,
@@ -1682,11 +1684,12 @@ def test_run_application_uses_saved_mcp_config_when_no_cli_runtime_overrides():
                     Swordfish.run()
     swordfish_call_arguments = init_swordfish.call_args.kwargs
     resolved_runtime_config = swordfish_call_arguments["mcp_runtime_config"]
-    assert resolved_runtime_config.allow_eval
-    assert resolved_runtime_config.allow_compile
+    assert resolved_runtime_config.allow_eval_arbitrary
+    assert resolved_runtime_config.allow_source_write
+    assert resolved_runtime_config.allow_ide_read
+    assert resolved_runtime_config.allow_ide_write
     assert resolved_runtime_config.allow_commit
     assert resolved_runtime_config.allow_tracing
-    assert resolved_runtime_config.allow_mcp_commit_when_gui
     assert resolved_runtime_config.require_gemstone_ast
     assert resolved_runtime_config.mcp_host == "10.0.0.5"
     assert resolved_runtime_config.mcp_port == 9177
@@ -1696,11 +1699,13 @@ def test_run_application_uses_saved_mcp_config_when_no_cli_runtime_overrides():
 def test_run_application_cli_runtime_overrides_take_precedence_over_saved_mcp_config():
     """AI: Explicit MCP CLI flags should override matching saved MCP config fields while leaving the rest unchanged."""
     saved_runtime_config = McpRuntimeConfig(
-        allow_eval=False,
-        allow_compile=True,
+        allow_source_read=False,
+        allow_eval_arbitrary=False,
+        allow_source_write=True,
+        allow_ide_read=False,
+        allow_ide_write=False,
         allow_commit=False,
         allow_tracing=True,
-        allow_mcp_commit_when_gui=False,
         require_gemstone_ast=False,
         mcp_host="10.0.0.5",
         mcp_port=9177,
@@ -1708,8 +1713,9 @@ def test_run_application_cli_runtime_overrides_take_precedence_over_saved_mcp_co
     )
     resolved_runtime_config = saved_runtime_config.copy()
     resolved_runtime_config.update_with(
-        allow_eval=True,
-        allow_mcp_commit_when_gui=True,
+        allow_eval_arbitrary=True,
+        allow_source_read=True,
+        allow_ide_read=True,
         mcp_host="127.0.0.1",
         mcp_port=8123,
     )
@@ -1724,8 +1730,9 @@ def test_run_application_cli_runtime_overrides_take_precedence_over_saved_mcp_co
                     "sys.argv",
                     [
                         "swordfish",
-                        "--allow-eval",
-                        "--allow-mcp-commit-when-gui",
+                        "--allow-eval-arbitrary",
+                        "--allow-source-read",
+                        "--allow-ide-read",
                         "--mcp-host",
                         "127.0.0.1",
                         "--mcp-port",
@@ -1735,11 +1742,13 @@ def test_run_application_cli_runtime_overrides_take_precedence_over_saved_mcp_co
                     Swordfish.run()
     swordfish_call_arguments = init_swordfish.call_args.kwargs
     resolved_runtime_config = swordfish_call_arguments["mcp_runtime_config"]
-    assert resolved_runtime_config.allow_eval
-    assert resolved_runtime_config.allow_compile
+    assert resolved_runtime_config.allow_eval_arbitrary
+    assert resolved_runtime_config.allow_source_read
+    assert resolved_runtime_config.allow_source_write
+    assert resolved_runtime_config.allow_ide_read
+    assert not resolved_runtime_config.allow_ide_write
     assert not resolved_runtime_config.allow_commit
     assert resolved_runtime_config.allow_tracing
-    assert resolved_runtime_config.allow_mcp_commit_when_gui
     assert not resolved_runtime_config.require_gemstone_ast
     assert resolved_runtime_config.mcp_host == "127.0.0.1"
     assert resolved_runtime_config.mcp_port == 8123
@@ -1811,11 +1820,13 @@ def test_save_and_load_mcp_runtime_config_uses_xdg_home_location():
     with tempfile.TemporaryDirectory() as temporary_directory:
         with patch.dict(os.environ, {"XDG_CONFIG_HOME": temporary_directory}):
             runtime_config = McpRuntimeConfig(
-                allow_eval=True,
-                allow_compile=True,
+                allow_source_read=True,
+                allow_eval_arbitrary=True,
+                allow_source_write=True,
+                allow_ide_read=True,
+                allow_ide_write=True,
                 allow_commit=True,
                 allow_tracing=True,
-                allow_mcp_commit_when_gui=True,
                 require_gemstone_ast=True,
                 mcp_host="127.0.0.1",
                 mcp_port=8123,
@@ -1837,11 +1848,13 @@ def test_save_and_load_mcp_runtime_config_uses_xdg_home_location():
 def test_run_mcp_server_passes_streamable_http_options_to_create_server():
     """AI: MCP startup should forward host/port/path options to create_server and run with the requested transport."""
     arguments = types.SimpleNamespace(
-        allow_eval=False,
-        allow_compile=True,
+        allow_source_read=True,
+        allow_eval_arbitrary=False,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=False,
         allow_commit=False,
         allow_tracing=True,
-        allow_mcp_commit_when_gui=False,
         require_gemstone_ast=False,
         mcp_host="127.0.0.1",
         mcp_port=9177,
@@ -1856,11 +1869,13 @@ def test_run_mcp_server_passes_streamable_http_options_to_create_server():
         create_server.return_value = mock_server
         mcp_server_controller.run(arguments.transport)
     create_server.assert_called_once_with(
-        allow_eval=False,
-        allow_compile=True,
+        allow_source_read=True,
+        allow_source_write=True,
+        allow_eval_arbitrary=False,
+        allow_ide_read=True,
+        allow_ide_write=False,
         allow_commit=False,
         allow_tracing=True,
-        allow_commit_when_gui=False,
         integrated_session_state=None,
         require_gemstone_ast=False,
         mcp_host="127.0.0.1",
@@ -1877,11 +1892,13 @@ def test_configure_mcp_server_updates_and_saves_config_without_forcing_restart(
     """AI: MCP config dialog apply should persist settings and defer applying them to running MCP until restart."""
     fixture.simulate_login()
     updated_runtime_config = McpRuntimeConfig(
-        allow_eval=True,
-        allow_compile=True,
+        allow_source_read=True,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
-        allow_mcp_commit_when_gui=True,
         require_gemstone_ast=True,
         mcp_host="127.0.0.1",
         mcp_port=9177,

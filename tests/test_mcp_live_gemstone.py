@@ -103,8 +103,8 @@ class LiveMcpConnectionFixture(Fixture):
         registrar = McpToolRegistrar()
         register_tools(
             registrar,
-            allow_eval=True,
-            allow_compile=True,
+            allow_eval_arbitrary=True,
+            allow_source_write=True,
             allow_commit=True,
             allow_tracing=True,
         )
@@ -467,8 +467,8 @@ class LiveMcpConnectionWithoutCommitPermissionFixture(Fixture):
         registrar = McpToolRegistrar()
         register_tools(
             registrar,
-            allow_eval=True,
-            allow_compile=True,
+            allow_eval_arbitrary=True,
+            allow_source_write=True,
             allow_commit=False,
             allow_tracing=True,
         )
@@ -691,8 +691,8 @@ def test_live_workflow_without_commit_permission_requires_abort(
     capabilities_result = live_connection.gs_capabilities()
     assert capabilities_result["ok"], capabilities_result
     assert not capabilities_result["policy"]["allow_commit"]
-    assert capabilities_result["policy"]["allow_eval"]
-    assert not capabilities_result["policy"]["allow_eval_write"]
+    assert capabilities_result["policy"]["allow_eval_arbitrary"]
+    assert capabilities_result["policy"]["allow_source_write"]
     assert capabilities_result["policy"]["eval_mode"] == "approval_required"
     begin_result = live_connection.gs_begin_if_needed(live_connection.connection_id)
     assert begin_result["ok"], begin_result
@@ -2891,7 +2891,7 @@ def test_live_guided_refactor_workflow_runs_end_to_end(live_connection):
     test_selector = "testGuidedRename%s" % uuid.uuid4().hex[:8]
     capabilities_result = live_connection.gs_capabilities()
     assert capabilities_result["ok"], capabilities_result
-    assert capabilities_result["policy"]["allow_compile"]
+    assert capabilities_result["policy"]["allow_source_write"]
     guidance_result = live_connection.gs_guidance(
         "refactor",
         selector=old_selector,
