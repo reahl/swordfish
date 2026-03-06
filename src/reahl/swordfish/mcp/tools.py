@@ -990,6 +990,7 @@ def register_tools(
                     "tools": [
                         "gs_tracer_trace_selector",
                         "gs_run_test_method or gs_run_tests_in_package",
+                        "gs_debug_test_method",
                     ],
                 },
                 {
@@ -2414,6 +2415,7 @@ def register_tools(
                     "gs_breakpoint_list",
                 ],
                 "debugging": [
+                    "gs_debug_test_method",
                     "gs_debug_eval",
                     "gs_debug_stack",
                     "gs_debug_continue",
@@ -4901,6 +4903,61 @@ def register_tools(
                 "test_method_selector": test_method_selector,
                 "result": test_result,
                 "tests_passed": test_result["has_passed"],
+            }
+        except GemstoneError as error:
+            debug_session = GemstoneDebugSession(error)
+            debug_id = add_debug_session(connection_id, debug_session)
+            return {
+                "ok": True,
+                "connection_id": connection_id,
+                "test_case_class_name": test_case_class_name,
+                "test_method_selector": test_method_selector,
+                "completed": False,
+                "debug_id": debug_id,
+                "error": gemstone_error_payload(error),
+                "debug": debug_payload(debug_session),
+            }
+        except GemstoneApiError as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
+            }
+        except DomainException as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_debug_test_method(
+        connection_id,
+        test_case_class_name,
+        test_method_selector,
+    ):
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            test_case_class_name = validated_identifier(
+                test_case_class_name,
+                "test_case_class_name",
+            )
+            test_method_selector = validated_non_empty_string(
+                test_method_selector,
+                "test_method_selector",
+            )
+            browser_session.debug_test_method(
+                test_case_class_name,
+                test_method_selector,
+            )
+            return {
+                "ok": True,
+                "connection_id": connection_id,
+                "test_case_class_name": test_case_class_name,
+                "test_method_selector": test_method_selector,
+                "tests_passed": True,
             }
         except GemstoneError as error:
             debug_session = GemstoneDebugSession(error)

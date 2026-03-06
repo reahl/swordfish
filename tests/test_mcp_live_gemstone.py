@@ -302,6 +302,9 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_run_test_method(self):
         return self.registered_mcp_tools["gs_run_test_method"]
 
+    def new_gs_debug_test_method(self):
+        return self.registered_mcp_tools["gs_debug_test_method"]
+
     def new_gs_preview_selector_rename(self):
         return self.registered_mcp_tools["gs_preview_selector_rename"]
 
