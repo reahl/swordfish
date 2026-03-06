@@ -1,14 +1,12 @@
-from reahl.tofu import Fixture
-from reahl.tofu import set_up
-from reahl.tofu import tear_down
-from reahl.tofu import with_fixtures
+from reahl.tofu import Fixture, set_up, tear_down, with_fixtures
 
 from reahl.swordfish.gemstone.debugging import GemstoneDebugActionOutcome
-from reahl.swordfish.mcp.debug_registry import add_debug_session
-from reahl.swordfish.mcp.debug_registry import clear_debug_sessions
-from reahl.swordfish.mcp.debug_registry import has_debug_session
-from reahl.swordfish.mcp.session_registry import add_connection
-from reahl.swordfish.mcp.session_registry import clear_connections
+from reahl.swordfish.mcp.debug_registry import (
+    add_debug_session,
+    clear_debug_sessions,
+    has_debug_session,
+)
+from reahl.swordfish.mcp.session_registry import add_connection, clear_connections
 from reahl.swordfish.mcp.tools import register_tools
 
 
@@ -28,13 +26,13 @@ class FakeRestartableDebugSession:
     def __init__(self):
         self.restart_levels = []
         self.exception = type(
-            'FakeGemstoneError',
+            "FakeGemstoneError",
             (),
             {
-                '__str__': lambda self: 'debug suspended',
-                'number': 6000,
-                'is_fatal': False,
-                'reason': 'halt',
+                "__str__": lambda self: "debug suspended",
+                "number": 6000,
+                "is_fatal": False,
+                "reason": "halt",
             },
         )()
 
@@ -45,20 +43,20 @@ class FakeRestartableDebugSession:
     def call_stack(self):
         return [
             type(
-                'FakeFrame',
+                "FakeFrame",
                 (),
                 {
-                    'level': 1,
-                    'class_name': 'OrderLine',
-                    'method_name': 'alpha',
-                    'method_source': 'alpha\n    self beta',
-                    'step_point_offset': 1,
+                    "level": 1,
+                    "class_name": "OrderLine",
+                    "method_name": "alpha",
+                    "method_source": "alpha\n    self beta",
+                    "step_point_offset": 1,
                 },
             )()
         ]
 
     def rendered_result_payload(self, result):
-        return {'result': result}
+        return {"result": result}
 
 
 class McpDebugToolsFixture(Fixture):
@@ -87,16 +85,16 @@ class McpDebugToolsFixture(Fixture):
         return add_connection(
             object(),
             {
-                'connection_mode': 'linked',
-                'transaction_active': True,
+                "connection_mode": "linked",
+                "transaction_active": True,
             },
         )
 
     def new_gs_debug_restart_frame(self):
-        return self.registered_mcp_tools['gs_debug_restart_frame']
+        return self.registered_mcp_tools["gs_debug_restart_frame"]
 
     def new_gs_capabilities(self):
-        return self.registered_mcp_tools['gs_capabilities']
+        return self.registered_mcp_tools["gs_capabilities"]
 
 
 @with_fixtures(McpDebugToolsFixture)
@@ -116,9 +114,9 @@ def test_gs_debug_restart_frame_restarts_selected_level_without_finishing(
         level=4,
     )
 
-    assert restart_result['ok'], restart_result
-    assert not restart_result['completed']
-    assert restart_result['debug']['stack_frames'][0]['level'] == 1
+    assert restart_result["ok"], restart_result
+    assert not restart_result["completed"]
+    assert restart_result["debug"]["stack_frames"][0]["level"] == 1
     assert debug_session.restart_levels == [4]
     assert has_debug_session(debug_id)
 
@@ -130,6 +128,6 @@ def test_gs_capabilities_debugging_group_includes_restart_frame_tool(
     """AI: Capability discovery should advertise restart-frame as a debugger stack-control action."""
     capabilities_result = tools_fixture.gs_capabilities()
 
-    assert capabilities_result['ok'], capabilities_result
-    debugging_tools = capabilities_result['tool_groups']['debugging']
-    assert 'gs_debug_restart_frame' in debugging_tools
+    assert capabilities_result["ok"], capabilities_result
+    debugging_tools = capabilities_result["tool_groups"]["debugging"]
+    assert "gs_debug_restart_frame" in debugging_tools

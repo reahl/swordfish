@@ -11,9 +11,9 @@ class IntegratedSessionState:
         self.ide_session = None
         self.ide_transaction_active = True
         self.mcp_operation_depth = 0
-        self.active_mcp_operation = ''
+        self.active_mcp_operation = ""
         self.pending_model_changes = []
-        self.ide_connection_identifier = 'ide-session'
+        self.ide_connection_identifier = "ide-session"
         self.mcp_busy_state_subscribers = []
         self.model_refresh_subscribers = []
 
@@ -34,8 +34,8 @@ class IntegratedSessionState:
             if ide_gui is not None:
                 self.ide_gui_reference = self.callback_reference_for(ide_gui)
             if ide_navigation_action is not None:
-                self.ide_navigation_action_reference = (
-                    self.callback_reference_for(ide_navigation_action)
+                self.ide_navigation_action_reference = self.callback_reference_for(
+                    ide_navigation_action
                 )
 
     def detach_ide_gui(self):
@@ -90,11 +90,11 @@ class IntegratedSessionState:
             )
         if callback is None:
             return {
-                'ok': False,
-                'error': {
-                    'message': (
-                        'IDE navigation is unavailable. '
-                        'Attach an active GUI session first.'
+                "ok": False,
+                "error": {
+                    "message": (
+                        "IDE navigation is unavailable. "
+                        "Attach an active GUI session first."
                     ),
                 },
             }
@@ -111,16 +111,14 @@ class IntegratedSessionState:
             if self.ide_session is None:
                 return None
             ide_navigation_available = (
-                self.callback_from_reference(
-                    self.ide_navigation_action_reference
-                )
+                self.callback_from_reference(self.ide_navigation_action_reference)
                 is not None
             )
             return {
-                'connection_mode': 'ide_attached',
-                'transaction_active': self.ide_transaction_active,
-                'managed_by_ide': True,
-                'ide_navigation_available': ide_navigation_available,
+                "connection_mode": "ide_attached",
+                "transaction_active": self.ide_transaction_active,
+                "managed_by_ide": True,
+                "ide_navigation_available": ide_navigation_available,
             }
 
     def mark_ide_transaction_active(self):
@@ -132,7 +130,7 @@ class IntegratedSessionState:
             self.ide_transaction_active = False
 
     def begin_mcp_operation(self, operation_name):
-        active_operation_name = ''
+        active_operation_name = ""
         with self.lock:
             self.mcp_operation_depth = self.mcp_operation_depth + 1
             self.active_mcp_operation = operation_name
@@ -141,12 +139,12 @@ class IntegratedSessionState:
 
     def end_mcp_operation(self):
         is_busy = False
-        active_operation_name = ''
+        active_operation_name = ""
         with self.lock:
             if self.mcp_operation_depth > 0:
                 self.mcp_operation_depth = self.mcp_operation_depth - 1
             if self.mcp_operation_depth == 0:
-                self.active_mcp_operation = ''
+                self.active_mcp_operation = ""
             is_busy = self.mcp_operation_depth > 0
             active_operation_name = self.active_mcp_operation
         self.notify_mcp_busy_state_subscribers(is_busy, active_operation_name)
@@ -178,9 +176,7 @@ class IntegratedSessionState:
 
     def subscribe_model_refresh_requests(self, callback):
         with self.lock:
-            self.model_refresh_subscribers.append(
-                self.callback_reference_for(callback)
-            )
+            self.model_refresh_subscribers.append(self.callback_reference_for(callback))
 
     def live_callbacks_from_references(self, callback_references):
         callbacks = []
@@ -230,7 +226,7 @@ class IntegratedSessionState:
             callback = callback_reference()
             if callback is None:
                 continue
-            callback_owner = getattr(callback, '__self__', None)
+            callback_owner = getattr(callback, "__self__", None)
             if callback_owner is owner:
                 continue
             cleaned_callback_references.append(callback_reference)

@@ -32,11 +32,11 @@ def list_breakpoints_for_session(gemstone_session):
         for entry in sorted(
             session_breakpoints.values(),
             key=lambda entry: (
-                entry['class_name'],
-                entry['method_selector'],
-                entry['show_instance_side'],
-                entry['source_offset'],
-                entry['breakpoint_id'],
+                entry["class_name"],
+                entry["method_selector"],
+                entry["show_instance_side"],
+                entry["source_offset"],
+                entry["breakpoint_id"],
             ),
         )
     ]
@@ -55,12 +55,10 @@ def find_breakpoint_for_method_step_point(
     session_breakpoint_count = len(session_breakpoints)
     while index < session_breakpoint_count:
         breakpoint_entry = session_breakpoints[index]
-        same_class = breakpoint_entry['class_name'] == class_name
-        same_side = (
-            breakpoint_entry['show_instance_side'] == show_instance_side
-        )
-        same_selector = breakpoint_entry['method_selector'] == method_selector
-        same_step_point = breakpoint_entry['step_point'] == step_point
+        same_class = breakpoint_entry["class_name"] == class_name
+        same_side = breakpoint_entry["show_instance_side"] == show_instance_side
+        same_selector = breakpoint_entry["method_selector"] == method_selector
+        same_step_point = breakpoint_entry["step_point"] == step_point
         if same_class and same_side and same_selector and same_step_point:
             matching_breakpoint = breakpoint_entry
         index += 1
@@ -86,18 +84,16 @@ def record_breakpoint_for_session(
         return existing_breakpoint
     breakpoint_id = str(uuid.uuid4())
     breakpoint_entry = {
-        'breakpoint_id': breakpoint_id,
-        'class_name': class_name,
-        'show_instance_side': show_instance_side,
-        'method_selector': method_selector,
-        'source_offset': source_offset,
-        'step_point': step_point,
+        "breakpoint_id": breakpoint_id,
+        "class_name": class_name,
+        "show_instance_side": show_instance_side,
+        "method_selector": method_selector,
+        "source_offset": source_offset,
+        "step_point": step_point,
     }
     selected_session_key = session_key_for(gemstone_session)
     breakpoints_by_session_key.setdefault(selected_session_key, {})
-    breakpoints_by_session_key[selected_session_key][breakpoint_id] = (
-        breakpoint_entry
-    )
+    breakpoints_by_session_key[selected_session_key][breakpoint_id] = breakpoint_entry
     breakpoints_by_id[breakpoint_id] = breakpoint_entry
     session_key_by_breakpoint_id[breakpoint_id] = selected_session_key
     return dict(breakpoint_entry)

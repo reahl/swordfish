@@ -35,7 +35,7 @@ requires-python = ">=3.6"
 "Bug Tracker" = "https://github.com/reahl/swordfish/issues"
 
 [project.scripts]
-swordfish = "reahl.swordfish.main:run_application"
+swordfish = "reahl.swordfish.main:Swordfish.run"
 
 [project.optional-dependencies]
 test = [

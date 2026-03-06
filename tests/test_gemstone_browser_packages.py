@@ -1,5 +1,4 @@
-from reahl.tofu import Fixture
-from reahl.tofu import with_fixtures
+from reahl.tofu import Fixture, with_fixtures
 
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 
@@ -52,10 +51,7 @@ class CategoriesStub:
         self.classes_by_category = classes_by_category
 
     def keys(self):
-        return [
-            NameProxy(category_name)
-            for category_name in self.classes_by_category
-        ]
+        return [NameProxy(category_name) for category_name in self.classes_by_category]
 
     def at(self, category_name):
         return self.classes_by_category[category_name]
@@ -118,9 +114,9 @@ class StubbedDictionaryBrowserSession(GemstoneBrowserSession):
 
     def run_code(self, source):
         self.executed_sources.append(source)
-        if 'System myUserProfile symbolList do:' in source:
+        if "System myUserProfile symbolList do:" in source:
             return [NameProxy(name) for name in self.dictionary_names]
-        dictionary_literal = source.split('dictionaryName := ')[1].split('.\n', 1)[0]
+        dictionary_literal = source.split("dictionaryName := ")[1].split(".\n", 1)[0]
         dictionary_name = self.smalltalk_string_value(dictionary_literal)
         class_names = self.class_names_by_dictionary.get(dictionary_name, [])
         return [NameProxy(class_name) for class_name in class_names]
@@ -140,20 +136,20 @@ class BrowserPackagesFixture(Fixture):
     def new_browser_session(self):
         return StubbedClassOrganizerBrowserSession(
             {
-                'Kernel': [
-                    GemstoneClassStub('Object'),
-                    GemstoneClassStub('Behavior'),
+                "Kernel": [
+                    GemstoneClassStub("Object"),
+                    GemstoneClassStub("Behavior"),
                 ]
             },
             [
-                'Stuff',
-                'Wonka-thing',
+                "Stuff",
+                "Wonka-thing",
             ],
             {
-                'Stuff': [NonClassEntryStub('Stuff')],
-                'Wonka-thing': [
-                    GemstoneClassStub('WonkaThingTest'),
-                    NonClassEntryStub('Wonka-thing'),
+                "Stuff": [NonClassEntryStub("Stuff")],
+                "Wonka-thing": [
+                    GemstoneClassStub("WonkaThingTest"),
+                    NonClassEntryStub("Wonka-thing"),
                 ],
             },
         )
@@ -162,14 +158,14 @@ class BrowserPackagesFixture(Fixture):
 class BrowserDictionariesFixture(Fixture):
     def new_browser_session(self):
         return StubbedDictionaryBrowserSession(
-            ['SessionGlobals', 'UserGlobals'],
+            ["SessionGlobals", "UserGlobals"],
             {
-                'UserGlobals': [
-                    'Behavior',
-                    'Object',
+                "UserGlobals": [
+                    "Behavior",
+                    "Object",
                 ],
-                'SessionGlobals': [
-                    'SessionThing',
+                "SessionGlobals": [
+                    "SessionThing",
                 ],
             },
         )
@@ -186,10 +182,7 @@ def test_list_classes_in_category_returns_empty_for_unknown_category(
 ):
     """AI: Listing classes for a missing category should return an empty list."""
     assert (
-        browser_packages_fixture.browser_session.list_classes_in_category(
-            'Nope'
-        )
-        == []
+        browser_packages_fixture.browser_session.list_classes_in_category("Nope") == []
     )
 
 
@@ -198,15 +191,12 @@ def test_list_classes_in_category_returns_class_names_for_known_category(
     browser_packages_fixture,
 ):
     """AI: Listing classes for a known category should return that category's class names."""
-    assert (
-        browser_packages_fixture.browser_session.list_classes_in_category(
-            'Kernel'
-        )
-        == [
-            'Behavior',
-            'Object',
-        ]
-    )
+    assert browser_packages_fixture.browser_session.list_classes_in_category(
+        "Kernel"
+    ) == [
+        "Behavior",
+        "Object",
+    ]
 
 
 @with_fixtures(BrowserPackagesFixture)
@@ -215,9 +205,7 @@ def test_list_classes_in_category_ignores_package_library_entries(
 ):
     """AI: Category class listing should not include classes discovered only from package dictionaries."""
     assert (
-        browser_packages_fixture.browser_session.list_classes_in_category(
-            'Wonka-thing'
-        )
+        browser_packages_fixture.browser_session.list_classes_in_category("Wonka-thing")
         == []
     )
 
@@ -227,17 +215,15 @@ def test_list_categories_only_returns_class_organizer_categories(
     browser_packages_fixture,
 ):
     """AI: Category listing should only return categories from ClassOrganizer."""
-    assert browser_packages_fixture.browser_session.list_categories() == [
-        'Kernel'
-    ]
+    assert browser_packages_fixture.browser_session.list_categories() == ["Kernel"]
 
 
 @with_fixtures(BrowserDictionariesFixture)
 def test_list_dictionaries_returns_names_from_symbol_list(browser_dictionaries_fixture):
     """AI: Dictionary listing should come from the user's symbolList names."""
     assert browser_dictionaries_fixture.browser_session.list_dictionaries() == [
-        'SessionGlobals',
-        'UserGlobals',
+        "SessionGlobals",
+        "UserGlobals",
     ]
 
 
@@ -247,8 +233,8 @@ def test_list_classes_in_dictionary_returns_dictionary_class_names(
 ):
     """AI: Dictionary class listing should include only classes from the selected dictionary."""
     assert browser_dictionaries_fixture.browser_session.list_classes_in_dictionary(
-        'UserGlobals'
-    ) == ['Behavior', 'Object']
+        "UserGlobals"
+    ) == ["Behavior", "Object"]
 
 
 @with_fixtures(BrowserSourceCaptureFixture)
@@ -256,11 +242,13 @@ def test_dictionary_reference_expression_uses_symbol_list_lookup_for_non_identif
     browser_source_capture_fixture,
 ):
     """AI: Non-identifier dictionary names should be resolved from symbolList, not packageLibrary."""
-    expression = browser_source_capture_fixture.browser_session.dictionary_reference_expression(
-        'My Dict',
+    expression = (
+        browser_source_capture_fixture.browser_session.dictionary_reference_expression(
+            "My Dict",
+        )
     )
-    assert 'System myUserProfile symbolList objectNamed:' in expression
-    assert 'GsPackageLibrary packageLibrary objectNamed:' not in expression
+    assert "System myUserProfile symbolList objectNamed:" in expression
+    assert "GsPackageLibrary packageLibrary objectNamed:" not in expression
 
 
 @with_fixtures(BrowserSourceCaptureFixture)
@@ -268,11 +256,11 @@ def test_create_dictionary_uses_symbol_list_and_symbol_dictionary(
     browser_source_capture_fixture,
 ):
     """AI: Creating a dictionary should allocate a SymbolDictionary and add it to the symbolList."""
-    browser_source_capture_fixture.browser_session.create_dictionary('BuildSpace')
+    browser_source_capture_fixture.browser_session.create_dictionary("BuildSpace")
     source = browser_source_capture_fixture.browser_session.last_source
-    assert 'System myUserProfile symbolList' in source
-    assert 'SymbolDictionary new' in source
-    assert 'name: ' in source
+    assert "System myUserProfile symbolList" in source
+    assert "SymbolDictionary new" in source
+    assert "name: " in source
 
 
 @with_fixtures(BrowserSourceCaptureFixture)
@@ -281,9 +269,9 @@ def test_assign_class_to_package_classifies_class_under_package(
 ):
     """AI: Assigning a class to package should classify the class under that package name."""
     browser_source_capture_fixture.browser_session.assign_class_to_package(
-        'OrderLine',
-        'Kernel',
+        "OrderLine",
+        "Kernel",
     )
     source = browser_source_capture_fixture.browser_session.last_source
-    assert 'ClassOrganizer new classify:' in source
-    assert 'under: packageName' in source
+    assert "ClassOrganizer new classify:" in source
+    assert "under: packageName" in source

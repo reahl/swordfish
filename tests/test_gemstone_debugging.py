@@ -1,5 +1,4 @@
-from reahl.swordfish.gemstone.debugging import GemstoneDebugSession
-from reahl.swordfish.gemstone.debugging import GemstoneStackFrame
+from reahl.swordfish.gemstone.debugging import GemstoneDebugSession, GemstoneStackFrame
 
 
 class FakeGemstoneNumber:
@@ -18,7 +17,7 @@ class FakeGemstoneArray:
         return FakeGemstoneNumber(len(self.values))
 
     def at(self, index):
-        numeric_index = index.to_py if hasattr(index, 'to_py') else index
+        numeric_index = index.to_py if hasattr(index, "to_py") else index
         return FakeGemstoneNumber(self.values[numeric_index - 1])
 
 
@@ -39,11 +38,11 @@ class FakeGemstoneMethod:
         self.step_point_for_ip = step_point_for_ip
 
     def perform(self, selector, *args):
-        if selector == '_sourceOffsets':
+        if selector == "_sourceOffsets":
             return FakeGemstoneArray(self.source_offsets)
-        if selector == '_stepPointForIp:level:useNext:':
+        if selector == "_stepPointForIp:level:useNext:":
             return FakeGemstoneNumber(self.step_point_for_ip)
-        raise AssertionError('AI: Unexpected selector: %s' % selector)
+        raise AssertionError("AI: Unexpected selector: %s" % selector)
 
     def fullSource(self):
         return FakeGemstoneString(self.source)
@@ -53,7 +52,9 @@ def test_step_point_offset_uses_ip_and_level_to_find_source_position():
     """AI: The source marker position is found by delegating to GemStone's own
     _stepPointForIp:level:useNext: which handles the next-vs-previous distinction
     between the top frame and deeper frames."""
-    source = 'ifTrue: [ accounts halt addAll: (accounts select: [ :each | each == self ]) ]'
+    source = (
+        "ifTrue: [ accounts halt addAll: (accounts select: [ :each | each == self ]) ]"
+    )
     frame = GemstoneStackFrame.__new__(GemstoneStackFrame)
     frame.gemstone_session = FakeGemstoneSession()
     frame.level = 2
@@ -64,7 +65,7 @@ def test_step_point_offset_uses_ip_and_level_to_find_source_position():
     )
     frame.ip_offset = FakeGemstoneNumber(96)
 
-    assert frame.step_point_offset == source.find('halt') + 1
+    assert frame.step_point_offset == source.find("halt") + 1
 
 
 class FakeRestartFrameSession:
@@ -72,7 +73,7 @@ class FakeRestartFrameSession:
         self.from_py_calls = []
 
     def from_py(self, value):
-        wrapped_level = ('wrapped-level', value)
+        wrapped_level = ("wrapped-level", value)
         self.from_py_calls.append(value)
         return wrapped_level
 
@@ -84,7 +85,7 @@ class FakeRestartFrameContext:
 
     def perform(self, selector, wrapped_level):
         self.perform_calls.append((selector, wrapped_level))
-        return 'trimmed'
+        return "trimmed"
 
 
 class FakeRestartFrameException:
@@ -100,10 +101,10 @@ def test_restart_frame_result_trims_stack_to_requested_level():
 
     result = debug_session.restart_frame_result(3)
 
-    assert result == 'trimmed'
+    assert result == "trimmed"
     assert session.from_py_calls == [3]
     assert context.perform_calls == [
-        ('_trimStackToLevel:', ('wrapped-level', 3)),
+        ("_trimStackToLevel:", ("wrapped-level", 3)),
     ]
 
 

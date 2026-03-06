@@ -1,15 +1,8 @@
-from reahl.tofu import Fixture
-from reahl.tofu import NoException
-from reahl.tofu import expected
-from reahl.tofu import set_up
-from reahl.tofu import tear_down
-from reahl.tofu import with_fixtures
+from reahl.tofu import Fixture, NoException, expected, set_up, tear_down, with_fixtures
 
-from reahl.swordfish.mcp.session_registry import add_connection
-from reahl.swordfish.mcp.session_registry import clear_connections
-from reahl.swordfish.mcp.debug_registry import add_debug_session
-from reahl.swordfish.mcp.debug_registry import clear_debug_sessions
+from reahl.swordfish.mcp.debug_registry import add_debug_session, clear_debug_sessions
 from reahl.swordfish.mcp.integration_state import IntegratedSessionState
+from reahl.swordfish.mcp.session_registry import add_connection, clear_connections
 from reahl.swordfish.mcp.tools import register_tools
 
 

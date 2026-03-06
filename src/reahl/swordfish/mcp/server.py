@@ -13,8 +13,8 @@ def import_fast_mcp():
         from mcp.server.fastmcp import FastMCP
     except ModuleNotFoundError as module_not_found_error:
         raise McpDependencyNotInstalled(
-            'SwordfishMCP requires the mcp package. '
-            'Install with: pip install reahl-swordfish'
+            "SwordfishMCP requires the mcp package. "
+            "Install with: pip install reahl-swordfish"
         ) from module_not_found_error
     return FastMCP
 
@@ -27,9 +27,9 @@ def create_server(
     allow_commit_when_gui=False,
     integrated_session_state=None,
     require_gemstone_ast=False,
-    mcp_host='127.0.0.1',
+    mcp_host="127.0.0.1",
     mcp_port=8000,
-    mcp_streamable_http_path='/mcp',
+    mcp_streamable_http_path="/mcp",
 ):
     if integrated_session_state is None:
         integrated_session_state = current_integrated_session_state()
@@ -42,35 +42,26 @@ def create_server(
     supports_keyword_arguments = any(
         parameter.kind == inspect.Parameter.VAR_KEYWORD
         for parameter in (
-            constructor_signature.parameters.values()
-            if constructor_signature
-            else []
+            constructor_signature.parameters.values() if constructor_signature else []
         )
     )
-    server_arguments = {'name': 'SwordfishMCP'}
+    server_arguments = {"name": "SwordfishMCP"}
 
     def add_server_argument(argument_name, argument_value):
         if supports_keyword_arguments:
             server_arguments[argument_name] = argument_value
             return
-        if (
-            constructor_signature
-            and argument_name in constructor_signature.parameters
-        ):
+        if constructor_signature and argument_name in constructor_signature.parameters:
             server_arguments[argument_name] = argument_value
 
-    if (
-        supports_keyword_arguments
-        or (
-            constructor_signature
-            and 'version' in constructor_signature.parameters
-        )
+    if supports_keyword_arguments or (
+        constructor_signature and "version" in constructor_signature.parameters
     ):
-        server_arguments['version'] = __version__
-    add_server_argument('host', mcp_host)
-    add_server_argument('port', mcp_port)
+        server_arguments["version"] = __version__
+    add_server_argument("host", mcp_host)
+    add_server_argument("port", mcp_port)
     add_server_argument(
-        'streamable_http_path',
+        "streamable_http_path",
         mcp_streamable_http_path,
     )
     mcp_server = fast_mcp(**server_arguments)
@@ -91,10 +82,10 @@ def import_tool_registration():
     try:
         from reahl.swordfish.mcp.tools import register_tools
     except ModuleNotFoundError as module_not_found_error:
-        if module_not_found_error.name == 'reahl.ptongue':
+        if module_not_found_error.name == "reahl.ptongue":
             raise McpDependencyNotInstalled(
-                'SwordfishMCP requires reahl-parseltongue. '
-                'Install project dependencies first.'
+                "SwordfishMCP requires reahl-parseltongue. "
+                "Install project dependencies first."
             ) from module_not_found_error
         raise
     return register_tools

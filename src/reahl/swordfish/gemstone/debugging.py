@@ -15,7 +15,7 @@ class GemstoneStackFrame:
         self.gemstone_process = gemstone_process
         self.level = level
         self.frame_data = frame_data = self.gemstone_process.perform(
-            '_frameContentsAt:',
+            "_frameContentsAt:",
             self.gemstone_session.from_py(self.level),
         )
         self.is_valid = not frame_data.isNil().to_py
@@ -26,9 +26,9 @@ class GemstoneStackFrame:
 
     @property
     def step_point_offset(self):
-        offsets = self.gemstone_method.perform('_sourceOffsets')
+        offsets = self.gemstone_method.perform("_sourceOffsets")
         step_point = self.gemstone_method.perform(
-            '_stepPointForIp:level:useNext:',
+            "_stepPointForIp:level:useNext:",
             self.ip_offset,
             self.gemstone_session.from_py(self.level),
             self.gemstone_session.from_py(False),
@@ -48,10 +48,7 @@ class GemstoneStackFrame:
             if not source[left_offset - 1].isspace():
                 return left_offset
             right_offset = offset
-            while (
-                right_offset <= source_length
-                and source[right_offset - 1].isspace()
-            ):
+            while right_offset <= source_length and source[right_offset - 1].isspace():
                 right_offset += 1
             if right_offset <= source_length:
                 return right_offset
@@ -125,7 +122,7 @@ class GemstoneDebugSession:
 
     def rendered_result_payload(self, result):
         return {
-            'result': render_result(result),
+            "result": render_result(result),
         }
 
     def continue_running(self):
@@ -165,7 +162,7 @@ class GemstoneDebugSession:
     def restart_frame_result(self, level):
         session = self.exception.context.session
         return self.exception.context.perform(
-            '_trimStackToLevel:',
+            "_trimStackToLevel:",
             session.from_py(level),
         )
 
