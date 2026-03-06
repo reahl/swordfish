@@ -10926,15 +10926,15 @@ class DebuggerWindow(ttk.PanedWindow):
 
         # Select the first entry in the listbox by iid
         if self.stack_frames:
-            first_iid = str(1)
+            first_iid = str(self.stack_frames[0].level)
             self.listbox.selection_set(first_iid)
             self.listbox.focus(first_iid)
-
+            first_frame = self.stack_frames[0]
             self.code_panel.refresh(
-                self.stack_frames[1].method_source,
-                mark=self.stack_frames[1].step_point_offset,
+                first_frame.method_source,
+                mark=first_frame.step_point_offset,
             )
-            self.refresh_explorer(self.stack_frames[1])
+            self.refresh_explorer(first_frame)
 
     def refresh_explorer(self, frame):
         # Clear existing widgets in the explorer_frame

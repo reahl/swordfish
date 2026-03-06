@@ -3175,6 +3175,44 @@ def test_debug_button_selects_debugger_tab_as_visible(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_debugger_refresh_uses_selected_top_frame_source(fixture):
+    """AI: Debugger refresh should render source for the selected top frame, not the next frame."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    debugger_tab = fixture.app.debugger_tab
+    top_frame = types.SimpleNamespace(
+        level=1,
+        class_name="TopFrameClass",
+        method_name="topFrameMethod",
+        method_source="top frame source",
+        step_point_offset=4,
+    )
+    second_frame = types.SimpleNamespace(
+        level=2,
+        class_name="SecondFrameClass",
+        method_name="secondFrameMethod",
+        method_source="second frame source",
+        step_point_offset=9,
+    )
+    debugger_tab.stack_frames = [top_frame, second_frame]
+
+    with patch.object(debugger_tab.code_panel, "refresh") as refresh_source:
+        with patch.object(debugger_tab, "refresh_explorer") as refresh_explorer:
+            debugger_tab.refresh()
+
+    assert debugger_tab.listbox.selection() == ("1",)
+    refresh_source.assert_called_once_with("top frame source", mark=4)
+    refresh_explorer.assert_called_once_with(top_frame)
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_completed_debugger_can_be_dismissed_with_close_button(fixture):
     """AI: Once debugger execution completes, the UI should expose a close action that exits debugger mode."""
     fixture.simulate_login()
