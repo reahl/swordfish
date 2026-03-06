@@ -36,11 +36,13 @@ class FakeGemstoneMethod:
         self.source = source
         self.source_offsets = source_offsets
         self.step_point_for_ip = step_point_for_ip
+        self.step_point_calls = []
 
     def perform(self, selector, *args):
         if selector == "_sourceOffsets":
             return FakeGemstoneArray(self.source_offsets)
         if selector == "_stepPointForIp:level:useNext:":
+            self.step_point_calls.append(args)
             return FakeGemstoneNumber(self.step_point_for_ip)
         raise AssertionError("AI: Unexpected selector: %s" % selector)
 
@@ -66,6 +68,41 @@ def test_step_point_offset_uses_ip_and_level_to_find_source_position():
     frame.ip_offset = FakeGemstoneNumber(96)
 
     assert frame.step_point_offset == source.find("halt") + 1
+    assert frame.gemstone_method.step_point_calls[-1][2] is False
+
+
+def test_step_point_offset_uses_next_step_for_top_frame():
+    """AI: Top stack frame should request the next step point so marker advances into the next executable send."""
+    source = "self should: [empty at: 5]"
+    frame = GemstoneStackFrame.__new__(GemstoneStackFrame)
+    frame.gemstone_session = FakeGemstoneSession()
+    frame.level = 1
+    frame.gemstone_method = FakeGemstoneMethod(
+        source=source,
+        source_offsets=[1, 6, 13, 20],
+        step_point_for_ip=3,
+    )
+    frame.ip_offset = FakeGemstoneNumber(14)
+
+    frame.step_point_offset
+
+    assert frame.gemstone_method.step_point_calls[-1][2] is True
+
+
+def test_step_point_offset_marks_keyword_selector_when_on_argument_literal():
+    """AI: When the VM reports a keyword argument literal as the next step point, the marker should point to the selector being sent."""
+    source = "self should: [empty at: 5] raise: TestResult error"
+    frame = GemstoneStackFrame.__new__(GemstoneStackFrame)
+    frame.gemstone_session = FakeGemstoneSession()
+    frame.level = 1
+    frame.gemstone_method = FakeGemstoneMethod(
+        source=source,
+        source_offsets=[1, source.find("5") + 1],
+        step_point_for_ip=2,
+    )
+    frame.ip_offset = FakeGemstoneNumber(14)
+
+    assert frame.step_point_offset == source.find("at:") + 1
 
 
 class FakeRestartFrameSession:
