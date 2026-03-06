@@ -27,11 +27,12 @@ class GemstoneStackFrame:
     @property
     def step_point_offset(self):
         offsets = self.gemstone_method.perform("_sourceOffsets")
+        use_next_step_point = self.level == 1
         step_point = self.gemstone_method.perform(
             "_stepPointForIp:level:useNext:",
             self.ip_offset,
             self.gemstone_session.from_py(self.level),
-            self.gemstone_session.from_py(False),
+            self.gemstone_session.from_py(use_next_step_point),
         )
         bounded_step_point = step_point.min(offsets.size())
         offset = offsets.at(bounded_step_point).to_py
@@ -46,13 +47,38 @@ class GemstoneStackFrame:
             while left_offset > 1 and source[left_offset - 1].isspace():
                 left_offset -= 1
             if not source[left_offset - 1].isspace():
-                return left_offset
-            right_offset = offset
-            while right_offset <= source_length and source[right_offset - 1].isspace():
-                right_offset += 1
-            if right_offset <= source_length:
-                return right_offset
-        return offset
+                offset = left_offset
+            else:
+                right_offset = offset
+                while (
+                    right_offset <= source_length and source[right_offset - 1].isspace()
+                ):
+                    right_offset += 1
+                if right_offset <= source_length:
+                    offset = right_offset
+        return self.keyword_message_offset_for_argument(source, offset)
+
+    def keyword_message_offset_for_argument(self, source, offset):
+        if offset < 1 or offset > len(source):
+            return offset
+        current_character = source[offset - 1]
+        if not (current_character.isalnum() or current_character in "#$'"):
+            return offset
+        previous_non_space = offset - 1
+        while previous_non_space > 0 and source[previous_non_space - 1].isspace():
+            previous_non_space -= 1
+        if previous_non_space < 1:
+            return offset
+        if source[previous_non_space - 1] != ":":
+            return offset
+        selector_start = previous_non_space
+        while selector_start > 1 and (
+            source[selector_start - 2].isalnum() or source[selector_start - 2] == "_"
+        ):
+            selector_start -= 1
+        if selector_start == previous_non_space:
+            return offset
+        return selector_start
 
     @property
     def method_source(self):
