@@ -9,7 +9,7 @@ def add_debug_session(connection_id, debug_session):
     debug_id = str(uuid.uuid4())
     debug_sessions_by_id[debug_id] = debug_session
     debug_metadata_by_id[debug_id] = {
-        'connection_id': connection_id,
+        "connection_id": connection_id,
     }
     debug_ids_by_connection_id.setdefault(connection_id, set()).add(debug_id)
     return debug_id
@@ -27,7 +27,7 @@ def remove_debug_session(debug_id):
     debug_session = debug_sessions_by_id.pop(debug_id)
     metadata = debug_metadata_by_id.pop(debug_id, None)
     if metadata is not None:
-        connection_id = metadata['connection_id']
+        connection_id = metadata["connection_id"]
         if connection_id in debug_ids_by_connection_id:
             debug_ids_by_connection_id[connection_id].discard(debug_id)
             if not debug_ids_by_connection_id[connection_id]:

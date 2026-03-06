@@ -1,6 +1,4 @@
-from reahl.tofu import Fixture
-from reahl.tofu import expected
-from reahl.tofu import with_fixtures
+from reahl.tofu import Fixture, expected, with_fixtures
 
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 from reahl.swordfish.gemstone.session import DomainException
@@ -32,7 +30,7 @@ class ExtractPlanningFixture(Fixture):
             )
         )
         self.browser_session.get_method_category = (
-            lambda class_name, method_selector, show_instance_side: 'testing'
+            lambda class_name, method_selector, show_instance_side: "testing"
         )
         self.browser_session.method_exists = (
             lambda class_name, method_selector, show_instance_side: False
@@ -45,27 +43,20 @@ def test_extract_plan_keyword_selector_infers_argument_names_and_rewrites_call(
 ):
     """AI: Keyword extract should infer caller-scoped argument names and build matching keyword call/send headers."""
     extract_planning_fixture.set_method_source(
-        'buildFrom: input\n'
-        '    | tmp |\n'
-        '    tmp := input + 1.\n'
-        '    ^tmp'
+        "buildFrom: input\n" "    | tmp |\n" "    tmp := input + 1.\n" "    ^tmp"
     )
 
     extract_plan = extract_planning_fixture.browser_session.method_extract_plan(
-        'OrderLine',
+        "OrderLine",
         True,
-        'buildFrom:',
-        'extractedComputeTmp:',
+        "buildFrom:",
+        "extractedComputeTmp:",
         [1],
     )
 
-    assert extract_plan['extracted_argument_names'] == ['input']
-    assert extract_plan['new_method_source'].startswith(
-        'extractedComputeTmp: input\n'
-    )
-    assert 'self extractedComputeTmp: input' in extract_plan[
-        'updated_method_source'
-    ]
+    assert extract_plan["extracted_argument_names"] == ["input"]
+    assert extract_plan["new_method_source"].startswith("extractedComputeTmp: input\n")
+    assert "self extractedComputeTmp: input" in extract_plan["updated_method_source"]
 
 
 @with_fixtures(ExtractPlanningFixture)
@@ -74,18 +65,15 @@ def test_extract_plan_unary_selector_rejected_when_caller_variables_are_needed(
 ):
     """AI: Extract should fail fast when a unary selector is chosen but selected statements depend on caller variables."""
     extract_planning_fixture.set_method_source(
-        'buildFrom: input\n'
-        '    | tmp |\n'
-        '    tmp := input + 1.\n'
-        '    ^tmp'
+        "buildFrom: input\n" "    | tmp |\n" "    tmp := input + 1.\n" "    ^tmp"
     )
 
     with expected(DomainException):
         extract_planning_fixture.browser_session.method_extract_plan(
-            'OrderLine',
+            "OrderLine",
             True,
-            'buildFrom:',
-            'extractedComputeTmp',
+            "buildFrom:",
+            "extractedComputeTmp",
             [1],
         )
 
@@ -96,20 +84,17 @@ def test_extract_plan_unary_selector_still_works_when_no_arguments_are_needed(
 ):
     """AI: Unary extract remains valid for statement selections that do not capture caller-scoped variables."""
     extract_planning_fixture.set_method_source(
-        'exampleMethod\n'
-        '    self yourself.\n'
-        '    self class.\n'
-        '    ^7'
+        "exampleMethod\n" "    self yourself.\n" "    self class.\n" "    ^7"
     )
 
     extract_plan = extract_planning_fixture.browser_session.method_extract_plan(
-        'OrderLine',
+        "OrderLine",
         True,
-        'exampleMethod',
-        'extractedFirstStep',
+        "exampleMethod",
+        "extractedFirstStep",
         [1],
     )
 
-    assert extract_plan['extracted_argument_names'] == []
-    assert extract_plan['new_method_source'].startswith('extractedFirstStep\n')
-    assert 'self extractedFirstStep' in extract_plan['updated_method_source']
+    assert extract_plan["extracted_argument_names"] == []
+    assert extract_plan["new_method_source"].startswith("extractedFirstStep\n")
+    assert "self extractedFirstStep" in extract_plan["updated_method_source"]

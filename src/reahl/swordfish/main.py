@@ -37,90 +37,85 @@ GRAPH_ORIGIN_X = 60
 GRAPH_ORIGIN_Y = 60
 
 
-def selected_range_in_text_widget(text_widget):
-    start_index = None
-    end_index = None
-    try:
-        start_index = text_widget.index(tk.SEL_FIRST)
-        end_index = text_widget.index(tk.SEL_LAST)
-    except tk.TclError:
-        pass
-    return start_index, end_index
+class EditableText:
+    def __init__(self, text_widget, clipboard_owner):
+        self.text_widget = text_widget
+        self.clipboard_owner = clipboard_owner
 
+    def selected_range(self):
+        start_index = None
+        end_index = None
+        try:
+            start_index = self.text_widget.index(tk.SEL_FIRST)
+            end_index = self.text_widget.index(tk.SEL_LAST)
+        except tk.TclError:
+            pass
+        return start_index, end_index
 
-def delete_selected_range_in_text_widget(text_widget):
-    start_index, end_index = selected_range_in_text_widget(text_widget)
-    if start_index is None:
-        return False
-    text_widget.mark_set(tk.INSERT, start_index)
-    text_widget.delete(start_index, end_index)
-    return True
+    def delete_selection(self):
+        start_index, end_index = self.selected_range()
+        if start_index is None:
+            return False
+        self.text_widget.mark_set(tk.INSERT, start_index)
+        self.text_widget.delete(start_index, end_index)
+        return True
 
+    def select_all(self):
+        self.text_widget.tag_add(tk.SEL, "1.0", "end-1c")
+        self.text_widget.mark_set(tk.INSERT, "1.0")
+        self.text_widget.see(tk.INSERT)
 
-def select_all_in_text_widget(text_widget):
-    text_widget.tag_add(tk.SEL, "1.0", "end-1c")
-    text_widget.mark_set(tk.INSERT, "1.0")
-    text_widget.see(tk.INSERT)
+    def copy_selection(self):
+        start_index, end_index = self.selected_range()
+        if start_index is None:
+            return
+        selected_text = self.text_widget.get(start_index, end_index)
+        self.clipboard_owner.clipboard_clear()
+        self.clipboard_owner.clipboard_append(selected_text)
 
+    def clipboard_text(self):
+        clipboard_text = None
+        try:
+            clipboard_text = self.clipboard_owner.clipboard_get()
+        except tk.TclError:
+            pass
+        return clipboard_text
 
-def copy_selection_from_text_widget(clipboard_owner, text_widget):
-    start_index, end_index = selected_range_in_text_widget(text_widget)
-    if start_index is None:
-        return
-    selected_text = text_widget.get(start_index, end_index)
-    clipboard_owner.clipboard_clear()
-    clipboard_owner.clipboard_append(selected_text)
+    def paste(self):
+        clipboard_text = self.clipboard_text()
+        if clipboard_text is None:
+            return
+        autoseparators_enabled = True
+        can_configure_autoseparators = True
+        try:
+            autoseparators_value = self.text_widget.cget("autoseparators")
+            autoseparators_enabled = bool(int(autoseparators_value))
+        except (tk.TclError, TypeError, ValueError):
+            can_configure_autoseparators = False
 
+        if can_configure_autoseparators:
+            self.text_widget.configure(autoseparators=False)
+        self.text_widget.edit_separator()
+        self.delete_selection()
+        self.text_widget.insert(tk.INSERT, clipboard_text)
+        self.text_widget.edit_separator()
+        if can_configure_autoseparators and autoseparators_enabled:
+            self.text_widget.configure(autoseparators=True)
 
-def clipboard_text_from_widget(clipboard_owner):
-    clipboard_text = None
-    try:
-        clipboard_text = clipboard_owner.clipboard_get()
-    except tk.TclError:
-        pass
-    return clipboard_text
+    def undo(self):
+        try:
+            self.text_widget.edit_undo()
+        except tk.TclError:
+            pass
 
-
-def paste_text_into_widget(clipboard_owner, text_widget):
-    clipboard_text = clipboard_text_from_widget(clipboard_owner)
-    if clipboard_text is None:
-        return
-    autoseparators_enabled = True
-    can_configure_autoseparators = True
-    try:
-        autoseparators_value = text_widget.cget("autoseparators")
-        autoseparators_enabled = bool(int(autoseparators_value))
-    except (tk.TclError, TypeError, ValueError):
-        can_configure_autoseparators = False
-
-    if can_configure_autoseparators:
-        text_widget.configure(autoseparators=False)
-    text_widget.edit_separator()
-    delete_selected_range_in_text_widget(text_widget)
-    text_widget.insert(tk.INSERT, clipboard_text)
-    text_widget.edit_separator()
-    if can_configure_autoseparators and autoseparators_enabled:
-        text_widget.configure(autoseparators=True)
-
-
-def undo_text_widget_edit(text_widget):
-    try:
-        text_widget.edit_undo()
-    except tk.TclError:
-        pass
-
-
-def control_key_pressed_for_event(event):
-    return bool(event.state & 0x4)
-
-
-def replace_selected_range_before_typing(text_widget, event):
-    if control_key_pressed_for_event(event):
-        return
-    inserts_character = bool(event.char)
-    inserts_control_character = event.keysym in ("Return", "KP_Enter", "Tab")
-    if inserts_character or inserts_control_character:
-        delete_selected_range_in_text_widget(text_widget)
+    def delete_selection_before_typing(self, event):
+        control_key_pressed = bool(event.state & 0x4)
+        if control_key_pressed:
+            return
+        inserts_character = bool(event.char)
+        inserts_control_character = event.keysym in ("Return", "KP_Enter", "Tab")
+        if inserts_character or inserts_control_character:
+            self.delete_selection()
 
 
 class CodeLineNumberColumn:
@@ -1266,124 +1261,203 @@ class EventQueue:
                 pass
             self.wakeup_write_descriptor = None
 
+
 MCP_RUNTIME_CONFIG_SCHEMA_VERSION = 1
 MCP_RUNTIME_CONFIG_FILE_NAME = "mcp.json"
 
 
-def mcp_config_home_directory():
-    xdg_config_home = os.environ.get("XDG_CONFIG_HOME", "").strip()
-    if xdg_config_home:
-        return xdg_config_home
-    return os.path.join(os.path.expanduser("~"), ".config")
+class McpConfigurationStore:
+    def config_home_directory(self):
+        xdg_config_home = os.environ.get("XDG_CONFIG_HOME", "").strip()
+        if xdg_config_home:
+            return xdg_config_home
+        return os.path.join(os.path.expanduser("~"), ".config")
 
-
-def mcp_runtime_config_file_path():
-    return os.path.join(
-        mcp_config_home_directory(),
-        "swordfish",
-        MCP_RUNTIME_CONFIG_FILE_NAME,
-    )
-
-
-def validated_mcp_runtime_config_dict(config_payload):
-    if not isinstance(config_payload, dict):
-        raise ValueError("mcp_runtime_config must be an object.")
-    if "mcp_host" in config_payload:
-        mcp_host = str(config_payload["mcp_host"]).strip()
-        if not mcp_host:
-            raise ValueError("mcp_host cannot be empty.")
-    if "mcp_port" in config_payload:
-        mcp_port = config_payload["mcp_port"]
-        if isinstance(mcp_port, bool) or not isinstance(mcp_port, int):
-            raise ValueError("mcp_port must be an integer.")
-        if mcp_port <= 0:
-            raise ValueError("mcp_port must be greater than zero.")
-    if "mcp_http_path" in config_payload:
-        mcp_http_path = str(config_payload["mcp_http_path"]).strip()
-        if not mcp_http_path.startswith("/"):
-            raise ValueError("mcp_http_path must start with '/'.")
-    return config_payload
-
-
-def load_saved_mcp_runtime_config():
-    config_file_path = mcp_runtime_config_file_path()
-    if not os.path.exists(config_file_path):
-        return None
-    try:
-        with open(config_file_path, "r", encoding="utf-8") as config_file:
-            payload = json.load(config_file)
-        if not isinstance(payload, dict):
-            return None
-        schema_version = payload.get("schema_version", MCP_RUNTIME_CONFIG_SCHEMA_VERSION)
-        if schema_version != MCP_RUNTIME_CONFIG_SCHEMA_VERSION:
-            return None
-        config_payload = payload.get("mcp_runtime_config")
-        validated_payload = validated_mcp_runtime_config_dict(config_payload)
-        return McpRuntimeConfig.from_dict(validated_payload)
-    except (OSError, ValueError, TypeError, json.JSONDecodeError):
-        return None
-
-
-def save_mcp_runtime_config(runtime_config):
-    config_file_path = mcp_runtime_config_file_path()
-    config_directory = os.path.dirname(config_file_path)
-    payload = {
-        "schema_version": MCP_RUNTIME_CONFIG_SCHEMA_VERSION,
-        "mcp_runtime_config": runtime_config.to_dict(),
-    }
-    temporary_file_path = config_file_path + ".tmp"
-    try:
-        os.makedirs(config_directory, exist_ok=True)
-        with open(temporary_file_path, "w", encoding="utf-8") as config_file:
-            json.dump(payload, config_file, indent=2, sort_keys=True)
-            config_file.write("\n")
-        os.replace(temporary_file_path, config_file_path)
-        os.chmod(config_file_path, 0o600)
-    except OSError as error:
-        try:
-            os.remove(temporary_file_path)
-        except OSError:
-            pass
-        raise DomainException(
-            "Unable to save MCP configuration to %s: %s"
-            % (config_file_path, error)
+    def config_file_path(self):
+        return os.path.join(
+            self.config_home_directory(),
+            "swordfish",
+            MCP_RUNTIME_CONFIG_FILE_NAME,
         )
 
+    def validate_config_dict(self, config_payload):
+        if not isinstance(config_payload, dict):
+            raise ValueError("mcp_runtime_config must be an object.")
+        if "mcp_host" in config_payload:
+            mcp_host = str(config_payload["mcp_host"]).strip()
+            if not mcp_host:
+                raise ValueError("mcp_host cannot be empty.")
+        if "mcp_port" in config_payload:
+            mcp_port = config_payload["mcp_port"]
+            if isinstance(mcp_port, bool) or not isinstance(mcp_port, int):
+                raise ValueError("mcp_port must be an integer.")
+            if mcp_port <= 0:
+                raise ValueError("mcp_port must be greater than zero.")
+        if "mcp_http_path" in config_payload:
+            mcp_http_path = str(config_payload["mcp_http_path"]).strip()
+            if not mcp_http_path.startswith("/"):
+                raise ValueError("mcp_http_path must start with '/'.")
+        return config_payload
 
-def mcp_argument_is_explicitly_set(argument_tokens, option_name):
-    option_prefix = option_name + "="
-    for argument_token in argument_tokens:
-        if argument_token == option_name:
-            return True
-        if argument_token.startswith(option_prefix):
-            return True
-    return False
+    def load(self):
+        config_file_path = self.config_file_path()
+        if not os.path.exists(config_file_path):
+            return None
+        try:
+            with open(config_file_path, "r", encoding="utf-8") as config_file:
+                payload = json.load(config_file)
+            if not isinstance(payload, dict):
+                return None
+            schema_version = payload.get(
+                "schema_version",
+                MCP_RUNTIME_CONFIG_SCHEMA_VERSION,
+            )
+            if schema_version != MCP_RUNTIME_CONFIG_SCHEMA_VERSION:
+                return None
+            config_payload = payload.get("mcp_runtime_config")
+            validated_payload = self.validate_config_dict(config_payload)
+            return McpRuntimeConfig.from_dict(validated_payload)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return None
 
+    def save(self, runtime_config):
+        config_file_path = self.config_file_path()
+        config_directory = os.path.dirname(config_file_path)
+        payload = {
+            "schema_version": MCP_RUNTIME_CONFIG_SCHEMA_VERSION,
+            "mcp_runtime_config": runtime_config.to_dict(),
+        }
+        temporary_file_path = config_file_path + ".tmp"
+        try:
+            os.makedirs(config_directory, exist_ok=True)
+            with open(temporary_file_path, "w", encoding="utf-8") as config_file:
+                json.dump(payload, config_file, indent=2, sort_keys=True)
+                config_file.write("\n")
+            os.replace(temporary_file_path, config_file_path)
+            os.chmod(config_file_path, 0o600)
+        except OSError as error:
+            try:
+                os.remove(temporary_file_path)
+            except OSError:
+                pass
+            raise DomainException(
+                "Unable to save MCP configuration to %s: %s" % (config_file_path, error)
+            )
 
-def explicit_mcp_runtime_overrides_from_argument_tokens(argument_tokens):
-    explicit_overrides = {}
-    if mcp_argument_is_explicitly_set(argument_tokens, "--allow-eval"):
-        explicit_overrides["allow_eval"] = True
-    if mcp_argument_is_explicitly_set(argument_tokens, "--allow-compile"):
-        explicit_overrides["allow_compile"] = True
-    if mcp_argument_is_explicitly_set(argument_tokens, "--allow-commit"):
-        explicit_overrides["allow_commit"] = True
-    if mcp_argument_is_explicitly_set(argument_tokens, "--allow-tracing"):
-        explicit_overrides["allow_tracing"] = True
-    if mcp_argument_is_explicitly_set(
-        argument_tokens,
-        "--allow-mcp-commit-when-gui",
+    def argument_is_explicitly_set(self, argument_tokens, option_name):
+        option_prefix = option_name + "="
+        for argument_token in argument_tokens:
+            if argument_token == option_name:
+                return True
+            if argument_token.startswith(option_prefix):
+                return True
+        return False
+
+    def explicit_overrides_from_argument_tokens(self, argument_tokens):
+        explicit_overrides = {}
+        if self.argument_is_explicitly_set(argument_tokens, "--allow-eval"):
+            explicit_overrides["allow_eval"] = True
+        if self.argument_is_explicitly_set(argument_tokens, "--allow-compile"):
+            explicit_overrides["allow_compile"] = True
+        if self.argument_is_explicitly_set(argument_tokens, "--allow-commit"):
+            explicit_overrides["allow_commit"] = True
+        if self.argument_is_explicitly_set(argument_tokens, "--allow-tracing"):
+            explicit_overrides["allow_tracing"] = True
+        if self.argument_is_explicitly_set(
+            argument_tokens,
+            "--allow-mcp-commit-when-gui",
+        ):
+            explicit_overrides["allow_mcp_commit_when_gui"] = True
+        if self.argument_is_explicitly_set(argument_tokens, "--require-gemstone-ast"):
+            explicit_overrides["require_gemstone_ast"] = True
+        if self.argument_is_explicitly_set(argument_tokens, "--mcp-host"):
+            explicit_overrides["mcp_host"] = True
+        if self.argument_is_explicitly_set(argument_tokens, "--mcp-port"):
+            explicit_overrides["mcp_port"] = True
+        if self.argument_is_explicitly_set(argument_tokens, "--mcp-http-path"):
+            explicit_overrides["mcp_http_path"] = True
+        return explicit_overrides
+
+    def config_from_arguments(self, arguments):
+        return McpRuntimeConfig(
+            allow_eval=arguments.allow_eval,
+            allow_compile=arguments.allow_compile,
+            allow_commit=arguments.allow_commit,
+            allow_tracing=arguments.allow_tracing,
+            allow_mcp_commit_when_gui=arguments.allow_mcp_commit_when_gui,
+            require_gemstone_ast=arguments.require_gemstone_ast,
+            mcp_host=arguments.mcp_host,
+            mcp_port=arguments.mcp_port,
+            mcp_http_path=arguments.mcp_http_path,
+        )
+
+    def merged_config_from_arguments(
+        self,
+        arguments,
+        argument_tokens=None,
+        persisted_runtime_config=None,
     ):
-        explicit_overrides["allow_mcp_commit_when_gui"] = True
-    if mcp_argument_is_explicitly_set(argument_tokens, "--require-gemstone-ast"):
-        explicit_overrides["require_gemstone_ast"] = True
-    if mcp_argument_is_explicitly_set(argument_tokens, "--mcp-host"):
-        explicit_overrides["mcp_host"] = True
-    if mcp_argument_is_explicitly_set(argument_tokens, "--mcp-port"):
-        explicit_overrides["mcp_port"] = True
-    if mcp_argument_is_explicitly_set(argument_tokens, "--mcp-http-path"):
-        explicit_overrides["mcp_http_path"] = True
-    return explicit_overrides
+        cli_runtime_config = self.config_from_arguments(arguments)
+        if persisted_runtime_config is None:
+            persisted_runtime_config = self.load()
+        if persisted_runtime_config is None:
+            return cli_runtime_config
+        if argument_tokens is None:
+            argument_tokens = []
+        explicit_overrides = self.explicit_overrides_from_argument_tokens(
+            argument_tokens
+        )
+        if len(explicit_overrides) < 1:
+            return persisted_runtime_config.copy()
+        merged_runtime_config = persisted_runtime_config.copy()
+        merged_runtime_config.update_with(
+            allow_eval=(
+                cli_runtime_config.allow_eval
+                if explicit_overrides.get("allow_eval")
+                else None
+            ),
+            allow_compile=(
+                cli_runtime_config.allow_compile
+                if explicit_overrides.get("allow_compile")
+                else None
+            ),
+            allow_commit=(
+                cli_runtime_config.allow_commit
+                if explicit_overrides.get("allow_commit")
+                else None
+            ),
+            allow_tracing=(
+                cli_runtime_config.allow_tracing
+                if explicit_overrides.get("allow_tracing")
+                else None
+            ),
+            allow_mcp_commit_when_gui=(
+                cli_runtime_config.allow_mcp_commit_when_gui
+                if explicit_overrides.get("allow_mcp_commit_when_gui")
+                else None
+            ),
+            require_gemstone_ast=(
+                cli_runtime_config.require_gemstone_ast
+                if explicit_overrides.get("require_gemstone_ast")
+                else None
+            ),
+            mcp_host=(
+                cli_runtime_config.mcp_host
+                if explicit_overrides.get("mcp_host")
+                else None
+            ),
+            mcp_port=(
+                cli_runtime_config.mcp_port
+                if explicit_overrides.get("mcp_port")
+                else None
+            ),
+            mcp_http_path=(
+                cli_runtime_config.mcp_http_path
+                if explicit_overrides.get("mcp_http_path")
+                else None
+            ),
+        )
+        return merged_runtime_config
 
 
 class McpRuntimeConfig:
@@ -1497,9 +1571,17 @@ class McpRuntimeConfig:
             self.mcp_http_path = mcp_http_path
 
 
-class EmbeddedMcpServerController:
-    def __init__(self, integrated_session_state, runtime_config):
+class McpServerController:
+    def __init__(
+        self,
+        integrated_session_state,
+        runtime_config,
+        configuration_store=None,
+    ):
         self.integrated_session_state = integrated_session_state
+        if configuration_store is None:
+            configuration_store = McpConfigurationStore()
+        self.configuration_store = configuration_store
         self.runtime_config = runtime_config.copy()
         self.applied_runtime_config = None
         self.lock = threading.RLock()
@@ -1519,6 +1601,9 @@ class EmbeddedMcpServerController:
     def update_runtime_config(self, runtime_config):
         with self.lock:
             self.runtime_config = runtime_config.copy()
+
+    def save_configuration(self):
+        self.configuration_store.save(self.current_runtime_config())
 
     def status(self):
         with self.lock:
@@ -1609,7 +1694,7 @@ class EmbeddedMcpServerController:
             self.server_thread = threading.Thread(
                 target=self.run_server,
                 daemon=True,
-                name="SwordfishEmbeddedMCP",
+                name="SwordfishMCP",
             )
             self.server_thread.start()
         self.notify_server_state_subscribers()
@@ -1637,13 +1722,32 @@ class EmbeddedMcpServerController:
                 target=self.wait_for_server_thread_exit,
                 args=(server_thread,),
                 daemon=True,
-                name="SwordfishEmbeddedMCPStopWait",
+                name="SwordfishMCPStopWait",
             )
             wait_thread.start()
         return True
 
     def wait_for_server_thread_exit(self, server_thread):
         server_thread.join(timeout=5)
+
+    def server_for_runtime_config(self, runtime_config):
+        return create_server(
+            allow_eval=runtime_config.allow_eval,
+            allow_compile=runtime_config.allow_compile,
+            allow_commit=runtime_config.allow_commit,
+            allow_tracing=runtime_config.allow_tracing,
+            allow_commit_when_gui=runtime_config.allow_mcp_commit_when_gui,
+            integrated_session_state=self.integrated_session_state,
+            require_gemstone_ast=runtime_config.require_gemstone_ast,
+            mcp_host=runtime_config.mcp_host,
+            mcp_port=runtime_config.mcp_port,
+            mcp_streamable_http_path=runtime_config.mcp_http_path,
+        )
+
+    def run(self, transport):
+        local_runtime_config = self.current_runtime_config()
+        mcp_server = self.server_for_runtime_config(local_runtime_config)
+        mcp_server.run(transport=transport)
 
     def run_server(self):
         local_runtime_config = self.current_runtime_config()
@@ -1655,18 +1759,7 @@ class EmbeddedMcpServerController:
                 self.notify_server_state_subscribers()
                 return
         try:
-            mcp_server = create_server(
-                allow_eval=local_runtime_config.allow_eval,
-                allow_compile=local_runtime_config.allow_compile,
-                allow_commit=local_runtime_config.allow_commit,
-                allow_tracing=local_runtime_config.allow_tracing,
-                allow_commit_when_gui=(local_runtime_config.allow_mcp_commit_when_gui),
-                integrated_session_state=self.integrated_session_state,
-                require_gemstone_ast=local_runtime_config.require_gemstone_ast,
-                mcp_host=local_runtime_config.mcp_host,
-                mcp_port=local_runtime_config.mcp_port,
-                mcp_streamable_http_path=local_runtime_config.mcp_http_path,
-            )
+            mcp_server = self.server_for_runtime_config(local_runtime_config)
             import uvicorn
 
             streamable_http_application = mcp_server.streamable_http_app()
@@ -2811,6 +2904,7 @@ class FindDialog(tk.Toplevel):
             self.gemstone_session_record,
             method_name,
             self.max_test_discovery_elapsed_ms,
+            self.merged_sender_test_plan,
         )
 
         def run_search_attempt():
@@ -2890,11 +2984,99 @@ class FindDialog(tk.Toplevel):
         )
 
     def merge_sender_test_plans(self, current_plan, new_plan):
-        return merged_sender_test_plan(
+        return self.merged_sender_test_plan(
             current_plan,
             new_plan,
-            self.max_test_discovery_elapsed_ms,
         )
+
+    def merged_sender_test_plan(self, current_plan, new_plan):
+        max_elapsed_ms = self.max_test_discovery_elapsed_ms
+
+        def candidate_test_key(candidate_test):
+            return (
+                candidate_test["test_case_class_name"],
+                candidate_test["test_method_selector"],
+            )
+
+        if current_plan is None:
+            merged_plan = dict(new_plan)
+            merged_plan["candidate_tests"] = list(new_plan.get("candidate_tests", []))
+            merged_plan["sender_edges"] = list(new_plan.get("sender_edges", []))
+            merged_plan["candidate_test_count"] = len(merged_plan["candidate_tests"])
+            merged_plan["sender_edge_count"] = len(merged_plan["sender_edges"])
+            return merged_plan
+
+        merged_plan = dict(current_plan)
+        candidate_tests_by_key = {}
+        for candidate_test in current_plan.get("candidate_tests", []):
+            candidate_tests_by_key[candidate_test_key(candidate_test)] = dict(
+                candidate_test
+            )
+        for candidate_test in new_plan.get("candidate_tests", []):
+            current_candidate_test_key = candidate_test_key(candidate_test)
+            if current_candidate_test_key in candidate_tests_by_key:
+                existing_candidate_test = candidate_tests_by_key[
+                    current_candidate_test_key
+                ]
+                if candidate_test.get("depth", 0) < existing_candidate_test.get(
+                    "depth",
+                    0,
+                ):
+                    candidate_tests_by_key[current_candidate_test_key] = dict(
+                        candidate_test
+                    )
+            if current_candidate_test_key not in candidate_tests_by_key:
+                candidate_tests_by_key[current_candidate_test_key] = dict(
+                    candidate_test
+                )
+        merged_candidate_tests = sorted(
+            candidate_tests_by_key.values(),
+            key=lambda candidate_test: (
+                candidate_test.get("depth", 0),
+                candidate_test["test_case_class_name"],
+                candidate_test["test_method_selector"],
+            ),
+        )
+
+        sender_edges_by_key = {}
+        for sender_edge in current_plan.get("sender_edges", []) + new_plan.get(
+            "sender_edges", []
+        ):
+            sender_edge_key = (
+                sender_edge["from_selector"],
+                sender_edge["to_class_name"],
+                sender_edge["to_method_selector"],
+                sender_edge["to_show_instance_side"],
+                sender_edge["depth"],
+            )
+            sender_edges_by_key[sender_edge_key] = dict(sender_edge)
+        merged_sender_edges = list(sender_edges_by_key.values())
+
+        merged_plan["candidate_tests"] = merged_candidate_tests
+        merged_plan["candidate_test_count"] = len(merged_candidate_tests)
+        merged_plan["sender_edges"] = merged_sender_edges
+        merged_plan["sender_edge_count"] = len(merged_sender_edges)
+        merged_plan["visited_selector_count"] = max(
+            current_plan.get("visited_selector_count", 0),
+            new_plan.get("visited_selector_count", 0),
+        )
+        merged_plan["sender_search_truncated"] = current_plan.get(
+            "sender_search_truncated", False
+        ) or new_plan.get("sender_search_truncated", False)
+        merged_plan["selector_limit_reached"] = current_plan.get(
+            "selector_limit_reached", False
+        ) or new_plan.get("selector_limit_reached", False)
+        merged_plan["elapsed_limit_reached"] = new_plan.get(
+            "elapsed_limit_reached",
+            False,
+        )
+        merged_plan["elapsed_ms"] = current_plan.get("elapsed_ms", 0) + new_plan.get(
+            "elapsed_ms",
+            0,
+        )
+        merged_plan["max_elapsed_ms"] = max_elapsed_ms
+        merged_plan["stopped_by_user"] = new_plan.get("stopped_by_user", False)
+        return merged_plan
 
     def narrow_senders_with_tracing(self):
         if self.search_type.get() != "reference":
@@ -3031,96 +3213,18 @@ class FindDialog(tk.Toplevel):
             )
 
 
-def merged_sender_test_plan(current_plan, new_plan, max_elapsed_ms):
-    def candidate_test_key(candidate_test):
-        return (
-            candidate_test["test_case_class_name"],
-            candidate_test["test_method_selector"],
-        )
-
-    if current_plan is None:
-        merged_plan = dict(new_plan)
-        merged_plan["candidate_tests"] = list(new_plan.get("candidate_tests", []))
-        merged_plan["sender_edges"] = list(new_plan.get("sender_edges", []))
-        merged_plan["candidate_test_count"] = len(merged_plan["candidate_tests"])
-        merged_plan["sender_edge_count"] = len(merged_plan["sender_edges"])
-        return merged_plan
-
-    merged_plan = dict(current_plan)
-    candidate_tests_by_key = {}
-    for candidate_test in current_plan.get("candidate_tests", []):
-        candidate_tests_by_key[candidate_test_key(candidate_test)] = dict(
-            candidate_test
-        )
-    for candidate_test in new_plan.get("candidate_tests", []):
-        current_candidate_test_key = candidate_test_key(candidate_test)
-        if current_candidate_test_key in candidate_tests_by_key:
-            existing_candidate_test = candidate_tests_by_key[current_candidate_test_key]
-            if candidate_test.get("depth", 0) < existing_candidate_test.get("depth", 0):
-                candidate_tests_by_key[current_candidate_test_key] = dict(
-                    candidate_test
-                )
-        if current_candidate_test_key not in candidate_tests_by_key:
-            candidate_tests_by_key[current_candidate_test_key] = dict(candidate_test)
-    merged_candidate_tests = sorted(
-        candidate_tests_by_key.values(),
-        key=lambda candidate_test: (
-            candidate_test.get("depth", 0),
-            candidate_test["test_case_class_name"],
-            candidate_test["test_method_selector"],
-        ),
-    )
-
-    sender_edges_by_key = {}
-    for sender_edge in current_plan.get("sender_edges", []) + new_plan.get(
-        "sender_edges", []
-    ):
-        sender_edge_key = (
-            sender_edge["from_selector"],
-            sender_edge["to_class_name"],
-            sender_edge["to_method_selector"],
-            sender_edge["to_show_instance_side"],
-            sender_edge["depth"],
-        )
-        sender_edges_by_key[sender_edge_key] = dict(sender_edge)
-    merged_sender_edges = list(sender_edges_by_key.values())
-
-    merged_plan["candidate_tests"] = merged_candidate_tests
-    merged_plan["candidate_test_count"] = len(merged_candidate_tests)
-    merged_plan["sender_edges"] = merged_sender_edges
-    merged_plan["sender_edge_count"] = len(merged_sender_edges)
-    merged_plan["visited_selector_count"] = max(
-        current_plan.get("visited_selector_count", 0),
-        new_plan.get("visited_selector_count", 0),
-    )
-    merged_plan["sender_search_truncated"] = current_plan.get(
-        "sender_search_truncated", False
-    ) or new_plan.get("sender_search_truncated", False)
-    merged_plan["selector_limit_reached"] = current_plan.get(
-        "selector_limit_reached", False
-    ) or new_plan.get("selector_limit_reached", False)
-    merged_plan["elapsed_limit_reached"] = new_plan.get(
-        "elapsed_limit_reached",
-        False,
-    )
-    merged_plan["elapsed_ms"] = current_plan.get("elapsed_ms", 0) + new_plan.get(
-        "elapsed_ms", 0
-    )
-    merged_plan["max_elapsed_ms"] = max_elapsed_ms
-    merged_plan["stopped_by_user"] = new_plan.get("stopped_by_user", False)
-    return merged_plan
-
-
 class CoveringTestsDiscoveryWorkflow:
     def __init__(
         self,
         gemstone_session_record,
         method_name,
         max_elapsed_ms,
+        merge_sender_test_plan,
     ):
         self.gemstone_session_record = gemstone_session_record
         self.method_name = method_name
         self.max_elapsed_ms = max_elapsed_ms
+        self.merge_sender_test_plan = merge_sender_test_plan
         self.should_stop = threading.Event()
         self.pending_candidate_tests = queue.Queue()
         self.accumulated_plan = None
@@ -3225,10 +3329,9 @@ class CoveringTestsDiscoveryWorkflow:
         if self.search_state["latest_result"] is None:
             return {"phase": "empty"}
 
-        self.accumulated_plan = merged_sender_test_plan(
+        self.accumulated_plan = self.merge_sender_test_plan(
             self.accumulated_plan,
             self.search_state["latest_result"],
-            self.max_elapsed_ms,
         )
         result_stopped_by_user = self.search_state["latest_result"].get(
             "stopped_by_user",
@@ -3597,6 +3700,7 @@ class CoveringTestsBrowseDialog(tk.Toplevel):
             browser_window.gemstone_session_record,
             method_name,
             max_elapsed_ms,
+            self.merged_sender_test_plan,
         )
         self.is_searching = False
         self.is_timed_out = False
@@ -3694,6 +3798,87 @@ class CoveringTestsBrowseDialog(tk.Toplevel):
             candidate_test["test_case_class_name"],
             candidate_test["test_method_selector"],
         )
+
+    def merged_sender_test_plan(self, current_plan, new_plan):
+        if current_plan is None:
+            merged_plan = dict(new_plan)
+            merged_plan["candidate_tests"] = list(new_plan.get("candidate_tests", []))
+            merged_plan["sender_edges"] = list(new_plan.get("sender_edges", []))
+            merged_plan["candidate_test_count"] = len(merged_plan["candidate_tests"])
+            merged_plan["sender_edge_count"] = len(merged_plan["sender_edges"])
+            return merged_plan
+
+        merged_plan = dict(current_plan)
+        candidate_tests_by_key = {}
+        for candidate_test in current_plan.get("candidate_tests", []):
+            candidate_tests_by_key[self.candidate_test_key(candidate_test)] = dict(
+                candidate_test
+            )
+        for candidate_test in new_plan.get("candidate_tests", []):
+            current_candidate_test_key = self.candidate_test_key(candidate_test)
+            if current_candidate_test_key in candidate_tests_by_key:
+                existing_candidate_test = candidate_tests_by_key[
+                    current_candidate_test_key
+                ]
+                if candidate_test.get("depth", 0) < existing_candidate_test.get(
+                    "depth",
+                    0,
+                ):
+                    candidate_tests_by_key[current_candidate_test_key] = dict(
+                        candidate_test
+                    )
+            if current_candidate_test_key not in candidate_tests_by_key:
+                candidate_tests_by_key[current_candidate_test_key] = dict(
+                    candidate_test
+                )
+        merged_candidate_tests = sorted(
+            candidate_tests_by_key.values(),
+            key=lambda candidate_test: (
+                candidate_test.get("depth", 0),
+                candidate_test["test_case_class_name"],
+                candidate_test["test_method_selector"],
+            ),
+        )
+
+        sender_edges_by_key = {}
+        for sender_edge in current_plan.get("sender_edges", []) + new_plan.get(
+            "sender_edges", []
+        ):
+            sender_edge_key = (
+                sender_edge["from_selector"],
+                sender_edge["to_class_name"],
+                sender_edge["to_method_selector"],
+                sender_edge["to_show_instance_side"],
+                sender_edge["depth"],
+            )
+            sender_edges_by_key[sender_edge_key] = dict(sender_edge)
+        merged_sender_edges = list(sender_edges_by_key.values())
+
+        merged_plan["candidate_tests"] = merged_candidate_tests
+        merged_plan["candidate_test_count"] = len(merged_candidate_tests)
+        merged_plan["sender_edges"] = merged_sender_edges
+        merged_plan["sender_edge_count"] = len(merged_sender_edges)
+        merged_plan["visited_selector_count"] = max(
+            current_plan.get("visited_selector_count", 0),
+            new_plan.get("visited_selector_count", 0),
+        )
+        merged_plan["sender_search_truncated"] = current_plan.get(
+            "sender_search_truncated", False
+        ) or new_plan.get("sender_search_truncated", False)
+        merged_plan["selector_limit_reached"] = current_plan.get(
+            "selector_limit_reached", False
+        ) or new_plan.get("selector_limit_reached", False)
+        merged_plan["elapsed_limit_reached"] = new_plan.get(
+            "elapsed_limit_reached",
+            False,
+        )
+        merged_plan["elapsed_ms"] = current_plan.get("elapsed_ms", 0) + new_plan.get(
+            "elapsed_ms",
+            0,
+        )
+        merged_plan["max_elapsed_ms"] = self.max_elapsed_ms
+        merged_plan["stopped_by_user"] = new_plan.get("stopped_by_user", False)
+        return merged_plan
 
     def format_test_label(self, candidate_test):
         return "%s>>%s (depth %s via %s)" % (
@@ -4054,11 +4239,135 @@ class BreakpointsDialog(tk.Toplevel):
 
 
 class Swordfish(tk.Tk):
+    @classmethod
+    def new_argument_parser(cls, default_mode="ide"):
+        argument_parser = argparse.ArgumentParser(
+            description="Run Swordfish IDE and MCP server."
+        )
+        default_headless_mcp = default_mode == "mcp-headless"
+        argument_parser.add_argument(
+            "stone_name",
+            nargs="?",
+            default="gs64stone",
+            help="GemStone stone name to prefill in login form.",
+        )
+        argument_parser.add_argument(
+            "--headless-mcp",
+            action="store_true",
+            default=default_headless_mcp,
+            help="Run MCP only (headless, no GUI).",
+        )
+        argument_parser.add_argument(
+            "--mode",
+            default=None,
+            choices=["ide", "mcp-headless"],
+            help=argparse.SUPPRESS,
+        )
+        argument_parser.add_argument(
+            "--transport",
+            default="stdio",
+            choices=["stdio", "streamable-http"],
+            help="MCP transport type for --headless-mcp mode.",
+        )
+        argument_parser.add_argument(
+            "--mcp-host",
+            default="127.0.0.1",
+            help="Host interface for embedded MCP and streamable-http mode.",
+        )
+        argument_parser.add_argument(
+            "--mcp-port",
+            default=8000,
+            type=int,
+            help="TCP port for embedded MCP and streamable-http mode.",
+        )
+        argument_parser.add_argument(
+            "--mcp-http-path",
+            default="/mcp",
+            help="HTTP path for embedded MCP and streamable-http mode.",
+        )
+        argument_parser.add_argument(
+            "--allow-eval",
+            action="store_true",
+            help="Enable gs_eval and gs_debug_eval (disabled by default).",
+        )
+        argument_parser.add_argument(
+            "--allow-compile",
+            action="store_true",
+            help="Enable gs_compile_method tool (disabled by default).",
+        )
+        argument_parser.add_argument(
+            "--allow-commit",
+            action="store_true",
+            help="Enable gs_commit tool (disabled by default).",
+        )
+        argument_parser.add_argument(
+            "--allow-mcp-commit-when-gui",
+            action="store_true",
+            help=(
+                "Allow gs_commit even when MCP is attached to an IDE-owned "
+                "session (disabled by default)."
+            ),
+        )
+        argument_parser.add_argument(
+            "--allow-tracing",
+            action="store_true",
+            help="Enable gs_tracer_* and evidence tools (disabled by default).",
+        )
+        argument_parser.add_argument(
+            "--require-gemstone-ast",
+            action="store_true",
+            help=(
+                "Require real GemStone AST backend for refactoring tools. "
+                "When enabled, heuristic refactorings are blocked."
+            ),
+        )
+        return argument_parser
+
+    @classmethod
+    def validate_arguments(cls, argument_parser, arguments):
+        if arguments.mcp_port <= 0:
+            argument_parser.error("--mcp-port must be greater than zero.")
+        if not arguments.mcp_http_path.startswith("/"):
+            argument_parser.error("--mcp-http-path must start with /.")
+
+    @classmethod
+    def run(cls, default_mode="ide"):
+        argument_parser = cls.new_argument_parser(default_mode=default_mode)
+        arguments = argument_parser.parse_args()
+        cls.validate_arguments(argument_parser, arguments)
+        argument_tokens = sys.argv[1:]
+        configuration_store = McpConfigurationStore()
+        runtime_config = configuration_store.merged_config_from_arguments(
+            arguments,
+            argument_tokens=argument_tokens,
+        )
+        run_headless_mcp = arguments.headless_mcp
+        if arguments.mode == "mcp-headless":
+            run_headless_mcp = True
+        if arguments.mode == "ide":
+            run_headless_mcp = False
+        if run_headless_mcp:
+            mcp_server_controller = McpServerController(
+                integrated_session_state=None,
+                runtime_config=runtime_config,
+                configuration_store=configuration_store,
+            )
+            mcp_server_controller.run(arguments.transport)
+            return
+        app = cls(
+            default_stone_name=arguments.stone_name,
+            start_embedded_mcp=False,
+            mcp_runtime_config=runtime_config,
+            mcp_configuration_store=configuration_store,
+        )
+        app.mainloop()
+
     def __init__(
         self,
         default_stone_name="gs64stone",
         start_embedded_mcp=False,
         mcp_runtime_config=None,
+        mcp_configuration_store=None,
     ):
         super().__init__()
         self.event_queue = EventQueue(self)
@@ -4097,9 +4406,10 @@ class Swordfish(tk.Tk):
                 allow_tracing=True,
             )
         self.mcp_runtime_config = mcp_runtime_config.copy()
-        self.embedded_mcp_server_controller = EmbeddedMcpServerController(
+        self.mcp_server_controller = McpServerController(
             self.integrated_session_state,
             self.mcp_runtime_config,
+            configuration_store=mcp_configuration_store,
         )
 
         self.event_queue.subscribe("LoggedInSuccessfully", self.show_main_app)
@@ -4130,7 +4440,7 @@ class Swordfish(tk.Tk):
         self.integrated_session_state.subscribe_model_refresh_requests(
             self.publish_model_refresh_requested_event,
         )
-        self.embedded_mcp_server_controller.subscribe_server_state(
+        self.mcp_server_controller.subscribe_server_state(
             self.publish_mcp_server_state_event,
         )
 
@@ -4139,9 +4449,7 @@ class Swordfish(tk.Tk):
             is_busy=self.integrated_session_state.is_mcp_busy(),
             operation_name=self.integrated_session_state.current_mcp_operation_name(),
         )
-        self.publish_mcp_server_state_event(
-            **self.embedded_mcp_server_controller.status()
-        )
+        self.publish_mcp_server_state_event(**self.mcp_server_controller.status())
         if start_embedded_mcp:
             self.start_mcp_server(report_errors=False)
         self.show_login_screen()
@@ -4156,10 +4464,10 @@ class Swordfish(tk.Tk):
         self.config(menu=self.menu_bar)
 
     def embedded_mcp_server_status(self):
-        return self.embedded_mcp_server_controller.status()
+        return self.mcp_server_controller.status()
 
     def start_mcp_server(self, report_errors=True):
-        started = self.embedded_mcp_server_controller.start()
+        started = self.mcp_server_controller.start()
         if not started and report_errors:
             messagebox.showinfo(
                 "MCP",
@@ -4168,7 +4476,7 @@ class Swordfish(tk.Tk):
         return started
 
     def stop_mcp_server(self):
-        stopped = self.embedded_mcp_server_controller.stop()
+        stopped = self.mcp_server_controller.stop()
         if not stopped:
             messagebox.showinfo(
                 "MCP",
@@ -4204,11 +4512,9 @@ class Swordfish(tk.Tk):
         if dialog.result is None:
             return
         self.mcp_runtime_config = dialog.result.copy()
-        self.embedded_mcp_server_controller.update_runtime_config(
-            self.mcp_runtime_config
-        )
+        self.mcp_server_controller.update_runtime_config(self.mcp_runtime_config)
         try:
-            save_mcp_runtime_config(self.mcp_runtime_config)
+            self.mcp_server_controller.save_configuration()
             self.last_mcp_config_save_error_message = None
         except DomainException as error:
             self.last_mcp_config_save_error_message = str(error)
@@ -4460,7 +4766,7 @@ class Swordfish(tk.Tk):
         if not self.winfo_exists():
             return
         mcp_busy = self.integrated_session_state.is_mcp_busy()
-        mcp_server_status = self.embedded_mcp_server_controller.status()
+        mcp_server_status = self.mcp_server_controller.status()
         mcp_server_running = mcp_server_status["running"]
         mcp_server_starting = mcp_server_status["starting"]
         mcp_server_stopping = mcp_server_status["stopping"]
@@ -4666,7 +4972,8 @@ class Swordfish(tk.Tk):
                 return empty_selection_state
         except AttributeError:
             return empty_selection_state
-        selection_start, selection_end = selected_range_in_text_widget(text_widget)
+        editable_text = EditableText(text_widget, self)
+        selection_start, selection_end = editable_text.selected_range()
         selected_text = ""
         if selection_start is not None:
             try:
@@ -4719,8 +5026,12 @@ class Swordfish(tk.Tk):
             if selected_editor_tab is not None:
                 code_panel = getattr(selected_editor_tab, "code_panel", None)
             if code_panel is not None:
-                method_context = self.method_context_payload(code_panel.method_context())
-                selection_state = self.text_widget_selection_state(code_panel.text_editor)
+                method_context = self.method_context_payload(
+                    code_panel.method_context()
+                )
+                selection_state = self.text_widget_selection_state(
+                    code_panel.text_editor
+                )
         return {
             "active_editor_tab_label": active_editor_tab_label,
             "method_context": method_context,
@@ -4763,7 +5074,7 @@ class Swordfish(tk.Tk):
         }
 
     def mcp_runtime_state_for_ai(self):
-        mcp_server_status = self.embedded_mcp_server_controller.status()
+        mcp_server_status = self.mcp_server_controller.status()
         return {
             "running": mcp_server_status["running"],
             "starting": mcp_server_status["starting"],
@@ -4774,7 +5085,7 @@ class Swordfish(tk.Tk):
                 "restart_required_for_config",
                 False,
             ),
-            "config_file_path": mcp_runtime_config_file_path(),
+            "config_file_path": self.mcp_server_controller.configuration_store.config_file_path(),
             "last_save_error_message": self.last_mcp_config_save_error_message,
             "desired_runtime_config": self.mcp_runtime_config.to_dict(),
         }
@@ -5073,16 +5384,14 @@ class Swordfish(tk.Tk):
             is_busy=self.integrated_session_state.is_mcp_busy(),
             operation_name=self.integrated_session_state.current_mcp_operation_name(),
         )
-        self.publish_mcp_server_state_event(
-            **self.embedded_mcp_server_controller.status()
-        )
+        self.publish_mcp_server_state_event(**self.mcp_server_controller.status())
         self.refresh_collaboration_status()
 
     def destroy(self):
-        self.embedded_mcp_server_controller.clear_subscribers(self)
+        self.mcp_server_controller.clear_subscribers(self)
         self.integrated_session_state.clear_subscribers(self)
         self.event_queue.clear_subscribers(self)
-        self.embedded_mcp_server_controller.stop()
+        self.mcp_server_controller.stop()
         self.integrated_session_state.detach_ide_gui()
         self.event_queue.close()
         super().destroy()
@@ -5366,6 +5675,7 @@ class RunTab(ttk.Frame):
             height=10,
             undo=True,
         )
+        self.editable_source = EditableText(self.source_text, self)
         self.source_line_number_column = CodeLineNumberColumn(
             self.source_editor_frame,
             self.source_text,
@@ -5400,6 +5710,7 @@ class RunTab(ttk.Frame):
         self.result_label.grid(row=4, column=0, sticky="nw", padx=10, pady=(10, 0))
 
         self.result_text = tk.Text(self, height=7, state="disabled")
+        self.editable_result = EditableText(self.result_text, self)
         self.result_text.grid(row=5, column=0, sticky="nsew", padx=10, pady=(0, 10))
         self.configure_text_actions()
         self.source_cursor_position_indicator = TextCursorPositionIndicator(
@@ -5454,30 +5765,30 @@ class RunTab(ttk.Frame):
         self.set_read_only(is_busy)
 
     def select_all_source_text(self, event=None):
-        select_all_in_text_widget(self.source_text)
+        self.editable_source.select_all()
         return "break"
 
     def copy_source_selection(self, event=None):
-        copy_selection_from_text_widget(self, self.source_text)
+        self.editable_source.copy_selection()
         return "break"
 
     def paste_into_source_text(self, event=None):
-        paste_text_into_widget(self, self.source_text)
+        self.editable_source.paste()
         return "break"
 
     def undo_source_text(self, event=None):
-        undo_text_widget_edit(self.source_text)
+        self.editable_source.undo()
         return "break"
 
     def replace_selected_source_text_before_typing(self, event):
-        replace_selected_range_before_typing(self.source_text, event)
+        self.editable_source.delete_selection_before_typing(event)
 
     def select_all_result_text(self, event=None):
-        select_all_in_text_widget(self.result_text)
+        self.editable_result.select_all()
         return "break"
 
     def copy_result_selection(self, event=None):
-        copy_selection_from_text_widget(self, self.result_text)
+        self.editable_result.copy_selection()
         return "break"
 
     def open_source_text_menu(self, event):
@@ -5501,10 +5812,17 @@ class RunTab(ttk.Frame):
         )
 
     def selected_source_text(self):
-        start_index, end_index = selected_range_in_text_widget(self.source_text)
+        start_index, end_index = self.editable_source.selected_range()
         if start_index is None:
             return ""
         return self.source_text.get(start_index, end_index)
+
+    def editable_text_for_widget(self, text_widget):
+        if text_widget is self.source_text:
+            return self.editable_source
+        if text_widget is self.result_text:
+            return self.editable_result
+        return EditableText(text_widget, self)
 
     def run_selected_source_text(self):
         if self.is_read_only():
@@ -5594,6 +5912,7 @@ class RunTab(ttk.Frame):
             self.current_text_menu.unpost()
 
         self.current_text_menu = tk.Menu(self, tearoff=0)
+        editable_text = self.editable_text_for_widget(text_widget)
         read_only = self.is_read_only()
         paste_command_state = tk.NORMAL
         undo_command_state = tk.NORMAL
@@ -5602,22 +5921,22 @@ class RunTab(ttk.Frame):
             undo_command_state = tk.DISABLED
         self.current_text_menu.add_command(
             label="Select All",
-            command=lambda: select_all_in_text_widget(text_widget),
+            command=editable_text.select_all,
         )
         self.current_text_menu.add_command(
             label="Copy",
-            command=lambda: copy_selection_from_text_widget(self, text_widget),
+            command=editable_text.copy_selection,
         )
         if allow_paste:
             self.current_text_menu.add_command(
                 label="Paste",
-                command=lambda: paste_text_into_widget(self, text_widget),
+                command=editable_text.paste,
                 state=paste_command_state,
             )
         if allow_undo:
             self.current_text_menu.add_command(
                 label="Undo",
-                command=lambda: undo_text_widget_edit(text_widget),
+                command=editable_text.undo,
                 state=undo_command_state,
             )
         if include_run_actions:
@@ -7815,6 +8134,7 @@ class CodePanel(tk.Frame):
         self.tab_key = tab_key
 
         self.text_editor = tk.Text(self, tabs=("4",), wrap="none", undo=True)
+        self.editable_text = EditableText(self.text_editor, self)
 
         self.scrollbar_y = tk.Scrollbar(
             self,
@@ -7919,23 +8239,23 @@ class CodePanel(tk.Frame):
             return ""
 
     def select_all_text_editor(self, event=None):
-        select_all_in_text_widget(self.text_editor)
+        self.editable_text.select_all()
         return "break"
 
     def copy_text_editor_selection(self, event=None):
-        copy_selection_from_text_widget(self, self.text_editor)
+        self.editable_text.copy_selection()
         return "break"
 
     def paste_into_text_editor(self, event=None):
-        paste_text_into_widget(self, self.text_editor)
+        self.editable_text.paste()
         return "break"
 
     def undo_text_editor(self, event=None):
-        undo_text_widget_edit(self.text_editor)
+        self.editable_text.undo()
         return "break"
 
     def replace_selected_text_editor_before_typing(self, event):
-        replace_selected_range_before_typing(self.text_editor, event)
+        self.editable_text.delete_selection_before_typing(event)
 
     def selector_token(self, token_text):
         candidate = (token_text or "").strip()
@@ -9531,7 +9851,7 @@ class ObjectInspector(ttk.Frame):
             except GemstoneError:
                 pass
             if value_found:
-                rows.append((f'[{one_based_index}]', value))
+                rows.append((f"[{one_based_index}]", value))
         return rows
 
     def inspect_object(self, an_object):
@@ -11120,225 +11440,5 @@ class LoginFrame(ttk.Frame):
             )
 
 
-def new_application_argument_parser(default_mode="ide"):
-    argument_parser = argparse.ArgumentParser(
-        description="Run Swordfish IDE and MCP server."
-    )
-    default_headless_mcp = default_mode == "mcp-headless"
-    argument_parser.add_argument(
-        "stone_name",
-        nargs="?",
-        default="gs64stone",
-        help="GemStone stone name to prefill in login form.",
-    )
-    argument_parser.add_argument(
-        "--headless-mcp",
-        action="store_true",
-        default=default_headless_mcp,
-        help="Run MCP only (headless, no GUI).",
-    )
-    argument_parser.add_argument(
-        "--mode",
-        default=None,
-        choices=["ide", "mcp-headless"],
-        help=argparse.SUPPRESS,
-    )
-    argument_parser.add_argument(
-        "--transport",
-        default="stdio",
-        choices=["stdio", "streamable-http"],
-        help="MCP transport type for --headless-mcp mode.",
-    )
-    argument_parser.add_argument(
-        "--mcp-host",
-        default="127.0.0.1",
-        help="Host interface for embedded MCP and streamable-http mode.",
-    )
-    argument_parser.add_argument(
-        "--mcp-port",
-        default=8000,
-        type=int,
-        help="TCP port for embedded MCP and streamable-http mode.",
-    )
-    argument_parser.add_argument(
-        "--mcp-http-path",
-        default="/mcp",
-        help="HTTP path for embedded MCP and streamable-http mode.",
-    )
-    argument_parser.add_argument(
-        "--allow-eval",
-        action="store_true",
-        help="Enable gs_eval and gs_debug_eval (disabled by default).",
-    )
-    argument_parser.add_argument(
-        "--allow-compile",
-        action="store_true",
-        help="Enable gs_compile_method tool (disabled by default).",
-    )
-    argument_parser.add_argument(
-        "--allow-commit",
-        action="store_true",
-        help="Enable gs_commit tool (disabled by default).",
-    )
-    argument_parser.add_argument(
-        "--allow-mcp-commit-when-gui",
-        action="store_true",
-        help=(
-            "Allow gs_commit even when MCP is attached to an IDE-owned "
-            "session (disabled by default)."
-        ),
-    )
-    argument_parser.add_argument(
-        "--allow-tracing",
-        action="store_true",
-        help="Enable gs_tracer_* and evidence tools (disabled by default).",
-    )
-    argument_parser.add_argument(
-        "--require-gemstone-ast",
-        action="store_true",
-        help=(
-            "Require real GemStone AST backend for refactoring tools. "
-            "When enabled, heuristic refactorings are blocked."
-        ),
-    )
-    return argument_parser
-
-
-def run_mcp_server(
-    arguments,
-    integrated_session_state=None,
-    runtime_config=None,
-):
-    if runtime_config is None:
-        runtime_config = runtime_mcp_config_from_arguments(arguments)
-    mcp_server = create_server(
-        allow_eval=runtime_config.allow_eval,
-        allow_compile=runtime_config.allow_compile,
-        allow_commit=runtime_config.allow_commit,
-        allow_tracing=runtime_config.allow_tracing,
-        allow_commit_when_gui=runtime_config.allow_mcp_commit_when_gui,
-        integrated_session_state=integrated_session_state,
-        require_gemstone_ast=runtime_config.require_gemstone_ast,
-        mcp_host=runtime_config.mcp_host,
-        mcp_port=runtime_config.mcp_port,
-        mcp_streamable_http_path=runtime_config.mcp_http_path,
-    )
-    mcp_server.run(transport=arguments.transport)
-
-
-def validate_application_arguments(argument_parser, arguments):
-    if arguments.mcp_port <= 0:
-        argument_parser.error("--mcp-port must be greater than zero.")
-    if not arguments.mcp_http_path.startswith("/"):
-        argument_parser.error("--mcp-http-path must start with /.")
-
-
-def runtime_mcp_config_from_arguments(arguments):
-    return McpRuntimeConfig(
-        allow_eval=arguments.allow_eval,
-        allow_compile=arguments.allow_compile,
-        allow_commit=arguments.allow_commit,
-        allow_tracing=arguments.allow_tracing,
-        allow_mcp_commit_when_gui=arguments.allow_mcp_commit_when_gui,
-        require_gemstone_ast=arguments.require_gemstone_ast,
-        mcp_host=arguments.mcp_host,
-        mcp_port=arguments.mcp_port,
-        mcp_http_path=arguments.mcp_http_path,
-    )
-
-
-def merged_runtime_mcp_config_from_arguments(
-    arguments,
-    argument_tokens=None,
-    persisted_runtime_config=None,
-):
-    cli_runtime_config = runtime_mcp_config_from_arguments(arguments)
-    if persisted_runtime_config is None:
-        persisted_runtime_config = load_saved_mcp_runtime_config()
-    if persisted_runtime_config is None:
-        return cli_runtime_config
-    if argument_tokens is None:
-        argument_tokens = []
-    explicit_overrides = explicit_mcp_runtime_overrides_from_argument_tokens(
-        argument_tokens
-    )
-    if len(explicit_overrides) < 1:
-        return persisted_runtime_config.copy()
-    merged_runtime_config = persisted_runtime_config.copy()
-    merged_runtime_config.update_with(
-        allow_eval=(
-            cli_runtime_config.allow_eval
-            if explicit_overrides.get("allow_eval")
-            else None
-        ),
-        allow_compile=(
-            cli_runtime_config.allow_compile
-            if explicit_overrides.get("allow_compile")
-            else None
-        ),
-        allow_commit=(
-            cli_runtime_config.allow_commit
-            if explicit_overrides.get("allow_commit")
-            else None
-        ),
-        allow_tracing=(
-            cli_runtime_config.allow_tracing
-            if explicit_overrides.get("allow_tracing")
-            else None
-        ),
-        allow_mcp_commit_when_gui=(
-            cli_runtime_config.allow_mcp_commit_when_gui
-            if explicit_overrides.get("allow_mcp_commit_when_gui")
-            else None
-        ),
-        require_gemstone_ast=(
-            cli_runtime_config.require_gemstone_ast
-            if explicit_overrides.get("require_gemstone_ast")
-            else None
-        ),
-        mcp_host=(
-            cli_runtime_config.mcp_host
-            if explicit_overrides.get("mcp_host")
-            else None
-        ),
-        mcp_port=(
-            cli_runtime_config.mcp_port
-            if explicit_overrides.get("mcp_port")
-            else None
-        ),
-        mcp_http_path=(
-            cli_runtime_config.mcp_http_path
-            if explicit_overrides.get("mcp_http_path")
-            else None
-        ),
-    )
-    return merged_runtime_config
-
-
-def run_application(default_mode="ide"):
-    argument_parser = new_application_argument_parser(default_mode=default_mode)
-    arguments = argument_parser.parse_args()
-    validate_application_arguments(argument_parser, arguments)
-    argument_tokens = sys.argv[1:]
-    runtime_config = merged_runtime_mcp_config_from_arguments(
-        arguments,
-        argument_tokens=argument_tokens,
-    )
-    run_headless_mcp = arguments.headless_mcp
-    if arguments.mode == "mcp-headless":
-        run_headless_mcp = True
-    if arguments.mode == "ide":
-        run_headless_mcp = False
-    if run_headless_mcp:
-        run_mcp_server(arguments, runtime_config=runtime_config)
-        return
-    app = Swordfish(
-        default_stone_name=arguments.stone_name,
-        start_embedded_mcp=False,
-        mcp_runtime_config=runtime_config,
-    )
-    app.mainloop()
-
-
 if __name__ == "__main__":
-    run_application()
+    Swordfish.run()

@@ -1,19 +1,20 @@
-from reahl.tofu import NoException
-from reahl.tofu import expected
+from reahl.tofu import NoException, expected
 
-from reahl.swordfish.mcp.session_registry import add_connection
-from reahl.swordfish.mcp.session_registry import clear_connections
-from reahl.swordfish.mcp.session_registry import get_metadata
-from reahl.swordfish.mcp.session_registry import get_session
-from reahl.swordfish.mcp.session_registry import has_connection
-from reahl.swordfish.mcp.session_registry import remove_connection
+from reahl.swordfish.mcp.session_registry import (
+    add_connection,
+    clear_connections,
+    get_metadata,
+    get_session,
+    has_connection,
+    remove_connection,
+)
 
 
 def test_add_and_remove_connection():
     with expected(NoException):
         clear_connections()
     session = object()
-    metadata = {'connection_mode': 'linked'}
+    metadata = {"connection_mode": "linked"}
 
     with expected(NoException):
         connection_id = add_connection(session, metadata)

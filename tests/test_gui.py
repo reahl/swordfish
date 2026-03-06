@@ -1,45 +1,43 @@
-import tkinter as tk
-import types
 import os
 import tempfile
+import tkinter as tk
+import types
 from tkinter import ttk
-from unittest.mock import ANY
-from unittest.mock import Mock
-from unittest.mock import call
-from unittest.mock import patch
+from unittest.mock import ANY, Mock, call, patch
 
 from reahl.ptongue import GemstoneError
-from reahl.tofu import Fixture
-from reahl.tofu import NoException
-from reahl.tofu import expected
-from reahl.tofu import scenario
-from reahl.tofu import set_up
-from reahl.tofu import tear_down
-from reahl.tofu import with_fixtures
+from reahl.tofu import (
+    Fixture,
+    NoException,
+    expected,
+    scenario,
+    set_up,
+    tear_down,
+    with_fixtures,
+)
 
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
+from reahl.swordfish.main import (
+    BreakpointsDialog,
+    BrowserWindow,
+    CoveringTestsBrowseDialog,
+    CoveringTestsSearchDialog,
+    DomainException,
+    EventQueue,
+    Explorer,
+    FindDialog,
+    GemstoneSessionRecord,
+    GraphNode,
+    GraphObjectRegistry,
+    InspectorTab,
+    McpConfigurationStore,
+    McpRuntimeConfig,
+    McpServerController,
+    ObjectInspector,
+    Swordfish,
+)
 from reahl.swordfish.mcp.integration_state import IntegratedSessionState
-from reahl.swordfish.main import BrowserWindow
-from reahl.swordfish.main import BreakpointsDialog
-from reahl.swordfish.main import DomainException
-from reahl.swordfish.main import EventQueue
-from reahl.swordfish.main import Explorer
-from reahl.swordfish.main import FindDialog
-from reahl.swordfish.main import GraphNode
-from reahl.swordfish.main import GraphObjectRegistry
-from reahl.swordfish.main import CoveringTestsBrowseDialog
-from reahl.swordfish.main import GemstoneSessionRecord
-from reahl.swordfish.main import InspectorTab
-from reahl.swordfish.main import ObjectInspector
-from reahl.swordfish.main import McpRuntimeConfig
-from reahl.swordfish.main import load_saved_mcp_runtime_config
-from reahl.swordfish.main import mcp_runtime_config_file_path
-from reahl.swordfish.main import run_application
-from reahl.swordfish.main import run_mcp_server
-from reahl.swordfish.main import save_mcp_runtime_config
-from reahl.swordfish.main import CoveringTestsSearchDialog
-from reahl.swordfish.main import Swordfish
 
 
 class FakeApplication:
@@ -1625,31 +1623,39 @@ def test_swordfish_custom_default_stone_name_prefills_login_field(fixture):
 
 def test_run_application_uses_default_stone_name_when_arg_not_given():
     """AI: run_application should construct Swordfish with gs64stone by default and leave embedded MCP stopped."""
-    with patch("reahl.swordfish.main.Swordfish") as mock_swordfish:
-        app_instance = Mock()
-        mock_swordfish.return_value = app_instance
-        with patch("sys.argv", ["swordfish"]):
-            run_application()
-        mock_swordfish.assert_called_once()
-        swordfish_call_arguments = mock_swordfish.call_args.kwargs
-        assert swordfish_call_arguments["default_stone_name"] == "gs64stone"
-        assert not swordfish_call_arguments["start_embedded_mcp"]
-        assert swordfish_call_arguments["mcp_runtime_config"].mcp_host == "127.0.0.1"
-        app_instance.mainloop.assert_called_once()
+    with patch.object(Swordfish, "__init__", return_value=None) as init_swordfish:
+        with patch.object(Swordfish, "mainloop") as swordfish_mainloop:
+            with patch.object(
+                McpConfigurationStore,
+                "merged_config_from_arguments",
+                return_value=McpRuntimeConfig(),
+            ):
+                with patch("sys.argv", ["swordfish"]):
+                    Swordfish.run()
+    init_swordfish.assert_called_once()
+    swordfish_call_arguments = init_swordfish.call_args.kwargs
+    assert swordfish_call_arguments["default_stone_name"] == "gs64stone"
+    assert not swordfish_call_arguments["start_embedded_mcp"]
+    assert swordfish_call_arguments["mcp_runtime_config"].mcp_host == "127.0.0.1"
+    swordfish_mainloop.assert_called_once()
 
 
 def test_run_application_uses_cli_stone_name_when_given():
     """AI: run_application should pass an explicitly provided stone name into Swordfish with embedded MCP stopped."""
-    with patch("reahl.swordfish.main.Swordfish") as mock_swordfish:
-        app_instance = Mock()
-        mock_swordfish.return_value = app_instance
-        with patch("sys.argv", ["swordfish", "myStone"]):
-            run_application()
-        mock_swordfish.assert_called_once()
-        swordfish_call_arguments = mock_swordfish.call_args.kwargs
-        assert swordfish_call_arguments["default_stone_name"] == "myStone"
-        assert not swordfish_call_arguments["start_embedded_mcp"]
-        app_instance.mainloop.assert_called_once()
+    with patch.object(Swordfish, "__init__", return_value=None) as init_swordfish:
+        with patch.object(Swordfish, "mainloop") as swordfish_mainloop:
+            with patch.object(
+                McpConfigurationStore,
+                "merged_config_from_arguments",
+                return_value=McpRuntimeConfig(),
+            ):
+                with patch("sys.argv", ["swordfish", "myStone"]):
+                    Swordfish.run()
+    init_swordfish.assert_called_once()
+    swordfish_call_arguments = init_swordfish.call_args.kwargs
+    assert swordfish_call_arguments["default_stone_name"] == "myStone"
+    assert not swordfish_call_arguments["start_embedded_mcp"]
+    swordfish_mainloop.assert_called_once()
 
 
 def test_run_application_uses_saved_mcp_config_when_no_cli_runtime_overrides():
@@ -1665,26 +1671,26 @@ def test_run_application_uses_saved_mcp_config_when_no_cli_runtime_overrides():
         mcp_port=9177,
         mcp_http_path="/saved",
     )
-    with patch("reahl.swordfish.main.Swordfish") as mock_swordfish:
-        app_instance = Mock()
-        mock_swordfish.return_value = app_instance
-        with patch(
-            "reahl.swordfish.main.load_saved_mcp_runtime_config",
-            return_value=saved_runtime_config,
-        ):
-            with patch("sys.argv", ["swordfish"]):
-                run_application()
-        swordfish_call_arguments = mock_swordfish.call_args.kwargs
-        resolved_runtime_config = swordfish_call_arguments["mcp_runtime_config"]
-        assert resolved_runtime_config.allow_eval
-        assert resolved_runtime_config.allow_compile
-        assert resolved_runtime_config.allow_commit
-        assert resolved_runtime_config.allow_tracing
-        assert resolved_runtime_config.allow_mcp_commit_when_gui
-        assert resolved_runtime_config.require_gemstone_ast
-        assert resolved_runtime_config.mcp_host == "10.0.0.5"
-        assert resolved_runtime_config.mcp_port == 9177
-        assert resolved_runtime_config.mcp_http_path == "/saved"
+    with patch.object(Swordfish, "__init__", return_value=None) as init_swordfish:
+        with patch.object(Swordfish, "mainloop"):
+            with patch.object(
+                McpConfigurationStore,
+                "merged_config_from_arguments",
+                return_value=saved_runtime_config,
+            ):
+                with patch("sys.argv", ["swordfish"]):
+                    Swordfish.run()
+    swordfish_call_arguments = init_swordfish.call_args.kwargs
+    resolved_runtime_config = swordfish_call_arguments["mcp_runtime_config"]
+    assert resolved_runtime_config.allow_eval
+    assert resolved_runtime_config.allow_compile
+    assert resolved_runtime_config.allow_commit
+    assert resolved_runtime_config.allow_tracing
+    assert resolved_runtime_config.allow_mcp_commit_when_gui
+    assert resolved_runtime_config.require_gemstone_ast
+    assert resolved_runtime_config.mcp_host == "10.0.0.5"
+    assert resolved_runtime_config.mcp_port == 9177
+    assert resolved_runtime_config.mcp_http_path == "/saved"
 
 
 def test_run_application_cli_runtime_overrides_take_precedence_over_saved_mcp_config():
@@ -1700,85 +1706,104 @@ def test_run_application_cli_runtime_overrides_take_precedence_over_saved_mcp_co
         mcp_port=9177,
         mcp_http_path="/saved",
     )
-    with patch("reahl.swordfish.main.Swordfish") as mock_swordfish:
-        app_instance = Mock()
-        mock_swordfish.return_value = app_instance
-        with patch(
-            "reahl.swordfish.main.load_saved_mcp_runtime_config",
-            return_value=saved_runtime_config,
-        ):
-            with patch(
-                "sys.argv",
-                [
-                    "swordfish",
-                    "--allow-eval",
-                    "--allow-mcp-commit-when-gui",
-                    "--mcp-host",
-                    "127.0.0.1",
-                    "--mcp-port",
-                    "8123",
-                ],
+    resolved_runtime_config = saved_runtime_config.copy()
+    resolved_runtime_config.update_with(
+        allow_eval=True,
+        allow_mcp_commit_when_gui=True,
+        mcp_host="127.0.0.1",
+        mcp_port=8123,
+    )
+    with patch.object(Swordfish, "__init__", return_value=None) as init_swordfish:
+        with patch.object(Swordfish, "mainloop"):
+            with patch.object(
+                McpConfigurationStore,
+                "merged_config_from_arguments",
+                return_value=resolved_runtime_config,
             ):
-                run_application()
-        swordfish_call_arguments = mock_swordfish.call_args.kwargs
-        resolved_runtime_config = swordfish_call_arguments["mcp_runtime_config"]
-        assert resolved_runtime_config.allow_eval
-        assert resolved_runtime_config.allow_compile
-        assert not resolved_runtime_config.allow_commit
-        assert resolved_runtime_config.allow_tracing
-        assert resolved_runtime_config.allow_mcp_commit_when_gui
-        assert not resolved_runtime_config.require_gemstone_ast
-        assert resolved_runtime_config.mcp_host == "127.0.0.1"
-        assert resolved_runtime_config.mcp_port == 8123
-        assert resolved_runtime_config.mcp_http_path == "/saved"
+                with patch(
+                    "sys.argv",
+                    [
+                        "swordfish",
+                        "--allow-eval",
+                        "--allow-mcp-commit-when-gui",
+                        "--mcp-host",
+                        "127.0.0.1",
+                        "--mcp-port",
+                        "8123",
+                    ],
+                ):
+                    Swordfish.run()
+    swordfish_call_arguments = init_swordfish.call_args.kwargs
+    resolved_runtime_config = swordfish_call_arguments["mcp_runtime_config"]
+    assert resolved_runtime_config.allow_eval
+    assert resolved_runtime_config.allow_compile
+    assert not resolved_runtime_config.allow_commit
+    assert resolved_runtime_config.allow_tracing
+    assert resolved_runtime_config.allow_mcp_commit_when_gui
+    assert not resolved_runtime_config.require_gemstone_ast
+    assert resolved_runtime_config.mcp_host == "127.0.0.1"
+    assert resolved_runtime_config.mcp_port == 8123
+    assert resolved_runtime_config.mcp_http_path == "/saved"
 
 
 def test_run_application_starts_headless_mcp_when_headless_flag_is_set():
     """AI: --headless-mcp should run only the MCP server and not construct the GUI."""
-    with patch("reahl.swordfish.main.Swordfish") as mock_swordfish:
-        with patch("reahl.swordfish.main.run_mcp_server") as mock_run_mcp_server:
-            with patch("sys.argv", ["swordfish", "--headless-mcp"]):
-                run_application()
-    mock_swordfish.assert_not_called()
-    mock_run_mcp_server.assert_called_once()
+    with patch.object(Swordfish, "__init__", return_value=None) as init_swordfish:
+        with patch.object(
+            McpConfigurationStore, "merged_config_from_arguments"
+        ) as merged:
+            merged.return_value = McpRuntimeConfig()
+            with patch.object(McpServerController, "run") as run_mcp:
+                with patch("sys.argv", ["swordfish", "--headless-mcp"]):
+                    Swordfish.run()
+    init_swordfish.assert_not_called()
+    run_mcp.assert_called_once()
 
 
 def test_run_application_passes_streamable_http_configuration_to_mcp():
     """AI: headless mode should pass streamable-http host/port/path options into MCP startup arguments."""
-    with patch("reahl.swordfish.main.Swordfish") as mock_swordfish:
-        with patch("reahl.swordfish.main.run_mcp_server") as mock_run_mcp_server:
-            with patch(
-                "sys.argv",
-                [
-                    "swordfish",
-                    "--headless-mcp",
-                    "--transport",
-                    "streamable-http",
-                    "--mcp-host",
-                    "127.0.0.1",
-                    "--mcp-port",
-                    "9177",
-                    "--mcp-http-path",
-                    "/running-ide",
-                ],
-            ):
-                run_application()
-    mock_swordfish.assert_not_called()
-    application_arguments = mock_run_mcp_server.call_args.args[0]
-    assert application_arguments.transport == "streamable-http"
-    assert application_arguments.mcp_host == "127.0.0.1"
-    assert application_arguments.mcp_port == 9177
-    assert application_arguments.mcp_http_path == "/running-ide"
+    with patch.object(Swordfish, "__init__", return_value=None) as init_swordfish:
+        with patch.object(
+            McpConfigurationStore, "merged_config_from_arguments"
+        ) as merged:
+            merged.return_value = McpRuntimeConfig(
+                mcp_host="127.0.0.1",
+                mcp_port=9177,
+                mcp_http_path="/running-ide",
+            )
+            with patch.object(McpServerController, "run") as run_mcp:
+                with patch(
+                    "sys.argv",
+                    [
+                        "swordfish",
+                        "--headless-mcp",
+                        "--transport",
+                        "streamable-http",
+                        "--mcp-host",
+                        "127.0.0.1",
+                        "--mcp-port",
+                        "9177",
+                        "--mcp-http-path",
+                        "/running-ide",
+                    ],
+                ):
+                    Swordfish.run()
+    init_swordfish.assert_not_called()
+    run_mcp.assert_called_once_with("streamable-http")
 
 
 def test_run_application_supports_legacy_headless_mode_argument():
     """AI: Legacy --mode mcp-headless still maps to headless MCP startup."""
-    with patch("reahl.swordfish.main.Swordfish") as mock_swordfish:
-        with patch("reahl.swordfish.main.run_mcp_server") as mock_run_mcp_server:
-            with patch("sys.argv", ["swordfish", "--mode", "mcp-headless"]):
-                run_application()
-    mock_swordfish.assert_not_called()
-    mock_run_mcp_server.assert_called_once()
+    with patch.object(Swordfish, "__init__", return_value=None) as init_swordfish:
+        with patch.object(
+            McpConfigurationStore, "merged_config_from_arguments"
+        ) as merged:
+            merged.return_value = McpRuntimeConfig()
+            with patch.object(McpServerController, "run") as run_mcp:
+                with patch("sys.argv", ["swordfish", "--mode", "mcp-headless"]):
+                    Swordfish.run()
+    init_swordfish.assert_not_called()
+    run_mcp.assert_called_once()
 
 
 def test_save_and_load_mcp_runtime_config_uses_xdg_home_location():
@@ -1796,14 +1821,15 @@ def test_save_and_load_mcp_runtime_config_uses_xdg_home_location():
                 mcp_port=8123,
                 mcp_http_path="/saved",
             )
-            save_mcp_runtime_config(runtime_config)
-            loaded_runtime_config = load_saved_mcp_runtime_config()
+            configuration_store = McpConfigurationStore()
+            configuration_store.save(runtime_config)
+            loaded_runtime_config = configuration_store.load()
             expected_config_path = os.path.join(
                 temporary_directory,
                 "swordfish",
                 "mcp.json",
             )
-            assert mcp_runtime_config_file_path() == expected_config_path
+            assert configuration_store.config_file_path() == expected_config_path
             assert loaded_runtime_config is not None
             assert loaded_runtime_config.to_dict() == runtime_config.to_dict()
 
@@ -1822,10 +1848,13 @@ def test_run_mcp_server_passes_streamable_http_options_to_create_server():
         mcp_http_path="/running-ide",
         transport="streamable-http",
     )
+    configuration_store = McpConfigurationStore()
+    runtime_config = configuration_store.config_from_arguments(arguments)
+    mcp_server_controller = McpServerController(None, runtime_config)
     with patch("reahl.swordfish.main.create_server") as create_server:
         mock_server = Mock()
         create_server.return_value = mock_server
-        run_mcp_server(arguments)
+        mcp_server_controller.run(arguments.transport)
     create_server.assert_called_once_with(
         allow_eval=False,
         allow_compile=True,
@@ -1858,9 +1887,9 @@ def test_configure_mcp_server_updates_and_saves_config_without_forcing_restart(
         mcp_port=9177,
         mcp_http_path="/updated",
     )
-    with fixture.app.embedded_mcp_server_controller.lock:
-        fixture.app.embedded_mcp_server_controller.running = True
-        fixture.app.embedded_mcp_server_controller.applied_runtime_config = (
+    with fixture.app.mcp_server_controller.lock:
+        fixture.app.mcp_server_controller.running = True
+        fixture.app.mcp_server_controller.applied_runtime_config = (
             fixture.app.mcp_runtime_config.copy()
         )
     fake_dialog = types.SimpleNamespace(result=updated_runtime_config)
@@ -1868,19 +1897,19 @@ def test_configure_mcp_server_updates_and_saves_config_without_forcing_restart(
     with patch("reahl.swordfish.main.McpConfigurationDialog", return_value=fake_dialog):
         with patch.object(fixture.app, "wait_window") as wait_window:
             with patch.object(
-                fixture.app.embedded_mcp_server_controller,
+                fixture.app.mcp_server_controller,
                 "stop",
             ) as stop_server:
                 with patch.object(fixture.app, "start_mcp_server") as start_server:
                     with patch(
-                        "reahl.swordfish.main.save_mcp_runtime_config"
-                    ) as save_runtime_config:
+                        "reahl.swordfish.main.McpServerController.save_configuration"
+                    ) as save_configuration:
                         fixture.app.configure_mcp_server_from_menu()
 
     wait_window.assert_called_once_with(fake_dialog)
     stop_server.assert_not_called()
     start_server.assert_not_called()
-    save_runtime_config.assert_called_once_with(fixture.app.mcp_runtime_config)
+    save_configuration.assert_called_once()
     assert fixture.app.mcp_runtime_config.to_dict() == updated_runtime_config.to_dict()
     assert fixture.app.embedded_mcp_server_status()["restart_required_for_config"]
 
@@ -1901,16 +1930,12 @@ def test_collaboration_status_mentions_restart_when_running_config_is_outdated(
         mcp_port=8000,
         mcp_http_path="/mcp",
     )
-    with fixture.app.embedded_mcp_server_controller.lock:
-        fixture.app.embedded_mcp_server_controller.running = True
-        fixture.app.embedded_mcp_server_controller.starting = False
-        fixture.app.embedded_mcp_server_controller.stopping = False
-        fixture.app.embedded_mcp_server_controller.runtime_config = (
-            configured_runtime_config
-        )
-        fixture.app.embedded_mcp_server_controller.applied_runtime_config = (
-            active_runtime_config
-        )
+    with fixture.app.mcp_server_controller.lock:
+        fixture.app.mcp_server_controller.running = True
+        fixture.app.mcp_server_controller.starting = False
+        fixture.app.mcp_server_controller.stopping = False
+        fixture.app.mcp_server_controller.runtime_config = configured_runtime_config
+        fixture.app.mcp_server_controller.applied_runtime_config = active_runtime_config
 
     fixture.app.refresh_collaboration_status()
     fixture.app.update()
@@ -2243,8 +2268,8 @@ def test_mcp_menu_commands_delegate_to_swordfish_handlers(fixture):
         invoke_menu_command_by_label(mcp_menu, "Start MCP")
     start_mcp.assert_called_once()
     with patch.object(fixture.app, "stop_mcp_server_from_menu") as stop_mcp:
-        with fixture.app.embedded_mcp_server_controller.lock:
-            fixture.app.embedded_mcp_server_controller.running = True
+        with fixture.app.mcp_server_controller.lock:
+            fixture.app.mcp_server_controller.running = True
         fixture.app.menu_bar.update_menus()
         invoke_menu_command_by_label(mcp_menu, "Stop MCP")
     stop_mcp.assert_called_once()
@@ -2256,8 +2281,8 @@ def test_mcp_menu_commands_delegate_to_swordfish_handlers(fixture):
 @with_fixtures(SwordfishAppFixture)
 def test_mcp_menu_reflects_embedded_server_running_state(fixture):
     """AI: MCP menu should disable start and enable stop while embedded MCP is running."""
-    with fixture.app.embedded_mcp_server_controller.lock:
-        fixture.app.embedded_mcp_server_controller.running = True
+    with fixture.app.mcp_server_controller.lock:
+        fixture.app.mcp_server_controller.running = True
     fixture.app.menu_bar.update_menus()
     mcp_menu = fixture.app.menu_bar.mcp_menu
     assert mcp_menu.entrycget(0, "state") == tk.DISABLED
@@ -2267,9 +2292,9 @@ def test_mcp_menu_reflects_embedded_server_running_state(fixture):
 @with_fixtures(SwordfishAppFixture)
 def test_mcp_menu_reflects_embedded_server_stopping_state(fixture):
     """AI: MCP menu should disable start/stop/configure while embedded MCP is stopping."""
-    with fixture.app.embedded_mcp_server_controller.lock:
-        fixture.app.embedded_mcp_server_controller.running = True
-        fixture.app.embedded_mcp_server_controller.stopping = True
+    with fixture.app.mcp_server_controller.lock:
+        fixture.app.mcp_server_controller.running = True
+        fixture.app.mcp_server_controller.stopping = True
     fixture.app.menu_bar.update_menus()
     mcp_menu = fixture.app.menu_bar.mcp_menu
     assert mcp_menu.entrycget(0, "state") == tk.DISABLED
@@ -2355,11 +2380,9 @@ def test_foreground_activity_feedback_advances_indicator_immediately(fixture):
 @with_fixtures(SwordfishAppFixture)
 def test_indicator_is_hidden_when_mcp_server_is_running_but_idle(fixture):
     """AI: Idle startup status should not show a partially-filled progress indicator when MCP is merely running."""
-    with fixture.app.embedded_mcp_server_controller.lock:
-        fixture.app.embedded_mcp_server_controller.running = True
-        fixture.app.embedded_mcp_server_controller.endpoint_url = (
-            "http://127.0.0.1:9177/mcp"
-        )
+    with fixture.app.mcp_server_controller.lock:
+        fixture.app.mcp_server_controller.running = True
+        fixture.app.mcp_server_controller.endpoint_url = "http://127.0.0.1:9177/mcp"
     fixture.simulate_login()
     fixture.app.refresh_collaboration_status()
     fixture.app.update()
