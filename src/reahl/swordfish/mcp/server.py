@@ -20,11 +20,13 @@ def import_fast_mcp():
 
 
 def create_server(
-    allow_eval=False,
-    allow_compile=False,
+    allow_source_read=True,
+    allow_source_write=False,
+    allow_eval_arbitrary=False,
+    allow_ide_read=True,
+    allow_ide_write=False,
     allow_commit=False,
     allow_tracing=False,
-    allow_commit_when_gui=False,
     integrated_session_state=None,
     require_gemstone_ast=False,
     mcp_host="127.0.0.1",
@@ -67,11 +69,13 @@ def create_server(
     mcp_server = fast_mcp(**server_arguments)
     register_tools(
         mcp_server,
-        allow_eval=allow_eval,
-        allow_compile=allow_compile,
+        allow_source_read=allow_source_read,
+        allow_source_write=allow_source_write,
+        allow_eval_arbitrary=allow_eval_arbitrary,
+        allow_ide_read=allow_ide_read,
+        allow_ide_write=allow_ide_write,
         allow_commit=allow_commit,
         allow_tracing=allow_tracing,
-        allow_commit_when_gui=allow_commit_when_gui,
         integrated_session_state=integrated_session_state,
         require_gemstone_ast=require_gemstone_ast,
     )

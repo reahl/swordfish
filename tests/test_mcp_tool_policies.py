@@ -248,8 +248,11 @@ class AllowedToolsFixture(Fixture):
         registrar = McpToolRegistrar()
         register_tools(
             registrar,
-            allow_eval=True,
-            allow_compile=True,
+            allow_source_read=True,
+            allow_eval_arbitrary=True,
+            allow_source_write=True,
+            allow_ide_read=True,
+            allow_ide_write=True,
             allow_commit=True,
             allow_tracing=True,
         )
@@ -426,8 +429,11 @@ class AllowedToolsWithCommitConfirmationFixture(Fixture):
         registrar = McpToolRegistrar()
         register_tools(
             registrar,
-            allow_eval=True,
-            allow_compile=True,
+            allow_source_read=True,
+            allow_eval_arbitrary=True,
+            allow_source_write=True,
+            allow_ide_read=True,
+            allow_ide_write=True,
             allow_commit=True,
             allow_tracing=True,
         )
@@ -453,8 +459,11 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
         registrar = McpToolRegistrar()
         register_tools(
             registrar,
-            allow_eval=True,
-            allow_compile=True,
+            allow_source_read=True,
+            allow_eval_arbitrary=True,
+            allow_source_write=True,
+            allow_ide_read=True,
+            allow_ide_write=True,
             allow_commit=True,
             allow_tracing=True,
         )
@@ -591,8 +600,11 @@ class AllowedToolsWithNoActiveTransactionAndStrictAstFixture(Fixture):
         registrar = McpToolRegistrar()
         register_tools(
             registrar,
-            allow_eval=True,
-            allow_compile=True,
+            allow_source_read=True,
+            allow_eval_arbitrary=True,
+            allow_source_write=True,
+            allow_ide_read=True,
+            allow_ide_write=True,
             allow_commit=True,
             allow_tracing=True,
             require_gemstone_ast=True,
@@ -628,8 +640,11 @@ class AllowedToolsWithActiveTransactionFixture(Fixture):
         registrar = McpToolRegistrar()
         register_tools(
             registrar,
-            allow_eval=True,
-            allow_compile=True,
+            allow_source_read=True,
+            allow_eval_arbitrary=True,
+            allow_source_write=True,
+            allow_ide_read=True,
+            allow_ide_write=True,
             allow_commit=True,
             allow_tracing=True,
         )
@@ -686,8 +701,11 @@ class AllowedToolsWithTracingDisabledFixture(Fixture):
         registrar = McpToolRegistrar()
         register_tools(
             registrar,
-            allow_eval=True,
-            allow_compile=True,
+            allow_source_read=True,
+            allow_eval_arbitrary=True,
+            allow_source_write=True,
+            allow_ide_read=True,
+            allow_ide_write=True,
             allow_commit=True,
             allow_tracing=False,
         )
@@ -712,7 +730,7 @@ def test_gs_eval_is_disabled_by_default(tools_fixture):
     assert not eval_result["ok"]
     assert eval_result["error"]["message"] == (
         "gs_eval is disabled. "
-        "Start swordfish --headless-mcp with --allow-eval to enable."
+        "Start swordfish --headless-mcp with --allow-eval-arbitrary to enable."
     )
 
 
@@ -731,13 +749,15 @@ def test_gs_capabilities_reports_restricted_policy_flags(tools_fixture):
     capabilities_result = tools_fixture.gs_capabilities()
     assert capabilities_result["ok"], capabilities_result
     policy = capabilities_result["policy"]
-    assert policy["allow_eval"] is False
-    assert policy["allow_eval_write"] is False
+    assert policy["allow_source_read"] is True
+    assert policy["allow_eval_arbitrary"] is False
+    assert policy["allow_ide_read"] is True
+    assert policy["allow_ide_write"] is False
     assert policy["eval_mode"] == "disabled"
     assert policy["commit_approval_mode"] == "disabled"
     assert not policy["eval_requires_human_approval"]
     assert not policy["commit_requires_human_approval"]
-    assert policy["allow_compile"] is False
+    assert policy["allow_source_write"] is False
     assert policy["allow_commit"] is False
     assert policy["allow_tracing"] is False
     assert policy["require_gemstone_ast"] is False
@@ -762,13 +782,15 @@ def test_gs_capabilities_reports_enabled_policy_flags(tools_fixture):
     capabilities_result = tools_fixture.gs_capabilities()
     assert capabilities_result["ok"], capabilities_result
     policy = capabilities_result["policy"]
-    assert policy["allow_eval"] is True
-    assert policy["allow_eval_write"] is False
+    assert policy["allow_source_read"] is True
+    assert policy["allow_eval_arbitrary"] is True
+    assert policy["allow_ide_read"] is True
+    assert policy["allow_ide_write"] is True
     assert policy["eval_mode"] == "approval_required"
     assert policy["commit_approval_mode"] == "explicit_confirmation"
     assert policy["eval_requires_human_approval"]
     assert policy["commit_requires_human_approval"]
-    assert policy["allow_compile"] is True
+    assert policy["allow_source_write"] is True
     assert policy["allow_commit"] is True
     assert policy["allow_tracing"] is True
     assert policy["require_gemstone_ast"] is False
@@ -971,7 +993,7 @@ def test_gs_tracer_install_is_disabled_by_default(tools_fixture):
     assert not tracer_install_result["ok"]
     assert tracer_install_result["error"]["message"] == (
         "gs_tracer_install is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-tracing to enable."
     )
 
 
@@ -982,7 +1004,7 @@ def test_gs_ast_install_is_disabled_by_default(tools_fixture):
     assert not ast_install_result["ok"]
     assert ast_install_result["error"]["message"] == (
         "gs_ast_install is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -992,7 +1014,7 @@ def test_gs_tracer_enable_is_disabled_by_default(tools_fixture):
     assert not tracer_enable_result["ok"]
     assert tracer_enable_result["error"]["message"] == (
         "gs_tracer_enable is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-tracing to enable."
     )
 
 
@@ -1002,7 +1024,7 @@ def test_gs_tracer_disable_is_disabled_by_default(tools_fixture):
     assert not tracer_disable_result["ok"]
     assert tracer_disable_result["error"]["message"] == (
         "gs_tracer_disable is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-tracing to enable."
     )
 
 
@@ -1012,7 +1034,7 @@ def test_gs_tracer_uninstall_is_disabled_by_default(tools_fixture):
     assert not tracer_uninstall_result["ok"]
     assert tracer_uninstall_result["error"]["message"] == (
         "gs_tracer_uninstall is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-tracing to enable."
     )
 
 
@@ -1025,7 +1047,7 @@ def test_gs_tracer_trace_selector_is_disabled_by_default(tools_fixture):
     assert not tracer_trace_selector_result["ok"]
     assert tracer_trace_selector_result["error"]["message"] == (
         "gs_tracer_trace_selector is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-tracing to enable."
     )
 
 
@@ -1038,7 +1060,7 @@ def test_gs_tracer_untrace_selector_is_disabled_by_default(tools_fixture):
     assert not tracer_untrace_selector_result["ok"]
     assert tracer_untrace_selector_result["error"]["message"] == (
         "gs_tracer_untrace_selector is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-tracing to enable."
     )
 
 
@@ -1052,7 +1074,7 @@ def test_gs_tracer_clear_observed_senders_is_disabled_by_default(
     assert not tracer_clear_observed_senders_result["ok"]
     assert tracer_clear_observed_senders_result["error"]["message"] == (
         "gs_tracer_clear_observed_senders is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-tracing to enable."
     )
 
 
@@ -1124,7 +1146,7 @@ def test_gs_compile_method_is_disabled_by_default(tools_fixture):
     assert not compile_result["ok"]
     assert compile_result["error"]["message"] == (
         "gs_compile_method is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1137,7 +1159,7 @@ def test_gs_create_class_is_disabled_by_default(tools_fixture):
     assert not create_result["ok"]
     assert create_result["error"]["message"] == (
         "gs_create_class is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1151,7 +1173,7 @@ def test_gs_create_class_in_package_is_disabled_by_default(tools_fixture):
     assert not create_result["ok"]
     assert create_result["error"]["message"] == (
         "gs_create_class is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1164,7 +1186,7 @@ def test_gs_create_package_is_disabled_by_default(tools_fixture):
     assert not create_result["ok"]
     assert create_result["error"]["message"] == (
         "gs_create_package is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1178,7 +1200,7 @@ def test_gs_create_dictionary_is_disabled_by_default(tools_fixture):
     assert not create_result["ok"]
     assert create_result["error"]["message"] == (
         "gs_create_dictionary is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1191,7 +1213,7 @@ def test_gs_install_package_is_disabled_by_default(tools_fixture):
     assert not install_result["ok"]
     assert install_result["error"]["message"] == (
         "gs_install_package is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1204,7 +1226,7 @@ def test_gs_create_test_case_class_is_disabled_by_default(tools_fixture):
     assert not create_result["ok"]
     assert create_result["error"]["message"] == (
         "gs_create_test_case_class is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1217,7 +1239,7 @@ def test_gs_delete_class_is_disabled_by_default(tools_fixture):
     assert not delete_result["ok"]
     assert delete_result["error"]["message"] == (
         "gs_delete_class is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1231,7 +1253,7 @@ def test_gs_delete_method_is_disabled_by_default(tools_fixture):
     assert not delete_result["ok"]
     assert delete_result["error"]["message"] == (
         "gs_delete_method is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1246,7 +1268,7 @@ def test_gs_set_method_category_is_disabled_by_default(tools_fixture):
     assert not set_result["ok"]
     assert set_result["error"]["message"] == (
         "gs_set_method_category is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1260,7 +1282,7 @@ def test_gs_global_set_is_disabled_by_default(tools_fixture):
     assert not set_result["ok"]
     assert set_result["error"]["message"] == (
         "gs_global_set is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1273,7 +1295,7 @@ def test_gs_global_remove_is_disabled_by_default(tools_fixture):
     assert not remove_result["ok"]
     assert remove_result["error"]["message"] == (
         "gs_global_remove is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1287,7 +1309,7 @@ def test_gs_apply_selector_rename_is_disabled_by_default(tools_fixture):
     assert not rename_result["ok"]
     assert rename_result["error"]["message"] == (
         "gs_apply_selector_rename is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1302,7 +1324,7 @@ def test_gs_apply_rename_method_is_disabled_by_default(tools_fixture):
     assert not rename_result["ok"]
     assert rename_result["error"]["message"] == (
         "gs_apply_rename_method is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1317,7 +1339,7 @@ def test_gs_apply_move_method_is_disabled_by_default(tools_fixture):
     assert not move_result["ok"]
     assert move_result["error"]["message"] == (
         "gs_apply_move_method is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1334,7 +1356,7 @@ def test_gs_apply_add_parameter_is_disabled_by_default(tools_fixture):
     assert not add_result["ok"]
     assert add_result["error"]["message"] == (
         "gs_apply_add_parameter is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1349,7 +1371,7 @@ def test_gs_apply_remove_parameter_is_disabled_by_default(tools_fixture):
     assert not remove_result["ok"]
     assert remove_result["error"]["message"] == (
         "gs_apply_remove_parameter is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1365,7 +1387,7 @@ def test_gs_apply_extract_method_is_disabled_by_default(tools_fixture):
     assert not extract_result["ok"]
     assert extract_result["error"]["message"] == (
         "gs_apply_extract_method is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1380,7 +1402,7 @@ def test_gs_apply_inline_method_is_disabled_by_default(tools_fixture):
     assert not inline_result["ok"]
     assert inline_result["error"]["message"] == (
         "gs_apply_inline_method is disabled. "
-        "Start swordfish --headless-mcp with --allow-compile to enable."
+        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1393,7 +1415,7 @@ def test_gs_debug_eval_is_disabled_by_default(tools_fixture):
     assert not debug_eval_result["ok"]
     assert debug_eval_result["error"]["message"] == (
         "gs_debug_eval is disabled. "
-        "Start swordfish --headless-mcp with --allow-eval to enable."
+        "Start swordfish --headless-mcp with --allow-eval-arbitrary to enable."
     )
 
 
@@ -1402,8 +1424,10 @@ def test_register_tools_allows_eval_without_extra_approval_configuration():
     with expected(NoException):
         register_tools(
             registrar,
-            allow_eval=True,
-            allow_compile=True,
+            allow_eval_arbitrary=True,
+            allow_source_write=True,
+            allow_ide_read=True,
+            allow_ide_write=True,
             allow_commit=True,
             allow_tracing=False,
         )
@@ -1414,8 +1438,10 @@ def test_register_tools_allows_commit_with_explicit_confirmation_policy():
     with expected(NoException):
         register_tools(
             registrar,
-            allow_eval=False,
-            allow_compile=True,
+            allow_eval_arbitrary=False,
+            allow_source_write=True,
+            allow_ide_read=True,
+            allow_ide_write=True,
             allow_commit=True,
             allow_tracing=False,
         )
@@ -1466,8 +1492,8 @@ def test_gs_capabilities_reports_eval_approval_mode(tools_fixture):
     capabilities_result = tools_fixture.gs_capabilities()
     assert capabilities_result["ok"], capabilities_result
     policy = capabilities_result["policy"]
-    assert policy["allow_eval"]
-    assert not policy["allow_eval_write"]
+    assert policy["allow_eval_arbitrary"]
+    assert policy["allow_source_read"]
     assert policy["eval_mode"] == "approval_required"
     assert policy["require_gemstone_ast"] is False
 
@@ -3050,8 +3076,10 @@ def test_gs_connect_attaches_to_active_ide_session():
     shared_state.attach_ide_session(FakeGemstoneSession())
     register_tools(
         registrar,
-        allow_eval=True,
-        allow_compile=True,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
         integrated_session_state=shared_state,
@@ -3077,8 +3105,10 @@ def test_gs_connect_is_blocked_when_gui_is_active_without_login():
     shared_state.attach_ide_gui()
     register_tools(
         registrar,
-        allow_eval=True,
-        allow_compile=True,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
         integrated_session_state=shared_state,
@@ -3106,8 +3136,10 @@ def test_gs_disconnect_is_blocked_for_ide_owned_session():
     shared_state.attach_ide_session(FakeGemstoneSession())
     register_tools(
         registrar,
-        allow_eval=True,
-        allow_compile=True,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
         integrated_session_state=shared_state,
@@ -3121,14 +3153,18 @@ def test_gs_disconnect_is_blocked_for_ide_owned_session():
     )
 
 
-def test_gs_commit_is_disabled_by_default_when_ide_owns_session():
+def test_gs_commit_is_enabled_when_ide_owns_session():
     registrar = McpToolRegistrar()
     shared_state = IntegratedSessionState()
-    shared_state.attach_ide_session(FakeGemstoneSession())
+    fake_session = FakeGemstoneSession()
+    shared_state.attach_ide_session(fake_session)
     register_tools(
         registrar,
-        allow_eval=True,
-        allow_compile=True,
+        allow_source_read=True,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
         integrated_session_state=shared_state,
@@ -3138,12 +3174,8 @@ def test_gs_commit_is_disabled_by_default_when_ide_owns_session():
         approved_by_user=True,
         approval_note="User explicitly approved this commit.",
     )
-    assert not commit_result["ok"]
-    assert commit_result["error"]["message"] == (
-        "gs_commit is disabled while the IDE owns the session. "
-        "Use the IDE commit action or start swordfish --headless-mcp with "
-        "--allow-mcp-commit-when-gui."
-    )
+    assert commit_result["ok"], commit_result
+    assert fake_session.commit_count == 1
 
 
 def test_gs_commit_can_be_enabled_when_ide_owns_session():
@@ -3153,10 +3185,12 @@ def test_gs_commit_can_be_enabled_when_ide_owns_session():
     shared_state.attach_ide_session(fake_session)
     register_tools(
         registrar,
-        allow_eval=True,
-        allow_compile=True,
+        allow_source_read=True,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
         allow_commit=True,
-        allow_commit_when_gui=True,
         allow_tracing=True,
         integrated_session_state=shared_state,
     )
@@ -3178,8 +3212,10 @@ def test_gs_ide_open_graph_for_oops_requires_shared_ide_connection():
     )
     register_tools(
         registrar,
-        allow_eval=True,
-        allow_compile=True,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
         integrated_session_state=shared_state,
@@ -3216,8 +3252,10 @@ def test_gs_ide_current_view_dispatches_navigation_action():
     shared_state.attach_ide_gui(ide_navigation_action=fake_navigation_action)
     register_tools(
         registrar,
-        allow_eval=True,
-        allow_compile=True,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
         integrated_session_state=shared_state,
@@ -3246,8 +3284,10 @@ def test_gs_ide_select_class_dispatches_navigation_action():
     shared_state.attach_ide_gui(ide_navigation_action=fake_navigation_action)
     register_tools(
         registrar,
-        allow_eval=True,
-        allow_compile=True,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
         integrated_session_state=shared_state,
@@ -3282,8 +3322,10 @@ def test_gs_ide_open_method_dispatches_navigation_action():
     shared_state.attach_ide_gui(ide_navigation_action=fake_navigation_action)
     register_tools(
         registrar,
-        allow_eval=True,
-        allow_compile=True,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
         integrated_session_state=shared_state,
@@ -3325,8 +3367,10 @@ def test_gs_ide_open_debugger_dispatches_exception_navigation_action():
     shared_state.attach_ide_gui(ide_navigation_action=fake_navigation_action)
     register_tools(
         registrar,
-        allow_eval=True,
-        allow_compile=True,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
         integrated_session_state=shared_state,
@@ -3362,8 +3406,10 @@ def test_gs_capabilities_exposes_ide_navigation_tool_group():
     shared_state.attach_ide_gui(ide_navigation_action=fake_navigation_action)
     register_tools(
         registrar,
-        allow_eval=True,
-        allow_compile=True,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
         integrated_session_state=shared_state,
@@ -3399,8 +3445,10 @@ def test_gs_capabilities_includes_ide_mcp_runtime_restart_hint():
     shared_state.attach_ide_gui(ide_navigation_action=fake_navigation_action)
     register_tools(
         registrar,
-        allow_eval=True,
-        allow_compile=True,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
         integrated_session_state=shared_state,

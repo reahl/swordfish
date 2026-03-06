@@ -49,16 +49,16 @@ from reahl.swordfish.mcp.tracer_assets import (
 
 def register_tools(
     mcp_server,
-    allow_eval=False,
-    allow_compile=False,
+    allow_source_read=True,
+    allow_source_write=False,
+    allow_eval_arbitrary=False,
+    allow_ide_read=True,
+    allow_ide_write=False,
     allow_commit=False,
     allow_tracing=False,
-    allow_commit_when_gui=False,
     integrated_session_state=None,
     require_gemstone_ast=False,
 ):
-    if not isinstance(allow_commit_when_gui, bool):
-        raise ValueError("allow_commit_when_gui must be a boolean.")
     if integrated_session_state is None:
         integrated_session_state = IntegratedSessionState()
 
@@ -194,7 +194,18 @@ def register_tools(
             },
         }
 
-    def get_browser_session(connection_id):
+    def get_browser_session(
+        connection_id,
+        tool_name="Source read tool",
+        require_source_read=True,
+    ):
+        if require_source_read:
+            source_read_error_response = require_source_read_enabled(
+                connection_id,
+                tool_name,
+            )
+            if source_read_error_response is not None:
+                return None, source_read_error_response
         gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
             return None, error_response
@@ -230,6 +241,84 @@ def register_tools(
             "connection_id": connection_id,
             "error": {"message": message},
         }
+
+    def source_read_disabled_tool_response(connection_id, tool_name):
+        return disabled_tool_response(
+            connection_id,
+            (
+                "%s is disabled. "
+                "Start swordfish --headless-mcp with --allow-source-read "
+                "to enable."
+            )
+            % tool_name,
+        )
+
+    def source_write_disabled_tool_response(connection_id, tool_name):
+        return disabled_tool_response(
+            connection_id,
+            (
+                "%s is disabled. "
+                "Start swordfish --headless-mcp with --allow-source-write "
+                "to enable."
+            )
+            % tool_name,
+        )
+
+    def eval_arbitrary_disabled_tool_response(connection_id, tool_name):
+        return disabled_tool_response(
+            connection_id,
+            (
+                "%s is disabled. "
+                "Start swordfish --headless-mcp with --allow-eval-arbitrary "
+                "to enable."
+            )
+            % tool_name,
+        )
+
+    def ide_read_disabled_tool_response(connection_id, tool_name):
+        return disabled_tool_response(
+            connection_id,
+            (
+                "%s is disabled. "
+                "Start swordfish --headless-mcp with --allow-ide-read to enable."
+            )
+            % tool_name,
+        )
+
+    def ide_write_disabled_tool_response(connection_id, tool_name):
+        return disabled_tool_response(
+            connection_id,
+            (
+                "%s is disabled. "
+                "Start swordfish --headless-mcp with --allow-ide-write to enable."
+            )
+            % tool_name,
+        )
+
+    def require_source_read_enabled(connection_id, tool_name):
+        if allow_source_read:
+            return None
+        return source_read_disabled_tool_response(connection_id, tool_name)
+
+    def require_source_write_enabled(connection_id, tool_name):
+        if allow_source_write:
+            return None
+        return source_write_disabled_tool_response(connection_id, tool_name)
+
+    def require_eval_arbitrary_enabled(connection_id, tool_name):
+        if allow_eval_arbitrary:
+            return None
+        return eval_arbitrary_disabled_tool_response(connection_id, tool_name)
+
+    def require_ide_read_enabled(connection_id, tool_name):
+        if allow_ide_read:
+            return None
+        return ide_read_disabled_tool_response(connection_id, tool_name)
+
+    def require_ide_write_enabled(connection_id, tool_name):
+        if allow_ide_write:
+            return None
+        return ide_write_disabled_tool_response(connection_id, tool_name)
 
     def tracing_disabled_tool_response(connection_id, tool_name):
         return disabled_tool_response(
@@ -425,16 +514,12 @@ def register_tools(
         raise DomainException("%s must be a boolean." % argument_name)
 
     def current_eval_mode():
-        if not allow_eval:
+        if not allow_eval_arbitrary:
             return "disabled"
         return "approval_required"
 
     def commit_allowed_for_current_mode():
-        if not allow_commit:
-            return False
-        if gui_session_is_active() and not allow_commit_when_gui:
-            return False
-        return True
+        return bool(allow_commit)
 
     def current_commit_approval_mode():
         if not commit_allowed_for_current_mode():
@@ -444,22 +529,22 @@ def register_tools(
     def policy_flags():
         gui_active = gui_session_is_active()
         return {
-            "allow_eval": allow_eval,
-            "allow_eval_write": False,
-            "allow_compile": allow_compile,
+            "allow_source_read": allow_source_read,
+            "allow_source_write": allow_source_write,
+            "allow_eval_arbitrary": allow_eval_arbitrary,
+            "allow_ide_read": allow_ide_read,
+            "allow_ide_write": allow_ide_write,
             "allow_commit": commit_allowed_for_current_mode(),
             "allow_tracing": allow_tracing,
             "require_gemstone_ast": require_gemstone_ast,
             "gui_session_active": gui_active,
-            "gui_controls_session": gui_active,
             "mcp_can_connect_sessions": not gui_active,
             "mcp_can_disconnect_sessions": not gui_active,
-            "mcp_commit_allowed_when_gui": allow_commit_when_gui,
             "eval_mode": current_eval_mode(),
             "commit_approval_mode": current_commit_approval_mode(),
             "eval_requires_unsafe": True,
-            "eval_requires_human_approval": allow_eval,
-            "commit_requires_human_approval": commit_allowed_for_current_mode(),
+            "eval_requires_human_approval": allow_eval_arbitrary,
+            "commit_requires_human_approval": allow_commit,
             "writes_require_active_transaction": True,
             "ide_navigation_available": (
                 gui_active and integrated_session_state.has_ide_navigation_action()
@@ -534,7 +619,21 @@ def register_tools(
         connection_id,
         action_name,
         action_parameters,
+        requires_write=True,
     ):
+        permission_error_response = None
+        if requires_write:
+            permission_error_response = require_ide_write_enabled(
+                connection_id,
+                "IDE navigation write tool",
+            )
+        else:
+            permission_error_response = require_ide_read_enabled(
+                connection_id,
+                "IDE navigation read tool",
+            )
+        if permission_error_response is not None:
+            return permission_error_response
         connection_error_response = require_ide_navigation_connection(connection_id)
         if connection_error_response is not None:
             return connection_error_response
@@ -677,7 +776,7 @@ def register_tools(
         ]
         cautions = []
         workflow = []
-        if allow_eval:
+        if allow_eval_arbitrary:
             decision_rules.append(
                 {
                     "when": "You are using gs_eval or gs_debug_eval.",
@@ -704,14 +803,6 @@ def register_tools(
                 (
                     "gs_commit requires explicit confirmation: "
                     "approved_by_user=true and non-empty approval_note."
-                )
-            )
-        elif allow_commit and gui_session_is_active():
-            cautions.append(
-                (
-                    "gs_commit is disabled while the IDE owns the active "
-                    "session unless the server is started with "
-                    "--allow-mcp-commit-when-gui."
                 )
             )
         if intent == "general":
@@ -1926,6 +2017,12 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_begin(connection_id):
+        source_write_error_response = require_source_write_enabled(
+            connection_id,
+            "gs_begin",
+        )
+        if source_write_error_response:
+            return source_write_error_response
         gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
             return error_response
@@ -1955,6 +2052,12 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_begin_if_needed(connection_id):
+        source_write_error_response = require_source_write_enabled(
+            connection_id,
+            "gs_begin_if_needed",
+        )
+        if source_write_error_response:
+            return source_write_error_response
         gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
             return error_response
@@ -2002,24 +2105,12 @@ def register_tools(
         approved_by_user=False,
         approval_note="",
     ):
-        if not allow_commit:
+        if not commit_allowed_for_current_mode():
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_commit is disabled. "
                     "Start swordfish --headless-mcp with --allow-commit to enable."
-                ),
-            )
-        if (
-            integrated_session_state.is_ide_connection_id(connection_id)
-            and not allow_commit_when_gui
-        ):
-            return disabled_tool_response(
-                connection_id,
-                (
-                    "gs_commit is disabled while the IDE owns the session. "
-                    "Use the IDE commit action or start swordfish --headless-mcp with "
-                    "--allow-mcp-commit-when-gui."
                 ),
             )
         approval_error_response = require_explicit_user_confirmation(
@@ -2079,6 +2170,12 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_ide_navigation_status(connection_id):
+        ide_read_error_response = require_ide_read_enabled(
+            connection_id,
+            "gs_ide_navigation_status",
+        )
+        if ide_read_error_response:
+            return ide_read_error_response
         metadata = metadata_for_connection_id(connection_id)
         if metadata is None:
             return {
@@ -2103,6 +2200,7 @@ def register_tools(
             connection_id,
             "query_current_view",
             {},
+            requires_write=False,
         )
 
     @mcp_server.tool()
@@ -2411,6 +2509,12 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_abort(connection_id):
+        source_write_error_response = require_source_write_enabled(
+            connection_id,
+            "gs_abort",
+        )
+        if source_write_error_response:
+            return source_write_error_response
         gemstone_session, error_response = get_active_session(connection_id)
         if error_response:
             return error_response
@@ -2638,12 +2742,12 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_create_package(connection_id, package_name):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_create_package is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -2689,12 +2793,12 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_create_dictionary(connection_id, dictionary_name):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_create_dictionary is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -2739,12 +2843,12 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_install_package(connection_id, package_name):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_install_package is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -3408,12 +3512,12 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_ast_install(connection_id):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_ast_install is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -3471,14 +3575,6 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_tracer_install(connection_id):
-        if not allow_compile:
-            return disabled_tool_response(
-                connection_id,
-                (
-                    "gs_tracer_install is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
-                ),
-            )
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_tracer_install",
@@ -3514,14 +3610,6 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_tracer_enable(connection_id, force=False):
-        if not allow_compile:
-            return disabled_tool_response(
-                connection_id,
-                (
-                    "gs_tracer_enable is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
-                ),
-            )
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_tracer_enable",
@@ -3567,14 +3655,6 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_tracer_disable(connection_id):
-        if not allow_compile:
-            return disabled_tool_response(
-                connection_id,
-                (
-                    "gs_tracer_disable is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
-                ),
-            )
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_tracer_disable",
@@ -3610,14 +3690,6 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_tracer_uninstall(connection_id):
-        if not allow_compile:
-            return disabled_tool_response(
-                connection_id,
-                (
-                    "gs_tracer_uninstall is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
-                ),
-            )
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_tracer_uninstall",
@@ -3657,14 +3729,6 @@ def register_tools(
         method_name,
         max_results=None,
     ):
-        if not allow_compile:
-            return disabled_tool_response(
-                connection_id,
-                (
-                    "gs_tracer_trace_selector is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
-                ),
-            )
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_tracer_trace_selector",
@@ -3721,14 +3785,6 @@ def register_tools(
         connection_id,
         method_name,
     ):
-        if not allow_compile:
-            return disabled_tool_response(
-                connection_id,
-                (
-                    "gs_tracer_untrace_selector is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
-                ),
-            )
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_tracer_untrace_selector",
@@ -3774,14 +3830,6 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_tracer_clear_observed_senders(connection_id, method_name=None):
-        if not allow_compile:
-            return disabled_tool_response(
-                connection_id,
-                (
-                    "gs_tracer_clear_observed_senders is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
-                ),
-            )
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_tracer_clear_observed_senders",
@@ -3982,14 +4030,6 @@ def register_tools(
         clear_observed=True,
         untrace_after=True,
     ):
-        if not allow_compile:
-            return disabled_tool_response(
-                connection_id,
-                (
-                    "gs_collect_sender_evidence is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
-                ),
-            )
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_collect_sender_evidence",
@@ -4207,12 +4247,12 @@ def register_tools(
         method_category="as yet unclassified",
         in_dictionary=None,
     ):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_compile_method is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4290,12 +4330,12 @@ def register_tools(
         pool_dictionary_names=None,
         in_dictionary="UserGlobals",
     ):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_create_class is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4382,12 +4422,12 @@ def register_tools(
         pool_dictionary_names=None,
         in_dictionary="UserGlobals",
     ):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_create_class is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4478,12 +4518,12 @@ def register_tools(
         in_dictionary="UserGlobals",
         package_name="",
     ):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_create_test_case_class is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4574,12 +4614,12 @@ def register_tools(
         class_name,
         in_dictionary="UserGlobals",
     ):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_delete_class is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4631,12 +4671,12 @@ def register_tools(
         method_selector,
         show_instance_side=True,
     ):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_delete_method is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4695,12 +4735,12 @@ def register_tools(
         method_category,
         show_instance_side=True,
     ):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_set_method_category is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -4951,12 +4991,12 @@ def register_tools(
         new_selector,
         show_instance_side=True,
     ):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_apply_rename_method is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5090,12 +5130,12 @@ def register_tools(
         overwrite_target_method=False,
         delete_source_method=True,
     ):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_apply_move_method is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5262,12 +5302,12 @@ def register_tools(
         default_argument_source,
         show_instance_side=True,
     ):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_apply_add_parameter is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5423,12 +5463,12 @@ def register_tools(
         overwrite_new_method=False,
         rewrite_source_senders=False,
     ):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_apply_remove_parameter is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5584,12 +5624,12 @@ def register_tools(
         show_instance_side=True,
         overwrite_new_method=False,
     ):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_apply_extract_method is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5737,12 +5777,12 @@ def register_tools(
         show_instance_side=True,
         delete_inlined_method=False,
     ):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_apply_inline_method is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5864,12 +5904,12 @@ def register_tools(
         evidence_run_id=None,
         evidence_max_age_seconds=3600,
     ):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_apply_selector_rename is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5947,12 +5987,12 @@ def register_tools(
         literal_value,
         in_dictionary="UserGlobals",
     ):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_global_set is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -6012,12 +6052,12 @@ def register_tools(
         symbol_name,
         in_dictionary="UserGlobals",
     ):
-        if not allow_compile:
+        if not allow_source_write:
             return disabled_tool_response(
                 connection_id,
                 (
                     "gs_global_remove is disabled. "
-                    "Start swordfish --headless-mcp with --allow-compile to enable."
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -6147,14 +6187,12 @@ def register_tools(
         open_ide_debugger_on_error=False,
         ask_before_open_ide_debugger=True,
     ):
-        if not allow_eval:
-            return disabled_tool_response(
-                connection_id,
-                (
-                    "gs_debug_eval is disabled. "
-                    "Start swordfish --headless-mcp with --allow-eval to enable."
-                ),
-            )
+        eval_arbitrary_error_response = require_eval_arbitrary_enabled(
+            connection_id,
+            "gs_debug_eval",
+        )
+        if eval_arbitrary_error_response:
+            return eval_arbitrary_error_response
         try:
             source = validated_non_empty_string(source, "source")
             reason = validated_non_empty_string_stripped(reason, "reason")
@@ -6181,7 +6219,11 @@ def register_tools(
         )
         if approval_error_response:
             return approval_error_response
-        browser_session, error_response = get_browser_session(connection_id)
+        browser_session, error_response = get_browser_session(
+            connection_id,
+            tool_name="gs_debug_eval",
+            require_source_read=False,
+        )
         if error_response:
             return error_response
         metadata = metadata_for_connection_id(connection_id)
@@ -6500,14 +6542,12 @@ def register_tools(
         approved_by_user=False,
         approval_note="",
     ):
-        if not allow_eval:
-            return disabled_tool_response(
-                connection_id,
-                (
-                    "gs_eval is disabled. "
-                    "Start swordfish --headless-mcp with --allow-eval to enable."
-                ),
-            )
+        eval_arbitrary_error_response = require_eval_arbitrary_enabled(
+            connection_id,
+            "gs_eval",
+        )
+        if eval_arbitrary_error_response:
+            return eval_arbitrary_error_response
         if not unsafe:
             return disabled_tool_response(
                 connection_id,
@@ -6534,7 +6574,11 @@ def register_tools(
         )
         if approval_error_response:
             return approval_error_response
-        browser_session, error_response = get_browser_session(connection_id)
+        browser_session, error_response = get_browser_session(
+            connection_id,
+            tool_name="gs_eval",
+            require_source_read=False,
+        )
         if error_response:
             return error_response
         metadata = metadata_for_connection_id(connection_id)

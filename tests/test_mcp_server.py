@@ -34,24 +34,9 @@ def test_create_server_passes_policy_flags_to_tool_registration():
 
     captured = {}
 
-    def fake_register_tools(
-        mcp_server,
-        allow_eval=False,
-        allow_compile=False,
-        allow_commit=False,
-        allow_tracing=False,
-        allow_commit_when_gui=False,
-        integrated_session_state=None,
-        require_gemstone_ast=False,
-    ):
+    def fake_register_tools(mcp_server, **kwargs):
         captured["mcp_server"] = mcp_server
-        captured["allow_eval"] = allow_eval
-        captured["allow_compile"] = allow_compile
-        captured["allow_commit"] = allow_commit
-        captured["allow_tracing"] = allow_tracing
-        captured["allow_commit_when_gui"] = allow_commit_when_gui
-        captured["integrated_session_state"] = integrated_session_state
-        captured["require_gemstone_ast"] = require_gemstone_ast
+        captured.update(kwargs)
 
     with patch(
         "reahl.swordfish.mcp.server.import_fast_mcp",
@@ -62,20 +47,24 @@ def test_create_server_passes_policy_flags_to_tool_registration():
             return_value=fake_register_tools,
         ):
             mcp_server = create_server(
-                allow_eval=True,
-                allow_compile=True,
+                allow_source_read=True,
+                allow_eval_arbitrary=True,
+                allow_source_write=True,
+                allow_ide_read=True,
+                allow_ide_write=True,
                 allow_commit=True,
                 allow_tracing=True,
-                allow_commit_when_gui=True,
                 require_gemstone_ast=True,
             )
 
     assert mcp_server is captured["mcp_server"]
-    assert captured["allow_eval"]
-    assert captured["allow_compile"]
+    assert captured["allow_source_read"]
+    assert captured["allow_eval_arbitrary"]
+    assert captured["allow_source_write"]
+    assert captured["allow_ide_read"]
+    assert captured["allow_ide_write"]
     assert captured["allow_commit"]
     assert captured["allow_tracing"]
-    assert captured["allow_commit_when_gui"]
     assert captured["integrated_session_state"] is not None
     assert captured["require_gemstone_ast"]
 
@@ -92,22 +81,9 @@ def test_create_server_supports_fast_mcp_without_version_argument():
 
     captured = {}
 
-    def fake_register_tools(
-        mcp_server,
-        allow_eval=False,
-        allow_compile=False,
-        allow_commit=False,
-        allow_tracing=False,
-        allow_commit_when_gui=False,
-        integrated_session_state=None,
-        require_gemstone_ast=False,
-    ):
+    def fake_register_tools(mcp_server, **kwargs):
         captured["mcp_server"] = mcp_server
-        captured["allow_eval"] = allow_eval
-        captured["allow_compile"] = allow_compile
-        captured["allow_commit"] = allow_commit
-        captured["allow_tracing"] = allow_tracing
-        captured["require_gemstone_ast"] = require_gemstone_ast
+        captured.update(kwargs)
 
     with patch(
         "reahl.swordfish.mcp.server.import_fast_mcp",
@@ -118,8 +94,8 @@ def test_create_server_supports_fast_mcp_without_version_argument():
             return_value=fake_register_tools,
         ):
             mcp_server = create_server(
-                allow_eval=False,
-                allow_compile=False,
+                allow_eval_arbitrary=False,
+                allow_source_write=False,
                 allow_commit=False,
                 allow_tracing=False,
                 require_gemstone_ast=False,
@@ -127,6 +103,8 @@ def test_create_server_supports_fast_mcp_without_version_argument():
 
     assert mcp_server is captured["mcp_server"]
     assert mcp_server.name == "SwordfishMCP"
+    assert captured["allow_source_read"]
+    assert captured["allow_ide_read"]
     assert not captured["allow_commit"]
     assert not captured["allow_tracing"]
     assert not captured["require_gemstone_ast"]
@@ -135,8 +113,8 @@ def test_create_server_supports_fast_mcp_without_version_argument():
 def test_create_server_allows_eval_without_extra_approval_configuration():
     with expected(NoException):
         create_server(
-            allow_eval=True,
-            allow_compile=True,
+            allow_eval_arbitrary=True,
+            allow_source_write=True,
             allow_commit=True,
             allow_tracing=False,
             require_gemstone_ast=False,
@@ -152,13 +130,13 @@ def test_create_server_allows_commit_enabled_without_extra_approval_configuratio
 
     def fake_register_tools(
         mcp_server,
-        allow_eval=False,
-        allow_compile=False,
+        allow_eval_arbitrary=False,
+        allow_source_write=False,
         allow_commit=False,
         allow_tracing=False,
-        allow_commit_when_gui=False,
         integrated_session_state=None,
         require_gemstone_ast=False,
+        **kwargs,
     ):
         pass
 
@@ -172,8 +150,8 @@ def test_create_server_allows_commit_enabled_without_extra_approval_configuratio
         ):
             with expected(NoException):
                 create_server(
-                    allow_eval=False,
-                    allow_compile=True,
+                    allow_eval_arbitrary=False,
+                    allow_source_write=True,
                     allow_commit=True,
                     allow_tracing=False,
                     require_gemstone_ast=False,
@@ -191,16 +169,16 @@ def test_create_server_passes_commit_policy_flags_in_confirmation_mode():
 
     def fake_register_tools(
         mcp_server,
-        allow_eval=False,
-        allow_compile=False,
+        allow_eval_arbitrary=False,
+        allow_source_write=False,
         allow_commit=False,
         allow_tracing=False,
-        allow_commit_when_gui=False,
         integrated_session_state=None,
         require_gemstone_ast=False,
+        **kwargs,
     ):
         captured["allow_commit"] = allow_commit
-        captured["allow_compile"] = allow_compile
+        captured["allow_source_write"] = allow_source_write
 
     with patch(
         "reahl.swordfish.mcp.server.import_fast_mcp",
@@ -212,15 +190,15 @@ def test_create_server_passes_commit_policy_flags_in_confirmation_mode():
         ):
             with expected(NoException):
                 create_server(
-                    allow_eval=False,
-                    allow_compile=True,
+                    allow_eval_arbitrary=False,
+                    allow_source_write=True,
                     allow_commit=True,
                     allow_tracing=False,
                     require_gemstone_ast=False,
                 )
 
     assert captured["allow_commit"]
-    assert captured["allow_compile"]
+    assert captured["allow_source_write"]
 
 
 def test_create_server_passes_streamable_http_network_configuration():
@@ -246,13 +224,13 @@ def test_create_server_passes_streamable_http_network_configuration():
 
     def fake_register_tools(
         mcp_server,
-        allow_eval=False,
-        allow_compile=False,
+        allow_eval_arbitrary=False,
+        allow_source_write=False,
         allow_commit=False,
         allow_tracing=False,
-        allow_commit_when_gui=False,
         integrated_session_state=None,
         require_gemstone_ast=False,
+        **kwargs,
     ):
         pass
 
@@ -265,8 +243,8 @@ def test_create_server_passes_streamable_http_network_configuration():
             return_value=fake_register_tools,
         ):
             create_server(
-                allow_eval=False,
-                allow_compile=True,
+                allow_eval_arbitrary=False,
+                allow_source_write=True,
                 allow_commit=True,
                 allow_tracing=False,
                 mcp_host="127.0.0.1",

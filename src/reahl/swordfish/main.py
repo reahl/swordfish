@@ -1262,7 +1262,7 @@ class EventQueue:
             self.wakeup_write_descriptor = None
 
 
-MCP_RUNTIME_CONFIG_SCHEMA_VERSION = 1
+MCP_RUNTIME_CONFIG_SCHEMA_VERSION = 2
 MCP_RUNTIME_CONFIG_FILE_NAME = "mcp.json"
 
 
@@ -1355,19 +1355,24 @@ class McpConfigurationStore:
 
     def explicit_overrides_from_argument_tokens(self, argument_tokens):
         explicit_overrides = {}
-        if self.argument_is_explicitly_set(argument_tokens, "--allow-eval"):
-            explicit_overrides["allow_eval"] = True
-        if self.argument_is_explicitly_set(argument_tokens, "--allow-compile"):
-            explicit_overrides["allow_compile"] = True
+        if self.argument_is_explicitly_set(argument_tokens, "--allow-source-read"):
+            explicit_overrides["allow_source_read"] = True
+        if self.argument_is_explicitly_set(argument_tokens, "--disallow-source-read"):
+            explicit_overrides["allow_source_read"] = True
+        if self.argument_is_explicitly_set(argument_tokens, "--allow-source-write"):
+            explicit_overrides["allow_source_write"] = True
+        if self.argument_is_explicitly_set(argument_tokens, "--allow-eval-arbitrary"):
+            explicit_overrides["allow_eval_arbitrary"] = True
+        if self.argument_is_explicitly_set(argument_tokens, "--allow-ide-read"):
+            explicit_overrides["allow_ide_read"] = True
+        if self.argument_is_explicitly_set(argument_tokens, "--disallow-ide-read"):
+            explicit_overrides["allow_ide_read"] = True
+        if self.argument_is_explicitly_set(argument_tokens, "--allow-ide-write"):
+            explicit_overrides["allow_ide_write"] = True
         if self.argument_is_explicitly_set(argument_tokens, "--allow-commit"):
             explicit_overrides["allow_commit"] = True
         if self.argument_is_explicitly_set(argument_tokens, "--allow-tracing"):
             explicit_overrides["allow_tracing"] = True
-        if self.argument_is_explicitly_set(
-            argument_tokens,
-            "--allow-mcp-commit-when-gui",
-        ):
-            explicit_overrides["allow_mcp_commit_when_gui"] = True
         if self.argument_is_explicitly_set(argument_tokens, "--require-gemstone-ast"):
             explicit_overrides["require_gemstone_ast"] = True
         if self.argument_is_explicitly_set(argument_tokens, "--mcp-host"):
@@ -1380,15 +1385,17 @@ class McpConfigurationStore:
 
     def config_from_arguments(self, arguments):
         return McpRuntimeConfig(
-            allow_eval=arguments.allow_eval,
-            allow_compile=arguments.allow_compile,
-            allow_commit=arguments.allow_commit,
-            allow_tracing=arguments.allow_tracing,
-            allow_mcp_commit_when_gui=arguments.allow_mcp_commit_when_gui,
-            require_gemstone_ast=arguments.require_gemstone_ast,
-            mcp_host=arguments.mcp_host,
-            mcp_port=arguments.mcp_port,
-            mcp_http_path=arguments.mcp_http_path,
+            allow_source_read=getattr(arguments, "allow_source_read", True),
+            allow_source_write=getattr(arguments, "allow_source_write", False),
+            allow_eval_arbitrary=getattr(arguments, "allow_eval_arbitrary", False),
+            allow_ide_read=getattr(arguments, "allow_ide_read", True),
+            allow_ide_write=getattr(arguments, "allow_ide_write", False),
+            allow_commit=getattr(arguments, "allow_commit", False),
+            allow_tracing=getattr(arguments, "allow_tracing", False),
+            require_gemstone_ast=getattr(arguments, "require_gemstone_ast", False),
+            mcp_host=getattr(arguments, "mcp_host", "127.0.0.1"),
+            mcp_port=getattr(arguments, "mcp_port", 8000),
+            mcp_http_path=getattr(arguments, "mcp_http_path", "/mcp"),
         )
 
     def merged_config_from_arguments(
@@ -1411,14 +1418,29 @@ class McpConfigurationStore:
             return persisted_runtime_config.copy()
         merged_runtime_config = persisted_runtime_config.copy()
         merged_runtime_config.update_with(
-            allow_eval=(
-                cli_runtime_config.allow_eval
-                if explicit_overrides.get("allow_eval")
+            allow_source_read=(
+                cli_runtime_config.allow_source_read
+                if explicit_overrides.get("allow_source_read")
                 else None
             ),
-            allow_compile=(
-                cli_runtime_config.allow_compile
-                if explicit_overrides.get("allow_compile")
+            allow_source_write=(
+                cli_runtime_config.allow_source_write
+                if explicit_overrides.get("allow_source_write")
+                else None
+            ),
+            allow_eval_arbitrary=(
+                cli_runtime_config.allow_eval_arbitrary
+                if explicit_overrides.get("allow_eval_arbitrary")
+                else None
+            ),
+            allow_ide_read=(
+                cli_runtime_config.allow_ide_read
+                if explicit_overrides.get("allow_ide_read")
+                else None
+            ),
+            allow_ide_write=(
+                cli_runtime_config.allow_ide_write
+                if explicit_overrides.get("allow_ide_write")
                 else None
             ),
             allow_commit=(
@@ -1429,11 +1451,6 @@ class McpConfigurationStore:
             allow_tracing=(
                 cli_runtime_config.allow_tracing
                 if explicit_overrides.get("allow_tracing")
-                else None
-            ),
-            allow_mcp_commit_when_gui=(
-                cli_runtime_config.allow_mcp_commit_when_gui
-                if explicit_overrides.get("allow_mcp_commit_when_gui")
                 else None
             ),
             require_gemstone_ast=(
@@ -1463,21 +1480,25 @@ class McpConfigurationStore:
 class McpRuntimeConfig:
     def __init__(
         self,
-        allow_eval=False,
-        allow_compile=False,
+        allow_source_read=True,
+        allow_source_write=False,
+        allow_eval_arbitrary=False,
+        allow_ide_read=True,
+        allow_ide_write=False,
         allow_commit=False,
         allow_tracing=False,
-        allow_mcp_commit_when_gui=False,
         require_gemstone_ast=False,
         mcp_host="127.0.0.1",
         mcp_port=8000,
         mcp_http_path="/mcp",
     ):
-        self.allow_eval = allow_eval
-        self.allow_compile = allow_compile
+        self.allow_source_read = allow_source_read
+        self.allow_source_write = allow_source_write
+        self.allow_eval_arbitrary = allow_eval_arbitrary
+        self.allow_ide_read = allow_ide_read
+        self.allow_ide_write = allow_ide_write
         self.allow_commit = allow_commit
         self.allow_tracing = allow_tracing
-        self.allow_mcp_commit_when_gui = allow_mcp_commit_when_gui
         self.require_gemstone_ast = require_gemstone_ast
         self.mcp_host = mcp_host
         self.mcp_port = mcp_port
@@ -1485,11 +1506,13 @@ class McpRuntimeConfig:
 
     def copy(self):
         return McpRuntimeConfig(
-            allow_eval=self.allow_eval,
-            allow_compile=self.allow_compile,
+            allow_source_read=self.allow_source_read,
+            allow_source_write=self.allow_source_write,
+            allow_eval_arbitrary=self.allow_eval_arbitrary,
+            allow_ide_read=self.allow_ide_read,
+            allow_ide_write=self.allow_ide_write,
             allow_commit=self.allow_commit,
             allow_tracing=self.allow_tracing,
-            allow_mcp_commit_when_gui=self.allow_mcp_commit_when_gui,
             require_gemstone_ast=self.require_gemstone_ast,
             mcp_host=self.mcp_host,
             mcp_port=self.mcp_port,
@@ -1499,13 +1522,15 @@ class McpRuntimeConfig:
     @classmethod
     def from_dict(cls, config_payload):
         return cls(
-            allow_eval=bool(config_payload.get("allow_eval", False)),
-            allow_compile=bool(config_payload.get("allow_compile", False)),
+            allow_source_read=bool(config_payload.get("allow_source_read", True)),
+            allow_source_write=bool(config_payload.get("allow_source_write", False)),
+            allow_eval_arbitrary=bool(
+                config_payload.get("allow_eval_arbitrary", False)
+            ),
+            allow_ide_read=bool(config_payload.get("allow_ide_read", True)),
+            allow_ide_write=bool(config_payload.get("allow_ide_write", False)),
             allow_commit=bool(config_payload.get("allow_commit", False)),
             allow_tracing=bool(config_payload.get("allow_tracing", False)),
-            allow_mcp_commit_when_gui=bool(
-                config_payload.get("allow_mcp_commit_when_gui", False)
-            ),
             require_gemstone_ast=bool(
                 config_payload.get("require_gemstone_ast", False)
             ),
@@ -1516,11 +1541,13 @@ class McpRuntimeConfig:
 
     def to_dict(self):
         return {
-            "allow_eval": bool(self.allow_eval),
-            "allow_compile": bool(self.allow_compile),
+            "allow_source_read": bool(self.allow_source_read),
+            "allow_source_write": bool(self.allow_source_write),
+            "allow_eval_arbitrary": bool(self.allow_eval_arbitrary),
+            "allow_ide_read": bool(self.allow_ide_read),
+            "allow_ide_write": bool(self.allow_ide_write),
             "allow_commit": bool(self.allow_commit),
             "allow_tracing": bool(self.allow_tracing),
-            "allow_mcp_commit_when_gui": bool(self.allow_mcp_commit_when_gui),
             "require_gemstone_ast": bool(self.require_gemstone_ast),
             "mcp_host": self.mcp_host,
             "mcp_port": self.mcp_port,
@@ -1541,26 +1568,32 @@ class McpRuntimeConfig:
 
     def update_with(
         self,
-        allow_eval=None,
-        allow_compile=None,
+        allow_source_read=None,
+        allow_source_write=None,
+        allow_eval_arbitrary=None,
+        allow_ide_read=None,
+        allow_ide_write=None,
         allow_commit=None,
         allow_tracing=None,
-        allow_mcp_commit_when_gui=None,
         require_gemstone_ast=None,
         mcp_host=None,
         mcp_port=None,
         mcp_http_path=None,
     ):
-        if allow_eval is not None:
-            self.allow_eval = bool(allow_eval)
-        if allow_compile is not None:
-            self.allow_compile = bool(allow_compile)
+        if allow_source_read is not None:
+            self.allow_source_read = bool(allow_source_read)
+        if allow_source_write is not None:
+            self.allow_source_write = bool(allow_source_write)
+        if allow_eval_arbitrary is not None:
+            self.allow_eval_arbitrary = bool(allow_eval_arbitrary)
+        if allow_ide_read is not None:
+            self.allow_ide_read = bool(allow_ide_read)
+        if allow_ide_write is not None:
+            self.allow_ide_write = bool(allow_ide_write)
         if allow_commit is not None:
             self.allow_commit = bool(allow_commit)
         if allow_tracing is not None:
             self.allow_tracing = bool(allow_tracing)
-        if allow_mcp_commit_when_gui is not None:
-            self.allow_mcp_commit_when_gui = bool(allow_mcp_commit_when_gui)
         if require_gemstone_ast is not None:
             self.require_gemstone_ast = bool(require_gemstone_ast)
         if mcp_host is not None:
@@ -1732,11 +1765,13 @@ class McpServerController:
 
     def server_for_runtime_config(self, runtime_config):
         return create_server(
-            allow_eval=runtime_config.allow_eval,
-            allow_compile=runtime_config.allow_compile,
+            allow_source_read=runtime_config.allow_source_read,
+            allow_source_write=runtime_config.allow_source_write,
+            allow_eval_arbitrary=runtime_config.allow_eval_arbitrary,
+            allow_ide_read=runtime_config.allow_ide_read,
+            allow_ide_write=runtime_config.allow_ide_write,
             allow_commit=runtime_config.allow_commit,
             allow_tracing=runtime_config.allow_tracing,
-            allow_commit_when_gui=runtime_config.allow_mcp_commit_when_gui,
             integrated_session_state=self.integrated_session_state,
             require_gemstone_ast=runtime_config.require_gemstone_ast,
             mcp_host=runtime_config.mcp_host,
@@ -1809,7 +1844,7 @@ class McpConfigurationDialog(tk.Toplevel):
         self.current_runtime_config = current_runtime_config.copy()
         self.result = None
         self.title("MCP Configuration")
-        self.geometry("500x390")
+        self.geometry("500x460")
         self.transient(parent)
         self.wait_visibility()
         self.grab_set()
@@ -1821,17 +1856,23 @@ class McpConfigurationDialog(tk.Toplevel):
         self.path_variable = tk.StringVar(
             value=self.current_runtime_config.mcp_http_path
         )
-        self.allow_eval_variable = tk.BooleanVar(
-            value=self.current_runtime_config.allow_eval
+        self.allow_source_read_variable = tk.BooleanVar(
+            value=self.current_runtime_config.allow_source_read
         )
-        self.allow_compile_variable = tk.BooleanVar(
-            value=self.current_runtime_config.allow_compile
+        self.allow_source_write_variable = tk.BooleanVar(
+            value=self.current_runtime_config.allow_source_write
+        )
+        self.allow_eval_arbitrary_variable = tk.BooleanVar(
+            value=self.current_runtime_config.allow_eval_arbitrary
+        )
+        self.allow_ide_read_variable = tk.BooleanVar(
+            value=self.current_runtime_config.allow_ide_read
+        )
+        self.allow_ide_write_variable = tk.BooleanVar(
+            value=self.current_runtime_config.allow_ide_write
         )
         self.allow_commit_variable = tk.BooleanVar(
             value=self.current_runtime_config.allow_commit
-        )
-        self.allow_commit_when_gui_variable = tk.BooleanVar(
-            value=self.current_runtime_config.allow_mcp_commit_when_gui
         )
         self.allow_tracing_variable = tk.BooleanVar(
             value=self.current_runtime_config.allow_tracing
@@ -1871,37 +1912,47 @@ class McpConfigurationDialog(tk.Toplevel):
 
         ttk.Checkbutton(
             body_frame,
-            text="Enable eval tools",
-            variable=self.allow_eval_variable,
+            text="Allow source read tools",
+            variable=self.allow_source_read_variable,
         ).grid(row=6, column=0, sticky="w")
         ttk.Checkbutton(
             body_frame,
-            text="Enable compile/refactor tools",
-            variable=self.allow_compile_variable,
+            text="Allow source write/refactor tools",
+            variable=self.allow_source_write_variable,
         ).grid(row=7, column=0, sticky="w")
+        ttk.Checkbutton(
+            body_frame,
+            text="Allow arbitrary eval tools",
+            variable=self.allow_eval_arbitrary_variable,
+        ).grid(row=8, column=0, sticky="w")
+        ttk.Checkbutton(
+            body_frame,
+            text="Allow IDE state read tools",
+            variable=self.allow_ide_read_variable,
+        ).grid(row=9, column=0, sticky="w")
+        ttk.Checkbutton(
+            body_frame,
+            text="Allow IDE state write tools",
+            variable=self.allow_ide_write_variable,
+        ).grid(row=10, column=0, sticky="w")
         ttk.Checkbutton(
             body_frame,
             text="Enable commit tool",
             variable=self.allow_commit_variable,
-        ).grid(row=8, column=0, sticky="w")
-        ttk.Checkbutton(
-            body_frame,
-            text="Allow MCP commit while IDE owns session",
-            variable=self.allow_commit_when_gui_variable,
-        ).grid(row=9, column=0, sticky="w")
+        ).grid(row=11, column=0, sticky="w")
         ttk.Checkbutton(
             body_frame,
             text="Enable tracing tools",
             variable=self.allow_tracing_variable,
-        ).grid(row=10, column=0, sticky="w")
+        ).grid(row=12, column=0, sticky="w")
         ttk.Checkbutton(
             body_frame,
             text="Require GemStone AST backend",
             variable=self.require_gemstone_ast_variable,
-        ).grid(row=11, column=0, sticky="w")
+        ).grid(row=13, column=0, sticky="w")
 
         button_frame = ttk.Frame(body_frame)
-        button_frame.grid(row=12, column=0, sticky="e", pady=(16, 0))
+        button_frame.grid(row=14, column=0, sticky="e", pady=(16, 0))
         ttk.Button(
             button_frame,
             text="Cancel",
@@ -1947,11 +1998,13 @@ class McpConfigurationDialog(tk.Toplevel):
             )
             return
         self.result = McpRuntimeConfig(
-            allow_eval=self.allow_eval_variable.get(),
-            allow_compile=self.allow_compile_variable.get(),
+            allow_source_read=self.allow_source_read_variable.get(),
+            allow_source_write=self.allow_source_write_variable.get(),
+            allow_eval_arbitrary=self.allow_eval_arbitrary_variable.get(),
+            allow_ide_read=self.allow_ide_read_variable.get(),
+            allow_ide_write=self.allow_ide_write_variable.get(),
             allow_commit=self.allow_commit_variable.get(),
             allow_tracing=self.allow_tracing_variable.get(),
-            allow_mcp_commit_when_gui=(self.allow_commit_when_gui_variable.get()),
             require_gemstone_ast=self.require_gemstone_ast_variable.get(),
             mcp_host=mcp_host,
             mcp_port=mcp_port,
@@ -4286,27 +4339,50 @@ class Swordfish(tk.Tk):
             help="HTTP path for embedded MCP and streamable-http mode.",
         )
         argument_parser.add_argument(
-            "--allow-eval",
+            "--allow-source-read",
+            action="store_true",
+            dest="allow_source_read",
+            default=True,
+            help="Enable source read tools (enabled by default).",
+        )
+        argument_parser.add_argument(
+            "--disallow-source-read",
+            action="store_false",
+            dest="allow_source_read",
+            help="Disable source read tools.",
+        )
+        argument_parser.add_argument(
+            "--allow-source-write",
+            action="store_true",
+            help="Enable source write/refactor tools (disabled by default).",
+        )
+        argument_parser.add_argument(
+            "--allow-eval-arbitrary",
             action="store_true",
             help="Enable gs_eval and gs_debug_eval (disabled by default).",
         )
         argument_parser.add_argument(
-            "--allow-compile",
+            "--allow-ide-read",
             action="store_true",
-            help="Enable gs_compile_method tool (disabled by default).",
+            dest="allow_ide_read",
+            default=True,
+            help="Enable IDE state read tools (enabled by default).",
+        )
+        argument_parser.add_argument(
+            "--disallow-ide-read",
+            action="store_false",
+            dest="allow_ide_read",
+            help="Disable IDE state read tools.",
+        )
+        argument_parser.add_argument(
+            "--allow-ide-write",
+            action="store_true",
+            help="Enable IDE navigation/write tools (disabled by default).",
         )
         argument_parser.add_argument(
             "--allow-commit",
             action="store_true",
             help="Enable gs_commit tool (disabled by default).",
-        )
-        argument_parser.add_argument(
-            "--allow-mcp-commit-when-gui",
-            action="store_true",
-            help=(
-                "Allow gs_commit even when MCP is attached to an IDE-owned "
-                "session (disabled by default)."
-            ),
         )
         argument_parser.add_argument(
             "--allow-tracing",
@@ -4401,10 +4477,7 @@ class Swordfish(tk.Tk):
         self.last_mcp_server_error_message = None
         self.last_mcp_config_save_error_message = None
         if mcp_runtime_config is None:
-            mcp_runtime_config = McpRuntimeConfig(
-                allow_compile=True,
-                allow_tracing=True,
-            )
+            mcp_runtime_config = McpRuntimeConfig()
         self.mcp_runtime_config = mcp_runtime_config.copy()
         self.mcp_server_controller = McpServerController(
             self.integrated_session_state,
