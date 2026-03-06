@@ -3193,6 +3193,8 @@ def test_debugger_refresh_uses_selected_top_frame_source(fixture):
         method_name="topFrameMethod",
         method_source="top frame source",
         step_point_offset=4,
+        self=Mock(),
+        vars={},
     )
     second_frame = types.SimpleNamespace(
         level=2,
@@ -3200,8 +3202,24 @@ def test_debugger_refresh_uses_selected_top_frame_source(fixture):
         method_name="secondFrameMethod",
         method_source="second frame source",
         step_point_offset=9,
+        self=Mock(),
+        vars={},
     )
-    debugger_tab.stack_frames = [top_frame, second_frame]
+
+    class OneBasedStack:
+        def __init__(self, frames):
+            self.frames = list(frames)
+
+        def __iter__(self):
+            return iter(self.frames)
+
+        def __bool__(self):
+            return bool(self.frames)
+
+        def __getitem__(self, level):
+            return self.frames[level - 1]
+
+    debugger_tab.stack_frames = OneBasedStack([top_frame, second_frame])
 
     with patch.object(debugger_tab.code_panel, "refresh") as refresh_source:
         with patch.object(debugger_tab, "refresh_explorer") as refresh_explorer:
@@ -3210,6 +3228,61 @@ def test_debugger_refresh_uses_selected_top_frame_source(fixture):
     assert debugger_tab.listbox.selection() == ("1",)
     refresh_source.assert_called_once_with("top frame source", mark=4)
     refresh_explorer.assert_called_once_with(top_frame)
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugger_selected_stack_frame_matches_treeview_level_identifier(fixture):
+    """AI: Debugger selection should resolve Treeview level ids to matching frame levels."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    debugger_tab = fixture.app.debugger_tab
+    top_frame = types.SimpleNamespace(
+        level=1,
+        class_name="TopFrameClass",
+        method_name="topFrameMethod",
+        method_source="top frame source",
+        step_point_offset=4,
+        self=Mock(),
+        vars={},
+    )
+    second_frame = types.SimpleNamespace(
+        level=2,
+        class_name="SecondFrameClass",
+        method_name="secondFrameMethod",
+        method_source="second frame source",
+        step_point_offset=9,
+        self=Mock(),
+        vars={},
+    )
+
+    class OneBasedStack:
+        def __init__(self, frames):
+            self.frames = list(frames)
+
+        def __iter__(self):
+            return iter(self.frames)
+
+        def __bool__(self):
+            return bool(self.frames)
+
+        def __getitem__(self, level):
+            return self.frames[level - 1]
+
+    debugger_tab.stack_frames = OneBasedStack([top_frame, second_frame])
+    debugger_tab.refresh()
+
+    assert debugger_tab.get_selected_stack_frame() is top_frame
+
+    debugger_tab.listbox.selection_set("2")
+    debugger_tab.listbox.focus("2")
+    assert debugger_tab.get_selected_stack_frame() is second_frame
 
 
 @with_fixtures(SwordfishAppFixture)
