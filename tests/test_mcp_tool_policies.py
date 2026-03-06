@@ -128,6 +128,9 @@ class RestrictedToolsFixture(Fixture):
     def new_gs_run_test_method(self):
         return self.registered_mcp_tools["gs_run_test_method"]
 
+    def new_gs_debug_test_method(self):
+        return self.registered_mcp_tools["gs_debug_test_method"]
+
     def new_gs_preview_selector_rename(self):
         return self.registered_mcp_tools["gs_preview_selector_rename"]
 
@@ -308,6 +311,9 @@ class AllowedToolsFixture(Fixture):
 
     def new_gs_run_test_method(self):
         return self.registered_mcp_tools["gs_run_test_method"]
+
+    def new_gs_debug_test_method(self):
+        return self.registered_mcp_tools["gs_debug_test_method"]
 
     def new_gs_preview_selector_rename(self):
         return self.registered_mcp_tools["gs_preview_selector_rename"]
@@ -1781,6 +1787,17 @@ def test_gs_run_tests_in_package_checks_connection(tools_fixture):
 @with_fixtures(AllowedToolsFixture)
 def test_gs_run_test_method_checks_connection(tools_fixture):
     run_result = tools_fixture.gs_run_test_method(
+        "missing-connection-id",
+        "ExampleTestCase",
+        "testPass",
+    )
+    assert not run_result["ok"]
+    assert run_result["error"]["message"] == "Unknown connection_id."
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_debug_test_method_checks_connection(tools_fixture):
+    run_result = tools_fixture.gs_debug_test_method(
         "missing-connection-id",
         "ExampleTestCase",
         "testPass",
