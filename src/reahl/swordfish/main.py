@@ -2055,7 +2055,7 @@ class McpConfigurationDialog(tk.Toplevel):
         self.current_runtime_config = current_runtime_config.copy()
         self.result = None
         self.title("MCP Configuration")
-        self.geometry("500x460")
+        self.geometry("500x560")
         self.transient(parent)
         self.wait_visibility()
         self.grab_set()
@@ -2094,8 +2094,17 @@ class McpConfigurationDialog(tk.Toplevel):
         self.require_gemstone_ast_variable = tk.BooleanVar(
             value=self.current_runtime_config.require_gemstone_ast
         )
+        self.risk_note_variable = tk.StringVar()
 
         self.create_widgets()
+        for var in (
+            self.allow_source_write_variable,
+            self.allow_eval_arbitrary_variable,
+            self.allow_test_execution_variable,
+            self.allow_commit_variable,
+        ):
+            var.trace_add('write', self.update_risk_note)
+        self.update_risk_note()
 
     def create_widgets(self):
         body_frame = ttk.Frame(self, padding=12)
@@ -2170,8 +2179,16 @@ class McpConfigurationDialog(tk.Toplevel):
             variable=self.require_gemstone_ast_variable,
         ).grid(row=14, column=0, sticky="w")
 
+        self.risk_note_label = ttk.Label(
+            body_frame,
+            textvariable=self.risk_note_variable,
+            wraplength=440,
+            justify="left",
+        )
+        self.risk_note_label.grid(row=15, column=0, sticky="w", pady=(12, 0))
+
         button_frame = ttk.Frame(body_frame)
-        button_frame.grid(row=15, column=0, sticky="e", pady=(16, 0))
+        button_frame.grid(row=16, column=0, sticky="e", pady=(16, 0))
         ttk.Button(
             button_frame,
             text="Cancel",
@@ -2183,6 +2200,56 @@ class McpConfigurationDialog(tk.Toplevel):
             command=self.apply_configuration,
         ).grid(row=0, column=1)
         body_frame.columnconfigure(0, weight=1)
+
+    def compute_risk_note(self):
+        source_write = self.allow_source_write_variable.get()
+        eval_arbitrary = self.allow_eval_arbitrary_variable.get()
+        test_execution = self.allow_test_execution_variable.get()
+        commit = self.allow_commit_variable.get()
+        lines = []
+        if source_write and eval_arbitrary and commit:
+            lines.append(
+                'Code: AI can write, compile, execute, and permanently install code changes.'
+            )
+        elif source_write and eval_arbitrary:
+            lines.append('Code: AI can write, compile, and execute Smalltalk code freely.')
+        elif eval_arbitrary:
+            lines.append('Code: AI can execute arbitrary Smalltalk code.')
+        elif source_write and commit:
+            lines.append('Code: AI can compile and permanently install method changes.')
+        elif source_write:
+            lines.append('Code: AI can compile method changes (lost on abort without commit).')
+        if eval_arbitrary and commit:
+            lines.append('Data: AI can read and permanently modify client data.')
+        elif eval_arbitrary:
+            lines.append('Data: AI can read and modify client data in memory.')
+        elif source_write and test_execution and commit:
+            lines.append(
+                'Data: AI can read and permanently modify client data'
+                ' by writing and running a custom test.'
+            )
+        elif source_write and test_execution:
+            lines.append(
+                'Data: AI can read and modify client data in memory'
+                ' by writing and running a custom test.'
+            )
+        elif test_execution and commit:
+            lines.append(
+                'Data: Existing tests may expose or permanently modify client data they touch.'
+            )
+        elif test_execution:
+            lines.append(
+                'Data: Existing tests may expose or modify client data they happen to touch.'
+            )
+        if lines:
+            return '\n'.join(lines)
+        return '\u2713 Read-only code access \u2014 client data is not reachable.'
+
+    def update_risk_note(self, *_):
+        note = self.compute_risk_note()
+        self.risk_note_variable.set(note)
+        is_safe = note.startswith('\u2713')
+        self.risk_note_label.configure(foreground='#006600' if is_safe else '#AA4400')
 
     def apply_configuration(self):
         port_text = self.port_variable.get().strip()
