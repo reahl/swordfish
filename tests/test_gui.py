@@ -1851,6 +1851,7 @@ def test_run_mcp_server_passes_streamable_http_options_to_create_server():
         allow_source_read=True,
         allow_eval_arbitrary=False,
         allow_source_write=True,
+        allow_test_execution=False,
         allow_ide_read=True,
         allow_ide_write=False,
         allow_commit=False,
@@ -1872,6 +1873,7 @@ def test_run_mcp_server_passes_streamable_http_options_to_create_server():
         allow_source_read=True,
         allow_source_write=True,
         allow_eval_arbitrary=False,
+        allow_test_execution=False,
         allow_ide_read=True,
         allow_ide_write=False,
         allow_commit=False,
@@ -2206,6 +2208,7 @@ def test_open_senders_dialog_configures_find_dialog_for_exact_method_references(
         run_search=True,
         match_mode="exact",
         reference_target="method",
+        sender_source_class_name=None,
     )
 
 
@@ -2787,6 +2790,129 @@ def test_mcp_ide_navigation_action_reports_browser_source_selection(fixture):
     assert browser_source_state["selection"]["has_selection"]
     assert browser_source_state["selection"]["selected_text"] == "total"
     assert response["browser_state"]["selected_method_symbol"] == "total"
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_mcp_ide_navigation_action_reports_sender_find_dialog_state(fixture):
+    """AI: MCP current-view action should report sender metadata from an open Find senders dialog."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_senders.return_value = {
+        "senders": [
+            {
+                "class_name": "OrderLine",
+                "show_instance_side": True,
+                "method_selector": "recalculateTotal",
+                "class_category": "Sales-Core",
+                "method_category": "calculating",
+                "method_category_is_extension": False,
+                "extension_category_name": None,
+            },
+            {
+                "class_name": "OrderAudit",
+                "show_instance_side": True,
+                "method_selector": "recordTotalChange",
+                "class_category": "Auditing-Core",
+                "method_category": "*Sales-Core",
+                "method_category_is_extension": True,
+                "extension_category_name": "Sales-Core",
+            },
+        ],
+        "total_count": 2,
+        "returned_count": 2,
+    }
+    with patch.object(FindDialog, "wait_visibility"):
+        dialog = FindDialog(
+            fixture.app,
+            search_type="reference",
+            search_query="total",
+            run_search=True,
+            match_mode="exact",
+            reference_target="method",
+        )
+
+    response = fixture.app.perform_mcp_ide_navigation_action("query_current_view")
+
+    assert response["ok"], response
+    assert response["find_dialog_state"]["is_open"]
+    assert response["find_dialog_state"]["is_sender_reference_search"]
+    assert response["find_dialog_state"]["displayed_sender_count"] == 2
+    assert {
+        "class_name": "OrderAudit",
+        "show_instance_side": True,
+        "method_selector": "recordTotalChange",
+        "class_category": "Auditing-Core",
+        "method_category": "*Sales-Core",
+        "method_category_is_extension": True,
+        "extension_category_name": "Sales-Core",
+    } in response["find_dialog_state"]["displayed_senders"]
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_mcp_ide_navigation_action_filters_sender_find_dialog_by_class_category(
+    fixture,
+):
+    """AI: MCP sender filter action should include extension methods when configured to match extension categories."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_senders.return_value = {
+        "senders": [
+            {
+                "class_name": "OrderLine",
+                "show_instance_side": True,
+                "method_selector": "recalculateTotal",
+                "class_category": "Sales-Core",
+                "method_category": "calculating",
+                "method_category_is_extension": False,
+                "extension_category_name": None,
+            },
+            {
+                "class_name": "OrderAudit",
+                "show_instance_side": True,
+                "method_selector": "recordTotalChange",
+                "class_category": "Auditing-Core",
+                "method_category": "*Sales-Core",
+                "method_category_is_extension": True,
+                "extension_category_name": "Sales-Core",
+            },
+        ],
+        "total_count": 2,
+        "returned_count": 2,
+    }
+    with patch.object(FindDialog, "wait_visibility"):
+        dialog = FindDialog(
+            fixture.app,
+            search_type="reference",
+            search_query="total",
+            run_search=True,
+            match_mode="exact",
+            reference_target="method",
+        )
+
+    include_extensions_response = fixture.app.perform_mcp_ide_navigation_action(
+        "filter_senders_in_find_dialog",
+        {
+            "class_category_filters": ["Sales-Core"],
+            "include_extension_method_category_for_class_category": True,
+        },
+    )
+    assert include_extensions_response["ok"], include_extensions_response
+    assert include_extensions_response["displayed_sender_count"] == 2
+    assert list(dialog.results_listbox.get(0, "end")) == [
+        "OrderAudit>>recordTotalChange",
+        "OrderLine>>recalculateTotal",
+    ]
+
+    exclude_extensions_response = fixture.app.perform_mcp_ide_navigation_action(
+        "filter_senders_in_find_dialog",
+        {
+            "class_category_filters": ["Sales-Core"],
+            "include_extension_method_category_for_class_category": False,
+        },
+    )
+    assert exclude_extensions_response["ok"], exclude_extensions_response
+    assert exclude_extensions_response["displayed_sender_count"] == 1
+    assert list(dialog.results_listbox.get(0, "end")) == ["OrderLine>>recalculateTotal"]
+    dialog.destroy()
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -3965,7 +4091,7 @@ def test_method_contains_double_click_pivots_to_exact_search_in_place(fixture):
 def test_find_dialog_reference_method_search_is_always_exact(
     fixture,
 ):
-    """AI: Method reference search should force exact matching."""
+    """AI: Method reference search should force exact matching; narrow tracing requires a known source class."""
     fixture.simulate_login()
     fixture.mock_browser.find_senders.return_value = {
         "senders": [
@@ -3992,8 +4118,11 @@ def test_find_dialog_reference_method_search_is_always_exact(
     assert dialog.match_mode.get() == "exact"
     assert str(dialog.match_contains_radio.cget("state")) == tk.DISABLED
     fixture.mock_browser.find_selectors.assert_not_called()
-    fixture.mock_browser.find_senders.assert_called_once_with("total")
-    assert str(dialog.narrow_button.cget("state")) == tk.NORMAL
+    fixture.mock_browser.find_senders.assert_called_once_with(
+        "total",
+        include_category_details=True,
+    )
+    assert str(dialog.narrow_button.cget("state")) == tk.DISABLED
     dialog.destroy()
 
 
@@ -4847,8 +4976,8 @@ def test_senders_dialog_narrow_with_tracing_reloads_static_senders_after_selecto
     assert first_results == ["OrderLine>>recalculateTotal"]
     assert second_results == ["Invoice>>recalculateSubtotal"]
     assert fixture.mock_browser.find_senders.call_args_list == [
-        call("total"),
-        call("subtotal"),
+        call("total", include_category_details=True),
+        call("subtotal", include_category_details=True),
     ]
     dialog.destroy()
 
