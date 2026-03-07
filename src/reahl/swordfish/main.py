@@ -1561,6 +1561,8 @@ class McpConfigurationStore:
             explicit_overrides["allow_ide_read"] = True
         if self.argument_is_explicitly_set(argument_tokens, "--allow-ide-write"):
             explicit_overrides["allow_ide_write"] = True
+        if self.argument_is_explicitly_set(argument_tokens, "--allow-test-execution"):
+            explicit_overrides["allow_test_execution"] = True
         if self.argument_is_explicitly_set(argument_tokens, "--allow-commit"):
             explicit_overrides["allow_commit"] = True
         if self.argument_is_explicitly_set(argument_tokens, "--allow-tracing"):
@@ -1580,6 +1582,7 @@ class McpConfigurationStore:
             allow_source_read=getattr(arguments, "allow_source_read", True),
             allow_source_write=getattr(arguments, "allow_source_write", False),
             allow_eval_arbitrary=getattr(arguments, "allow_eval_arbitrary", False),
+            allow_test_execution=getattr(arguments, "allow_test_execution", False),
             allow_ide_read=getattr(arguments, "allow_ide_read", True),
             allow_ide_write=getattr(arguments, "allow_ide_write", False),
             allow_commit=getattr(arguments, "allow_commit", False),
@@ -1623,6 +1626,11 @@ class McpConfigurationStore:
             allow_eval_arbitrary=(
                 cli_runtime_config.allow_eval_arbitrary
                 if explicit_overrides.get("allow_eval_arbitrary")
+                else None
+            ),
+            allow_test_execution=(
+                cli_runtime_config.allow_test_execution
+                if explicit_overrides.get("allow_test_execution")
                 else None
             ),
             allow_ide_read=(
@@ -1675,6 +1683,7 @@ class McpRuntimeConfig:
         allow_source_read=True,
         allow_source_write=False,
         allow_eval_arbitrary=False,
+        allow_test_execution=False,
         allow_ide_read=True,
         allow_ide_write=False,
         allow_commit=False,
@@ -1687,6 +1696,7 @@ class McpRuntimeConfig:
         self.allow_source_read = allow_source_read
         self.allow_source_write = allow_source_write
         self.allow_eval_arbitrary = allow_eval_arbitrary
+        self.allow_test_execution = allow_test_execution
         self.allow_ide_read = allow_ide_read
         self.allow_ide_write = allow_ide_write
         self.allow_commit = allow_commit
@@ -1701,6 +1711,7 @@ class McpRuntimeConfig:
             allow_source_read=self.allow_source_read,
             allow_source_write=self.allow_source_write,
             allow_eval_arbitrary=self.allow_eval_arbitrary,
+            allow_test_execution=self.allow_test_execution,
             allow_ide_read=self.allow_ide_read,
             allow_ide_write=self.allow_ide_write,
             allow_commit=self.allow_commit,
@@ -1719,6 +1730,9 @@ class McpRuntimeConfig:
             allow_eval_arbitrary=bool(
                 config_payload.get("allow_eval_arbitrary", False)
             ),
+            allow_test_execution=bool(
+                config_payload.get("allow_test_execution", False)
+            ),
             allow_ide_read=bool(config_payload.get("allow_ide_read", True)),
             allow_ide_write=bool(config_payload.get("allow_ide_write", False)),
             allow_commit=bool(config_payload.get("allow_commit", False)),
@@ -1736,6 +1750,7 @@ class McpRuntimeConfig:
             "allow_source_read": bool(self.allow_source_read),
             "allow_source_write": bool(self.allow_source_write),
             "allow_eval_arbitrary": bool(self.allow_eval_arbitrary),
+            "allow_test_execution": bool(self.allow_test_execution),
             "allow_ide_read": bool(self.allow_ide_read),
             "allow_ide_write": bool(self.allow_ide_write),
             "allow_commit": bool(self.allow_commit),
@@ -1763,6 +1778,7 @@ class McpRuntimeConfig:
         allow_source_read=None,
         allow_source_write=None,
         allow_eval_arbitrary=None,
+        allow_test_execution=None,
         allow_ide_read=None,
         allow_ide_write=None,
         allow_commit=None,
@@ -1778,6 +1794,8 @@ class McpRuntimeConfig:
             self.allow_source_write = bool(allow_source_write)
         if allow_eval_arbitrary is not None:
             self.allow_eval_arbitrary = bool(allow_eval_arbitrary)
+        if allow_test_execution is not None:
+            self.allow_test_execution = bool(allow_test_execution)
         if allow_ide_read is not None:
             self.allow_ide_read = bool(allow_ide_read)
         if allow_ide_write is not None:
@@ -1960,6 +1978,7 @@ class McpServerController:
             allow_source_read=runtime_config.allow_source_read,
             allow_source_write=runtime_config.allow_source_write,
             allow_eval_arbitrary=runtime_config.allow_eval_arbitrary,
+            allow_test_execution=runtime_config.allow_test_execution,
             allow_ide_read=runtime_config.allow_ide_read,
             allow_ide_write=runtime_config.allow_ide_write,
             allow_commit=runtime_config.allow_commit,
@@ -2057,6 +2076,9 @@ class McpConfigurationDialog(tk.Toplevel):
         self.allow_eval_arbitrary_variable = tk.BooleanVar(
             value=self.current_runtime_config.allow_eval_arbitrary
         )
+        self.allow_test_execution_variable = tk.BooleanVar(
+            value=self.current_runtime_config.allow_test_execution
+        )
         self.allow_ide_read_variable = tk.BooleanVar(
             value=self.current_runtime_config.allow_ide_read
         )
@@ -2119,32 +2141,37 @@ class McpConfigurationDialog(tk.Toplevel):
         ).grid(row=8, column=0, sticky="w")
         ttk.Checkbutton(
             body_frame,
+            text="Allow test execution tools",
+            variable=self.allow_test_execution_variable,
+        ).grid(row=9, column=0, sticky="w")
+        ttk.Checkbutton(
+            body_frame,
             text="Allow IDE state read tools",
             variable=self.allow_ide_read_variable,
-        ).grid(row=9, column=0, sticky="w")
+        ).grid(row=10, column=0, sticky="w")
         ttk.Checkbutton(
             body_frame,
             text="Allow IDE state write tools",
             variable=self.allow_ide_write_variable,
-        ).grid(row=10, column=0, sticky="w")
+        ).grid(row=11, column=0, sticky="w")
         ttk.Checkbutton(
             body_frame,
             text="Enable commit tool",
             variable=self.allow_commit_variable,
-        ).grid(row=11, column=0, sticky="w")
+        ).grid(row=12, column=0, sticky="w")
         ttk.Checkbutton(
             body_frame,
             text="Enable tracing tools",
             variable=self.allow_tracing_variable,
-        ).grid(row=12, column=0, sticky="w")
+        ).grid(row=13, column=0, sticky="w")
         ttk.Checkbutton(
             body_frame,
             text="Require GemStone AST backend",
             variable=self.require_gemstone_ast_variable,
-        ).grid(row=13, column=0, sticky="w")
+        ).grid(row=14, column=0, sticky="w")
 
         button_frame = ttk.Frame(body_frame)
-        button_frame.grid(row=14, column=0, sticky="e", pady=(16, 0))
+        button_frame.grid(row=15, column=0, sticky="e", pady=(16, 0))
         ttk.Button(
             button_frame,
             text="Cancel",
@@ -2193,6 +2220,7 @@ class McpConfigurationDialog(tk.Toplevel):
             allow_source_read=self.allow_source_read_variable.get(),
             allow_source_write=self.allow_source_write_variable.get(),
             allow_eval_arbitrary=self.allow_eval_arbitrary_variable.get(),
+            allow_test_execution=self.allow_test_execution_variable.get(),
             allow_ide_read=self.allow_ide_read_variable.get(),
             allow_ide_write=self.allow_ide_write_variable.get(),
             allow_commit=self.allow_commit_variable.get(),
@@ -4573,6 +4601,11 @@ class Swordfish(tk.Tk):
             "--allow-ide-write",
             action="store_true",
             help="Enable IDE navigation/write tools (disabled by default).",
+        )
+        argument_parser.add_argument(
+            "--allow-test-execution",
+            action="store_true",
+            help="Enable test execution tools (disabled by default).",
         )
         argument_parser.add_argument(
             "--allow-commit",

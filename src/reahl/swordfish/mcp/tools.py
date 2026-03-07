@@ -52,6 +52,7 @@ def register_tools(
     allow_source_read=True,
     allow_source_write=False,
     allow_eval_arbitrary=False,
+    allow_test_execution=False,
     allow_ide_read=True,
     allow_ide_write=False,
     allow_commit=False,
@@ -335,6 +336,21 @@ def register_tools(
             return None
         return tracing_disabled_tool_response(connection_id, tool_name)
 
+    def test_execution_disabled_tool_response(connection_id, tool_name):
+        return disabled_tool_response(
+            connection_id,
+            (
+                '%s is disabled. '
+                'Start swordfish --headless-mcp with --allow-test-execution to enable.'
+            )
+            % tool_name,
+        )
+
+    def require_test_execution_enabled(connection_id, tool_name):
+        if allow_test_execution:
+            return None
+        return test_execution_disabled_tool_response(connection_id, tool_name)
+
     def approval_required_tool_response(
         connection_id,
         tool_name,
@@ -532,6 +548,7 @@ def register_tools(
             "allow_source_read": allow_source_read,
             "allow_source_write": allow_source_write,
             "allow_eval_arbitrary": allow_eval_arbitrary,
+            "allow_test_execution": allow_test_execution,
             "allow_ide_read": allow_ide_read,
             "allow_ide_write": allow_ide_write,
             "allow_commit": commit_allowed_for_current_mode(),
@@ -4865,6 +4882,11 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_run_tests_in_package(connection_id, package_name):
+        test_exec_error = require_test_execution_enabled(
+            connection_id, 'gs_run_tests_in_package'
+        )
+        if test_exec_error:
+            return test_exec_error
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -4906,6 +4928,11 @@ def register_tools(
         test_case_class_name,
         test_method_selector,
     ):
+        test_exec_error = require_test_execution_enabled(
+            connection_id, 'gs_run_test_method'
+        )
+        if test_exec_error:
+            return test_exec_error
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -4962,6 +4989,11 @@ def register_tools(
         test_case_class_name,
         test_method_selector,
     ):
+        test_exec_error = require_test_execution_enabled(
+            connection_id, 'gs_debug_test_method'
+        )
+        if test_exec_error:
+            return test_exec_error
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -6235,6 +6267,11 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_run_gemstone_tests(connection_id, test_case_class_name):
+        test_exec_error = require_test_execution_enabled(
+            connection_id, 'gs_run_gemstone_tests'
+        )
+        if test_exec_error:
+            return test_exec_error
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
