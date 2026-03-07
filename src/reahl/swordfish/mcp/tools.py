@@ -445,6 +445,23 @@ def register_tools(
             )
         return validated_values
 
+    def validated_string_list_or_none(input_values, argument_name):
+        if input_values is None:
+            return []
+        if not isinstance(input_values, list):
+            raise DomainException(
+                "%s must be a list of strings or None." % argument_name
+            )
+        validated_values = []
+        for index, input_value in enumerate(input_values):
+            validated_values.append(
+                validated_non_empty_string_stripped(
+                    input_value,
+                    "%s[%s]" % (argument_name, index),
+                )
+            )
+        return validated_values
+
     def validated_non_empty_string(input_value, argument_name):
         if not isinstance(input_value, str):
             raise DomainException("%s must be a string." % argument_name)
@@ -2341,6 +2358,86 @@ def register_tools(
         )
 
     @mcp_server.tool()
+    def gs_ide_filter_senders(
+        connection_id,
+        class_category_filters=None,
+        class_name_filters=None,
+        method_selector_filters=None,
+        method_category_filters=None,
+        include_extension_method_category_for_class_category=True,
+        reasoning_note="",
+    ):
+        try:
+            class_category_filters = validated_string_list_or_none(
+                class_category_filters,
+                "class_category_filters",
+            )
+            class_name_filters = validated_string_list_or_none(
+                class_name_filters,
+                "class_name_filters",
+            )
+            method_selector_filters = validated_string_list_or_none(
+                method_selector_filters,
+                "method_selector_filters",
+            )
+            method_category_filters = validated_string_list_or_none(
+                method_category_filters,
+                "method_category_filters",
+            )
+            include_extension_method_category_for_class_category = (
+                validated_boolean_like(
+                    include_extension_method_category_for_class_category,
+                    "include_extension_method_category_for_class_category",
+                )
+            )
+            if not isinstance(reasoning_note, str):
+                raise DomainException("reasoning_note must be a string.")
+        except DomainException as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
+            }
+        return perform_ide_navigation_action(
+            connection_id,
+            "filter_senders_in_find_dialog",
+            {
+                "class_category_filters": class_category_filters,
+                "class_name_filters": class_name_filters,
+                "method_selector_filters": method_selector_filters,
+                "method_category_filters": method_category_filters,
+                "include_extension_method_category_for_class_category": (
+                    include_extension_method_category_for_class_category
+                ),
+                "reasoning_note": reasoning_note,
+            },
+        )
+
+    @mcp_server.tool()
+    def gs_get_find_dialog_state(connection_id):
+        """Return the current find dialog state (selector, source class, counts, senders) without the full IDE view."""
+        return perform_ide_navigation_action(
+            connection_id,
+            'query_find_dialog_state',
+            {},
+        )
+
+    @mcp_server.tool()
+    def gs_ide_narrow_senders_to_source_class(connection_id, reasoning_note=''):
+        """Narrow the find dialog sender list to senders in the same class category as the source class recorded when the search was opened."""
+        if not isinstance(reasoning_note, str):
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': 'reasoning_note must be a string.'},
+            }
+        return perform_ide_navigation_action(
+            connection_id,
+            'narrow_senders_to_source_class_category',
+            {'reasoning_note': reasoning_note},
+        )
+
+    @mcp_server.tool()
     def gs_ide_open_run_window(
         connection_id,
         source="",
@@ -2434,6 +2531,7 @@ def register_tools(
                     "gs_ide_open_graph_for_oops",
                     "gs_ide_select_class",
                     "gs_ide_open_method",
+                    "gs_ide_filter_senders",
                     "gs_ide_open_debugger",
                 ],
                 "navigation": [

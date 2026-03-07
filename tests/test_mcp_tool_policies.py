@@ -3458,6 +3458,78 @@ def test_gs_ide_open_method_dispatches_navigation_action():
     }
 
 
+def test_gs_ide_filter_senders_dispatches_navigation_action():
+    registrar = McpToolRegistrar()
+    shared_state = IntegratedSessionState()
+    shared_state.attach_ide_session(FakeGemstoneSession())
+    captured_action_name = {"value": ""}
+    captured_action_parameters = {"value": {}}
+
+    def fake_navigation_action(action_name, action_parameters):
+        captured_action_name["value"] = action_name
+        captured_action_parameters["value"] = dict(action_parameters)
+        return {"ok": True}
+
+    shared_state.attach_ide_gui(ide_navigation_action=fake_navigation_action)
+    register_tools(
+        registrar,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
+        allow_commit=True,
+        allow_tracing=True,
+        integrated_session_state=shared_state,
+    )
+    filter_senders = registrar.registered_tools_by_name["gs_ide_filter_senders"]
+    result = filter_senders(
+        shared_state.ide_connection_id(),
+        class_category_filters=["Sales-Core"],
+        include_extension_method_category_for_class_category=False,
+        reasoning_note="Keep Sales senders only.",
+    )
+
+    assert result["ok"], result
+    assert captured_action_name["value"] == "filter_senders_in_find_dialog"
+    assert captured_action_parameters["value"] == {
+        "class_category_filters": ["Sales-Core"],
+        "class_name_filters": [],
+        "method_selector_filters": [],
+        "method_category_filters": [],
+        "include_extension_method_category_for_class_category": False,
+        "reasoning_note": "Keep Sales senders only.",
+    }
+
+
+def test_gs_ide_filter_senders_validates_class_category_filters_type():
+    registrar = McpToolRegistrar()
+    shared_state = IntegratedSessionState()
+    shared_state.attach_ide_session(FakeGemstoneSession())
+    shared_state.attach_ide_gui(
+        ide_navigation_action=lambda action_name, action_parameters: {"ok": True}
+    )
+    register_tools(
+        registrar,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
+        allow_commit=True,
+        allow_tracing=True,
+        integrated_session_state=shared_state,
+    )
+    filter_senders = registrar.registered_tools_by_name["gs_ide_filter_senders"]
+    result = filter_senders(
+        shared_state.ide_connection_id(),
+        class_category_filters="Sales-Core",
+    )
+
+    assert not result["ok"]
+    assert result["error"]["message"] == (
+        "class_category_filters must be a list of strings or None."
+    )
+
+
 def test_gs_ide_open_debugger_dispatches_exception_navigation_action():
     registrar = McpToolRegistrar()
     shared_state = IntegratedSessionState()
@@ -3535,6 +3607,7 @@ def test_gs_capabilities_exposes_ide_navigation_tool_group():
     assert "gs_ide_open_graph_for_oops" in ide_navigation_tools
     assert "gs_ide_select_class" in ide_navigation_tools
     assert "gs_ide_open_method" in ide_navigation_tools
+    assert "gs_ide_filter_senders" in ide_navigation_tools
     assert "gs_ide_open_debugger" in ide_navigation_tools
 
 

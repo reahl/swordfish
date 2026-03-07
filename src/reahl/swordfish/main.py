@@ -657,15 +657,25 @@ class GemstoneSessionRecord:
             )
         ]
 
+    def sender_entries_for_method(
+        self,
+        method_name,
+        include_category_details=False,
+    ):
+        sender_search_result = self.gemstone_browser_session.find_senders(
+            method_name,
+            include_category_details=include_category_details,
+        )
+        return sender_search_result["senders"]
+
     def find_senders_of_method(self, method_name):
-        sender_search_result = self.gemstone_browser_session.find_senders(method_name)
         yield from [
             (
                 sender["class_name"],
                 sender["show_instance_side"],
                 sender["method_selector"],
             )
-            for sender in sender_search_result["senders"]
+            for sender in self.sender_entries_for_method(method_name)
         ]
 
     def plan_sender_evidence_tests(
@@ -696,8 +706,10 @@ class GemstoneSessionRecord:
         selected_tests,
         max_traced_senders=250,
         max_observed_results=500,
+        receiver_class_name=None,
+        receiver_show_instance_side=True,
     ):
-        self.require_write_access("collect_sender_evidence_from_tests")
+        self.require_write_access('collect_sender_evidence_from_tests')
         trace_result = None
         observed_result = None
         untrace_result = None
@@ -708,26 +720,42 @@ class GemstoneSessionRecord:
         self.gemstone_browser_session.enable_tracer()
         tracer_enabled = True
         try:
-            trace_result = self.gemstone_browser_session.trace_selector(
-                method_name,
-                max_results=max_traced_senders,
-            )
+            if receiver_class_name is not None:
+                trace_result = self.gemstone_browser_session.trace_implementation(
+                    receiver_class_name,
+                    receiver_show_instance_side,
+                    method_name,
+                )
+                if not trace_result.get('instrumented'):
+                    trace_result = self.gemstone_browser_session.trace_selector(
+                        method_name,
+                        max_results=max_traced_senders,
+                    )
+                    trace_result['fallback_reason'] = (
+                        '%s does not define %s — tracing all implementors instead.'
+                        % (receiver_class_name, method_name)
+                    )
+            else:
+                trace_result = self.gemstone_browser_session.trace_selector(
+                    method_name,
+                    max_results=max_traced_senders,
+                )
             trace_installed = True
             self.gemstone_browser_session.clear_observed_senders(method_name)
             for selected_test in selected_tests:
-                test_case_class_name = selected_test["test_case_class_name"]
-                test_method_selector = selected_test["test_method_selector"]
+                test_case_class_name = selected_test['test_case_class_name']
+                test_method_selector = selected_test['test_method_selector']
                 test_result = self.run_test_method(
                     test_case_class_name,
                     test_method_selector,
                 )
                 test_runs.append(
                     {
-                        "test_case_class_name": test_case_class_name,
-                        "test_method_selector": test_method_selector,
-                        "depth": selected_test.get("depth"),
-                        "tests_passed": test_result["has_passed"],
-                        "result": test_result,
+                        'test_case_class_name': test_case_class_name,
+                        'test_method_selector': test_method_selector,
+                        'depth': selected_test.get('depth'),
+                        'tests_passed': test_result['has_passed'],
+                        'result': test_result,
                     }
                 )
             observed_result = (
@@ -757,11 +785,11 @@ class GemstoneSessionRecord:
                 ):
                     pass
         return {
-            "method_name": method_name,
-            "trace": trace_result,
-            "test_runs": test_runs,
-            "observed": observed_result,
-            "untrace": untrace_result,
+            'method_name': method_name,
+            'trace': trace_result,
+            'test_runs': test_runs,
+            'observed': observed_result,
+            'untrace': untrace_result,
         }
 
     def method_sends(self, class_name, method_selector, show_instance_side):
@@ -2466,6 +2494,7 @@ class FindDialog(tk.Toplevel):
         run_search=False,
         match_mode=None,
         reference_target=None,
+        sender_source_class_name=None,
     ):
         super().__init__(parent)
         self.title("Find")
@@ -2475,11 +2504,13 @@ class FindDialog(tk.Toplevel):
         self.grab_set()
 
         self.parent = parent
+        self.sender_source_class_name = sender_source_class_name
         self.method_reference_results = []
         self.navigation_method_results = []
         self.reference_method_selectors = []
         self.sender_tracing_selector = None
         self.static_sender_results = []
+        self.sender_entries_by_navigation_result = {}
         self.last_reference_method_query = None
         self.last_reference_method_match_mode = None
         self.max_test_discovery_elapsed_ms = 120000
@@ -2490,7 +2521,7 @@ class FindDialog(tk.Toplevel):
         self.find_stop_requested = False
 
         self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(6, weight=1)
+        self.grid_rowconfigure(7, weight=1)
 
         self.search_type = tk.StringVar(value="class")
         self.match_mode = tk.StringVar(value="contains")
@@ -2668,6 +2699,7 @@ class FindDialog(tk.Toplevel):
         self.button_frame.grid_columnconfigure(1, weight=1)
         self.button_frame.grid_columnconfigure(2, weight=1)
         self.button_frame.grid_columnconfigure(3, weight=1)
+        self.button_frame.grid_columnconfigure(4, weight=1)
 
         self.find_button = ttk.Button(
             self.button_frame,
@@ -2691,16 +2723,49 @@ class FindDialog(tk.Toplevel):
         )
         self.narrow_button.grid(row=0, column=2, padx=5)
 
+        self.narrow_to_source_class_button = ttk.Button(
+            self.button_frame,
+            text="Narrow to Source Class",
+            command=self.narrow_to_source_class_button_clicked,
+        )
+        self.narrow_to_source_class_button.grid(row=0, column=3, padx=5)
+
         self.cancel_button = ttk.Button(
             self.button_frame,
             text="Cancel",
             command=self.destroy,
         )
-        self.cancel_button.grid(row=0, column=3, padx=5)
+        self.cancel_button.grid(row=0, column=4, padx=5)
+
+        self.filter_frame = ttk.Frame(self)
+        self.filter_frame.grid(
+            row=6,
+            column=0,
+            columnspan=6,
+            padx=10,
+            pady=(0, 4),
+            sticky="ew",
+        )
+        ttk.Label(self.filter_frame, text="Filter by class (regex):").pack(
+            side="left", padx=(0, 4)
+        )
+        self.class_regex_entry = ttk.Entry(self.filter_frame, width=20)
+        self.class_regex_entry.pack(side="left", padx=(0, 12))
+        ttk.Label(self.filter_frame, text="Filter by category (regex):").pack(
+            side="left", padx=(0, 4)
+        )
+        self.category_regex_entry = ttk.Entry(self.filter_frame, width=20)
+        self.category_regex_entry.pack(side="left", padx=(0, 12))
+        self.apply_regex_filter_button = ttk.Button(
+            self.filter_frame,
+            text="Apply Filter",
+            command=self.apply_regex_filter_button_clicked,
+        )
+        self.apply_regex_filter_button.pack(side="left")
 
         self.results_listbox = tk.Listbox(self)
         self.results_listbox.grid(
-            row=6,
+            row=7,
             column=0,
             columnspan=6,
             padx=10,
@@ -2715,7 +2780,7 @@ class FindDialog(tk.Toplevel):
             anchor="w",
         )
         self.status_label.grid(
-            row=7,
+            row=8,
             column=0,
             columnspan=6,
             padx=10,
@@ -2815,23 +2880,35 @@ class FindDialog(tk.Toplevel):
             self.reference_target_frame.grid_remove()
         if tracing_controls_visible:
             self.narrow_button.grid()
+            self.narrow_to_source_class_button.grid()
+            self.filter_frame.grid()
             self.status_label.grid()
         else:
             self.narrow_button.grid_remove()
+            self.narrow_to_source_class_button.grid_remove()
+            self.filter_frame.grid_remove()
             self.status_label.grid_remove()
             self.status_var.set("")
         self.update_trace_narrow_state()
         self.update_search_context_fields()
 
     def update_trace_narrow_state(self):
-        can_trace = bool(self.sender_tracing_selector)
+        source_class_known = self.sender_source_class_name is not None
+        can_trace = bool(self.sender_tracing_selector) and source_class_known
+        can_narrow_to_source = source_class_known
         if self.search_type.get() != "reference":
             can_trace = False
+            can_narrow_to_source = False
         if self.reference_target.get() != "method":
             can_trace = False
+            can_narrow_to_source = False
         if self.find_operation_running:
             can_trace = False
+            can_narrow_to_source = False
         self.narrow_button.config(state=tk.NORMAL if can_trace else tk.DISABLED)
+        self.narrow_to_source_class_button.config(
+            state=tk.NORMAL if can_narrow_to_source else tk.DISABLED
+        )
 
     def set_find_operation_state(self, is_running):
         self.find_operation_running = is_running
@@ -2948,19 +3025,31 @@ class FindDialog(tk.Toplevel):
         should_stop=None,
     ):
         selector_names = [query_text]
-        sender_results = []
+        sender_entries = []
         for selector_name in selector_names:
             if should_stop is not None and should_stop():
+                (
+                    sender_results,
+                    sender_entries_by_result,
+                ) = self.record_sender_entries_for_navigation(sender_entries)
                 return (
-                    self.unique_sorted_navigation_results(sender_results),
+                    sender_results,
                     selector_names,
+                    sender_entries_by_result,
                 )
-            sender_results += list(
-                self.gemstone_session_record.find_senders_of_method(selector_name)
+            sender_entries += list(
+                self.gemstone_session_record.sender_entries_for_method(
+                    selector_name,
+                    include_category_details=True,
+                )
             )
+        sender_results, sender_entries_by_result = (
+            self.record_sender_entries_for_navigation(sender_entries)
+        )
         return (
-            self.unique_sorted_navigation_results(sender_results),
+            sender_results,
             selector_names,
+            sender_entries_by_result,
         )
 
     def unique_sorted_navigation_results(self, method_results):
@@ -3001,18 +3090,20 @@ class FindDialog(tk.Toplevel):
         normalized_search_query,
     ):
         if not normalized_search_query:
-            return "Enter text to search."
-        if search_type == "class":
-            if match_mode == "exact":
+            return 'Enter text to search.'
+        if search_type == 'class':
+            if match_mode == 'exact':
                 return 'Class exactly "%s".' % normalized_search_query
             return 'Classes containing "%s".' % normalized_search_query
-        if search_type == "method":
-            if match_mode == "exact":
+        if search_type == 'method':
+            if match_mode == 'exact':
                 return 'Implementors of method "%s".' % normalized_search_query
             return 'Methods containing selector "%s".' % normalized_search_query
-        if reference_target == "class":
+        if reference_target == 'class':
             return 'References to class "%s" (exact).' % normalized_search_query
-        return 'References to method "%s" (exact).' % normalized_search_query
+        if self.sender_source_class_name is not None:
+            return 'Senders of %s>>%s.' % (self.sender_source_class_name, normalized_search_query)
+        return 'Senders of "%s" (all implementors).' % normalized_search_query
 
     def result_action_text(self, search_type, match_mode, reference_target):
         if self.find_operation_running:
@@ -3071,6 +3162,318 @@ class FindDialog(tk.Toplevel):
             ]
         )
 
+    def record_sender_entries_for_navigation(self, sender_entries):
+        sender_results = [
+            (
+                sender_entry['class_name'],
+                sender_entry['show_instance_side'],
+                sender_entry['method_selector'],
+            )
+            for sender_entry in sender_entries
+        ]
+        sender_entries_by_result = {}
+        for sender_entry in sender_entries:
+            sender_result = (
+                sender_entry['class_name'],
+                sender_entry['show_instance_side'],
+                sender_entry['method_selector'],
+            )
+            sender_result_is_recorded = sender_result in sender_entries_by_result
+            if not sender_result_is_recorded:
+                sender_entries_by_result[sender_result] = dict(sender_entry)
+        return (
+            self.unique_sorted_navigation_results(sender_results),
+            sender_entries_by_result,
+        )
+
+    def sender_entry_for_result(self, sender_result):
+        sender_entry = self.sender_entries_by_navigation_result.get(sender_result)
+        if sender_entry is not None:
+            return dict(sender_entry)
+        class_name, show_instance_side, method_selector = sender_result
+        return {
+            'class_name': class_name,
+            'show_instance_side': show_instance_side,
+            'method_selector': method_selector,
+            'class_category': None,
+            'method_category': None,
+            'method_category_is_extension': False,
+            'extension_category_name': None,
+        }
+
+    def sender_entries_for_navigation_results(self, sender_results):
+        return [
+            self.sender_entry_for_result(sender_result)
+            for sender_result in sender_results
+        ]
+
+    def normalized_sender_filter_values(self, filter_values):
+        if filter_values is None:
+            return []
+        return [
+            value.strip().lower()
+            for value in filter_values
+            if isinstance(value, str) and value.strip()
+        ]
+
+    def sender_text_matches_filters(self, sender_text, filter_values):
+        if not filter_values:
+            return True
+        if not isinstance(sender_text, str):
+            return False
+        normalized_sender_text = sender_text.strip().lower()
+        if not normalized_sender_text:
+            return False
+        return any(
+            filter_value in normalized_sender_text for filter_value in filter_values
+        )
+
+    def sender_matches_class_category_filters(
+        self,
+        sender_entry,
+        class_category_filters,
+        include_extension_method_category_for_class_category,
+    ):
+        if not class_category_filters:
+            return True
+        category_candidates = []
+        class_category = sender_entry.get('class_category')
+        if isinstance(class_category, str) and class_category.strip():
+            category_candidates.append(class_category.strip().lower())
+        if include_extension_method_category_for_class_category:
+            extension_category_name = sender_entry.get('extension_category_name')
+            if (
+                isinstance(extension_category_name, str)
+                and extension_category_name.strip()
+            ):
+                category_candidates.append(
+                    extension_category_name.strip().lower()
+                )
+        if not category_candidates:
+            return False
+        return any(
+            filter_value in category_candidate
+            for filter_value in class_category_filters
+            for category_candidate in category_candidates
+        )
+
+    def sender_entry_matches_filters(
+        self,
+        sender_entry,
+        class_category_filters,
+        class_name_filters,
+        method_selector_filters,
+        method_category_filters,
+        include_extension_method_category_for_class_category,
+    ):
+        if not self.sender_matches_class_category_filters(
+            sender_entry,
+            class_category_filters,
+            include_extension_method_category_for_class_category,
+        ):
+            return False
+        if not self.sender_text_matches_filters(
+            sender_entry.get('class_name'),
+            class_name_filters,
+        ):
+            return False
+        if not self.sender_text_matches_filters(
+            sender_entry.get('method_selector'),
+            method_selector_filters,
+        ):
+            return False
+        if not self.sender_text_matches_filters(
+            sender_entry.get('method_category'),
+            method_category_filters,
+        ):
+            return False
+        return True
+
+    def apply_sender_filters(
+        self,
+        class_category_filters=None,
+        class_name_filters=None,
+        method_selector_filters=None,
+        method_category_filters=None,
+        include_extension_method_category_for_class_category=True,
+        reasoning_note='',
+    ):
+        if self.search_type.get() != 'reference' or self.reference_target.get() != 'method':
+            return {
+                'ok': False,
+                'error': {
+                    'message': (
+                        'Sender filtering requires Find in method-reference mode.'
+                    )
+                },
+            }
+        normalized_class_category_filters = self.normalized_sender_filter_values(
+            class_category_filters
+        )
+        normalized_class_name_filters = self.normalized_sender_filter_values(
+            class_name_filters
+        )
+        normalized_method_selector_filters = self.normalized_sender_filter_values(
+            method_selector_filters
+        )
+        normalized_method_category_filters = self.normalized_sender_filter_values(
+            method_category_filters
+        )
+        baseline_sender_results = list(self.navigation_method_results)
+        if not baseline_sender_results:
+            baseline_sender_results = list(self.static_sender_results)
+        filtered_sender_results = []
+        for sender_result in baseline_sender_results:
+            sender_entry = self.sender_entry_for_result(sender_result)
+            sender_matches_filters = self.sender_entry_matches_filters(
+                sender_entry,
+                normalized_class_category_filters,
+                normalized_class_name_filters,
+                normalized_method_selector_filters,
+                normalized_method_category_filters,
+                include_extension_method_category_for_class_category,
+            )
+            if sender_matches_filters:
+                filtered_sender_results.append(sender_result)
+        self.populate_navigation_results(filtered_sender_results)
+        displayed_sender_entries = self.sender_entries_for_navigation_results(
+            filtered_sender_results
+        )
+        summary_text = 'Filtered senders: %s of %s displayed references.' % (
+            len(filtered_sender_results),
+            len(baseline_sender_results),
+        )
+        if reasoning_note:
+            summary_text += ' ' + reasoning_note.strip()
+        self.status_var.set(summary_text)
+        return {
+            'ok': True,
+            'displayed_sender_count': len(filtered_sender_results),
+            'filtered_out_sender_count': (
+                len(baseline_sender_results) - len(filtered_sender_results)
+            ),
+            'displayed_senders': displayed_sender_entries,
+            'reasoning_note': reasoning_note,
+        }
+
+    def sender_filter_state_for_mcp(self):
+        is_sender_reference_search = (
+            self.search_type.get() == 'reference'
+            and self.reference_target.get() == 'method'
+            and self.last_reference_method_query is not None
+        )
+        displayed_sender_entries = self.sender_entries_for_navigation_results(
+            self.navigation_method_results
+        )
+        static_sender_entries = self.sender_entries_for_navigation_results(
+            self.static_sender_results
+        )
+        return {
+            'is_open': True,
+            'is_sender_reference_search': is_sender_reference_search,
+            'total_static_sender_count': len(self.static_sender_results),
+            'displayed_sender_count': len(self.navigation_method_results),
+            'displayed_senders': displayed_sender_entries,
+            'static_senders': static_sender_entries,
+            'sender_selector_query': self.last_reference_method_query,
+            'sender_source_class_name': self.sender_source_class_name,
+        }
+
+    def source_class_category(self):
+        if self.sender_source_class_name is None:
+            return None
+        for result in self.static_sender_results:
+            entry = self.sender_entry_for_result(result)
+            if entry.get('class_name') == self.sender_source_class_name:
+                return entry.get('class_category')
+        return None
+
+    def narrow_to_source_class_category(self):
+        if self.sender_source_class_name is None:
+            return {
+                'ok': False,
+                'error': {'message': 'No source class context recorded for this sender search.'},
+            }
+        category = self.source_class_category()
+        if category is None:
+            return {
+                'ok': False,
+                'error': {
+                    'message': 'Could not determine class category for %s from sender results.' % self.sender_source_class_name,
+                },
+            }
+        return self.apply_sender_filters(
+            class_category_filters=[category],
+            reasoning_note='Narrowed to class category "%s" of source class %s.' % (
+                category, self.sender_source_class_name,
+            ),
+        )
+
+    def narrow_to_source_class_button_clicked(self):
+        result = self.narrow_to_source_class_category()
+        if not result.get('ok'):
+            messagebox.showerror('Narrow to Source Class', result['error']['message'])
+
+    def apply_regex_filter_button_clicked(self):
+        result = self.apply_regex_sender_filters(
+            class_regex=self.class_regex_entry.get(),
+            category_regex=self.category_regex_entry.get(),
+        )
+        if not result.get('ok'):
+            messagebox.showerror('Apply Filter', result['error']['message'])
+
+    def apply_regex_sender_filters(self, class_regex='', category_regex=''):
+        if self.search_type.get() != 'reference' or self.reference_target.get() != 'method':
+            return {
+                'ok': False,
+                'error': {'message': 'Sender filtering requires Find in method-reference mode.'},
+            }
+        baseline_sender_results = list(self.navigation_method_results)
+        if not baseline_sender_results:
+            baseline_sender_results = list(self.static_sender_results)
+        filtered_sender_results = []
+        for sender_result in baseline_sender_results:
+            sender_entry = self.sender_entry_for_result(sender_result)
+            if not self.sender_entry_matches_regex_filters(sender_entry, class_regex, category_regex):
+                continue
+            filtered_sender_results.append(sender_result)
+        self.populate_navigation_results(filtered_sender_results)
+        parts = []
+        if class_regex:
+            parts.append('class~/%s/' % class_regex)
+        if category_regex:
+            parts.append('category~/%s/' % category_regex)
+        filter_desc = ', '.join(parts) if parts else '(none)'
+        self.status_var.set(
+            'Filtered senders: %s of %s displayed. Filter: %s' % (
+                len(filtered_sender_results),
+                len(baseline_sender_results),
+                filter_desc,
+            )
+        )
+        return {
+            'ok': True,
+            'displayed_sender_count': len(filtered_sender_results),
+            'filtered_out_sender_count': len(baseline_sender_results) - len(filtered_sender_results),
+        }
+
+    def sender_entry_matches_regex_filters(self, sender_entry, class_regex, category_regex):
+        if class_regex:
+            class_name = sender_entry.get('class_name') or ''
+            try:
+                if not re.search(class_regex, class_name, re.IGNORECASE):
+                    return False
+            except re.error:
+                return False
+        if category_regex:
+            category = sender_entry.get('class_category') or sender_entry.get('method_category') or ''
+            try:
+                if not re.search(category_regex, category, re.IGNORECASE):
+                    return False
+            except re.error:
+                return False
+        return True
+
     def update_sender_status_for_method_references(
         self,
         selector_names,
@@ -3100,16 +3503,17 @@ class FindDialog(tk.Toplevel):
         normalized_search_query = search_query.strip()
         search_type = self.search_type.get()
         match_mode = self.match_mode.get()
-        if search_type == "reference":
-            match_mode = "exact"
-            if self.match_mode.get() != "exact":
-                self.match_mode.set("exact")
+        if search_type == 'reference':
+            match_mode = 'exact'
+            if self.match_mode.get() != 'exact':
+                self.match_mode.set('exact')
         reference_target = self.reference_target.get()
         self.update_search_context_fields()
         self.navigation_method_results = []
         self.method_reference_results = []
         self.reference_method_selectors = []
         self.sender_tracing_selector = None
+        self.sender_entries_by_navigation_result = {}
         should_run_search = bool(normalized_search_query)
         self.find_stop_requested = False
         self.set_find_operation_state(should_run_search)
@@ -3126,12 +3530,13 @@ class FindDialog(tk.Toplevel):
         try:
             if not should_run_search:
                 self.static_sender_results = []
+                self.sender_entries_by_navigation_result = {}
                 self.last_reference_method_query = None
                 self.last_reference_method_match_mode = None
                 self.display_results([])
-                self.status_var.set("")
+                self.status_var.set('')
                 return
-            if search_type == "class":
+            if search_type == 'class':
                 class_names = self.class_names_for_query(
                     normalized_search_query,
                     match_mode,
@@ -3139,15 +3544,16 @@ class FindDialog(tk.Toplevel):
                 )
                 self.display_results(class_names)
                 self.static_sender_results = []
+                self.sender_entries_by_navigation_result = {}
                 self.last_reference_method_query = None
                 self.last_reference_method_match_mode = None
                 if self.find_stop_requested:
                     self.finish_stopped_find()
                 else:
-                    self.status_var.set("")
+                    self.status_var.set('')
                 return
-            if search_type == "method":
-                if match_mode == "exact":
+            if search_type == 'method':
+                if match_mode == 'exact':
                     implementor_results = list(
                         self.gemstone_session_record.find_implementors_of_method(
                             normalized_search_query
@@ -3165,11 +3571,13 @@ class FindDialog(tk.Toplevel):
                         )
                         for class_name, is_meta in implementor_results
                     ]
+                    self.static_sender_results = []
+                    self.sender_entries_by_navigation_result = {}
                     self.populate_navigation_results(self.navigation_method_results)
                     if self.find_stop_requested:
                         self.finish_stopped_find()
                     else:
-                        self.status_var.set("")
+                        self.status_var.set('')
                     return
                 selector_names = self.selector_names_for_query(
                     normalized_search_query,
@@ -3178,14 +3586,15 @@ class FindDialog(tk.Toplevel):
                 )
                 self.display_results(selector_names)
                 self.static_sender_results = []
+                self.sender_entries_by_navigation_result = {}
                 self.last_reference_method_query = None
                 self.last_reference_method_match_mode = None
                 if self.find_stop_requested:
                     self.finish_stopped_find()
                 else:
-                    self.status_var.set("")
+                    self.status_var.set('')
                 return
-            if reference_target == "class":
+            if reference_target == 'class':
                 class_reference_results = self.references_for_class_query(
                     normalized_search_query,
                     match_mode,
@@ -3194,16 +3603,18 @@ class FindDialog(tk.Toplevel):
                 self.method_reference_results = list(class_reference_results)
                 self.populate_navigation_results(class_reference_results)
                 self.static_sender_results = []
+                self.sender_entries_by_navigation_result = {}
                 self.last_reference_method_query = None
                 self.last_reference_method_match_mode = None
                 if self.find_stop_requested:
                     self.finish_stopped_find()
                 else:
-                    self.status_var.set("")
+                    self.status_var.set('')
                 return
             (
                 method_reference_results,
                 selector_names,
+                sender_entries_by_result,
             ) = self.references_for_method_query(
                 normalized_search_query,
                 match_mode,
@@ -3211,6 +3622,7 @@ class FindDialog(tk.Toplevel):
             )
             self.reference_method_selectors = selector_names
             self.static_sender_results = list(method_reference_results)
+            self.sender_entries_by_navigation_result = dict(sender_entries_by_result)
             self.last_reference_method_query = normalized_search_query
             self.last_reference_method_match_mode = match_mode
             if self.find_stop_requested:
@@ -3462,12 +3874,15 @@ class FindDialog(tk.Toplevel):
             return
         if selected_tests is None:
             return
+        source_class = self.sender_source_class_name
+        trace_description = (
+            '%s>>%s' % (source_class, method_selector)
+            if source_class is not None
+            else method_selector
+        )
         self.status_var.set(
             "Tracing %s and running %s selected tests..."
-            % (
-                method_selector,
-                len(selected_tests),
-            )
+            % (trace_description, len(selected_tests))
         )
         self.update_idletasks()
         try:
@@ -3477,6 +3892,7 @@ class FindDialog(tk.Toplevel):
                     selected_tests,
                     max_traced_senders=250,
                     max_observed_results=500,
+                    receiver_class_name=source_class,
                 )
             )
         except (GemstoneDomainException, GemstoneError) as error:
@@ -3499,26 +3915,14 @@ class FindDialog(tk.Toplevel):
         ]
         self.populate_navigation_results(narrowed_sender_results)
         trace_result = evidence_result.get("trace") or {}
-        total_sender_count = trace_result.get("total_sender_count")
-        targeted_sender_count = trace_result.get("targeted_sender_count")
-        summary_text = "Observed method references: %s of %s static references." % (
+        fallback_note = trace_result.get('fallback_reason', '')
+        summary_text = "Observed senders of %s: %s of %s static references." % (
+            trace_description,
             len(narrowed_sender_results),
             len(self.static_sender_results),
         )
-        trace_was_capped = (
-            total_sender_count is not None
-            and targeted_sender_count is not None
-            and targeted_sender_count < total_sender_count
-        )
-        if trace_was_capped:
-            summary_text = (
-                summary_text
-                + " Tracing targeted %s of %s senders (capped)."
-                % (
-                    targeted_sender_count,
-                    total_sender_count,
-                )
-            )
+        if fallback_note:
+            summary_text += ' (%s)' % fallback_note
         self.status_var.set(summary_text)
 
     def on_result_double_click(self, event):
@@ -5477,7 +5881,7 @@ class Swordfish(tk.Tk):
     def current_ide_view_state(self):
         active_tab_id = None
         active_tab_label = None
-        active_tab_kind = "none"
+        active_tab_kind = 'none'
         if self.notebook is not None and self.notebook.winfo_exists():
             try:
                 active_tab_id = self.notebook.select()
@@ -5485,20 +5889,20 @@ class Swordfish(tk.Tk):
                 active_tab_id = None
             if active_tab_id:
                 try:
-                    active_tab_label = self.notebook.tab(active_tab_id, "text")
+                    active_tab_label = self.notebook.tab(active_tab_id, 'text')
                 except tk.TclError:
                     active_tab_label = None
         if self.browser_tab is not None and active_tab_id == str(self.browser_tab):
-            active_tab_kind = "browser"
+            active_tab_kind = 'browser'
         if self.run_tab is not None and active_tab_id == str(self.run_tab):
-            active_tab_kind = "run"
+            active_tab_kind = 'run'
         if self.debugger_tab is not None and active_tab_id == str(self.debugger_tab):
-            active_tab_kind = "debugger"
+            active_tab_kind = 'debugger'
         if self.inspector_tab is not None and active_tab_id == str(self.inspector_tab):
-            active_tab_kind = "inspect"
+            active_tab_kind = 'inspect'
         if self.graph_tab is not None and active_tab_id == str(self.graph_tab):
-            active_tab_kind = "graph"
-        if active_tab_kind == "none" and active_tab_label:
+            active_tab_kind = 'graph'
+        if active_tab_kind == 'none' and active_tab_label:
             active_tab_kind = active_tab_label.lower()
 
         browser_state = None
@@ -5506,53 +5910,133 @@ class Swordfish(tk.Tk):
             class_view_mode = None
             if self.browser_tab is not None and self.browser_tab.winfo_exists():
                 class_view_mode = (
-                    "hierarchy"
+                    'hierarchy'
                     if self.browser_tab.classes_widget.selected_tab_is_hierarchy()
-                    else "list"
+                    else 'list'
                 )
             browser_state = {
-                "browse_mode": self.gemstone_session_record.browse_mode,
-                "selected_package": self.gemstone_session_record.selected_package,
-                "selected_dictionary": self.gemstone_session_record.selected_dictionary,
-                "selected_class": self.gemstone_session_record.selected_class,
-                "selected_method_category": (
+                'browse_mode': self.gemstone_session_record.browse_mode,
+                'selected_package': self.gemstone_session_record.selected_package,
+                'selected_dictionary': self.gemstone_session_record.selected_dictionary,
+                'selected_class': self.gemstone_session_record.selected_class,
+                'selected_method_category': (
                     self.gemstone_session_record.selected_method_category
                 ),
-                "selected_method_symbol": self.gemstone_session_record.selected_method_symbol,
-                "show_instance_side": self.gemstone_session_record.show_instance_side,
-                "class_view_mode": class_view_mode,
+                'selected_method_symbol': self.gemstone_session_record.selected_method_symbol,
+                'show_instance_side': self.gemstone_session_record.show_instance_side,
+                'class_view_mode': class_view_mode,
             }
 
         debugger_state = self.debugger_source_state()
         active_source_view = None
-        if active_tab_kind == "browser":
+        if active_tab_kind == 'browser':
             browser_editor_state = self.browser_editor_state()
             active_source_view = {
-                "kind": "browser_method_source",
-                "state": browser_editor_state,
+                'kind': 'browser_method_source',
+                'state': browser_editor_state,
             }
-        if active_tab_kind == "debugger":
+        if active_tab_kind == 'debugger':
             active_source_view = {
-                "kind": "debugger_method_source",
-                "state": debugger_state,
+                'kind': 'debugger_method_source',
+                'state': debugger_state,
             }
-        if active_tab_kind == "run":
+        if active_tab_kind == 'run':
             active_source_view = {
-                "kind": "run_source",
-                "state": self.run_source_state(),
+                'kind': 'run_source',
+                'state': self.run_source_state(),
             }
         return {
-            "ok": True,
-            "is_logged_in": self.is_logged_in,
-            "active_tab": {
-                "label": active_tab_label,
-                "kind": active_tab_kind,
+            'ok': True,
+            'is_logged_in': self.is_logged_in,
+            'active_tab': {
+                'label': active_tab_label,
+                'kind': active_tab_kind,
             },
-            "browser_state": browser_state,
-            "debugger_state": debugger_state,
-            "active_source_view": active_source_view,
-            "mcp_runtime": self.mcp_runtime_state_for_ai(),
+            'browser_state': browser_state,
+            'debugger_state': debugger_state,
+            'active_source_view': active_source_view,
+            'find_dialog_state': self.find_dialog_state_for_mcp(),
+            'mcp_runtime': self.mcp_runtime_state_for_ai(),
         }
+
+    def active_find_dialog(self):
+        find_dialog = None
+        child_windows = list(self.winfo_children())
+        for child_window in child_windows:
+            child_is_find_dialog = isinstance(child_window, FindDialog)
+            child_window_exists = False
+            if child_is_find_dialog:
+                try:
+                    child_window_exists = bool(child_window.winfo_exists())
+                except tk.TclError:
+                    child_window_exists = False
+            if child_is_find_dialog and child_window_exists:
+                find_dialog = child_window
+        return find_dialog
+
+    def find_dialog_state_for_mcp(self):
+        find_dialog = self.active_find_dialog()
+        if find_dialog is None:
+            return {
+                'is_open': False,
+                'is_sender_reference_search': False,
+                'total_static_sender_count': 0,
+                'displayed_sender_count': 0,
+                'displayed_senders': [],
+                'static_senders': [],
+                'sender_selector_query': None,
+                'sender_source_class_name': None,
+            }
+        return find_dialog.sender_filter_state_for_mcp()
+
+    def validated_sender_filter_values(self, filter_values, argument_name):
+        if filter_values is None:
+            return []
+        if not isinstance(filter_values, list):
+            raise DomainException('%s must be a list of strings or None.' % argument_name)
+        validated_values = []
+        for index, filter_value in enumerate(filter_values):
+            if not isinstance(filter_value, str):
+                raise DomainException('%s[%s] must be a string.' % (argument_name, index))
+            normalized_filter_value = filter_value.strip()
+            if normalized_filter_value:
+                validated_values.append(normalized_filter_value)
+        return validated_values
+
+    def filter_active_find_dialog_senders(
+        self,
+        class_category_filters=None,
+        class_name_filters=None,
+        method_selector_filters=None,
+        method_category_filters=None,
+        include_extension_method_category_for_class_category=True,
+        reasoning_note='',
+    ):
+        find_dialog = self.active_find_dialog()
+        if find_dialog is None:
+            return {
+                'ok': False,
+                'error': {'message': 'No open Find dialog in the IDE.'},
+            }
+        return find_dialog.apply_sender_filters(
+            class_category_filters=class_category_filters,
+            class_name_filters=class_name_filters,
+            method_selector_filters=method_selector_filters,
+            method_category_filters=method_category_filters,
+            include_extension_method_category_for_class_category=(
+                include_extension_method_category_for_class_category
+            ),
+            reasoning_note=reasoning_note,
+        )
+
+    def narrow_find_dialog_senders_to_source_class_category(self):
+        find_dialog = self.active_find_dialog()
+        if find_dialog is None:
+            return {
+                'ok': False,
+                'error': {'message': 'No open Find dialog in the IDE.'},
+            }
+        return find_dialog.narrow_to_source_class_category()
 
     def execute_mcp_ide_navigation_action(self, action_name, action_parameters=None):
         if action_parameters is None:
@@ -5705,8 +6189,61 @@ class Swordfish(tk.Tk):
                 "ok": True,
                 "source": source,
             }
+        if action_name == "filter_senders_in_find_dialog":
+            try:
+                class_category_filters = self.validated_sender_filter_values(
+                    action_parameters.get("class_category_filters"),
+                    "class_category_filters",
+                )
+                class_name_filters = self.validated_sender_filter_values(
+                    action_parameters.get("class_name_filters"),
+                    "class_name_filters",
+                )
+                method_selector_filters = self.validated_sender_filter_values(
+                    action_parameters.get("method_selector_filters"),
+                    "method_selector_filters",
+                )
+                method_category_filters = self.validated_sender_filter_values(
+                    action_parameters.get("method_category_filters"),
+                    "method_category_filters",
+                )
+                include_extension_method_category_for_class_category = (
+                    action_parameters.get(
+                        "include_extension_method_category_for_class_category",
+                        True,
+                    )
+                )
+                if not isinstance(
+                    include_extension_method_category_for_class_category,
+                    bool,
+                ):
+                    raise DomainException(
+                        "include_extension_method_category_for_class_category must be a boolean."
+                    )
+                reasoning_note = action_parameters.get("reasoning_note", "")
+                if not isinstance(reasoning_note, str):
+                    raise DomainException("reasoning_note must be a string.")
+            except DomainException as error:
+                return {
+                    "ok": False,
+                    "error": {"message": str(error)},
+                }
+            return self.filter_active_find_dialog_senders(
+                class_category_filters=class_category_filters,
+                class_name_filters=class_name_filters,
+                method_selector_filters=method_selector_filters,
+                method_category_filters=method_category_filters,
+                include_extension_method_category_for_class_category=(
+                    include_extension_method_category_for_class_category
+                ),
+                reasoning_note=reasoning_note,
+            )
         if action_name == "query_current_view":
             return self.current_ide_view_state()
+        if action_name == "query_find_dialog_state":
+            return {'ok': True, **self.find_dialog_state_for_mcp()}
+        if action_name == "narrow_senders_to_source_class_category":
+            return self.narrow_find_dialog_senders_to_source_class_category()
         return {
             "ok": False,
             "error": {"message": f"Unknown IDE navigation action: {action_name}."},
@@ -5956,11 +6493,12 @@ class Swordfish(tk.Tk):
 
     def open_find_dialog(
         self,
-        search_type="class",
-        search_query="",
+        search_type='class',
+        search_query='',
         run_search=False,
         match_mode=None,
         reference_target=None,
+        sender_source_class_name=None,
     ):
         return FindDialog(
             self,
@@ -5969,6 +6507,7 @@ class Swordfish(tk.Tk):
             run_search=run_search,
             match_mode=match_mode,
             reference_target=reference_target,
+            sender_source_class_name=sender_source_class_name,
         )
 
     def open_find_dialog_for_class(self, class_name):
@@ -5992,14 +6531,15 @@ class Swordfish(tk.Tk):
             match_mode="exact",
         )
 
-    def open_senders_dialog(self, method_symbol=None):
-        initial_selector = (method_symbol or "").strip()
+    def open_senders_dialog(self, method_symbol=None, source_class_name=None):
+        initial_selector = (method_symbol or '').strip()
         return self.open_find_dialog(
-            search_type="reference",
+            search_type='reference',
             search_query=initial_selector,
             run_search=bool(initial_selector),
-            match_mode="exact",
-            reference_target="method",
+            match_mode='exact',
+            reference_target='method',
+            sender_source_class_name=source_class_name,
         )
 
     def open_breakpoints_dialog(self):
@@ -9077,11 +9617,13 @@ class CodePanel(tk.Frame):
         selector = self.selector_for_navigation()
         if selector is None:
             messagebox.showwarning(
-                "No Selector",
-                "Could not determine a selector at the current cursor position.",
+                'No Selector',
+                'Could not determine a selector at the current cursor position.',
             )
             return
-        self.application.open_senders_dialog(method_symbol=selector)
+        context = self.method_context()
+        source_class_name = context[0] if context is not None else None
+        self.application.open_senders_dialog(method_symbol=selector, source_class_name=source_class_name)
 
     def class_name_for_reference_lookup(self):
         selected_text = self.selected_text()

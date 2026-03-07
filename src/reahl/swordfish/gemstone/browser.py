@@ -40,6 +40,31 @@ class GemstoneBrowserSession:
         self.real_gemstone_ast_backend_available = None
         self.rowan_installed_cache = None
 
+    def class_categories_by_class_name(self):
+        category_by_class_name = {}
+        try:
+            category_to_classes = self.class_organizer.categories()
+            category_keys = list(category_to_classes.keys())
+        except (GemstoneError, GemstoneApiError):
+            return category_by_class_name
+        for gemstone_category in category_keys:
+            try:
+                category_name = gemstone_category.to_py
+                gemstone_classes = category_to_classes.at(gemstone_category)
+                class_names = [
+                    gemstone_class.name().to_py for gemstone_class in gemstone_classes
+                ]
+            except (GemstoneError, GemstoneApiError, KeyError):
+                class_names = []
+                category_name = None
+            if category_name is None:
+                class_names = []
+            for class_name in class_names:
+                category_by_class_name[class_name] = category_name
+                if class_name.endswith(" class"):
+                    category_by_class_name[class_name[:-6]] = category_name
+        return category_by_class_name
+
     def boolean_flag_from_environment(self, environment_name):
         environment_value = os.environ.get(environment_name, "")
         normalized_environment_value = environment_value.strip().lower()
@@ -2534,6 +2559,43 @@ class GemstoneBrowserSession:
             alias_send,
         )
 
+    def tracer_target_implementation_wrapper_source(self, target_selector, alias_selector):
+        target_selector_literal = self.selector_reference_expression(target_selector)
+        if ':' in target_selector:
+            method_tokens = self.selector_keyword_tokens(target_selector)
+            alias_tokens = self.selector_keyword_tokens(alias_selector)
+            argument_names = [
+                'argument%s' % (index + 1) for index in range(len(method_tokens))
+            ]
+            method_header_tokens = [
+                '%s %s' % (method_tokens[index], argument_names[index])
+                for index in range(len(method_tokens))
+            ]
+            alias_send_tokens = [
+                '%s %s' % (alias_tokens[index], argument_names[index])
+                for index in range(len(alias_tokens))
+            ]
+            method_header = ' '.join(method_header_tokens)
+            alias_send = ' '.join(alias_send_tokens)
+        elif self.is_binary_selector(target_selector):
+            method_header = '%s argument1' % target_selector
+            alias_send = '%s argument1' % alias_selector
+        else:
+            method_header = target_selector
+            alias_send = alias_selector
+        return (
+            '%s\n'
+            '    | senderContext |\n'
+            '    senderContext := thisContext sender.\n'
+            '    senderContext notNil ifTrue: [\n'
+            '        SwordfishMcpTracer\n'
+            '            recordSenderExecutionForTarget: %s\n'
+            '            callerClassName: senderContext method classDescriptor name\n'
+            '            callerMethodSelector: senderContext method selector\n'
+            '            callerShowInstanceSide: senderContext method classDescriptor isMeta not].\n'
+            '    ^self %s'
+        ) % (method_header, target_selector_literal, alias_send)
+
     def tracer_class_method_sources(self):
         return [
             (
@@ -2873,6 +2935,64 @@ class GemstoneBrowserSession:
             "skipped_sender_count": len(skipped_senders),
             "traced_senders": traced_senders,
             "skipped_senders": skipped_senders,
+        }
+
+    def trace_implementation(self, class_name, show_instance_side, method_name):
+        self.run_code(
+            'SwordfishMcpTracer clearInstrumentationForTarget: %s'
+            % self.selector_reference_expression(method_name)
+        )
+        alias_selector = self.tracer_alias_selector(method_name)
+        selectors = self.list_methods(class_name, 'all', show_instance_side)
+        if method_name not in selectors:
+            return {
+                'method_name': method_name,
+                'class_name': class_name,
+                'show_instance_side': show_instance_side,
+                'instrumented': False,
+                'reason': '%s does not define %s directly (only inherits it).' % (class_name, method_name),
+            }
+        alias_already_exists = alias_selector in selectors
+        if alias_already_exists:
+            return {
+                'method_name': method_name,
+                'class_name': class_name,
+                'show_instance_side': show_instance_side,
+                'instrumented': False,
+                'reason': 'Alias selector already exists.',
+            }
+        method_source = self.get_method_source(class_name, method_name, show_instance_side)
+        method_category = self.get_method_category(class_name, method_name, show_instance_side)
+        alias_method_source = self.source_with_rewritten_method_header(
+            method_source, method_name, alias_selector
+        )
+        self.compile_method(class_name, show_instance_side, alias_method_source, method_category)
+        wrapper_source = self.tracer_target_implementation_wrapper_source(
+            method_name, alias_selector
+        )
+        self.compile_method(class_name, show_instance_side, wrapper_source, method_category)
+        self.run_code(
+            (
+                'SwordfishMcpTracer '
+                'registerInstrumentationForTarget: %s '
+                'callerClassName: %s '
+                'callerMethodSelector: %s '
+                'callerShowInstanceSide: %s '
+                'aliasSelector: %s'
+            ) % (
+                self.selector_reference_expression(method_name),
+                self.smalltalk_string_literal(class_name),
+                self.selector_reference_expression(method_name),
+                'true' if show_instance_side else 'false',
+                self.selector_reference_expression(alias_selector),
+            )
+        )
+        return {
+            'method_name': method_name,
+            'class_name': class_name,
+            'show_instance_side': show_instance_side,
+            'instrumented': True,
+            'alias_selector': alias_selector,
         }
 
     def rollback_traced_sender(
@@ -5777,10 +5897,12 @@ class GemstoneBrowserSession:
         method_name,
         max_results=None,
         count_only=False,
+        include_category_details=False,
     ):
         method_summaries = self.selector_occurrence_summaries(
             method_name,
             "senders",
+            include_category_details=include_category_details,
         )
         total_count = len(method_summaries)
         limited_senders = (
@@ -5893,6 +6015,7 @@ class GemstoneBrowserSession:
         self,
         method_name,
         occurrence_type,
+        include_category_details=False,
     ):
         selector_expression = self.selector_reference_expression(method_name)
         if occurrence_type == "implementors":
@@ -5906,8 +6029,16 @@ class GemstoneBrowserSession:
         else:
             raise DomainException("occurrence_type must be implementors or senders.")
         compiled_methods = self.flatten_compiled_methods(candidate_value)
+        class_categories = None
+        if include_category_details:
+            class_categories = self.class_categories_by_class_name()
         method_summaries = [
-            self.method_summary(compiled_method) for compiled_method in compiled_methods
+            self.method_summary(
+                compiled_method,
+                include_category_details=include_category_details,
+                class_categories=class_categories,
+            )
+            for compiled_method in compiled_methods
         ]
         return self.unique_sorted_method_summaries(method_summaries)
 
@@ -5958,7 +6089,12 @@ class GemstoneBrowserSession:
             ),
         )
 
-    def method_summary(self, compiled_method):
+    def method_summary(
+        self,
+        compiled_method,
+        include_category_details=False,
+        class_categories=None,
+    ):
         selector = compiled_method.selector().to_py
         in_class = compiled_method.inClass()
         show_instance_side = not in_class.isMeta().to_py
@@ -5968,11 +6104,38 @@ class GemstoneBrowserSession:
             if not show_instance_side and in_class_name.endswith(" class")
             else in_class_name
         )
-        return {
+        method_summary = {
             "class_name": class_name,
             "show_instance_side": show_instance_side,
             "method_selector": selector,
         }
+        if include_category_details:
+            class_category = None
+            if class_categories is not None:
+                class_category = class_categories.get(class_name)
+            method_category = None
+            try:
+                method_category = self.get_method_category(
+                    class_name,
+                    selector,
+                    show_instance_side,
+                )
+            except (GemstoneError, GemstoneApiError, KeyError):
+                method_category = None
+            method_category_is_extension = (
+                isinstance(method_category, str)
+                and method_category.startswith("*")
+            )
+            extension_category_name = None
+            if method_category_is_extension:
+                extension_category_name = method_category[1:].strip() or None
+            method_summary["class_category"] = class_category
+            method_summary["method_category"] = method_category
+            method_summary["method_category_is_extension"] = (
+                method_category_is_extension
+            )
+            method_summary["extension_category_name"] = extension_category_name
+        return method_summary
 
     def limited_entries(self, entries, max_results):
         if max_results is None:
