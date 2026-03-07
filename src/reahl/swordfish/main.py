@@ -1122,11 +1122,148 @@ class GemstoneSessionRecord:
         self.require_write_access("clear_all_breakpoints")
         return self.gemstone_browser_session.clear_all_breakpoints()
 
-    # except GemstoneError as e:
-    #     try:
-    #         e.context.gciStepOverFromLevel(1)
-    #     except GemstoneError as ex:
-    #         result = ex.continue_with()
+# except GemstoneError as e:
+#     try:
+#         e.context.gciStepOverFromLevel(1)
+#     except GemstoneError as ex:
+#         result = ex.continue_with()
+
+
+UI_CONTEXT_SEQUENCE = 0
+UI_CONTEXT_SEQUENCE_LOCK = threading.RLock()
+
+
+def next_ui_context_identifier(tab_id):
+    global UI_CONTEXT_SEQUENCE
+    with UI_CONTEXT_SEQUENCE_LOCK:
+        UI_CONTEXT_SEQUENCE = UI_CONTEXT_SEQUENCE + 1
+        return '%s-%s' % (tab_id, UI_CONTEXT_SEQUENCE)
+
+
+class UiContext:
+    def __init__(self, tab_id):
+        self.tab_id = next_ui_context_identifier(tab_id)
+        self.version = 0
+        self.alive = True
+        self.lock = threading.RLock()
+
+    def snapshot(self):
+        with self.lock:
+            return (self.tab_id, self.version)
+
+    def invalidate(self):
+        with self.lock:
+            if self.alive:
+                self.alive = False
+                self.version = self.version + 1
+
+    def matches(self, snapshot):
+        with self.lock:
+            return self.alive and snapshot == (self.tab_id, self.version)
+
+
+class UiDispatcher:
+    def __init__(self, root):
+        self.root = root
+        self.pending_callbacks = deque()
+        self.lock = threading.RLock()
+        self.flush_scheduled = False
+
+    def dispatch(self, callback, *args, **kwargs):
+        should_schedule_flush = False
+        with self.lock:
+            self.pending_callbacks.append((callback, args, kwargs))
+            should_schedule_flush = not self.flush_scheduled
+            if should_schedule_flush:
+                self.flush_scheduled = True
+        if should_schedule_flush:
+            try:
+                self.root.after(0, self.flush_pending_callbacks)
+            except tk.TclError:
+                with self.lock:
+                    self.flush_scheduled = False
+
+    def flush_pending_callbacks(self):
+        pending_callbacks = []
+        with self.lock:
+            while self.pending_callbacks:
+                pending_callbacks.append(self.pending_callbacks.popleft())
+            self.flush_scheduled = False
+        for callback, args, kwargs in pending_callbacks:
+            callback(*args, **kwargs)
+
+
+class BusyCoordinator:
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.active_lease_token = 0
+        self.next_lease_token = 0
+        self.active_operation_name = ''
+        self.busy = False
+
+    def lease_for_state(self, is_busy=False, operation_name=''):
+        with self.lock:
+            if is_busy:
+                operation_changed = operation_name != self.active_operation_name
+                if not self.busy or operation_changed:
+                    self.next_lease_token = self.next_lease_token + 1
+                    self.active_lease_token = self.next_lease_token
+                self.busy = True
+                self.active_operation_name = operation_name
+                return self.active_lease_token
+            self.busy = False
+            self.active_operation_name = ''
+            self.active_lease_token = 0
+            return self.active_lease_token
+
+    def is_current_lease(self, lease_token):
+        with self.lock:
+            if lease_token is None:
+                return True
+            if self.busy:
+                return lease_token == self.active_lease_token
+            return lease_token == 0
+
+
+class ActionGate:
+    def __init__(self):
+        self.actions_blocked_while_busy = {
+            'session',
+            'run',
+            'breakpoints',
+            'run_editor_source',
+            'method_editor_source',
+            'ide_write',
+            'mcp_stop',
+        }
+
+    def allows(self, action_name, is_busy=False):
+        if is_busy and action_name in self.actions_blocked_while_busy:
+            return False
+        return True
+
+    def state_for(self, action_name, is_busy=False):
+        if self.allows(action_name, is_busy=is_busy):
+            return tk.NORMAL
+        return tk.DISABLED
+
+    def read_only_for(self, action_name, is_busy=False):
+        return not self.allows(action_name, is_busy=is_busy)
+
+
+def configure_widget_if_alive(widget, **configuration):
+    if widget is None:
+        return
+    widget_exists = False
+    try:
+        widget_exists = bool(widget.winfo_exists())
+    except tk.TclError:
+        widget_exists = False
+    if widget_exists:
+        try:
+            widget.configure(**configuration)
+        except tk.TclError:
+            pass
 
 
 class EventQueue:
@@ -1138,8 +1275,20 @@ class EventQueue:
         self.root_thread_ident = threading.get_ident()
         self.wakeup_read_descriptor = None
         self.wakeup_write_descriptor = None
-        self.root.bind("<<CustomEventsPublished>>", self.process_events)
+        self.processing_events = False
+        self.ui_dispatcher = UiDispatcher(self.root)
+        self.root.bind('<<CustomEventsPublished>>', self.schedule_event_processing)
         self.configure_cross_thread_wakeup()
+
+    def schedule_event_processing(self, event=None):
+        self.ui_dispatcher.dispatch(self.process_events)
+
+    def subscription_is_active(self, ui_context, context_snapshot):
+        if ui_context is None:
+            return True
+        if context_snapshot is None:
+            return False
+        return ui_context.matches(context_snapshot)
 
     def configure_cross_thread_wakeup(self):
         supports_filehandler = hasattr(self.root, "createfilehandler")
@@ -1166,19 +1315,28 @@ class EventQueue:
         except TypeError:
             return weakref.ref(callback)
 
-    def subscribe(self, event_name, callback, *args):
+    def subscribe(self, event_name, callback, *args, ui_context=None):
+        context_snapshot = None
+        if ui_context is not None:
+            context_snapshot = ui_context.snapshot()
         self.events.setdefault(event_name, [])
-        self.events[event_name].append((self.callback_reference_for(callback), args))
+        self.events[event_name].append(
+            (
+                self.callback_reference_for(callback),
+                args,
+                ui_context,
+                context_snapshot,
+            )
+        )
 
     def publish(self, event_name, *args, **kwargs):
         if event_name in self.events:
             with self.queue_lock:
                 self.queue.append((event_name, args, kwargs))
         if threading.get_ident() == self.root_thread_ident:
-            try:
-                self.root.event_generate("<<CustomEventsPublished>>")
-            except tk.TclError:
-                pass
+            if self.processing_events:
+                return
+            self.process_events()
             return
         self.publish_cross_thread_wakeup()
 
@@ -1207,37 +1365,71 @@ class EventQueue:
                     break
                 if len(wakeup_payload) < 1024:
                     break
-        self.process_events(None)
+        self.schedule_event_processing()
 
-    def process_events(self, event):
-        while True:
-            with self.queue_lock:
-                if not self.queue:
-                    break
-                event_name, args, kwargs = self.queue.popleft()
-            if event_name in self.events:
-                logging.getLogger(__name__).debug(f"Processing: {event_name}")
-                retained_callbacks = []
-                for weak_callback, callback_args in self.events[event_name]:
-                    callback = weak_callback()
-                    if callback is None:
-                        continue
-                    retained_callbacks.append((weak_callback, callback_args))
-                    logging.getLogger(__name__).debug(f"Calling: {callback}")
-                    callback(*callback_args, *args, **kwargs)
-                self.events[event_name] = retained_callbacks
+    def process_events(self):
+        if self.processing_events:
+            return
+        self.processing_events = True
+        try:
+            while True:
+                with self.queue_lock:
+                    if not self.queue:
+                        break
+                    event_name, args, kwargs = self.queue.popleft()
+                if event_name in self.events:
+                    logging.getLogger(__name__).debug(f"Processing: {event_name}")
+                    retained_callbacks = []
+                    for (
+                        weak_callback,
+                        callback_args,
+                        ui_context,
+                        context_snapshot,
+                    ) in self.events[event_name]:
+                        callback = weak_callback()
+                        callback_is_live = callback is not None
+                        context_is_active = self.subscription_is_active(
+                            ui_context,
+                            context_snapshot,
+                        )
+                        if callback_is_live and context_is_active:
+                            retained_callbacks.append(
+                                (
+                                    weak_callback,
+                                    callback_args,
+                                    ui_context,
+                                    context_snapshot,
+                                )
+                            )
+                            logging.getLogger(__name__).debug(f"Calling: {callback}")
+                            callback(*callback_args, *args, **kwargs)
+                    self.events[event_name] = retained_callbacks
+        finally:
+            self.processing_events = False
 
     def clear_subscribers(self, owner):
         for event_name, registered_callbacks in self.events.copy().items():
             cleaned_callbacks = []
-            for weak_callback, callback_args in registered_callbacks:
+            for (
+                weak_callback,
+                callback_args,
+                ui_context,
+                context_snapshot,
+            ) in registered_callbacks:
                 callback = weak_callback()
                 callback_is_live = callback is not None
                 owner_matches = False
                 if callback_is_live:
                     owner_matches = getattr(callback, "__self__", None) is owner
                 if callback_is_live and not owner_matches:
-                    cleaned_callbacks.append((weak_callback, callback_args))
+                    cleaned_callbacks.append(
+                        (
+                            weak_callback,
+                            callback_args,
+                            ui_context,
+                            context_snapshot,
+                        )
+                    )
             self.events[event_name] = cleaned_callbacks
 
     def close(self):
@@ -2054,9 +2246,8 @@ class MainMenu(tk.Menu):
     def update_session_menu(self):
         self.session_menu.delete(0, tk.END)
         if self.parent.is_logged_in:
-            menu_state = tk.NORMAL
-            if self.parent.integrated_session_state.is_mcp_busy():
-                menu_state = tk.DISABLED
+            is_busy = self.parent.integrated_session_state.is_mcp_busy()
+            menu_state = self.parent.action_gate.state_for('session', is_busy=is_busy)
             self.session_menu.add_command(
                 label="Commit",
                 command=self.parent.commit,
@@ -2092,7 +2283,8 @@ class MainMenu(tk.Menu):
             stop_state = tk.DISABLED
         if mcp_state["stopping"]:
             stop_state = tk.DISABLED
-        if self.parent.integrated_session_state.is_mcp_busy():
+        is_busy = self.parent.integrated_session_state.is_mcp_busy()
+        if not self.parent.action_gate.allows('mcp_stop', is_busy=is_busy):
             stop_state = tk.DISABLED
         configure_state = tk.NORMAL
         if mcp_state["starting"] or mcp_state["stopping"]:
@@ -2117,9 +2309,12 @@ class MainMenu(tk.Menu):
     def update_file_menu(self):
         self.file_menu.delete(0, tk.END)
         if self.parent.is_logged_in:
-            run_command_state = tk.NORMAL
-            if self.parent.integrated_session_state.is_mcp_busy():
-                run_command_state = tk.DISABLED
+            is_busy = self.parent.integrated_session_state.is_mcp_busy()
+            run_command_state = self.parent.action_gate.state_for('run', is_busy=is_busy)
+            breakpoints_state = self.parent.action_gate.state_for(
+                'breakpoints',
+                is_busy=is_busy,
+            )
             self.file_menu.add_command(label="Find", command=self.show_find_dialog)
             self.file_menu.add_command(
                 label="Implementors",
@@ -2137,7 +2332,7 @@ class MainMenu(tk.Menu):
             self.file_menu.add_command(
                 label="Breakpoints",
                 command=self.show_breakpoints_dialog,
-                state=run_command_state,
+                state=breakpoints_state,
             )
             self.file_menu.add_separator()
         self.file_menu.add_command(label="Exit", command=self.parent.quit)
@@ -2152,7 +2347,7 @@ class MainMenu(tk.Menu):
         self.parent.open_senders_dialog()
 
     def show_run_dialog(self):
-        self.parent.run_code()
+        self.parent.open_run_tab()
 
     def show_breakpoints_dialog(self):
         self.parent.open_breakpoints_dialog()
@@ -4446,6 +4641,8 @@ class Swordfish(tk.Tk):
         mcp_configuration_store=None,
     ):
         super().__init__()
+        self.action_gate = ActionGate()
+        self.busy_coordinator = BusyCoordinator()
         self.event_queue = EventQueue(self)
         self.integrated_session_state = current_integrated_session_state()
         self.integrated_session_state.attach_ide_gui(
@@ -4787,10 +4984,15 @@ class Swordfish(tk.Tk):
         self.refresh_collaboration_status()
 
     def publish_mcp_busy_state_event(self, is_busy=False, operation_name=""):
+        busy_lease_token = self.busy_coordinator.lease_for_state(
+            is_busy=is_busy,
+            operation_name=operation_name,
+        )
         self.event_queue.publish(
             "McpBusyStateChanged",
             is_busy=is_busy,
             operation_name=operation_name,
+            busy_lease_token=busy_lease_token,
         )
 
     def publish_mcp_server_state_event(
@@ -4843,7 +5045,9 @@ class Swordfish(tk.Tk):
         mcp_server_running = mcp_server_status["running"]
         mcp_server_starting = mcp_server_status["starting"]
         mcp_server_stopping = mcp_server_status["stopping"]
-        self.apply_collaboration_read_only_state(mcp_busy)
+        self.apply_collaboration_read_only_state(
+            self.action_gate.read_only_for('ide_write', is_busy=mcp_busy)
+        )
         self.set_mcp_activity_indicator_visibility(
             bool(self.foreground_activity_message)
             or mcp_busy
@@ -4879,7 +5083,14 @@ class Swordfish(tk.Tk):
         else:
             self.collaboration_status_text.set("")
 
-    def handle_mcp_busy_state_changed(self, is_busy=False, operation_name=""):
+    def handle_mcp_busy_state_changed(
+        self,
+        is_busy=False,
+        operation_name="",
+        busy_lease_token=None,
+    ):
+        if not self.busy_coordinator.is_current_lease(busy_lease_token):
+            return
         self.last_mcp_busy_state = is_busy
         self.refresh_collaboration_status()
 
@@ -4909,8 +5120,8 @@ class Swordfish(tk.Tk):
             self.last_mcp_server_error_message = None
         self.refresh_collaboration_status()
 
-    def handle_open_run_window(self, source=""):
-        self.run_code()
+    def handle_open_run_window(self, source=''):
+        self.open_run_tab()
         self.run_tab.present_source(source, run_immediately=False)
 
     def handle_model_refresh_requested(self, change_kind=""):
@@ -5586,12 +5797,15 @@ class Swordfish(tk.Tk):
         self.event_queue.publish("SelectedCategoryChanged")
         self.event_queue.publish("MethodSelected")
 
-    def run_code(self, source=""):
+    def open_run_tab(self):
         if self.run_tab is None or not self.run_tab.winfo_exists():
             self.run_tab = RunTab(self.notebook, self)
-            self.notebook.add(self.run_tab, text="Run")
+            self.notebook.add(self.run_tab, text='Run')
         self.run_tab.set_read_only(self.integrated_session_state.is_mcp_busy())
         self.notebook.select(self.run_tab)
+
+    def run_code(self, source=''):
+        self.open_run_tab()
         run_immediately = bool(source and source.strip())
         self.run_tab.present_source(source, run_immediately=run_immediately)
 
@@ -5700,6 +5914,7 @@ class RunTab(ttk.Frame):
         self.application = application
         self.last_exception = None
         self.current_text_menu = None
+        self.ui_context = UiContext('run-tab')
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)
@@ -5793,6 +6008,7 @@ class RunTab(ttk.Frame):
         self.application.event_queue.subscribe(
             "McpBusyStateChanged",
             self.handle_mcp_busy_state_changed,
+            ui_context=self.ui_context,
         )
         self.set_read_only(self.is_read_only())
 
@@ -5820,7 +6036,11 @@ class RunTab(ttk.Frame):
         self.result_text.bind("<Button-1>", self.close_text_menu, add="+")
 
     def is_read_only(self):
-        return self.application.integrated_session_state.is_mcp_busy()
+        is_busy = self.application.integrated_session_state.is_mcp_busy()
+        action_gate = getattr(self.application, 'action_gate', None)
+        if action_gate is None:
+            return is_busy
+        return action_gate.read_only_for('run_editor_source', is_busy=is_busy)
 
     def set_read_only(self, read_only):
         source_text_state = tk.NORMAL
@@ -5830,11 +6050,20 @@ class RunTab(ttk.Frame):
             source_text_state = tk.DISABLED
             run_button_state = tk.DISABLED
             debug_button_state = tk.DISABLED
-        self.source_text.configure(state=source_text_state)
-        self.run_button.configure(state=run_button_state)
-        self.debug_button.configure(state=debug_button_state)
+        configure_widget_if_alive(self.source_text, state=source_text_state)
+        configure_widget_if_alive(self.run_button, state=run_button_state)
+        configure_widget_if_alive(self.debug_button, state=debug_button_state)
 
-    def handle_mcp_busy_state_changed(self, is_busy=False, operation_name=""):
+    def handle_mcp_busy_state_changed(
+        self,
+        is_busy=False,
+        operation_name="",
+        busy_lease_token=None,
+    ):
+        busy_coordinator = getattr(self.application, 'busy_coordinator', None)
+        if busy_coordinator is not None:
+            if not busy_coordinator.is_current_lease(busy_lease_token):
+                return
         self.set_read_only(is_busy)
 
     def select_all_source_text(self, event=None):
@@ -6368,6 +6597,7 @@ class RunTab(ttk.Frame):
         return "compileerror" in error_text or "compile error" in error_text
 
     def close_tab(self):
+        self.ui_context.invalidate()
         if self.application.run_tab is self:
             self.application.run_tab = None
         try:
@@ -6375,6 +6605,11 @@ class RunTab(ttk.Frame):
         except tk.TclError:
             pass
         self.destroy()
+
+    def destroy(self):
+        self.ui_context.invalidate()
+        self.application.event_queue.clear_subscribers(self)
+        super().destroy()
 
 
 class JsonResultDialog(tk.Toplevel):
@@ -7985,6 +8220,7 @@ class MethodEditor(FramedWidget):
         self.current_menu = None
         self.method_navigation_history = NavigationHistory()
         self.history_choice_indices = []
+        self.ui_context = UiContext('method-editor')
 
         self.navigation_bar = ttk.Frame(self)
         self.navigation_bar.grid(row=0, column=0, sticky="ew")
@@ -8040,6 +8276,7 @@ class MethodEditor(FramedWidget):
         self.event_queue.subscribe(
             "McpBusyStateChanged",
             self.handle_mcp_busy_state_changed,
+            ui_context=self.ui_context,
         )
         self.refresh_navigation_controls()
         self.set_read_only(
@@ -8179,8 +8416,25 @@ class MethodEditor(FramedWidget):
         for open_tab in self.open_tabs.values():
             open_tab.code_panel.set_read_only(read_only)
 
-    def handle_mcp_busy_state_changed(self, is_busy=False, operation_name=""):
+    def handle_mcp_busy_state_changed(
+        self,
+        is_busy=False,
+        operation_name="",
+        busy_lease_token=None,
+    ):
+        busy_coordinator = getattr(
+            self.browser_window.application,
+            'busy_coordinator',
+            None,
+        )
+        if busy_coordinator is not None:
+            if not busy_coordinator.is_current_lease(busy_lease_token):
+                return
         self.set_read_only(is_busy)
+
+    def destroy(self):
+        self.ui_context.invalidate()
+        super().destroy()
 
     def on_tab_motion(self, event):
         try:
@@ -8279,13 +8533,17 @@ class CodePanel(tk.Frame):
         self.text_editor.bind("<Button-1>", self.close_context_menu, add="+")
 
     def is_read_only(self):
-        return self.application.integrated_session_state.is_mcp_busy()
+        is_busy = self.application.integrated_session_state.is_mcp_busy()
+        action_gate = getattr(self.application, 'action_gate', None)
+        if action_gate is None:
+            return is_busy
+        return action_gate.read_only_for('method_editor_source', is_busy=is_busy)
 
     def set_read_only(self, read_only):
         text_state = tk.NORMAL
         if read_only:
             text_state = tk.DISABLED
-        self.text_editor.configure(state=text_state)
+        configure_widget_if_alive(self.text_editor, state=text_state)
 
     @property
     def gemstone_session_record(self):

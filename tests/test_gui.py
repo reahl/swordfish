@@ -2044,7 +2044,12 @@ def test_mcp_busy_state_publishes_events_for_listeners(fixture):
         def __init__(self):
             self.events = []
 
-        def on_busy_state_changed(self, is_busy=False, operation_name=""):
+        def on_busy_state_changed(
+            self,
+            is_busy=False,
+            operation_name="",
+            busy_lease_token=None,
+        ):
             self.events.append((is_busy, operation_name))
 
     listener = BusyListener()
@@ -2091,6 +2096,26 @@ def test_mcp_busy_state_disables_run_and_session_controls(fixture):
     assert str(fixture.app.run_tab.debug_button.cget("state")) == tk.NORMAL
     assert fixture.app.run_tab.source_text.cget("state") == tk.NORMAL
     assert fixture.app.menu_bar.session_menu.entrycget(0, "state") == tk.NORMAL
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_close_run_tab_drops_stale_mcp_busy_callback(fixture):
+    """AI: Closing Run tab invalidates callback context so queued busy callbacks cannot touch destroyed widgets."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+
+    fixture.app.publish_mcp_busy_state_event(
+        is_busy=True,
+        operation_name='gs_eval',
+    )
+    run_tab.close_tab()
+
+    with expected(NoException):
+        fixture.app.update()
+
+    assert fixture.app.run_tab is None
 
 
 @with_fixtures(SwordfishAppFixture)

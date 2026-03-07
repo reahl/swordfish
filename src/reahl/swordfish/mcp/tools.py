@@ -620,6 +620,9 @@ def register_tools(
         action_name,
         action_parameters,
         requires_write=True,
+        requires_source_read=False,
+        requires_source_write=False,
+        requires_eval=False,
     ):
         permission_error_response = None
         if requires_write:
@@ -634,6 +637,27 @@ def register_tools(
             )
         if permission_error_response is not None:
             return permission_error_response
+        if requires_source_read:
+            permission_error_response = require_source_read_enabled(
+                connection_id,
+                "IDE navigation tool (source read)",
+            )
+            if permission_error_response is not None:
+                return permission_error_response
+        if requires_source_write:
+            permission_error_response = require_source_write_enabled(
+                connection_id,
+                "IDE navigation tool (source write)",
+            )
+            if permission_error_response is not None:
+                return permission_error_response
+        if requires_eval:
+            permission_error_response = require_eval_arbitrary_enabled(
+                connection_id,
+                "IDE navigation tool (eval)",
+            )
+            if permission_error_response is not None:
+                return permission_error_response
         connection_error_response = require_ide_navigation_connection(connection_id)
         if connection_error_response is not None:
             return connection_error_response
@@ -2259,6 +2283,7 @@ def register_tools(
                 "class_name": class_name,
                 "show_instance_side": show_instance_side,
             },
+            requires_source_read=True,
         )
 
     @mcp_server.tool()
@@ -2295,6 +2320,7 @@ def register_tools(
                 "method_symbol": method_selector,
                 "show_instance_side": show_instance_side,
             },
+            requires_source_read=True,
         )
 
     @mcp_server.tool()
@@ -6468,6 +6494,12 @@ def register_tools(
         source_offset: int,
         show_instance_side=True,
     ):
+        ide_write_error = require_ide_write_enabled(
+            connection_id,
+            "gs_breakpoint_set",
+        )
+        if ide_write_error:
+            return ide_write_error
         try:
             class_name = validated_identifier(class_name, "class_name")
             method_selector = validated_selector(
@@ -6518,6 +6550,12 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_breakpoint_list(connection_id):
+        ide_read_error = require_ide_read_enabled(
+            connection_id,
+            "gs_breakpoint_list",
+        )
+        if ide_read_error:
+            return ide_read_error
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -6529,6 +6567,12 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_breakpoint_clear(connection_id, breakpoint_id):
+        ide_write_error = require_ide_write_enabled(
+            connection_id,
+            "gs_breakpoint_clear",
+        )
+        if ide_write_error:
+            return ide_write_error
         try:
             breakpoint_id = validated_non_empty_string(
                 breakpoint_id,
@@ -6567,6 +6611,12 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_breakpoint_clear_all(connection_id):
+        ide_write_error = require_ide_write_enabled(
+            connection_id,
+            "gs_breakpoint_clear_all",
+        )
+        if ide_write_error:
+            return ide_write_error
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response

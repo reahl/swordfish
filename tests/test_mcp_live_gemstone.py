@@ -105,6 +105,7 @@ class LiveMcpConnectionFixture(Fixture):
             registrar,
             allow_eval_arbitrary=True,
             allow_source_write=True,
+            allow_ide_write=True,
             allow_commit=True,
             allow_tracing=True,
         )
