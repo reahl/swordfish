@@ -1425,6 +1425,45 @@ def test_gs_debug_eval_is_disabled_by_default(tools_fixture):
     )
 
 
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_breakpoint_set_is_disabled_by_default(tools_fixture):
+    set_breakpoint = tools_fixture.registered_mcp_tools["gs_breakpoint_set"]
+    result = set_breakpoint(
+        "missing-connection-id",
+        "ExampleClass",
+        "exampleMethod",
+        1,
+        True,
+    )
+    assert not result["ok"]
+    assert result["error"]["message"] == (
+        "gs_breakpoint_set is disabled. "
+        "Start swordfish --headless-mcp with --allow-ide-write to enable."
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_breakpoint_clear_is_disabled_by_default(tools_fixture):
+    clear_breakpoint = tools_fixture.registered_mcp_tools["gs_breakpoint_clear"]
+    result = clear_breakpoint("missing-connection-id", "some-breakpoint-id")
+    assert not result["ok"]
+    assert result["error"]["message"] == (
+        "gs_breakpoint_clear is disabled. "
+        "Start swordfish --headless-mcp with --allow-ide-write to enable."
+    )
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_breakpoint_clear_all_is_disabled_by_default(tools_fixture):
+    clear_all = tools_fixture.registered_mcp_tools["gs_breakpoint_clear_all"]
+    result = clear_all("missing-connection-id")
+    assert not result["ok"]
+    assert result["error"]["message"] == (
+        "gs_breakpoint_clear_all is disabled. "
+        "Start swordfish --headless-mcp with --allow-ide-write to enable."
+    )
+
+
 def test_register_tools_allows_eval_without_extra_approval_configuration():
     registrar = McpToolRegistrar()
     with expected(NoException):
