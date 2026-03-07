@@ -253,6 +253,7 @@ class AllowedToolsFixture(Fixture):
             registrar,
             allow_source_read=True,
             allow_eval_arbitrary=True,
+            allow_test_execution=True,
             allow_source_write=True,
             allow_ide_read=True,
             allow_ide_write=True,
@@ -437,6 +438,7 @@ class AllowedToolsWithCommitConfirmationFixture(Fixture):
             registrar,
             allow_source_read=True,
             allow_eval_arbitrary=True,
+            allow_test_execution=True,
             allow_source_write=True,
             allow_ide_read=True,
             allow_ide_write=True,
@@ -467,6 +469,7 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
             registrar,
             allow_source_read=True,
             allow_eval_arbitrary=True,
+            allow_test_execution=True,
             allow_source_write=True,
             allow_ide_read=True,
             allow_ide_write=True,
@@ -608,6 +611,7 @@ class AllowedToolsWithNoActiveTransactionAndStrictAstFixture(Fixture):
             registrar,
             allow_source_read=True,
             allow_eval_arbitrary=True,
+            allow_test_execution=True,
             allow_source_write=True,
             allow_ide_read=True,
             allow_ide_write=True,
@@ -648,6 +652,7 @@ class AllowedToolsWithActiveTransactionFixture(Fixture):
             registrar,
             allow_source_read=True,
             allow_eval_arbitrary=True,
+            allow_test_execution=True,
             allow_source_write=True,
             allow_ide_read=True,
             allow_ide_write=True,
@@ -1843,6 +1848,56 @@ def test_gs_debug_test_method_checks_connection(tools_fixture):
     )
     assert not run_result["ok"]
     assert run_result["error"]["message"] == "Unknown connection_id."
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_run_tests_in_package_blocked_without_test_execution_permission(
+    tools_fixture,
+):
+    """AI: Test execution tools are disabled by default to prevent data exfiltration via code execution."""
+    run_result = tools_fixture.gs_run_tests_in_package(
+        "any-connection-id",
+        "Kernel-Objects",
+    )
+    assert not run_result["ok"]
+    assert "gs_run_tests_in_package is disabled" in run_result["error"]["message"]
+    assert "--allow-test-execution" in run_result["error"]["message"]
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_run_test_method_blocked_without_test_execution_permission(tools_fixture):
+    """AI: Test execution tools are disabled by default to prevent data exfiltration via code execution."""
+    run_result = tools_fixture.gs_run_test_method(
+        "any-connection-id",
+        "ExampleTestCase",
+        "testPass",
+    )
+    assert not run_result["ok"]
+    assert "gs_run_test_method is disabled" in run_result["error"]["message"]
+    assert "--allow-test-execution" in run_result["error"]["message"]
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_debug_test_method_blocked_without_test_execution_permission(tools_fixture):
+    """AI: Test execution tools are disabled by default to prevent data exfiltration via code execution."""
+    run_result = tools_fixture.gs_debug_test_method(
+        "any-connection-id",
+        "ExampleTestCase",
+        "testPass",
+    )
+    assert not run_result["ok"]
+    assert "gs_debug_test_method is disabled" in run_result["error"]["message"]
+    assert "--allow-test-execution" in run_result["error"]["message"]
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_run_gemstone_tests_blocked_without_test_execution_permission(tools_fixture):
+    """AI: Test execution tools are disabled by default to prevent data exfiltration via code execution."""
+    gs_run_gemstone_tests = tools_fixture.registered_mcp_tools["gs_run_gemstone_tests"]
+    run_result = gs_run_gemstone_tests("any-connection-id", "ExampleTestCase")
+    assert not run_result["ok"]
+    assert "gs_run_gemstone_tests is disabled" in run_result["error"]["message"]
+    assert "--allow-test-execution" in run_result["error"]["message"]
 
 
 @with_fixtures(AllowedToolsFixture)

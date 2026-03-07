@@ -104,6 +104,7 @@ class LiveMcpConnectionFixture(Fixture):
         register_tools(
             registrar,
             allow_eval_arbitrary=True,
+            allow_test_execution=True,
             allow_source_write=True,
             allow_ide_write=True,
             allow_commit=True,
@@ -472,6 +473,7 @@ class LiveMcpConnectionWithoutCommitPermissionFixture(Fixture):
         register_tools(
             registrar,
             allow_eval_arbitrary=True,
+            allow_test_execution=True,
             allow_source_write=True,
             allow_commit=False,
             allow_tracing=True,
