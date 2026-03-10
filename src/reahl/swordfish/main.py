@@ -52,6 +52,33 @@ def uml_method_label(show_instance_side, method_selector):
     return f"class>>{method_selector}"
 
 
+def close_popup_menu(menu):
+    try:
+        menu.unpost()
+    except tk.TclError:
+        pass
+
+
+def add_close_command_to_popup_menu(menu):
+    if menu.index("end") is not None:
+        menu.add_separator()
+    menu.add_command(
+        label="Close Menu",
+        command=lambda current_menu=menu: close_popup_menu(current_menu),
+    )
+
+
+def popup_menu(menu, event):
+    menu.bind(
+        "<Escape>",
+        lambda popup_event, current_menu=menu: close_popup_menu(current_menu),
+    )
+    try:
+        menu.tk_popup(event.x_root, event.y_root)
+    finally:
+        menu.grab_release()
+
+
 class EditableText:
     def __init__(self, text_widget, clipboard_owner):
         self.text_widget = text_widget
@@ -6957,6 +6984,11 @@ class RunTab(ttk.Frame):
                 command=self.graph_inspect_selected_source_text,
                 state=run_command_state,
             )
+        add_close_command_to_popup_menu(self.current_text_menu)
+        self.current_text_menu.bind(
+            "<Escape>",
+            lambda popup_event: self.close_text_menu(popup_event),
+        )
         self.current_text_menu.post(event.x_root, event.y_root)
 
     def close_text_menu(self, event):
@@ -7645,8 +7677,8 @@ class ClassSelection(FramedWidget):
             variable=self.selection_var,
             value="instance",
         )
-        self.class_radiobutton.grid(column=0, row=0, sticky="w")
-        self.instance_radiobutton.grid(column=1, row=0, sticky="w")
+        self.instance_radiobutton.grid(column=0, row=0, sticky="w")
+        self.class_radiobutton.grid(column=1, row=0, sticky="w")
         self.show_class_definition_var = tk.BooleanVar(value=False)
         self.show_class_definition_checkbox = tk.Checkbutton(
             self.class_controls_frame,
@@ -7967,7 +7999,8 @@ class ClassSelection(FramedWidget):
             command=self.run_all_tests,
             state=run_command_state,
         )
-        menu.tk_popup(event.x_root, event.y_root)
+        add_close_command_to_popup_menu(menu)
+        popup_menu(menu, event)
 
     def class_name_from_list_context_event(self, event):
         listbox = self.selection_list.selection_listbox
@@ -8050,7 +8083,8 @@ class ClassSelection(FramedWidget):
             command=self.add_selected_hierarchy_classes_to_uml,
             state=tk.NORMAL if has_selection else tk.DISABLED,
         )
-        menu.tk_popup(event.x_root, event.y_root)
+        add_close_command_to_popup_menu(menu)
+        popup_menu(menu, event)
 
     def add_class(self):
         selected_category = self.gemstone_session_record.selected_class_category()
@@ -8314,7 +8348,8 @@ class CategorySelection(FramedWidget):
             command=self.delete_category,
             state=delete_command_state,
         )
-        menu.tk_popup(event.x_root, event.y_root)
+        add_close_command_to_popup_menu(menu)
+        popup_menu(menu, event)
 
     def add_category(self):
         selected_class = self.gemstone_session_record.selected_class
@@ -8762,7 +8797,8 @@ class MethodSelection(FramedWidget):
             command=self.open_covering_tests,
             state=covering_tests_state,
         )
-        menu.tk_popup(event.x_root, event.y_root)
+        add_close_command_to_popup_menu(menu)
+        popup_menu(menu, event)
 
     def show_method_in_uml(self):
         class_name = self.gemstone_session_record.selected_class
@@ -9540,6 +9576,11 @@ class CodePanel(tk.Frame):
             label="Apply Inline Method",
             command=self.apply_method_inline,
             state=write_command_state,
+        )
+        add_close_command_to_popup_menu(self.current_context_menu)
+        self.current_context_menu.bind(
+            "<Escape>",
+            lambda popup_event: close_popup_menu(self.current_context_menu),
         )
         self.current_context_menu.post(event.x_root, event.y_root)
 
@@ -11250,11 +11291,9 @@ class ObjectInspector(ttk.Frame):
         has_menu_entries = object_menu.index("end") is not None
         if not has_menu_entries:
             return
-        try:
-            object_menu.tk_popup(event.x_root, event.y_root)
-            self.current_object_menu = object_menu
-        finally:
-            object_menu.grab_release()
+        add_close_command_to_popup_menu(object_menu)
+        self.current_object_menu = object_menu
+        popup_menu(object_menu, event)
 
     def close_object_menu(self, event=None):
         if self.current_object_menu is None:
@@ -11830,10 +11869,8 @@ class GraphCanvas(ttk.Frame):
             label="Inspect Object",
             command=lambda: self.node_detail_action(node),
         )
-        try:
-            menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            menu.grab_release()
+        add_close_command_to_popup_menu(menu)
+        popup_menu(menu, event)
 
     def expand_scroll_region(self):
         all_nodes = self.registry.all_nodes()
@@ -12530,10 +12567,8 @@ class UmlTab(ttk.Frame):
             label="Remove From UML",
             command=lambda: self.remove_class_from_diagram(node.class_name),
         )
-        try:
-            menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            menu.grab_release()
+        add_close_command_to_popup_menu(menu)
+        popup_menu(menu, event)
 
     def prompt_add_association(self, source_node, inst_var_name):
         target_class_name = simpledialog.askstring(

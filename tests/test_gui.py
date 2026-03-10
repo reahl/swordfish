@@ -1281,6 +1281,8 @@ def test_show_class_definition_displays_and_updates_for_selected_class(fixture):
         == classes_widget.show_class_definition_checkbox.grid_info()["row"]
         == 0
     )
+    assert int(classes_widget.instance_radiobutton.grid_info()["column"]) == 0
+    assert int(classes_widget.class_radiobutton.grid_info()["column"]) == 1
     classes_widget.show_class_definition_var.set(True)
     classes_widget.toggle_class_definition()
     fixture.root.update()
