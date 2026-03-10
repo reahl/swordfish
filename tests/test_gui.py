@@ -3235,6 +3235,123 @@ def test_mcp_ide_navigation_action_opens_method_in_browser(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_mcp_ide_navigation_action_queries_uml_diagram_state(fixture):
+    """AI: MCP UML query should report the current UML diagram state from the IDE."""
+    fixture.simulate_login()
+    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.update()
+
+    response = fixture.app.perform_mcp_ide_navigation_action("query_uml_diagram")
+
+    assert response["ok"], response
+    assert response["uml_state"]["is_open"]
+    assert response["uml_state"]["is_selected"]
+    assert response["uml_state"]["diagram"]["nodes"][0]["class_name"] == "OrderLine"
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_mcp_ide_navigation_action_adds_class_to_uml(fixture):
+    """AI: MCP UML add-class action should open the UML tab and add the requested class."""
+    fixture.simulate_login()
+
+    response = fixture.app.perform_mcp_ide_navigation_action(
+        "add_class_to_uml",
+        {
+            "class_name": "OrderLine",
+        },
+    )
+    fixture.app.update()
+
+    assert response["ok"], response
+    assert fixture.app.uml_tab is not None
+    assert response["uml_state"]["diagram"]["nodes"][0]["class_name"] == "OrderLine"
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_mcp_ide_navigation_action_adds_association_to_uml(fixture):
+    """AI: MCP UML association action should add the association edge and target class to the diagram."""
+    fixture.simulate_login()
+
+    response = fixture.app.perform_mcp_ide_navigation_action(
+        "add_association_to_uml",
+        {
+            "source_class_name": "Order",
+            "inst_var_name": "lines",
+            "target_class_name": "OrderLine",
+        },
+    )
+    fixture.app.update()
+
+    relationships = fixture.app.uml_tab.uml_canvas.registry.all_relationships()
+    association_relationships = [
+        relationship
+        for relationship in relationships
+        if relationship.relationship_kind == "association"
+    ]
+
+    assert response["ok"], response
+    assert any(
+        relationship.source_node.class_name == "Order"
+        and relationship.target_node.class_name == "OrderLine"
+        and relationship.label == "lines"
+        for relationship in association_relationships
+    )
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_mcp_ide_navigation_action_adds_inheritance_details_to_uml(fixture):
+    """AI: MCP UML inheritance-detail action should replace an inferred edge with the missing direct superclass classes."""
+    fixture.simulate_login()
+    fixture.app.open_uml_for_class("Object")
+    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.update()
+
+    response = fixture.app.perform_mcp_ide_navigation_action(
+        "add_inheritance_details_to_uml",
+        {
+            "source_class_name": "OrderLine",
+            "target_class_name": "Object",
+        },
+    )
+    fixture.app.update()
+
+    relationships = fixture.app.uml_tab.uml_canvas.registry.all_relationships()
+    inferred_relationships = [
+        relationship
+        for relationship in relationships
+        if relationship.relationship_kind == "inheritance"
+        and relationship.relationship_style == "inferred"
+    ]
+
+    assert response["ok"], response
+    assert response["added_class_names"] == ["Order"]
+    assert fixture.app.uml_tab.uml_canvas.registry.class_node_for("Order") is not None
+    assert inferred_relationships == []
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_mcp_ide_navigation_action_clears_and_undoes_uml_diagram(fixture):
+    """AI: MCP UML clear and undo actions should edit the diagram history just like the UI controls."""
+    fixture.simulate_login()
+    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.update()
+
+    clear_response = fixture.app.perform_mcp_ide_navigation_action(
+        "clear_uml_diagram"
+    )
+    fixture.app.update()
+    undo_response = fixture.app.perform_mcp_ide_navigation_action("undo_uml_diagram")
+    fixture.app.update()
+
+    assert clear_response["ok"], clear_response
+    assert clear_response["diagram_changed"] is True
+    assert clear_response["uml_state"]["diagram"]["nodes"] == []
+    assert undo_response["ok"], undo_response
+    assert undo_response["diagram_changed"] is True
+    assert undo_response["uml_state"]["diagram"]["nodes"][0]["class_name"] == "OrderLine"
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_mcp_ide_navigation_action_reports_browser_source_selection(fixture):
     """AI: MCP current-view action should report active browser method source selection and method context."""
     fixture.simulate_login()

@@ -3501,6 +3501,79 @@ def test_gs_ide_filter_senders_dispatches_navigation_action():
     }
 
 
+def test_gs_ide_query_uml_diagram_dispatches_navigation_action():
+    registrar = McpToolRegistrar()
+    shared_state = IntegratedSessionState()
+    shared_state.attach_ide_session(FakeGemstoneSession())
+    captured_action_name = {"value": ""}
+    captured_action_parameters = {"value": {}}
+
+    def fake_navigation_action(action_name, action_parameters):
+        captured_action_name["value"] = action_name
+        captured_action_parameters["value"] = dict(action_parameters)
+        return {"ok": True, "uml_state": {"is_open": False}}
+
+    shared_state.attach_ide_gui(ide_navigation_action=fake_navigation_action)
+    register_tools(
+        registrar,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
+        allow_commit=True,
+        allow_tracing=True,
+        integrated_session_state=shared_state,
+    )
+    query_uml = registrar.registered_tools_by_name["gs_ide_query_uml_diagram"]
+    result = query_uml(shared_state.ide_connection_id())
+
+    assert result["ok"], result
+    assert captured_action_name["value"] == "query_uml_diagram"
+    assert captured_action_parameters["value"] == {}
+
+
+def test_gs_ide_add_association_to_uml_dispatches_navigation_action():
+    registrar = McpToolRegistrar()
+    shared_state = IntegratedSessionState()
+    shared_state.attach_ide_session(FakeGemstoneSession())
+    captured_action_name = {"value": ""}
+    captured_action_parameters = {"value": {}}
+
+    def fake_navigation_action(action_name, action_parameters):
+        captured_action_name["value"] = action_name
+        captured_action_parameters["value"] = dict(action_parameters)
+        return {"ok": True}
+
+    shared_state.attach_ide_gui(ide_navigation_action=fake_navigation_action)
+    register_tools(
+        registrar,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
+        allow_commit=True,
+        allow_tracing=True,
+        integrated_session_state=shared_state,
+    )
+    add_association = registrar.registered_tools_by_name[
+        "gs_ide_add_association_to_uml"
+    ]
+    result = add_association(
+        shared_state.ide_connection_id(),
+        "Order",
+        "lines",
+        "OrderLine",
+    )
+
+    assert result["ok"], result
+    assert captured_action_name["value"] == "add_association_to_uml"
+    assert captured_action_parameters["value"] == {
+        "source_class_name": "Order",
+        "inst_var_name": "lines",
+        "target_class_name": "OrderLine",
+    }
+
+
 def test_gs_ide_filter_senders_validates_class_category_filters_type():
     registrar = McpToolRegistrar()
     shared_state = IntegratedSessionState()
@@ -3607,6 +3680,14 @@ def test_gs_capabilities_exposes_ide_navigation_tool_group():
     assert "gs_ide_open_graph_for_oops" in ide_navigation_tools
     assert "gs_ide_select_class" in ide_navigation_tools
     assert "gs_ide_open_method" in ide_navigation_tools
+    assert "gs_ide_query_uml_diagram" in ide_navigation_tools
+    assert "gs_ide_add_class_to_uml" in ide_navigation_tools
+    assert "gs_ide_remove_class_from_uml" in ide_navigation_tools
+    assert "gs_ide_pin_method_in_uml" in ide_navigation_tools
+    assert "gs_ide_add_association_to_uml" in ide_navigation_tools
+    assert "gs_ide_add_inheritance_details_to_uml" in ide_navigation_tools
+    assert "gs_ide_clear_uml_diagram" in ide_navigation_tools
+    assert "gs_ide_undo_uml_diagram" in ide_navigation_tools
     assert "gs_ide_filter_senders" in ide_navigation_tools
     assert "gs_ide_open_debugger" in ide_navigation_tools
 

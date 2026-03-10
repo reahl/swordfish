@@ -2358,6 +2358,179 @@ def register_tools(
         )
 
     @mcp_server.tool()
+    def gs_ide_query_uml_diagram(connection_id):
+        return perform_ide_navigation_action(
+            connection_id,
+            'query_uml_diagram',
+            {},
+            requires_write=False,
+        )
+
+    @mcp_server.tool()
+    def gs_ide_add_class_to_uml(connection_id, class_name):
+        try:
+            class_name = validated_non_empty_string_stripped(
+                class_name,
+                'class_name',
+            )
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        return perform_ide_navigation_action(
+            connection_id,
+            'add_class_to_uml',
+            {
+                'class_name': class_name,
+            },
+            requires_source_read=True,
+        )
+
+    @mcp_server.tool()
+    def gs_ide_remove_class_from_uml(connection_id, class_name):
+        try:
+            class_name = validated_non_empty_string_stripped(
+                class_name,
+                'class_name',
+            )
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        return perform_ide_navigation_action(
+            connection_id,
+            'remove_class_from_uml',
+            {
+                'class_name': class_name,
+            },
+        )
+
+    @mcp_server.tool()
+    def gs_ide_pin_method_in_uml(
+        connection_id,
+        class_name,
+        method_selector,
+        show_instance_side=True,
+    ):
+        try:
+            class_name = validated_non_empty_string_stripped(
+                class_name,
+                'class_name',
+            )
+            method_selector = validated_non_empty_string_stripped(
+                method_selector,
+                'method_selector',
+            )
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                'show_instance_side',
+            )
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        return perform_ide_navigation_action(
+            connection_id,
+            'pin_method_in_uml',
+            {
+                'class_name': class_name,
+                'method_symbol': method_selector,
+                'show_instance_side': show_instance_side,
+            },
+            requires_source_read=True,
+        )
+
+    @mcp_server.tool()
+    def gs_ide_add_association_to_uml(
+        connection_id,
+        source_class_name,
+        inst_var_name,
+        target_class_name,
+    ):
+        try:
+            source_class_name = validated_non_empty_string_stripped(
+                source_class_name,
+                'source_class_name',
+            )
+            inst_var_name = validated_non_empty_string_stripped(
+                inst_var_name,
+                'inst_var_name',
+            )
+            target_class_name = validated_non_empty_string_stripped(
+                target_class_name,
+                'target_class_name',
+            )
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        return perform_ide_navigation_action(
+            connection_id,
+            'add_association_to_uml',
+            {
+                'source_class_name': source_class_name,
+                'inst_var_name': inst_var_name,
+                'target_class_name': target_class_name,
+            },
+            requires_source_read=True,
+        )
+
+    @mcp_server.tool()
+    def gs_ide_add_inheritance_details_to_uml(
+        connection_id,
+        source_class_name,
+        target_class_name,
+    ):
+        try:
+            source_class_name = validated_non_empty_string_stripped(
+                source_class_name,
+                'source_class_name',
+            )
+            target_class_name = validated_non_empty_string_stripped(
+                target_class_name,
+                'target_class_name',
+            )
+        except DomainException as error:
+            return {
+                'ok': False,
+                'connection_id': connection_id,
+                'error': {'message': str(error)},
+            }
+        return perform_ide_navigation_action(
+            connection_id,
+            'add_inheritance_details_to_uml',
+            {
+                'source_class_name': source_class_name,
+                'target_class_name': target_class_name,
+            },
+            requires_source_read=True,
+        )
+
+    @mcp_server.tool()
+    def gs_ide_clear_uml_diagram(connection_id):
+        return perform_ide_navigation_action(
+            connection_id,
+            'clear_uml_diagram',
+            {},
+        )
+
+    @mcp_server.tool()
+    def gs_ide_undo_uml_diagram(connection_id):
+        return perform_ide_navigation_action(
+            connection_id,
+            'undo_uml_diagram',
+            {},
+        )
+
+    @mcp_server.tool()
     def gs_ide_filter_senders(
         connection_id,
         class_category_filters=None,
@@ -2531,6 +2704,14 @@ def register_tools(
                     "gs_ide_open_graph_for_oops",
                     "gs_ide_select_class",
                     "gs_ide_open_method",
+                    "gs_ide_query_uml_diagram",
+                    "gs_ide_add_class_to_uml",
+                    "gs_ide_remove_class_from_uml",
+                    "gs_ide_pin_method_in_uml",
+                    "gs_ide_add_association_to_uml",
+                    "gs_ide_add_inheritance_details_to_uml",
+                    "gs_ide_clear_uml_diagram",
+                    "gs_ide_undo_uml_diagram",
                     "gs_ide_filter_senders",
                     "gs_ide_open_debugger",
                 ],
