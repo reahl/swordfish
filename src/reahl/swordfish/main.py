@@ -35,6 +35,21 @@ GRAPH_NODE_PADDING_Y = 40
 GRAPH_NODES_PER_ROW = 4
 GRAPH_ORIGIN_X = 60
 GRAPH_ORIGIN_Y = 60
+UML_NODE_WIDTH = 240
+UML_NODE_MIN_HEIGHT = 56
+UML_NODE_PADDING_X = 40
+UML_NODE_PADDING_Y = 40
+UML_NODES_PER_ROW = 4
+UML_ORIGIN_X = 60
+UML_ORIGIN_Y = 60
+UML_METHOD_LINE_HEIGHT = 18
+UML_HEADER_HEIGHT = 26
+
+
+def uml_method_label(show_instance_side, method_selector):
+    if show_instance_side:
+        return method_selector
+    return f"class>>{method_selector}"
 
 
 class EditableText:
@@ -5163,6 +5178,7 @@ class Swordfish(tk.Tk):
         self.run_tab = None
         self.inspector_tab = None
         self.graph_tab = None
+        self.uml_tab = None
         self.collaboration_status_frame = None
         self.collaboration_status_label = None
         self.collaboration_status_text = tk.StringVar(value="")
@@ -5332,6 +5348,7 @@ class Swordfish(tk.Tk):
         self.run_tab = None
         self.inspector_tab = None
         self.graph_tab = None
+        self.uml_tab = None
         self.collaboration_status_frame = None
         self.collaboration_status_label = None
         self.mcp_activity_indicator = None
@@ -5902,6 +5919,8 @@ class Swordfish(tk.Tk):
             active_tab_kind = 'inspect'
         if self.graph_tab is not None and active_tab_id == str(self.graph_tab):
             active_tab_kind = 'graph'
+        if self.uml_tab is not None and active_tab_id == str(self.uml_tab):
+            active_tab_kind = 'uml'
         if active_tab_kind == 'none' and active_tab_label:
             active_tab_kind = active_tab_label.lower()
 
@@ -6465,6 +6484,30 @@ class Swordfish(tk.Tk):
         self.notebook.select(self.graph_tab)
         self.graph_tab.add_object(inspected_object)
 
+    def open_uml_for_class(self, class_name):
+        if not class_name:
+            return
+        tab_is_missing = self.uml_tab is None or not self.uml_tab.winfo_exists()
+        if tab_is_missing:
+            self.uml_tab = UmlTab(self.notebook, self)
+            self.notebook.add(self.uml_tab, text="UML")
+        self.notebook.select(self.uml_tab)
+        self.uml_tab.add_class(class_name)
+
+    def pin_method_in_uml(self, class_name, show_instance_side, method_selector):
+        if not class_name or not method_selector:
+            return
+        tab_is_missing = self.uml_tab is None or not self.uml_tab.winfo_exists()
+        if tab_is_missing:
+            self.uml_tab = UmlTab(self.notebook, self)
+            self.notebook.add(self.uml_tab, text="UML")
+        self.notebook.select(self.uml_tab)
+        self.uml_tab.pin_method(
+            class_name,
+            show_instance_side,
+            method_selector,
+        )
+
     def close_inspector_tab(self):
         has_open_tab = (
             self.inspector_tab is not None and self.inspector_tab.winfo_exists()
@@ -6490,6 +6533,18 @@ class Swordfish(tk.Tk):
             pass
         self.graph_tab.destroy()
         self.graph_tab = None
+
+    def close_uml_tab(self):
+        tab_exists = self.uml_tab is not None and self.uml_tab.winfo_exists()
+        if not tab_exists:
+            self.uml_tab = None
+            return
+        try:
+            self.notebook.forget(self.uml_tab)
+        except tk.TclError:
+            pass
+        self.uml_tab.destroy()
+        self.uml_tab = None
 
     def open_find_dialog(
         self,
@@ -7903,6 +7958,11 @@ class ClassSelection(FramedWidget):
             state=tk.NORMAL if has_selection else tk.DISABLED,
         )
         menu.add_command(
+            label="Add to UML",
+            command=self.add_selected_class_to_uml,
+            state=tk.NORMAL if has_selection else tk.DISABLED,
+        )
+        menu.add_command(
             label="Run All Tests",
             command=self.run_all_tests,
             state=run_command_state,
@@ -7921,15 +7981,27 @@ class ClassSelection(FramedWidget):
     def class_name_from_hierarchy_context_event(self, event):
         tree = self.hierarchy_tree
         selected_item_id = tree.identify_row(event.y)
-        if not selected_item_id:
-            selected_items = tree.selection()
-            if selected_items:
-                selected_item_id = selected_items[0]
+        selected_items = tree.selection()
+        if selected_item_id:
+            clicked_item_is_selected = selected_item_id in selected_items
+            if not clicked_item_is_selected:
+                tree.selection_set(selected_item_id)
+                selected_items = tree.selection()
+            tree.focus(selected_item_id)
+        if not selected_item_id and selected_items:
+            selected_item_id = selected_items[0]
+            tree.focus(selected_item_id)
         if not selected_item_id:
             return None
-        tree.selection_set(selected_item_id)
-        tree.focus(selected_item_id)
         return tree.item(selected_item_id, "text")
+
+    def selected_class_names_from_hierarchy(self):
+        selected_class_names = []
+        for item_id in self.hierarchy_tree.selection():
+            class_name = self.hierarchy_tree.item(item_id, "text")
+            if class_name:
+                selected_class_names.append(class_name)
+        return selected_class_names
 
     def find_references_for_selected_class(self):
         class_name = self.context_menu_class_name
@@ -7939,16 +8011,43 @@ class ClassSelection(FramedWidget):
             return
         self.browser_window.application.open_find_dialog_for_class(class_name)
 
+    def add_selected_class_to_uml(self):
+        class_name = self.context_menu_class_name
+        if class_name is None:
+            class_name = self.gemstone_session_record.selected_class
+        if not class_name:
+            return
+        self.browser_window.application.open_uml_for_class(class_name)
+
+    def add_selected_hierarchy_classes_to_uml(self):
+        selected_class_names = self.selected_class_names_from_hierarchy()
+        if not selected_class_names:
+            self.add_selected_class_to_uml()
+            return
+        for class_name in selected_class_names:
+            self.browser_window.application.open_uml_for_class(class_name)
+
     def show_hierarchy_context_menu(self, event):
         selected_class_name = self.class_name_from_hierarchy_context_event(event)
         self.context_menu_class_name = selected_class_name
-        has_selection = selected_class_name is not None
+        selected_class_names = self.selected_class_names_from_hierarchy()
+        has_selection = len(selected_class_names) > 0
         if self.current_context_menu:
             self.current_context_menu.unpost()
         menu = self.current_context_menu = tk.Menu(self, tearoff=0)
         menu.add_command(
             label="References",
             command=self.find_references_for_selected_class,
+            state=tk.NORMAL if selected_class_name is not None else tk.DISABLED,
+        )
+        menu.add_command(
+            label="Add to UML",
+            command=self.add_selected_class_to_uml,
+            state=tk.NORMAL if selected_class_name is not None else tk.DISABLED,
+        )
+        menu.add_command(
+            label="Add Selected to UML",
+            command=self.add_selected_hierarchy_classes_to_uml,
             state=tk.NORMAL if has_selection else tk.DISABLED,
         )
         menu.tk_popup(event.x_root, event.y_root)
@@ -8621,7 +8720,7 @@ class MethodSelection(FramedWidget):
             idx = listbox.nearest(event.y)
             listbox.selection_clear(0, "end")
             listbox.selection_set(idx)
-        menu = tk.Menu(self, tearoff=0)
+        menu = self.current_context_menu = tk.Menu(self, tearoff=0)
         read_only = (
             self.browser_window.application.integrated_session_state.is_mcp_busy()
         )
@@ -8641,6 +8740,11 @@ class MethodSelection(FramedWidget):
             command=self.delete_method,
             state=delete_command_state,
         )
+        menu.add_command(
+            label="Show in UML",
+            command=self.show_method_in_uml,
+            state=tk.NORMAL if has_selection else tk.DISABLED,
+        )
         menu.add_separator()
         menu.add_command(
             label="Run Test",
@@ -8659,6 +8763,17 @@ class MethodSelection(FramedWidget):
             state=covering_tests_state,
         )
         menu.tk_popup(event.x_root, event.y_root)
+
+    def show_method_in_uml(self):
+        class_name = self.gemstone_session_record.selected_class
+        method_selector = self.gemstone_session_record.selected_method_symbol
+        if not class_name or not method_selector:
+            return
+        self.browser_window.application.pin_method_in_uml(
+            class_name,
+            self.gemstone_session_record.show_instance_side,
+            method_selector,
+        )
 
     def delete_method(self):
         listbox = self.selection_list.selection_listbox
@@ -11805,6 +11920,697 @@ class GraphTab(ttk.Frame):
 
     def clear_graph(self):
         self.graph_canvas.clear_all()
+
+
+class UmlClassNode:
+    def __init__(self, class_definition):
+        self.class_name = class_definition.get("class_name") or ""
+        self.superclass_name = class_definition.get("superclass_name")
+        self.inst_var_names = list(class_definition.get("inst_var_names") or [])
+        self.pinned_methods = []
+        self.x = 0
+        self.y = 0
+        self.canvas_item_ids = []
+
+    def update_from_definition(self, class_definition):
+        self.superclass_name = class_definition.get("superclass_name")
+        self.inst_var_names = list(class_definition.get("inst_var_names") or [])
+
+    def height(self):
+        method_count = len(self.pinned_methods)
+        if method_count == 0:
+            return UML_NODE_MIN_HEIGHT
+        return UML_HEADER_HEIGHT + 14 + method_count * UML_METHOD_LINE_HEIGHT + 12
+
+    def bounding_box(self):
+        half_width = UML_NODE_WIDTH // 2
+        half_height = self.height() // 2
+        return (
+            self.x - half_width,
+            self.y - half_height,
+            self.x + half_width,
+            self.y + half_height,
+        )
+
+
+class UmlRelationship:
+    def __init__(self, source_node, target_node, label, relationship_kind):
+        self.source_node = source_node
+        self.target_node = target_node
+        self.label = label
+        self.relationship_kind = relationship_kind
+        self.canvas_item_ids = []
+
+
+class UmlDiagramRegistry:
+    def __init__(self):
+        self.nodes_by_class_name = {}
+        self.relationships = []
+
+    def class_node_for(self, class_name):
+        return self.nodes_by_class_name.get(class_name)
+
+    def register_node(self, node):
+        self.nodes_by_class_name[node.class_name] = node
+
+    def remove_node(self, class_name):
+        node = self.nodes_by_class_name.pop(class_name, None)
+        if node is None:
+            return []
+        relationships_to_remove = []
+        for relationship in self.relationships:
+            touches_node = (
+                relationship.source_node is node or relationship.target_node is node
+            )
+            if touches_node:
+                relationships_to_remove.append(relationship)
+        self.relationships = [
+            relationship
+            for relationship in self.relationships
+            if relationship not in relationships_to_remove
+        ]
+        return relationships_to_remove
+
+    def add_relationship(self, source_node, target_node, label, relationship_kind):
+        existing_relationship = None
+        for relationship in self.relationships:
+            is_same_relationship = (
+                relationship.source_node is source_node
+                and relationship.target_node is target_node
+                and relationship.label == label
+                and relationship.relationship_kind == relationship_kind
+            )
+            if is_same_relationship:
+                existing_relationship = relationship
+        if existing_relationship is not None:
+            return None
+        relationship = UmlRelationship(
+            source_node,
+            target_node,
+            label,
+            relationship_kind,
+        )
+        self.relationships.append(relationship)
+        return relationship
+
+    def remove_relationship(self, relationship):
+        if relationship in self.relationships:
+            self.relationships.remove(relationship)
+
+    def remove_relationships_by_kind(self, relationship_kind):
+        relationships_to_remove = []
+        for relationship in self.relationships:
+            if relationship.relationship_kind == relationship_kind:
+                relationships_to_remove.append(relationship)
+        self.relationships = [
+            relationship
+            for relationship in self.relationships
+            if relationship.relationship_kind != relationship_kind
+        ]
+        return relationships_to_remove
+
+    def all_nodes(self):
+        return list(self.nodes_by_class_name.values())
+
+    def all_relationships(self):
+        return list(self.relationships)
+
+
+class UmlCanvas(ttk.Frame):
+    def __init__(self, parent, node_menu_action):
+        super().__init__(parent)
+        self.node_menu_action = node_menu_action
+        self.registry = UmlDiagramRegistry()
+        self.dragging_node = None
+        self.drag_start_x = 0
+        self.drag_start_y = 0
+
+        self.canvas = tk.Canvas(
+            self,
+            bg="white",
+            scrollregion=(0, 0, 2000, 2000),
+        )
+        horizontal_scrollbar = ttk.Scrollbar(
+            self,
+            orient="horizontal",
+            command=self.canvas.xview,
+        )
+        vertical_scrollbar = ttk.Scrollbar(
+            self,
+            orient="vertical",
+            command=self.canvas.yview,
+        )
+        self.canvas.configure(
+            xscrollcommand=horizontal_scrollbar.set,
+            yscrollcommand=vertical_scrollbar.set,
+        )
+
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        vertical_scrollbar.grid(row=0, column=1, sticky="ns")
+        horizontal_scrollbar.grid(row=1, column=0, sticky="ew")
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+
+        self.canvas.bind("<Button-1>", self.on_canvas_press)
+        self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
+        self.canvas.bind("<Button-3>", self.on_canvas_right_click)
+
+    def add_or_update_class_node(self, class_definition):
+        class_name = class_definition.get("class_name") or ""
+        if not class_name:
+            return None
+        node = self.registry.class_node_for(class_name)
+        if node is None:
+            node = UmlClassNode(class_definition)
+            self.place_new_node(node)
+            self.registry.register_node(node)
+        else:
+            node.update_from_definition(class_definition)
+        self.redraw_node(node)
+        self.expand_scroll_region()
+        return node
+
+    def place_new_node(self, node):
+        existing_count = len(self.registry.all_nodes())
+        column_index = existing_count % UML_NODES_PER_ROW
+        row_index = existing_count // UML_NODES_PER_ROW
+        node.x = (
+            UML_ORIGIN_X
+            + column_index * (UML_NODE_WIDTH + UML_NODE_PADDING_X)
+            + UML_NODE_WIDTH // 2
+        )
+        node.y = (
+            UML_ORIGIN_Y
+            + row_index * (UML_NODE_MIN_HEIGHT + 100 + UML_NODE_PADDING_Y)
+            + UML_NODE_MIN_HEIGHT // 2
+        )
+
+    def redraw_node(self, node):
+        for item_id in node.canvas_item_ids:
+            self.canvas.delete(item_id)
+        node.canvas_item_ids = []
+        self.draw_node(node)
+        self.redraw_relationships_for_node(node)
+
+    def draw_node(self, node):
+        x1, y1, x2, y2 = node.bounding_box()
+        rectangle_id = self.canvas.create_rectangle(
+            x1,
+            y1,
+            x2,
+            y2,
+            fill="#fff9e6",
+            outline="#8a6d1f",
+            width=2,
+        )
+        divider_y = y1 + UML_HEADER_HEIGHT
+        divider_id = self.canvas.create_line(
+            x1,
+            divider_y,
+            x2,
+            divider_y,
+            fill="#8a6d1f",
+            width=2,
+        )
+        class_text_id = self.canvas.create_text(
+            node.x,
+            y1 + 7,
+            text=node.class_name,
+            font=("TkDefaultFont", 10, "bold"),
+            fill="#533f05",
+            anchor="n",
+        )
+        node.canvas_item_ids.extend([rectangle_id, divider_id, class_text_id])
+        method_index = 0
+        for method_entry in node.pinned_methods:
+            method_y = divider_y + 8 + method_index * UML_METHOD_LINE_HEIGHT
+            method_id = self.canvas.create_text(
+                x1 + 8,
+                method_y,
+                text=method_entry["label"],
+                font=("TkDefaultFont", 9),
+                fill="#222222",
+                anchor="nw",
+            )
+            node.canvas_item_ids.append(method_id)
+            method_index += 1
+
+    def edge_boundary_point(self, from_node, toward_node):
+        delta_x = toward_node.x - from_node.x
+        delta_y = toward_node.y - from_node.y
+        half_width = UML_NODE_WIDTH / 2
+        half_height = from_node.height() / 2
+        if delta_x == 0 and delta_y == 0:
+            return from_node.x + half_width, from_node.y
+        scale_x = abs(half_width / delta_x) if delta_x != 0 else float("inf")
+        scale_y = abs(half_height / delta_y) if delta_y != 0 else float("inf")
+        scale = min(scale_x, scale_y)
+        return from_node.x + delta_x * scale, from_node.y + delta_y * scale
+
+    def draw_relationship(self, relationship):
+        x1, y1 = self.edge_boundary_point(
+            relationship.source_node,
+            relationship.target_node,
+        )
+        x2, y2 = self.edge_boundary_point(
+            relationship.target_node,
+            relationship.source_node,
+        )
+        relationship.canvas_item_ids = []
+        fill = "#444444"
+        width = 1.5
+        if relationship.relationship_kind == "inheritance":
+            fill = "#2266aa"
+            width = 2
+        line_id = self.canvas.create_line(
+            x1,
+            y1,
+            x2,
+            y2,
+            arrow=tk.LAST,
+            arrowshape=(12, 14, 6),
+            fill=fill,
+            width=width,
+        )
+        relationship.canvas_item_ids.append(line_id)
+        should_draw_label = bool(relationship.label)
+        if should_draw_label:
+            midpoint_x = (x1 + x2) / 2
+            midpoint_y = (y1 + y2) / 2
+            label_id = self.canvas.create_text(
+                midpoint_x,
+                midpoint_y - 10,
+                text=relationship.label,
+                font=("TkDefaultFont", 9),
+                fill="#222288",
+                anchor="s",
+            )
+            relationship.canvas_item_ids.append(label_id)
+
+    def redraw_relationships_for_node(self, node):
+        for relationship in self.registry.all_relationships():
+            touches_node = (
+                relationship.source_node is node or relationship.target_node is node
+            )
+            if touches_node:
+                self.delete_relationship_items(relationship)
+                self.draw_relationship(relationship)
+
+    def delete_relationship_items(self, relationship):
+        for item_id in relationship.canvas_item_ids:
+            self.canvas.delete(item_id)
+        relationship.canvas_item_ids = []
+
+    def delete_node_items(self, node):
+        for item_id in node.canvas_item_ids:
+            self.canvas.delete(item_id)
+        node.canvas_item_ids = []
+
+    def add_relationship(self, source_node, target_node, label, relationship_kind):
+        relationship = self.registry.add_relationship(
+            source_node,
+            target_node,
+            label,
+            relationship_kind,
+        )
+        if relationship is not None:
+            self.draw_relationship(relationship)
+            self.expand_scroll_region()
+        return relationship
+
+    def remove_relationship(self, relationship):
+        self.delete_relationship_items(relationship)
+        self.registry.remove_relationship(relationship)
+        self.expand_scroll_region()
+
+    def remove_class_node(self, class_name):
+        node = self.registry.class_node_for(class_name)
+        if node is None:
+            return
+        relationships_to_remove = self.registry.remove_node(class_name)
+        for relationship in relationships_to_remove:
+            self.delete_relationship_items(relationship)
+        self.delete_node_items(node)
+        self.expand_scroll_region()
+
+    def node_at_canvas_coordinates(self, canvas_x, canvas_y):
+        for node in self.registry.all_nodes():
+            x1, y1, x2, y2 = node.bounding_box()
+            if x1 <= canvas_x <= x2 and y1 <= canvas_y <= y2:
+                return node
+        return None
+
+    def on_canvas_press(self, event):
+        canvas_x = self.canvas.canvasx(event.x)
+        canvas_y = self.canvas.canvasy(event.y)
+        self.dragging_node = self.node_at_canvas_coordinates(canvas_x, canvas_y)
+        self.drag_start_x = canvas_x
+        self.drag_start_y = canvas_y
+
+    def on_canvas_drag(self, event):
+        if self.dragging_node is None:
+            return
+        canvas_x = self.canvas.canvasx(event.x)
+        canvas_y = self.canvas.canvasy(event.y)
+        delta_x = canvas_x - self.drag_start_x
+        delta_y = canvas_y - self.drag_start_y
+        for item_id in self.dragging_node.canvas_item_ids:
+            self.canvas.move(item_id, delta_x, delta_y)
+        self.dragging_node.x += delta_x
+        self.dragging_node.y += delta_y
+        self.drag_start_x = canvas_x
+        self.drag_start_y = canvas_y
+        self.redraw_relationships_for_node(self.dragging_node)
+
+    def on_canvas_release(self, event):
+        self.dragging_node = None
+        self.expand_scroll_region()
+
+    def on_canvas_right_click(self, event):
+        canvas_x = self.canvas.canvasx(event.x)
+        canvas_y = self.canvas.canvasy(event.y)
+        node = self.node_at_canvas_coordinates(canvas_x, canvas_y)
+        if node is None:
+            return
+        self.node_menu_action(node, event)
+
+    def expand_scroll_region(self):
+        all_nodes = self.registry.all_nodes()
+        if not all_nodes:
+            self.canvas.configure(scrollregion=(0, 0, 2000, 2000))
+            return
+        minimum_x = min(node.bounding_box()[0] for node in all_nodes) - UML_ORIGIN_X
+        minimum_y = min(node.bounding_box()[1] for node in all_nodes) - UML_ORIGIN_Y
+        maximum_x = max(node.bounding_box()[2] for node in all_nodes) + UML_ORIGIN_X
+        maximum_y = max(node.bounding_box()[3] for node in all_nodes) + UML_ORIGIN_Y
+        self.canvas.configure(
+            scrollregion=(
+                min(minimum_x, 0),
+                min(minimum_y, 0),
+                max(maximum_x, 2000),
+                max(maximum_y, 2000),
+            )
+        )
+
+    def clear_all(self):
+        self.canvas.delete("all")
+        self.registry = UmlDiagramRegistry()
+        self.expand_scroll_region()
+
+
+class UmlTab(ttk.Frame):
+    def __init__(self, parent, application):
+        super().__init__(parent)
+        self.application = application
+        self.current_context_menu = None
+        self.diagram_history = NavigationHistory()
+
+        actions_frame = ttk.Frame(self)
+        actions_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
+
+        ttk.Label(actions_frame, text="UML Class Diagram").grid(
+            row=0,
+            column=0,
+            sticky="w",
+        )
+        ttk.Button(actions_frame, text="Clear", command=self.clear_diagram).grid(
+            row=0,
+            column=1,
+            padx=(6, 0),
+        )
+        self.undo_button = ttk.Button(
+            actions_frame,
+            text="Undo",
+            command=self.undo_diagram,
+        )
+        self.undo_button.grid(row=0, column=2, padx=(6, 0))
+        ttk.Button(
+            actions_frame,
+            text="Close",
+            command=self.application.close_uml_tab,
+        ).grid(row=0, column=3, padx=(6, 0))
+
+        self.uml_canvas = UmlCanvas(
+            self,
+            node_menu_action=self.open_node_menu,
+        )
+        self.uml_canvas.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        self.uml_canvas.canvas.bind("<Control-z>", self.undo_diagram)
+        self.uml_canvas.canvas.bind("<Control-Z>", self.undo_diagram)
+
+        self.rowconfigure(1, weight=1)
+        self.columnconfigure(0, weight=1)
+        self.record_diagram_snapshot()
+        self.refresh_undo_controls()
+
+    def snapshot_diagram(self):
+        nodes = []
+        for node in self.uml_canvas.registry.all_nodes():
+            nodes.append(
+                {
+                    "class_name": node.class_name,
+                    "superclass_name": node.superclass_name,
+                    "inst_var_names": list(node.inst_var_names),
+                    "pinned_methods": [dict(method_entry) for method_entry in node.pinned_methods],
+                    "x": node.x,
+                    "y": node.y,
+                }
+            )
+        relationships = []
+        for relationship in self.uml_canvas.registry.all_relationships():
+            relationships.append(
+                {
+                    "source_class_name": relationship.source_node.class_name,
+                    "target_class_name": relationship.target_node.class_name,
+                    "label": relationship.label,
+                    "relationship_kind": relationship.relationship_kind,
+                }
+            )
+        return {
+            "nodes": sorted(nodes, key=lambda entry: entry["class_name"]),
+            "relationships": sorted(
+                relationships,
+                key=lambda entry: (
+                    entry["relationship_kind"],
+                    entry["source_class_name"],
+                    entry["target_class_name"],
+                    entry["label"],
+                ),
+            ),
+        }
+
+    def restore_diagram_snapshot(self, snapshot):
+        self.uml_canvas.clear_all()
+        node_by_class_name = {}
+        for node_entry in snapshot["nodes"]:
+            class_definition = {
+                "class_name": node_entry["class_name"],
+                "superclass_name": node_entry["superclass_name"],
+                "inst_var_names": list(node_entry["inst_var_names"]),
+            }
+            node = self.uml_canvas.add_or_update_class_node(class_definition)
+            node.pinned_methods = [
+                dict(method_entry) for method_entry in node_entry["pinned_methods"]
+            ]
+            node.x = node_entry["x"]
+            node.y = node_entry["y"]
+            self.uml_canvas.redraw_node(node)
+            node_by_class_name[node.class_name] = node
+        for relationship_entry in snapshot["relationships"]:
+            source_node = node_by_class_name.get(relationship_entry["source_class_name"])
+            target_node = node_by_class_name.get(relationship_entry["target_class_name"])
+            if source_node is None or target_node is None:
+                continue
+            self.uml_canvas.add_relationship(
+                source_node,
+                target_node,
+                relationship_entry["label"],
+                relationship_entry["relationship_kind"],
+            )
+        self.uml_canvas.expand_scroll_region()
+
+    def record_diagram_snapshot(self):
+        self.diagram_history.record(self.snapshot_diagram())
+        self.refresh_undo_controls()
+
+    def refresh_undo_controls(self):
+        undo_state = tk.NORMAL if self.diagram_history.can_go_back() else tk.DISABLED
+        self.undo_button.configure(state=undo_state)
+
+    def class_definition_for(self, class_name):
+        browser_session = self.application.gemstone_session_record.gemstone_browser_session
+        try:
+            return browser_session.get_class_definition(class_name)
+        except (GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror("UML", str(error))
+            return None
+
+    def add_class(self, class_name, record_history=True):
+        class_definition = self.class_definition_for(class_name)
+        if class_definition is None:
+            return None
+        snapshot_before = self.snapshot_diagram()
+        node = self.uml_canvas.add_or_update_class_node(class_definition)
+        self.refresh_inheritance_relationships()
+        snapshot_after = self.snapshot_diagram()
+        if record_history and snapshot_after != snapshot_before:
+            self.record_diagram_snapshot()
+        return node
+
+    def pin_method(self, class_name, show_instance_side, method_selector):
+        snapshot_before = self.snapshot_diagram()
+        node = self.add_class(class_name, record_history=False)
+        if node is None:
+            return
+        method_label = uml_method_label(show_instance_side, method_selector)
+        existing_method = None
+        for method_entry in node.pinned_methods:
+            is_same_method = (
+                method_entry["selector"] == method_selector
+                and method_entry["show_instance_side"] == show_instance_side
+            )
+            if is_same_method:
+                existing_method = method_entry
+        if existing_method is None:
+            node.pinned_methods.append(
+                {
+                    "selector": method_selector,
+                    "show_instance_side": show_instance_side,
+                    "label": method_label,
+                }
+            )
+            self.uml_canvas.redraw_node(node)
+        snapshot_after = self.snapshot_diagram()
+        if snapshot_after != snapshot_before:
+            self.record_diagram_snapshot()
+
+    def open_node_menu(self, node, event):
+        if self.current_context_menu is not None:
+            self.current_context_menu.unpost()
+        menu = self.current_context_menu = tk.Menu(self, tearoff=0)
+
+        association_menu = tk.Menu(menu, tearoff=0)
+        has_instvars = len(node.inst_var_names) > 0
+        if has_instvars:
+            for inst_var_name in node.inst_var_names:
+                association_menu.add_command(
+                    label=inst_var_name,
+                    command=lambda name=inst_var_name: self.prompt_add_association(
+                        node,
+                        name,
+                    ),
+                )
+            menu.add_cascade(label="Add Association...", menu=association_menu)
+        if not has_instvars:
+            menu.add_command(
+                label="Add Association...",
+                state=tk.DISABLED,
+            )
+
+        remove_method_menu = tk.Menu(menu, tearoff=0)
+        has_pinned_methods = len(node.pinned_methods) > 0
+        if has_pinned_methods:
+            for method_entry in node.pinned_methods:
+                remove_method_menu.add_command(
+                    label=method_entry["label"],
+                    command=lambda entry=method_entry: self.remove_method_from_node(
+                        node,
+                        entry,
+                    ),
+                )
+            menu.add_cascade(label="Remove Method...", menu=remove_method_menu)
+        if not has_pinned_methods:
+            menu.add_command(
+                label="Remove Method...",
+                state=tk.DISABLED,
+            )
+
+        menu.add_command(
+            label="Remove From UML",
+            command=lambda: self.remove_class_from_diagram(node.class_name),
+        )
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def prompt_add_association(self, source_node, inst_var_name):
+        target_class_name = simpledialog.askstring(
+            "Add UML Association",
+            f"Target class for {source_node.class_name}>>{inst_var_name}:",
+            parent=self,
+        )
+        if target_class_name is None:
+            return
+        target_class_name = target_class_name.strip()
+        if not target_class_name:
+            return
+        snapshot_before = self.snapshot_diagram()
+        target_node = self.add_class(target_class_name, record_history=False)
+        if target_node is None:
+            return
+        self.uml_canvas.add_relationship(
+            source_node,
+            target_node,
+            inst_var_name,
+            "association",
+        )
+        snapshot_after = self.snapshot_diagram()
+        if snapshot_after != snapshot_before:
+            self.record_diagram_snapshot()
+
+    def remove_method_from_node(self, node, method_entry):
+        node.pinned_methods = [
+            existing_entry
+            for existing_entry in node.pinned_methods
+            if existing_entry is not method_entry
+        ]
+        self.uml_canvas.redraw_node(node)
+        self.record_diagram_snapshot()
+
+    def remove_class_from_diagram(self, class_name):
+        snapshot_before = self.snapshot_diagram()
+        self.uml_canvas.remove_class_node(class_name)
+        self.refresh_inheritance_relationships()
+        snapshot_after = self.snapshot_diagram()
+        if snapshot_after != snapshot_before:
+            self.record_diagram_snapshot()
+
+    def refresh_inheritance_relationships(self):
+        relationships_to_remove = self.uml_canvas.registry.remove_relationships_by_kind(
+            "inheritance"
+        )
+        for relationship in relationships_to_remove:
+            self.uml_canvas.delete_relationship_items(relationship)
+        for node in self.uml_canvas.registry.all_nodes():
+            superclass_name = node.superclass_name
+            if not superclass_name:
+                continue
+            superclass_node = self.uml_canvas.registry.class_node_for(superclass_name)
+            if superclass_node is not None:
+                self.uml_canvas.add_relationship(
+                    node,
+                    superclass_node,
+                    "",
+                    "inheritance",
+                )
+        self.uml_canvas.expand_scroll_region()
+
+    def clear_diagram(self):
+        snapshot_before = self.snapshot_diagram()
+        self.uml_canvas.clear_all()
+        snapshot_after = self.snapshot_diagram()
+        if snapshot_after != snapshot_before:
+            self.record_diagram_snapshot()
+
+    def undo_diagram(self, event=None):
+        snapshot = self.diagram_history.go_back()
+        if snapshot is None:
+            self.refresh_undo_controls()
+            return
+        self.restore_diagram_snapshot(snapshot)
+        self.refresh_undo_controls()
 
 
 class DebuggerWindow(ttk.PanedWindow):
