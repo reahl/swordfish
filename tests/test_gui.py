@@ -36,6 +36,8 @@ from reahl.swordfish.main import (
     McpServerController,
     ObjectInspector,
     Swordfish,
+    UmlClassNode,
+    UmlDiagramRegistry,
 )
 from reahl.swordfish.mcp.integration_state import IntegratedSessionState
 
@@ -75,6 +77,12 @@ class FakeApplication:
         pass
 
     def end_foreground_activity(self):
+        pass
+
+    def open_uml_for_class(self, class_name):
+        pass
+
+    def pin_method_in_uml(self, class_name, show_instance_side, method_selector):
         pass
 
 
@@ -1555,6 +1563,43 @@ class SwordfishAppFixture(Fixture):
         self.mock_browser.list_methods.return_value = ["total"]
         self.mock_browser.list_breakpoints.return_value = []
         self.mock_browser.get_method_category.return_value = "accessing"
+        class_definitions = {
+            "OrderLine": {
+                "class_name": "OrderLine",
+                "superclass_name": "Order",
+                "package_name": "Kernel",
+                "inst_var_names": ["amount", "quantity"],
+                "class_var_names": [],
+                "class_inst_var_names": [],
+                "pool_dictionary_names": [],
+            },
+            "Order": {
+                "class_name": "Order",
+                "superclass_name": "Object",
+                "package_name": "Kernel",
+                "inst_var_names": ["lines"],
+                "class_var_names": [],
+                "class_inst_var_names": [],
+                "pool_dictionary_names": [],
+            },
+            "Object": {
+                "class_name": "Object",
+                "superclass_name": None,
+                "package_name": "Kernel",
+                "inst_var_names": [],
+                "class_var_names": [],
+                "class_inst_var_names": [],
+                "pool_dictionary_names": [],
+            },
+        }
+
+        def get_class_definition(class_name):
+            class_definition = class_definitions.get(class_name)
+            if class_definition is None:
+                raise GemstoneDomainException("Unknown class_name.")
+            return class_definition
+
+        self.mock_browser.get_class_definition.side_effect = get_class_definition
 
         # AI: Chained mock for EditorTab.repopulate() which calls
         # get_compiled_method().sourceString().to_py
@@ -2701,6 +2746,157 @@ def test_mcp_ide_navigation_action_opens_graph_for_oops(fixture):
     registry = fixture.app.graph_tab.graph_canvas.registry
     assert registry.contains_object(first_object)
     assert registry.contains_object(second_object)
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_open_uml_for_class_creates_uml_tab_and_adds_class(fixture):
+    """AI: Opening UML for a class should create the UML tab and register that class node."""
+    fixture.simulate_login()
+
+    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.update()
+
+    assert fixture.app.uml_tab is not None
+    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    assert selected_tab_text == "UML"
+    assert (
+        fixture.app.uml_tab.uml_canvas.registry.class_node_for("OrderLine")
+        is not None
+    )
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_tab_shows_inheritance_for_added_classes(fixture):
+    """AI: Adding related classes to the UML should create one inheritance edge between them."""
+    fixture.simulate_login()
+
+    fixture.app.open_uml_for_class("Order")
+    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.update()
+
+    relationships = fixture.app.uml_tab.uml_canvas.registry.all_relationships()
+    inheritance_relationships = [
+        relationship
+        for relationship in relationships
+        if relationship.relationship_kind == "inheritance"
+    ]
+
+    assert len(inheritance_relationships) == 1
+    assert inheritance_relationships[0].source_node.class_name == "OrderLine"
+    assert inheritance_relationships[0].target_node.class_name == "Order"
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_pin_method_in_uml_adds_method_to_class_node(fixture):
+    """AI: Pinning a method into UML should add a method entry to that class node."""
+    fixture.simulate_login()
+
+    fixture.app.pin_method_in_uml("OrderLine", True, "total")
+    fixture.app.update()
+
+    node = fixture.app.uml_tab.uml_canvas.registry.class_node_for("OrderLine")
+
+    assert node is not None
+    assert node.pinned_methods == [
+        {
+            "selector": "total",
+            "show_instance_side": True,
+            "label": "total",
+        }
+    ]
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_association_prompt_adds_target_class_and_relationship(fixture):
+    """AI: Adding an association from a UML node should prompt for a target class and create the labeled edge."""
+    fixture.simulate_login()
+    fixture.app.open_uml_for_class("Order")
+    fixture.app.update()
+    source_node = fixture.app.uml_tab.uml_canvas.registry.class_node_for("Order")
+
+    with patch(
+        "reahl.swordfish.main.simpledialog.askstring",
+        return_value="OrderLine",
+    ):
+        fixture.app.uml_tab.prompt_add_association(source_node, "lines")
+        fixture.app.update()
+
+    target_node = fixture.app.uml_tab.uml_canvas.registry.class_node_for("OrderLine")
+    relationships = fixture.app.uml_tab.uml_canvas.registry.all_relationships()
+    association_relationships = [
+        relationship
+        for relationship in relationships
+        if relationship.relationship_kind == "association"
+    ]
+
+    assert target_node is not None
+    assert len(association_relationships) == 1
+    assert association_relationships[0].source_node is source_node
+    assert association_relationships[0].target_node is target_node
+    assert association_relationships[0].label == "lines"
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_undo_restores_diagram_after_clear(fixture):
+    """AI: Undo after clearing the UML should restore the previously shown classes."""
+    fixture.simulate_login()
+    fixture.app.open_uml_for_class("Order")
+    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.update()
+
+    fixture.app.uml_tab.clear_diagram()
+    fixture.app.update()
+
+    assert fixture.app.uml_tab.uml_canvas.registry.all_nodes() == []
+
+    fixture.app.uml_tab.undo_diagram()
+    fixture.app.update()
+
+    restored_class_names = [
+        node.class_name
+        for node in fixture.app.uml_tab.uml_canvas.registry.all_nodes()
+    ]
+    assert sorted(restored_class_names) == ["Order", "OrderLine"]
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_undo_reverts_association_addition_in_one_step(fixture):
+    """AI: Undoing an association add should remove both the edge and any target class added by that action."""
+    fixture.simulate_login()
+    fixture.app.open_uml_for_class("Order")
+    fixture.app.update()
+    source_node = fixture.app.uml_tab.uml_canvas.registry.class_node_for("Order")
+
+    with patch(
+        "reahl.swordfish.main.simpledialog.askstring",
+        return_value="OrderLine",
+    ):
+        fixture.app.uml_tab.prompt_add_association(source_node, "lines")
+        fixture.app.update()
+
+    fixture.app.uml_tab.undo_diagram()
+    fixture.app.update()
+
+    remaining_class_names = [
+        node.class_name
+        for node in fixture.app.uml_tab.uml_canvas.registry.all_nodes()
+    ]
+    assert remaining_class_names == ["Order"]
+    assert fixture.app.uml_tab.uml_canvas.registry.all_relationships() == []
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_undo_reverts_pinned_method_and_added_class_in_one_step(fixture):
+    """AI: Undoing the first method pin should remove both the pinned method and the class added for it."""
+    fixture.simulate_login()
+
+    fixture.app.pin_method_in_uml("OrderLine", True, "total")
+    fixture.app.update()
+
+    fixture.app.uml_tab.undo_diagram()
+    fixture.app.update()
+
+    assert fixture.app.uml_tab.uml_canvas.registry.all_nodes() == []
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -5056,6 +5252,12 @@ class GraphObjectRegistryFixture(Fixture):
         self.registry = GraphObjectRegistry()
 
 
+class UmlDiagramRegistryFixture(Fixture):
+    @set_up
+    def create_registry(self):
+        self.registry = UmlDiagramRegistry()
+
+
 class GraphObjectKeyScenarios(Fixture):
     @scenario
     def none_object(self):
@@ -5142,6 +5344,53 @@ def test_graph_registry_avoids_duplicate_edges_for_same_source_target_and_label(
     assert duplicate_edge is None
     assert different_label_edge is not None
     assert len(fixture.registry.all_edges()) == 2
+
+
+@with_fixtures(UmlDiagramRegistryFixture)
+def test_uml_registry_avoids_duplicate_relationships_for_same_source_target_and_kind(
+    fixture,
+):
+    """AI: Re-adding the same UML relationship should not duplicate diagram edges."""
+    order_node = UmlClassNode(
+        {
+            "class_name": "Order",
+            "superclass_name": "Object",
+            "inst_var_names": ["lines"],
+        }
+    )
+    order_line_node = UmlClassNode(
+        {
+            "class_name": "OrderLine",
+            "superclass_name": "Order",
+            "inst_var_names": ["amount"],
+        }
+    )
+    fixture.registry.register_node(order_node)
+    fixture.registry.register_node(order_line_node)
+
+    first_relationship = fixture.registry.add_relationship(
+        order_node,
+        order_line_node,
+        "lines",
+        "association",
+    )
+    duplicate_relationship = fixture.registry.add_relationship(
+        order_node,
+        order_line_node,
+        "lines",
+        "association",
+    )
+    inheritance_relationship = fixture.registry.add_relationship(
+        order_line_node,
+        order_node,
+        "",
+        "inheritance",
+    )
+
+    assert first_relationship is not None
+    assert duplicate_relationship is None
+    assert inheritance_relationship is not None
+    assert len(fixture.registry.all_relationships()) == 2
 
 
 class ObjectInspectorFixture(Fixture):
@@ -5377,6 +5626,31 @@ def test_method_context_menu_covering_tests_opens_browse_dialog(fixture):
 
     dialog_class.assert_called_once_with(
         fixture.browser_window,
+        "total",
+    )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_context_menu_show_in_uml_routes_selected_method(fixture):
+    """AI: The method context menu should route the selected method to the UML pin action."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    methods_widget = fixture.browser_window.methods_widget
+    methods_widget.browser_window.application.pin_method_in_uml = Mock()
+
+    methods_widget.show_context_menu(
+        types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1),
+    )
+    fixture.root.update()
+
+    command_labels = menu_command_labels(methods_widget.current_context_menu)
+
+    assert "Show in UML" in command_labels
+
+    invoke_menu_command_by_label(methods_widget.current_context_menu, "Show in UML")
+
+    methods_widget.browser_window.application.pin_method_in_uml.assert_called_once_with(
+        "OrderLine",
+        True,
         "total",
     )
 
@@ -5785,6 +6059,98 @@ def test_class_hierarchy_context_menu_find_references_uses_selected_class_name(
     fixture.invoke_menu_command(menu, "References")
 
     classes_widget.browser_window.application.open_find_dialog_for_class.assert_called_once_with(
+        "OrderLine",
+    )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_class_hierarchy_context_menu_add_selected_to_uml_routes_all_selected_classes(
+    fixture,
+):
+    """AI: The hierarchy context menu should bulk-add every selected class to UML without collapsing the selection."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        "Kernel",
+    )
+    classes_widget = fixture.browser_window.classes_widget
+    classes_widget.browser_window.application.open_uml_for_class = Mock()
+    classes_widget.classes_notebook.select(classes_widget.hierarchy_frame)
+    fixture.root.update()
+    tree = classes_widget.hierarchy_tree
+
+    def child_with_text(parent_item, expected_text):
+        child_item_ids = tree.get_children(parent_item)
+        for child_item_id in child_item_ids:
+            if tree.item(child_item_id, "text") == expected_text:
+                return child_item_id
+        raise AssertionError(
+            f"Could not find {expected_text} under {parent_item}.",
+        )
+
+    object_item = child_with_text("", "Object")
+    order_item = child_with_text(object_item, "Order")
+    tree.item(object_item, open=True)
+    tree.item(order_item, open=True)
+    fixture.root.update()
+    order_line_item = child_with_text(order_item, "OrderLine")
+    tree.selection_set((order_item, order_line_item))
+    tree.focus(order_line_item)
+    tree.see(order_line_item)
+    fixture.root.update()
+
+    classes_widget.show_hierarchy_context_menu(
+        types.SimpleNamespace(
+            widget=tree,
+            y=-1,
+            x_root=1,
+            y_root=1,
+        )
+    )
+    menu = classes_widget.current_context_menu
+    command_labels = menu_command_labels(menu)
+
+    assert "Add Selected to UML" in command_labels
+
+    fixture.invoke_menu_command(menu, "Add Selected to UML")
+
+    classes_widget.browser_window.application.open_uml_for_class.assert_has_calls(
+        [
+            call("Order"),
+            call("OrderLine"),
+        ]
+    )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_class_list_context_menu_add_to_uml_routes_selected_class(fixture):
+    """AI: The class list context menu should route the clicked class to the UML action."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        "Kernel",
+    )
+    classes_widget = fixture.browser_window.classes_widget
+    classes_widget.browser_window.application.open_uml_for_class = Mock()
+    class_listbox = classes_widget.selection_list.selection_listbox
+    class_index = list(class_listbox.get(0, "end")).index("OrderLine")
+    class_item_box = class_listbox.bbox(class_index)
+    assert class_item_box is not None
+
+    classes_widget.show_context_menu(
+        types.SimpleNamespace(
+            widget=class_listbox,
+            y=class_item_box[1] + 1,
+            x_root=1,
+            y_root=1,
+        )
+    )
+    menu = classes_widget.current_context_menu
+    command_labels = menu_command_labels(menu)
+
+    assert "Add to UML" in command_labels
+
+    fixture.invoke_menu_command(menu, "Add to UML")
+
+    classes_widget.browser_window.application.open_uml_for_class.assert_called_once_with(
         "OrderLine",
     )
 
