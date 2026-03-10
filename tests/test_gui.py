@@ -2865,8 +2865,73 @@ def test_uml_direct_inheritance_uses_one_grouped_connector_per_superclass(fixtur
     ]
 
     assert len(inheritance_relationships) == 2
-    assert inheritance_relationships[0].canvas_item_ids == inheritance_relationships[1].canvas_item_ids
-    assert len(inheritance_relationships[0].canvas_item_ids) >= 4
+    shared_item_ids = set(inheritance_relationships[0].canvas_item_ids).intersection(
+        inheritance_relationships[1].canvas_item_ids
+    )
+    assert len(shared_item_ids) >= 2
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_grouped_inheritance_adds_horizontal_join_after_child_is_moved(fixture):
+    """AI: A grouped inheritance connector with one child should add a horizontal join when the child moves off the parent's x-position."""
+    fixture.simulate_login()
+
+    fixture.app.open_uml_for_class("Order")
+    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.update()
+
+    inheritance_relationship = fixture.app.uml_tab.uml_canvas.registry.all_relationships()[0]
+    parent_node = inheritance_relationship.target_node
+    child_node = inheritance_relationship.source_node
+    child_node.x = parent_node.x + 140
+
+    fixture.app.uml_tab.uml_canvas.redraw_all_relationships()
+    fixture.app.update()
+
+    horizontal_line_ids = [
+        item_id
+        for item_id in inheritance_relationship.canvas_item_ids
+        if len(fixture.app.uml_tab.uml_canvas.canvas.coords(item_id)) == 4
+        and fixture.app.uml_tab.uml_canvas.canvas.coords(item_id)[1]
+        == fixture.app.uml_tab.uml_canvas.canvas.coords(item_id)[3]
+    ]
+
+    assert len(horizontal_line_ids) == 1
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_inferred_inheritance_is_grouped_with_other_visible_children(fixture):
+    """AI: Inferred inheritance into a visible superclass should share the grouped connector with direct subclasses of that superclass."""
+    fixture.simulate_login()
+
+    fixture.app.open_uml_for_class("Order")
+    fixture.app.open_uml_for_class("OrderAudit")
+    fixture.app.open_uml_for_class("SpecialOrderLine")
+    fixture.app.update()
+
+    inheritance_relationships = [
+        relationship
+        for relationship in fixture.app.uml_tab.uml_canvas.registry.all_relationships()
+        if relationship.relationship_kind == "inheritance"
+    ]
+    direct_relationship = next(
+        relationship
+        for relationship in inheritance_relationships
+        if relationship.relationship_style == "direct"
+    )
+    inferred_relationship = next(
+        relationship
+        for relationship in inheritance_relationships
+        if relationship.relationship_style == "inferred"
+    )
+
+    shared_item_ids = set(direct_relationship.canvas_item_ids).intersection(
+        inferred_relationship.canvas_item_ids
+    )
+
+    assert direct_relationship.target_node.class_name == "Order"
+    assert inferred_relationship.target_node.class_name == "Order"
+    assert len(shared_item_ids) >= 1
 
 
 @with_fixtures(SwordfishAppFixture)
