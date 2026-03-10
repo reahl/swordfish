@@ -2951,6 +2951,40 @@ def test_uml_shows_only_one_visible_inheritance_path_to_common_ancestor(fixture)
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_uml_rearrange_places_ancestors_above_descendants(fixture):
+    """AI: Rearranging the UML should place visible ancestors above their descendants and align a single inheritance chain."""
+    fixture.simulate_login()
+
+    fixture.app.open_uml_for_class("Object")
+    fixture.app.open_uml_for_class("Order")
+    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.open_uml_for_class("SpecialOrderLine")
+    fixture.app.update()
+
+    uml_tab = fixture.app.uml_tab
+    object_node = uml_tab.uml_canvas.registry.class_node_for("Object")
+    order_node = uml_tab.uml_canvas.registry.class_node_for("Order")
+    order_line_node = uml_tab.uml_canvas.registry.class_node_for("OrderLine")
+    special_order_line_node = uml_tab.uml_canvas.registry.class_node_for(
+        "SpecialOrderLine"
+    )
+
+    object_node.x, object_node.y = 700, 500
+    order_node.x, order_node.y = 120, 420
+    order_line_node.x, order_line_node.y = 540, 240
+    special_order_line_node.x, special_order_line_node.y = 60, 120
+
+    rearranged = uml_tab.rearrange_diagram()
+    fixture.app.update()
+
+    assert rearranged is True
+    assert object_node.y < order_node.y < order_line_node.y < special_order_line_node.y
+    assert object_node.x == order_node.x
+    assert order_node.x == order_line_node.x
+    assert order_line_node.x == special_order_line_node.x
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_pin_method_in_uml_adds_method_to_class_node(fixture):
     """AI: Pinning a method into UML should add a method entry to that class node."""
     fixture.simulate_login()
