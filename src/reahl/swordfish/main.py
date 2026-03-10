@@ -6235,6 +6235,267 @@ class Swordfish(tk.Tk):
                 "ok": True,
                 "source": source,
             }
+        if action_name == 'query_uml_diagram':
+            return {
+                'ok': True,
+                'uml_state': self.uml_diagram_state_for_mcp(),
+            }
+        if action_name == 'add_class_to_uml':
+            class_name = action_parameters.get('class_name')
+            if not isinstance(class_name, str):
+                return {
+                    'ok': False,
+                    'error': {'message': 'class_name must be a string.'},
+                }
+            class_name = class_name.strip()
+            if not class_name:
+                return {
+                    'ok': False,
+                    'error': {'message': 'class_name cannot be empty.'},
+                }
+            if not self.is_logged_in:
+                return {
+                    'ok': False,
+                    'error': {'message': 'No active GemStone session in the IDE.'},
+                }
+            try:
+                self.open_uml_for_class(class_name)
+            except (
+                DomainException,
+                GemstoneDomainException,
+                GemstoneError,
+            ) as error:
+                return {
+                    'ok': False,
+                    'error': {'message': str(error)},
+                }
+            return {
+                'ok': True,
+                'class_name': class_name,
+                'uml_state': self.uml_diagram_state_for_mcp(),
+            }
+        if action_name == 'remove_class_from_uml':
+            class_name = action_parameters.get('class_name')
+            if not isinstance(class_name, str):
+                return {
+                    'ok': False,
+                    'error': {'message': 'class_name must be a string.'},
+                }
+            class_name = class_name.strip()
+            if not class_name:
+                return {
+                    'ok': False,
+                    'error': {'message': 'class_name cannot be empty.'},
+                }
+            if self.uml_tab is None or not self.uml_tab.winfo_exists():
+                return {
+                    'ok': False,
+                    'error': {'message': 'No open UML diagram in the IDE.'},
+                }
+            self.uml_tab.remove_class_from_diagram(class_name)
+            return {
+                'ok': True,
+                'class_name': class_name,
+                'uml_state': self.uml_diagram_state_for_mcp(),
+            }
+        if action_name == 'pin_method_in_uml':
+            class_name = action_parameters.get('class_name')
+            if not isinstance(class_name, str):
+                return {
+                    'ok': False,
+                    'error': {'message': 'class_name must be a string.'},
+                }
+            class_name = class_name.strip()
+            if not class_name:
+                return {
+                    'ok': False,
+                    'error': {'message': 'class_name cannot be empty.'},
+                }
+            method_symbol = action_parameters.get('method_symbol')
+            if not isinstance(method_symbol, str):
+                return {
+                    'ok': False,
+                    'error': {'message': 'method_symbol must be a string.'},
+                }
+            method_symbol = method_symbol.strip()
+            if not method_symbol:
+                return {
+                    'ok': False,
+                    'error': {'message': 'method_symbol cannot be empty.'},
+                }
+            show_instance_side = action_parameters.get('show_instance_side', True)
+            if not isinstance(show_instance_side, bool):
+                return {
+                    'ok': False,
+                    'error': {'message': 'show_instance_side must be a boolean.'},
+                }
+            if not self.is_logged_in:
+                return {
+                    'ok': False,
+                    'error': {'message': 'No active GemStone session in the IDE.'},
+                }
+            try:
+                self.pin_method_in_uml(
+                    class_name,
+                    show_instance_side,
+                    method_symbol,
+                )
+            except (
+                DomainException,
+                GemstoneDomainException,
+                GemstoneError,
+            ) as error:
+                return {
+                    'ok': False,
+                    'error': {'message': str(error)},
+                }
+            return {
+                'ok': True,
+                'class_name': class_name,
+                'method_symbol': method_symbol,
+                'show_instance_side': show_instance_side,
+                'uml_state': self.uml_diagram_state_for_mcp(),
+            }
+        if action_name == 'add_association_to_uml':
+            source_class_name = action_parameters.get('source_class_name')
+            if not isinstance(source_class_name, str):
+                return {
+                    'ok': False,
+                    'error': {'message': 'source_class_name must be a string.'},
+                }
+            source_class_name = source_class_name.strip()
+            if not source_class_name:
+                return {
+                    'ok': False,
+                    'error': {'message': 'source_class_name cannot be empty.'},
+                }
+            target_class_name = action_parameters.get('target_class_name')
+            if not isinstance(target_class_name, str):
+                return {
+                    'ok': False,
+                    'error': {'message': 'target_class_name must be a string.'},
+                }
+            target_class_name = target_class_name.strip()
+            if not target_class_name:
+                return {
+                    'ok': False,
+                    'error': {'message': 'target_class_name cannot be empty.'},
+                }
+            inst_var_name = action_parameters.get('inst_var_name')
+            if not isinstance(inst_var_name, str):
+                return {
+                    'ok': False,
+                    'error': {'message': 'inst_var_name must be a string.'},
+                }
+            inst_var_name = inst_var_name.strip()
+            if not inst_var_name:
+                return {
+                    'ok': False,
+                    'error': {'message': 'inst_var_name cannot be empty.'},
+                }
+            if not self.is_logged_in:
+                return {
+                    'ok': False,
+                    'error': {'message': 'No active GemStone session in the IDE.'},
+                }
+            try:
+                uml_tab = self.ensure_uml_tab()
+                uml_tab.add_association(
+                    source_class_name,
+                    inst_var_name,
+                    target_class_name,
+                )
+            except (
+                DomainException,
+                GemstoneDomainException,
+                GemstoneError,
+            ) as error:
+                return {
+                    'ok': False,
+                    'error': {'message': str(error)},
+                }
+            return {
+                'ok': True,
+                'source_class_name': source_class_name,
+                'target_class_name': target_class_name,
+                'inst_var_name': inst_var_name,
+                'uml_state': self.uml_diagram_state_for_mcp(),
+            }
+        if action_name == 'add_inheritance_details_to_uml':
+            source_class_name = action_parameters.get('source_class_name')
+            if not isinstance(source_class_name, str):
+                return {
+                    'ok': False,
+                    'error': {'message': 'source_class_name must be a string.'},
+                }
+            source_class_name = source_class_name.strip()
+            if not source_class_name:
+                return {
+                    'ok': False,
+                    'error': {'message': 'source_class_name cannot be empty.'},
+                }
+            target_class_name = action_parameters.get('target_class_name')
+            if not isinstance(target_class_name, str):
+                return {
+                    'ok': False,
+                    'error': {'message': 'target_class_name must be a string.'},
+                }
+            target_class_name = target_class_name.strip()
+            if not target_class_name:
+                return {
+                    'ok': False,
+                    'error': {'message': 'target_class_name cannot be empty.'},
+                }
+            if self.uml_tab is None or not self.uml_tab.winfo_exists():
+                return {
+                    'ok': False,
+                    'error': {'message': 'No open UML diagram in the IDE.'},
+                }
+            try:
+                added_class_names = self.uml_tab.add_inheritance_details_for(
+                    source_class_name,
+                    target_class_name,
+                )
+            except (
+                DomainException,
+                GemstoneDomainException,
+                GemstoneError,
+            ) as error:
+                return {
+                    'ok': False,
+                    'error': {'message': str(error)},
+                }
+            return {
+                'ok': True,
+                'source_class_name': source_class_name,
+                'target_class_name': target_class_name,
+                'added_class_names': added_class_names,
+                'uml_state': self.uml_diagram_state_for_mcp(),
+            }
+        if action_name == 'clear_uml_diagram':
+            if self.uml_tab is None or not self.uml_tab.winfo_exists():
+                return {
+                    'ok': False,
+                    'error': {'message': 'No open UML diagram in the IDE.'},
+                }
+            diagram_changed = self.uml_tab.clear_diagram()
+            return {
+                'ok': True,
+                'diagram_changed': diagram_changed,
+                'uml_state': self.uml_diagram_state_for_mcp(),
+            }
+        if action_name == 'undo_uml_diagram':
+            if self.uml_tab is None or not self.uml_tab.winfo_exists():
+                return {
+                    'ok': False,
+                    'error': {'message': 'No open UML diagram in the IDE.'},
+                }
+            diagram_changed = self.uml_tab.undo_diagram()
+            return {
+                'ok': True,
+                'diagram_changed': diagram_changed,
+                'uml_state': self.uml_diagram_state_for_mcp(),
+            }
         if action_name == "filter_senders_in_find_dialog":
             try:
                 class_category_filters = self.validated_sender_filter_values(
@@ -6545,26 +6806,49 @@ class Swordfish(tk.Tk):
     def open_uml_for_class(self, class_name):
         if not class_name:
             return
-        tab_is_missing = self.uml_tab is None or not self.uml_tab.winfo_exists()
-        if tab_is_missing:
-            self.uml_tab = UmlTab(self.notebook, self)
-            self.notebook.add(self.uml_tab, text="UML")
-        self.notebook.select(self.uml_tab)
+        self.ensure_uml_tab()
         self.uml_tab.add_class(class_name)
 
     def pin_method_in_uml(self, class_name, show_instance_side, method_selector):
         if not class_name or not method_selector:
             return
-        tab_is_missing = self.uml_tab is None or not self.uml_tab.winfo_exists()
-        if tab_is_missing:
-            self.uml_tab = UmlTab(self.notebook, self)
-            self.notebook.add(self.uml_tab, text="UML")
-        self.notebook.select(self.uml_tab)
+        self.ensure_uml_tab()
         self.uml_tab.pin_method(
             class_name,
             show_instance_side,
             method_selector,
         )
+
+    def ensure_uml_tab(self):
+        tab_is_missing = self.uml_tab is None or not self.uml_tab.winfo_exists()
+        if tab_is_missing:
+            self.uml_tab = UmlTab(self.notebook, self)
+            self.notebook.add(self.uml_tab, text="UML")
+        self.notebook.select(self.uml_tab)
+        return self.uml_tab
+
+    def uml_diagram_state_for_mcp(self):
+        tab_is_open = self.uml_tab is not None and self.uml_tab.winfo_exists()
+        if not tab_is_open:
+            return {
+                'is_open': False,
+                'is_selected': False,
+                'diagram': {
+                    'nodes': [],
+                    'relationships': [],
+                },
+            }
+        selected_tab_id = None
+        if self.notebook is not None and self.notebook.winfo_exists():
+            try:
+                selected_tab_id = self.notebook.select()
+            except tk.TclError:
+                selected_tab_id = None
+        return {
+            'is_open': True,
+            'is_selected': selected_tab_id == str(self.uml_tab),
+            'diagram': self.uml_tab.snapshot_diagram(),
+        }
 
     def close_inspector_tab(self):
         has_open_tab = (
@@ -12939,10 +13223,20 @@ class UmlTab(ttk.Frame):
         target_class_name = target_class_name.strip()
         if not target_class_name:
             return
+        self.add_association(source_node.class_name, inst_var_name, target_class_name)
+
+    def add_association(self, source_class_name, inst_var_name, target_class_name):
         snapshot_before = self.snapshot_diagram()
+        source_node = self.add_class(source_class_name, record_history=False)
+        if source_node is None:
+            return None
+        if inst_var_name not in source_node.inst_var_names:
+            raise DomainException(
+                f'{inst_var_name} is not an instance variable on {source_class_name}.'
+            )
         target_node = self.add_class(target_class_name, record_history=False)
         if target_node is None:
-            return
+            return None
         self.uml_canvas.add_relationship(
             source_node,
             target_node,
@@ -12952,6 +13246,7 @@ class UmlTab(ttk.Frame):
         snapshot_after = self.snapshot_diagram()
         if snapshot_after != snapshot_before:
             self.record_diagram_snapshot()
+        return self.uml_canvas.registry.class_node_for(target_class_name)
 
     def remove_method_from_node(self, node, method_entry):
         node.pinned_methods = [
@@ -12990,16 +13285,43 @@ class UmlTab(ttk.Frame):
             return []
         return class_names
 
+    def inferred_inheritance_relationship(
+        self, source_class_name, target_class_name
+    ):
+        matching_relationship = None
+        for relationship in self.uml_canvas.registry.all_relationships():
+            is_matching_inferred_inheritance = (
+                relationship.relationship_kind == 'inheritance'
+                and relationship.relationship_style == 'inferred'
+                and relationship.source_node.class_name == source_class_name
+                and relationship.target_node.class_name == target_class_name
+            )
+            if is_matching_inferred_inheritance:
+                matching_relationship = relationship
+        return matching_relationship
+
     def add_inheritance_details(self, relationship):
         class_names = self.inheritance_detail_class_names(relationship)
         if not class_names:
-            return
+            return []
         snapshot_before = self.snapshot_diagram()
         for class_name in class_names:
             self.add_class(class_name, record_history=False)
         snapshot_after = self.snapshot_diagram()
         if snapshot_after != snapshot_before:
             self.record_diagram_snapshot()
+        return class_names
+
+    def add_inheritance_details_for(self, source_class_name, target_class_name):
+        relationship = self.inferred_inheritance_relationship(
+            source_class_name,
+            target_class_name,
+        )
+        if relationship is None:
+            raise DomainException(
+                'No inferred inheritance edge matches the requested classes.'
+            )
+        return self.add_inheritance_details(relationship)
 
     def refresh_inheritance_relationships(self):
         relationships_to_remove = self.uml_canvas.registry.remove_relationships_by_kind(
@@ -13042,14 +13364,17 @@ class UmlTab(ttk.Frame):
         snapshot_after = self.snapshot_diagram()
         if snapshot_after != snapshot_before:
             self.record_diagram_snapshot()
+            return True
+        return False
 
     def undo_diagram(self, event=None):
         snapshot = self.diagram_history.go_back()
         if snapshot is None:
             self.refresh_undo_controls()
-            return
+            return False
         self.restore_diagram_snapshot(snapshot)
         self.refresh_undo_controls()
+        return True
 
 
 class DebuggerWindow(ttk.PanedWindow):
