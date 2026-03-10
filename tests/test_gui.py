@@ -2787,6 +2787,29 @@ def test_uml_tab_shows_inheritance_for_added_classes(fixture):
     assert len(inheritance_relationships) == 1
     assert inheritance_relationships[0].source_node.class_name == "OrderLine"
     assert inheritance_relationships[0].target_node.class_name == "Order"
+    assert inheritance_relationships[0].relationship_style == "direct"
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_tab_shows_inferred_inheritance_for_transitive_ancestors(fixture):
+    """AI: Adding a class and a transitive ancestor to the UML should show an inferred inheritance edge."""
+    fixture.simulate_login()
+
+    fixture.app.open_uml_for_class("Object")
+    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.update()
+
+    relationships = fixture.app.uml_tab.uml_canvas.registry.all_relationships()
+    inheritance_relationships = [
+        relationship
+        for relationship in relationships
+        if relationship.relationship_kind == "inheritance"
+    ]
+
+    assert len(inheritance_relationships) == 1
+    assert inheritance_relationships[0].source_node.class_name == "OrderLine"
+    assert inheritance_relationships[0].target_node.class_name == "Object"
+    assert inheritance_relationships[0].relationship_style == "inferred"
 
 
 @with_fixtures(SwordfishAppFixture)
