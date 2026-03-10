@@ -12780,12 +12780,19 @@ class UmlCanvas(ttk.Frame):
             )
             relationship.canvas_item_ids.append(label_id)
 
-    def draw_direct_inheritance_group(self, relationships):
+    def draw_inheritance_group(self, relationships):
         if not relationships:
             return
         parent_node = relationships[0].target_node
+        ordered_relationships = sorted(
+            relationships,
+            key=lambda relationship: (
+                relationship.source_node.x,
+                relationship.source_node.class_name,
+            ),
+        )
         child_nodes = [
-            relationship.source_node for relationship in relationships
+            relationship.source_node for relationship in ordered_relationships
         ]
         parent_bottom_y = parent_node.bounding_box()[3]
         branch_y = parent_bottom_y + 28
@@ -12793,9 +12800,18 @@ class UmlCanvas(ttk.Frame):
             (child_node.x, child_node.bounding_box()[1])
             for child_node in child_nodes
         ]
-        left_x = min(point[0] for point in child_top_points)
-        right_x = max(point[0] for point in child_top_points)
-        canvas_item_ids = []
+        child_left_x = min(point[0] for point in child_top_points)
+        child_right_x = max(point[0] for point in child_top_points)
+        horizontal_left_x = min(parent_node.x, child_left_x)
+        horizontal_right_x = max(parent_node.x, child_right_x)
+        has_direct_relationship = any(
+            relationship.relationship_style == 'direct'
+            for relationship in ordered_relationships
+        )
+        group_fill = '#9aa4b2'
+        if has_direct_relationship:
+            group_fill = '#2266aa'
+        shared_canvas_item_ids = []
         stem_id = self.canvas.create_line(
             parent_node.x,
             branch_y,
@@ -12803,33 +12819,36 @@ class UmlCanvas(ttk.Frame):
             parent_bottom_y,
             arrow=tk.LAST,
             arrowshape=(12, 14, 6),
-            fill='#2266aa',
+            fill=group_fill,
             width=2,
         )
-        canvas_item_ids.append(stem_id)
-        should_draw_horizontal_line = left_x != right_x
+        shared_canvas_item_ids.append(stem_id)
+        should_draw_horizontal_line = horizontal_left_x != horizontal_right_x
         if should_draw_horizontal_line:
             horizontal_id = self.canvas.create_line(
-                left_x,
+                horizontal_left_x,
                 branch_y,
-                right_x,
+                horizontal_right_x,
                 branch_y,
-                fill='#2266aa',
+                fill=group_fill,
                 width=2,
             )
-            canvas_item_ids.append(horizontal_id)
-        for child_x, child_top_y in child_top_points:
+            shared_canvas_item_ids.append(horizontal_id)
+        for index, (child_x, child_top_y) in enumerate(child_top_points):
+            relationship = ordered_relationships[index]
+            branch_fill = '#2266aa'
+            if relationship.relationship_style == 'inferred':
+                branch_fill = '#9aa4b2'
             child_line_id = self.canvas.create_line(
                 child_x,
                 branch_y,
                 child_x,
                 child_top_y,
-                fill='#2266aa',
+                fill=branch_fill,
                 width=2,
             )
-            canvas_item_ids.append(child_line_id)
-        for relationship in relationships:
-            relationship.canvas_item_ids = list(canvas_item_ids)
+            relationship.canvas_item_ids = list(shared_canvas_item_ids)
+            relationship.canvas_item_ids.append(child_line_id)
 
     def redraw_relationships_for_node(self, node):
         self.redraw_all_relationships()
@@ -12846,36 +12865,26 @@ class UmlCanvas(ttk.Frame):
 
     def redraw_all_relationships(self):
         self.clear_relationship_items()
-        direct_inheritance_relationships_by_parent = {}
+        inheritance_relationships_by_parent = {}
         other_relationships = []
         for relationship in self.registry.all_relationships():
-            is_direct_inheritance = (
-                relationship.relationship_kind == 'inheritance'
-                and relationship.relationship_style == 'direct'
-            )
-            if is_direct_inheritance:
+            is_inheritance = relationship.relationship_kind == 'inheritance'
+            if is_inheritance:
                 parent_name = relationship.target_node.class_name
-                grouped_relationships = direct_inheritance_relationships_by_parent.get(
+                grouped_relationships = inheritance_relationships_by_parent.get(
                     parent_name,
                     [],
                 )
                 grouped_relationships.append(relationship)
-                direct_inheritance_relationships_by_parent[parent_name] = (
+                inheritance_relationships_by_parent[parent_name] = (
                     grouped_relationships
                 )
-            if not is_direct_inheritance:
+            if not is_inheritance:
                 other_relationships.append(relationship)
-        parent_names = sorted(direct_inheritance_relationships_by_parent.keys())
+        parent_names = sorted(inheritance_relationships_by_parent.keys())
         for parent_name in parent_names:
-            relationships = direct_inheritance_relationships_by_parent[parent_name]
-            ordered_relationships = sorted(
-                relationships,
-                key=lambda relationship: (
-                    relationship.source_node.x,
-                    relationship.source_node.class_name,
-                ),
-            )
-            self.draw_direct_inheritance_group(ordered_relationships)
+            relationships = inheritance_relationships_by_parent[parent_name]
+            self.draw_inheritance_group(relationships)
         for relationship in other_relationships:
             self.draw_relationship(relationship)
 
