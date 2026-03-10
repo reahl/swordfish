@@ -12215,11 +12215,19 @@ class UmlClassNode:
 
 
 class UmlRelationship:
-    def __init__(self, source_node, target_node, label, relationship_kind):
+    def __init__(
+        self,
+        source_node,
+        target_node,
+        label,
+        relationship_kind,
+        relationship_style="direct",
+    ):
         self.source_node = source_node
         self.target_node = target_node
         self.label = label
         self.relationship_kind = relationship_kind
+        self.relationship_style = relationship_style
         self.canvas_item_ids = []
 
 
@@ -12252,7 +12260,14 @@ class UmlDiagramRegistry:
         ]
         return relationships_to_remove
 
-    def add_relationship(self, source_node, target_node, label, relationship_kind):
+    def add_relationship(
+        self,
+        source_node,
+        target_node,
+        label,
+        relationship_kind,
+        relationship_style="direct",
+    ):
         existing_relationship = None
         for relationship in self.relationships:
             is_same_relationship = (
@@ -12260,6 +12275,7 @@ class UmlDiagramRegistry:
                 and relationship.target_node is target_node
                 and relationship.label == label
                 and relationship.relationship_kind == relationship_kind
+                and relationship.relationship_style == relationship_style
             )
             if is_same_relationship:
                 existing_relationship = relationship
@@ -12270,6 +12286,7 @@ class UmlDiagramRegistry:
             target_node,
             label,
             relationship_kind,
+            relationship_style,
         )
         self.relationships.append(relationship)
         return relationship
@@ -12444,6 +12461,8 @@ class UmlCanvas(ttk.Frame):
         if relationship.relationship_kind == "inheritance":
             fill = "#2266aa"
             width = 2
+            if relationship.relationship_style == "inferred":
+                fill = "#9aa4b2"
         line_id = self.canvas.create_line(
             x1,
             y1,
@@ -12488,12 +12507,20 @@ class UmlCanvas(ttk.Frame):
             self.canvas.delete(item_id)
         node.canvas_item_ids = []
 
-    def add_relationship(self, source_node, target_node, label, relationship_kind):
+    def add_relationship(
+        self,
+        source_node,
+        target_node,
+        label,
+        relationship_kind,
+        relationship_style="direct",
+    ):
         relationship = self.registry.add_relationship(
             source_node,
             target_node,
             label,
             relationship_kind,
+            relationship_style,
         )
         if relationship is not None:
             self.draw_relationship(relationship)
@@ -12646,6 +12673,7 @@ class UmlTab(ttk.Frame):
                     "target_class_name": relationship.target_node.class_name,
                     "label": relationship.label,
                     "relationship_kind": relationship.relationship_kind,
+                    "relationship_style": relationship.relationship_style,
                 }
             )
         return {
@@ -12654,6 +12682,7 @@ class UmlTab(ttk.Frame):
                 relationships,
                 key=lambda entry: (
                     entry["relationship_kind"],
+                    entry["relationship_style"],
                     entry["source_class_name"],
                     entry["target_class_name"],
                     entry["label"],
@@ -12688,6 +12717,7 @@ class UmlTab(ttk.Frame):
                 target_node,
                 relationship_entry["label"],
                 relationship_entry["relationship_kind"],
+                relationship_entry["relationship_style"],
             )
         self.uml_canvas.expand_scroll_region()
 
@@ -12699,12 +12729,13 @@ class UmlTab(ttk.Frame):
         undo_state = tk.NORMAL if self.diagram_history.can_go_back() else tk.DISABLED
         self.undo_button.configure(state=undo_state)
 
-    def class_definition_for(self, class_name):
+    def class_definition_for(self, class_name, show_errors=True):
         browser_session = self.application.gemstone_session_record.gemstone_browser_session
         try:
             return browser_session.get_class_definition(class_name)
         except (GemstoneDomainException, GemstoneError) as error:
-            messagebox.showerror("UML", str(error))
+            if show_errors:
+                messagebox.showerror("UML", str(error))
             return None
 
     def add_class(self, class_name, record_history=True):
@@ -12900,16 +12931,28 @@ class UmlTab(ttk.Frame):
             self.uml_canvas.delete_relationship_items(relationship)
         for node in self.uml_canvas.registry.all_nodes():
             superclass_name = node.superclass_name
-            if not superclass_name:
-                continue
-            superclass_node = self.uml_canvas.registry.class_node_for(superclass_name)
-            if superclass_node is not None:
-                self.uml_canvas.add_relationship(
-                    node,
-                    superclass_node,
-                    "",
-                    "inheritance",
+            ancestor_distance = 1
+            while superclass_name:
+                superclass_node = self.uml_canvas.registry.class_node_for(superclass_name)
+                relationship_style = "direct"
+                if ancestor_distance > 1:
+                    relationship_style = "inferred"
+                if superclass_node is not None:
+                    self.uml_canvas.add_relationship(
+                        node,
+                        superclass_node,
+                        "",
+                        "inheritance",
+                        relationship_style,
+                    )
+                superclass_definition = self.class_definition_for(
+                    superclass_name, show_errors=False
                 )
+                if superclass_definition is None:
+                    superclass_name = None
+                else:
+                    superclass_name = superclass_definition["superclass_name"]
+                    ancestor_distance += 1
         self.uml_canvas.expand_scroll_region()
 
     def clear_diagram(self):
