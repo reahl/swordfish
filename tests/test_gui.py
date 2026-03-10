@@ -38,6 +38,7 @@ from reahl.swordfish.main import (
     Swordfish,
     UmlClassNode,
     UmlDiagramRegistry,
+    UmlMethodChooserDialog,
 )
 from reahl.swordfish.mcp.integration_state import IntegratedSessionState
 
@@ -2809,6 +2810,130 @@ def test_pin_method_in_uml_adds_method_to_class_node(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_uml_browse_class_selects_browser_class(fixture):
+    """AI: Browsing a UML class should route to the browser class selection flow."""
+    fixture.simulate_login()
+    fixture.app.handle_find_selection = Mock()
+
+    fixture.app.uml_tab = None
+    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.update()
+
+    fixture.app.uml_tab.browse_class("OrderLine")
+    fixture.app.update()
+
+    fixture.app.handle_find_selection.assert_called_once_with(True, "OrderLine")
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_browse_method_selects_browser_method(fixture):
+    """AI: Browsing a pinned UML method should route to the browser method selection flow."""
+    fixture.simulate_login()
+    fixture.app.handle_sender_selection = Mock()
+
+    fixture.app.pin_method_in_uml("OrderLine", True, "total")
+    fixture.app.update()
+
+    node = fixture.app.uml_tab.uml_canvas.registry.class_node_for("OrderLine")
+    fixture.app.uml_tab.browse_method("OrderLine", node.pinned_methods[0])
+    fixture.app.update()
+
+    fixture.app.handle_sender_selection.assert_called_once_with(
+        "OrderLine",
+        True,
+        "total",
+    )
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_method_chooser_lists_and_filters_methods_before_pinning(fixture):
+    """AI: UML method selection should offer browser-style category and method filtering before pinning an existing method."""
+    fixture.simulate_login()
+    def list_method_categories(class_name, show_instance_side):
+        if show_instance_side:
+            return ["all", "accessing", "testing"]
+        return ["all", "class accessing"]
+
+    def list_methods(class_name, method_category, show_instance_side):
+        if show_instance_side:
+            return ["total", "description"]
+        return ["defaultLineClass"]
+
+    fixture.mock_browser.list_method_categories.side_effect = list_method_categories
+    fixture.mock_browser.list_methods.side_effect = list_methods
+    on_method_selected = Mock()
+
+    dialog = UmlMethodChooserDialog(
+        fixture.app,
+        fixture.app,
+        "OrderLine",
+        on_method_selected,
+    )
+    fixture.app.update()
+
+    category_entries = list(
+        dialog.category_selection.selection_listbox.get(0, "end")
+    )
+    method_entries = list(dialog.method_selection.selection_listbox.get(0, "end"))
+
+    assert category_entries == ["all", "accessing", "testing"]
+    assert method_entries == ["total", "description"]
+
+    dialog.method_selection.filter_var.set("tot")
+    fixture.app.update()
+
+    filtered_method_entries = list(dialog.method_selection.selection_listbox.get(0, "end"))
+    assert filtered_method_entries == ["total"]
+
+    dialog.side_var.set("class")
+    dialog.handle_side_changed()
+    fixture.app.update()
+
+    class_side_category_entries = list(
+        dialog.category_selection.selection_listbox.get(0, "end")
+    )
+    class_side_method_entries = list(
+        dialog.method_selection.selection_listbox.get(0, "end")
+    )
+    assert class_side_category_entries == ["all", "class accessing"]
+    assert class_side_method_entries == ["defaultLineClass"]
+
+    dialog.side_var.set("instance")
+    dialog.handle_side_changed()
+    fixture.app.update()
+
+    dialog.select_method("total")
+    dialog.add_selected_method()
+    fixture.app.update()
+
+    on_method_selected.assert_called_once_with("OrderLine", True, "total")
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_add_existing_method_pins_it_on_class_node(fixture):
+    """AI: Adding a chosen existing method from UML should pin it on the UML node without invoking method creation."""
+    fixture.simulate_login()
+    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.update()
+
+    node = fixture.app.uml_tab.uml_canvas.registry.class_node_for("OrderLine")
+
+    fixture.app.uml_tab.add_existing_method_to_node(
+        "OrderLine",
+        True,
+        "total",
+    )
+    fixture.app.update()
+
+    fixture.mock_browser.compile_method.assert_not_called()
+    assert node.pinned_methods[0] == {
+        "selector": "total",
+        "show_instance_side": True,
+        "label": "total",
+    }
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_uml_association_prompt_adds_target_class_and_relationship(fixture):
     """AI: Adding an association from a UML node should prompt for a target class and create the labeled edge."""
     fixture.simulate_login()
@@ -5538,6 +5663,24 @@ def test_object_inspector_row_menu_graph_inspect_routes_selected_value(fixture):
     fixture.root.update()
 
     graph_inspect_action.assert_called_once_with(fixture.mock_self)
+
+
+@with_fixtures(ObjectInspectorFixture)
+def test_object_inspector_browse_class_button_routes_inspected_object(fixture):
+    """AI: Browse Class should route the inspected object to the browser callback."""
+    browse_class_action = Mock()
+    inspector = ObjectInspector(
+        fixture.root,
+        an_object=fixture.mock_self,
+        browse_class_action=browse_class_action,
+    )
+    inspector.pack()
+    fixture.root.update()
+
+    inspector.browse_class_button.invoke()
+    fixture.root.update()
+
+    browse_class_action.assert_called_once_with(fixture.mock_self)
 
 
 @with_fixtures(ObjectInspectorFixture)
