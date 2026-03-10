@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "reahl-swordfish"
-version = "0.6.0"
+dynamic = ["version"]
 description = "A classic Smalltalk IDE for GemStone/Smalltalk"
 readme = "README.md"
 authors = [
@@ -54,6 +54,9 @@ include = ["reahl*"]
 [tool.setuptools.package-data]
 "reahl.swordfish.mcp.tracing" = ["*.st"]
 "reahl.swordfish.mcp.ast" = ["*.st"]
+
+[tool.setuptools.dynamic]
+version = {attr = "reahl.swordfish.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
