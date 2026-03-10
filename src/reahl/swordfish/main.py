@@ -12313,11 +12313,19 @@ class UmlDiagramRegistry:
     def all_relationships(self):
         return list(self.relationships)
 
+    def relationship_for_canvas_item(self, canvas_item_id):
+        matching_relationship = None
+        for relationship in self.relationships:
+            if canvas_item_id in relationship.canvas_item_ids:
+                matching_relationship = relationship
+        return matching_relationship
+
 
 class UmlCanvas(ttk.Frame):
-    def __init__(self, parent, node_menu_action):
+    def __init__(self, parent, node_menu_action, relationship_menu_action):
         super().__init__(parent)
         self.node_menu_action = node_menu_action
+        self.relationship_menu_action = relationship_menu_action
         self.registry = UmlDiagramRegistry()
         self.dragging_node = None
         self.drag_start_x = 0
@@ -12549,6 +12557,20 @@ class UmlCanvas(ttk.Frame):
                 return node
         return None
 
+    def relationship_at_canvas_coordinates(self, canvas_x, canvas_y):
+        overlapping_item_ids = self.canvas.find_overlapping(
+            canvas_x - 4,
+            canvas_y - 4,
+            canvas_x + 4,
+            canvas_y + 4,
+        )
+        matching_relationship = None
+        for canvas_item_id in reversed(overlapping_item_ids):
+            relationship = self.registry.relationship_for_canvas_item(canvas_item_id)
+            if relationship is not None:
+                matching_relationship = relationship
+        return matching_relationship
+
     def on_canvas_press(self, event):
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
@@ -12579,9 +12601,12 @@ class UmlCanvas(ttk.Frame):
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
         node = self.node_at_canvas_coordinates(canvas_x, canvas_y)
-        if node is None:
+        if node is not None:
+            self.node_menu_action(node, event)
             return
-        self.node_menu_action(node, event)
+        relationship = self.relationship_at_canvas_coordinates(canvas_x, canvas_y)
+        if relationship is not None:
+            self.relationship_menu_action(relationship, event)
 
     def expand_scroll_region(self):
         all_nodes = self.registry.all_nodes()
@@ -12642,6 +12667,7 @@ class UmlTab(ttk.Frame):
         self.uml_canvas = UmlCanvas(
             self,
             node_menu_action=self.open_node_menu,
+            relationship_menu_action=self.open_relationship_menu,
         )
         self.uml_canvas.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
         self.uml_canvas.canvas.bind("<Control-z>", self.undo_diagram)
@@ -12852,6 +12878,27 @@ class UmlTab(ttk.Frame):
         add_close_command_to_popup_menu(menu)
         popup_menu(menu, event)
 
+    def open_relationship_menu(self, relationship, event):
+        if self.current_context_menu is not None:
+            self.current_context_menu.unpost()
+        menu = self.current_context_menu = tk.Menu(self, tearoff=0)
+        can_expand_inheritance = (
+            relationship.relationship_kind == "inheritance"
+            and relationship.relationship_style == "inferred"
+        )
+        if can_expand_inheritance:
+            menu.add_command(
+                label="Add Inheritance Details",
+                command=lambda: self.add_inheritance_details(relationship),
+            )
+        if not can_expand_inheritance:
+            menu.add_command(
+                label="Add Inheritance Details",
+                state=tk.DISABLED,
+            )
+        add_close_command_to_popup_menu(menu)
+        popup_menu(menu, event)
+
     def browse_class(self, class_name):
         self.application.handle_find_selection(True, class_name)
         if self.application.browser_tab is not None and self.application.browser_tab.winfo_exists():
@@ -12923,6 +12970,37 @@ class UmlTab(ttk.Frame):
         if snapshot_after != snapshot_before:
             self.record_diagram_snapshot()
 
+    def inheritance_detail_class_names(self, relationship):
+        if relationship.relationship_kind != "inheritance":
+            return []
+        if relationship.relationship_style != "inferred":
+            return []
+        class_names = []
+        superclass_name = relationship.source_node.superclass_name
+        while superclass_name and superclass_name != relationship.target_node.class_name:
+            class_names.append(superclass_name)
+            superclass_definition = self.class_definition_for(
+                superclass_name, show_errors=False
+            )
+            if superclass_definition is None:
+                superclass_name = None
+            else:
+                superclass_name = superclass_definition["superclass_name"]
+        if superclass_name != relationship.target_node.class_name:
+            return []
+        return class_names
+
+    def add_inheritance_details(self, relationship):
+        class_names = self.inheritance_detail_class_names(relationship)
+        if not class_names:
+            return
+        snapshot_before = self.snapshot_diagram()
+        for class_name in class_names:
+            self.add_class(class_name, record_history=False)
+        snapshot_after = self.snapshot_diagram()
+        if snapshot_after != snapshot_before:
+            self.record_diagram_snapshot()
+
     def refresh_inheritance_relationships(self):
         relationships_to_remove = self.uml_canvas.registry.remove_relationships_by_kind(
             "inheritance"
@@ -12932,12 +13010,13 @@ class UmlTab(ttk.Frame):
         for node in self.uml_canvas.registry.all_nodes():
             superclass_name = node.superclass_name
             ancestor_distance = 1
-            while superclass_name:
+            found_visible_ancestor = False
+            while superclass_name and not found_visible_ancestor:
                 superclass_node = self.uml_canvas.registry.class_node_for(superclass_name)
-                relationship_style = "direct"
-                if ancestor_distance > 1:
-                    relationship_style = "inferred"
                 if superclass_node is not None:
+                    relationship_style = "direct"
+                    if ancestor_distance > 1:
+                        relationship_style = "inferred"
                     self.uml_canvas.add_relationship(
                         node,
                         superclass_node,
@@ -12945,14 +13024,16 @@ class UmlTab(ttk.Frame):
                         "inheritance",
                         relationship_style,
                     )
-                superclass_definition = self.class_definition_for(
-                    superclass_name, show_errors=False
-                )
-                if superclass_definition is None:
-                    superclass_name = None
-                else:
-                    superclass_name = superclass_definition["superclass_name"]
-                    ancestor_distance += 1
+                    found_visible_ancestor = True
+                if not found_visible_ancestor:
+                    superclass_definition = self.class_definition_for(
+                        superclass_name, show_errors=False
+                    )
+                    if superclass_definition is None:
+                        superclass_name = None
+                    else:
+                        superclass_name = superclass_definition["superclass_name"]
+                        ancestor_distance += 1
         self.uml_canvas.expand_scroll_region()
 
     def clear_diagram(self):

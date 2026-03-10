@@ -115,6 +115,15 @@ class SwordfishGuiFixture(Fixture):
         self.mock_browser.list_breakpoints.return_value = []
         self.mock_browser.get_method_category.return_value = "accessing"
         class_definitions = {
+            "SpecialOrderLine": {
+                "class_name": "SpecialOrderLine",
+                "superclass_name": "OrderLine",
+                "package_name": "Kernel",
+                "inst_var_names": ["discount"],
+                "class_var_names": [],
+                "class_inst_var_names": [],
+                "pool_dictionary_names": [],
+            },
             "OrderLine": {
                 "class_name": "OrderLine",
                 "superclass_name": "Order",
@@ -1567,6 +1576,15 @@ class SwordfishAppFixture(Fixture):
         self.mock_browser.list_breakpoints.return_value = []
         self.mock_browser.get_method_category.return_value = "accessing"
         class_definitions = {
+            "SpecialOrderLine": {
+                "class_name": "SpecialOrderLine",
+                "superclass_name": "OrderLine",
+                "package_name": "Kernel",
+                "inst_var_names": ["discount"],
+                "class_var_names": [],
+                "class_inst_var_names": [],
+                "pool_dictionary_names": [],
+            },
             "OrderLine": {
                 "class_name": "OrderLine",
                 "superclass_name": "Order",
@@ -2810,6 +2828,126 @@ def test_uml_tab_shows_inferred_inheritance_for_transitive_ancestors(fixture):
     assert inheritance_relationships[0].source_node.class_name == "OrderLine"
     assert inheritance_relationships[0].target_node.class_name == "Object"
     assert inheritance_relationships[0].relationship_style == "inferred"
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_inferred_edge_menu_can_add_inheritance_details(fixture):
+    """AI: Adding inheritance details should replace an inferred edge with the direct superclass chain, and restore the inferred edge if that detail is removed."""
+    fixture.simulate_login()
+
+    fixture.app.open_uml_for_class("Object")
+    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.update()
+
+    uml_tab = fixture.app.uml_tab
+    relationships = uml_tab.uml_canvas.registry.all_relationships()
+    inferred_relationship = relationships[0]
+    line_id = inferred_relationship.canvas_item_ids[0]
+    line_coordinates = uml_tab.uml_canvas.canvas.coords(line_id)
+    midpoint_x = int((line_coordinates[0] + line_coordinates[2]) / 2)
+    midpoint_y = int((line_coordinates[1] + line_coordinates[3]) / 2)
+
+    uml_tab.uml_canvas.on_canvas_right_click(
+        types.SimpleNamespace(
+            x=midpoint_x,
+            y=midpoint_y,
+            x_root=1,
+            y_root=1,
+        )
+    )
+    fixture.app.update()
+
+    menu = uml_tab.current_context_menu
+
+    assert "Add Inheritance Details" in menu_command_labels(menu)
+
+    invoke_menu_command_by_label(menu, "Add Inheritance Details")
+
+    order_node = uml_tab.uml_canvas.registry.class_node_for("Order")
+    relationships = uml_tab.uml_canvas.registry.all_relationships()
+    direct_relationships = [
+        relationship
+        for relationship in relationships
+        if relationship.relationship_kind == "inheritance"
+        and relationship.relationship_style == "direct"
+    ]
+    inferred_relationships = [
+        relationship
+        for relationship in relationships
+        if relationship.relationship_kind == "inheritance"
+        and relationship.relationship_style == "inferred"
+    ]
+
+    assert order_node is not None
+    assert any(
+        relationship.source_node.class_name == "OrderLine"
+        and relationship.target_node.class_name == "Order"
+        for relationship in direct_relationships
+    )
+    assert any(
+        relationship.source_node.class_name == "Order"
+        and relationship.target_node.class_name == "Object"
+        for relationship in direct_relationships
+    )
+    assert inferred_relationships == []
+
+    uml_tab.remove_class_from_diagram("Order")
+    fixture.app.update()
+
+    relationships = uml_tab.uml_canvas.registry.all_relationships()
+    inferred_relationships = [
+        relationship
+        for relationship in relationships
+        if relationship.relationship_kind == "inheritance"
+        and relationship.relationship_style == "inferred"
+    ]
+
+    assert uml_tab.uml_canvas.registry.class_node_for("Order") is None
+    assert len(inferred_relationships) == 1
+    assert inferred_relationships[0].source_node.class_name == "OrderLine"
+    assert inferred_relationships[0].target_node.class_name == "Object"
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_shows_only_one_visible_inheritance_path_to_common_ancestor(fixture):
+    """AI: When an intermediate class is missing from the UML, each class should connect only to its nearest visible ancestor."""
+    fixture.simulate_login()
+
+    fixture.app.open_uml_for_class("Object")
+    fixture.app.open_uml_for_class("Order")
+    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.open_uml_for_class("SpecialOrderLine")
+    fixture.app.update()
+
+    uml_tab = fixture.app.uml_tab
+    uml_tab.remove_class_from_diagram("Order")
+    fixture.app.update()
+
+    relationships = uml_tab.uml_canvas.registry.all_relationships()
+    inheritance_relationships = [
+        relationship
+        for relationship in relationships
+        if relationship.relationship_kind == "inheritance"
+    ]
+
+    assert len(inheritance_relationships) == 2
+    assert any(
+        relationship.source_node.class_name == "SpecialOrderLine"
+        and relationship.target_node.class_name == "OrderLine"
+        and relationship.relationship_style == "direct"
+        for relationship in inheritance_relationships
+    )
+    assert any(
+        relationship.source_node.class_name == "OrderLine"
+        and relationship.target_node.class_name == "Object"
+        and relationship.relationship_style == "inferred"
+        for relationship in inheritance_relationships
+    )
+    assert not any(
+        relationship.source_node.class_name == "SpecialOrderLine"
+        and relationship.target_node.class_name == "Object"
+        for relationship in inheritance_relationships
+    )
 
 
 @with_fixtures(SwordfishAppFixture)
