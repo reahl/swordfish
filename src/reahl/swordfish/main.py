@@ -12936,17 +12936,22 @@ class UmlTab(ttk.Frame):
             column=1,
             padx=(6, 0),
         )
+        ttk.Button(
+            actions_frame,
+            text='Rearrange',
+            command=self.rearrange_diagram,
+        ).grid(row=0, column=2, padx=(6, 0))
         self.undo_button = ttk.Button(
             actions_frame,
             text="Undo",
             command=self.undo_diagram,
         )
-        self.undo_button.grid(row=0, column=2, padx=(6, 0))
+        self.undo_button.grid(row=0, column=3, padx=(6, 0))
         ttk.Button(
             actions_frame,
             text="Close",
             command=self.application.close_uml_tab,
-        ).grid(row=0, column=3, padx=(6, 0))
+        ).grid(row=0, column=4, padx=(6, 0))
 
         self.uml_canvas = UmlCanvas(
             self,
@@ -13361,6 +13366,182 @@ class UmlTab(ttk.Frame):
     def clear_diagram(self):
         snapshot_before = self.snapshot_diagram()
         self.uml_canvas.clear_all()
+        snapshot_after = self.snapshot_diagram()
+        if snapshot_after != snapshot_before:
+            self.record_diagram_snapshot()
+            return True
+        return False
+
+    def visible_inheritance_paths(self):
+        parent_by_child_name = {}
+        children_by_parent_name = {}
+        inheritance_relationships = [
+            relationship
+            for relationship in self.uml_canvas.registry.all_relationships()
+            if relationship.relationship_kind == 'inheritance'
+        ]
+        for relationship in inheritance_relationships:
+            child_name = relationship.source_node.class_name
+            parent_name = relationship.target_node.class_name
+            parent_by_child_name[child_name] = parent_name
+            existing_children = children_by_parent_name.get(parent_name, [])
+            existing_children.append(child_name)
+            children_by_parent_name[parent_name] = existing_children
+        return parent_by_child_name, children_by_parent_name
+
+    def rearranged_node_levels(self, parent_by_child_name, children_by_parent_name):
+        all_nodes = self.uml_canvas.registry.all_nodes()
+        node_by_class_name = {
+            node.class_name: node for node in all_nodes
+        }
+        root_nodes = [
+            node
+            for node in all_nodes
+            if node.class_name not in parent_by_child_name
+        ]
+        root_nodes = sorted(
+            root_nodes,
+            key=lambda node: (node.x, node.class_name),
+        )
+        level_by_class_name = {}
+        pending_nodes = [(root_node, 0) for root_node in root_nodes]
+        while pending_nodes:
+            node, level = pending_nodes.pop(0)
+            level_by_class_name[node.class_name] = level
+            child_names = children_by_parent_name.get(node.class_name, [])
+            ordered_child_names = sorted(
+                child_names,
+                key=lambda class_name: (
+                    node_by_class_name[class_name].x,
+                    class_name,
+                ),
+            )
+            for child_name in ordered_child_names:
+                child_node = node_by_class_name[child_name]
+                pending_nodes.append((child_node, level + 1))
+        return level_by_class_name, root_nodes
+
+    def subtree_widths(
+        self,
+        class_name,
+        children_by_parent_name,
+        node_by_class_name,
+        width_by_class_name,
+    ):
+        child_names = children_by_parent_name.get(class_name, [])
+        ordered_child_names = sorted(
+            child_names,
+            key=lambda child_class_name: (
+                node_by_class_name[child_class_name].x,
+                child_class_name,
+            ),
+        )
+        child_widths = []
+        for child_name in ordered_child_names:
+            child_widths.append(
+                self.subtree_widths(
+                    child_name,
+                    children_by_parent_name,
+                    node_by_class_name,
+                    width_by_class_name,
+                )
+            )
+        total_child_width = 0
+        if child_widths:
+            total_child_width = sum(child_widths) + UML_NODE_PADDING_X * (
+                len(child_widths) - 1
+            )
+        own_width = UML_NODE_WIDTH
+        width_by_class_name[class_name] = max(own_width, total_child_width)
+        return width_by_class_name[class_name]
+
+    def place_subtree_nodes(
+        self,
+        class_name,
+        left_edge,
+        children_by_parent_name,
+        node_by_class_name,
+        width_by_class_name,
+        center_y_by_level,
+        level_by_class_name,
+    ):
+        node = node_by_class_name[class_name]
+        node_width = width_by_class_name[class_name]
+        node.x = left_edge + node_width / 2
+        node.y = center_y_by_level[level_by_class_name[class_name]]
+        child_names = children_by_parent_name.get(class_name, [])
+        ordered_child_names = sorted(
+            child_names,
+            key=lambda child_class_name: (
+                node_by_class_name[child_class_name].x,
+                child_class_name,
+            ),
+        )
+        child_left_edge = left_edge
+        for child_name in ordered_child_names:
+            self.place_subtree_nodes(
+                child_name,
+                child_left_edge,
+                children_by_parent_name,
+                node_by_class_name,
+                width_by_class_name,
+                center_y_by_level,
+                level_by_class_name,
+            )
+            child_left_edge += (
+                width_by_class_name[child_name] + UML_NODE_PADDING_X
+            )
+
+    def rearrange_diagram(self):
+        all_nodes = self.uml_canvas.registry.all_nodes()
+        if not all_nodes:
+            return False
+        snapshot_before = self.snapshot_diagram()
+        parent_by_child_name, children_by_parent_name = self.visible_inheritance_paths()
+        node_by_class_name = {
+            node.class_name: node for node in all_nodes
+        }
+        level_by_class_name, root_nodes = self.rearranged_node_levels(
+            parent_by_child_name,
+            children_by_parent_name,
+        )
+        level_indices = sorted(set(level_by_class_name.values()))
+        center_y_by_level = {}
+        current_top = UML_ORIGIN_Y
+        for level_index in level_indices:
+            level_nodes = [
+                node
+                for node in all_nodes
+                if level_by_class_name.get(node.class_name) == level_index
+            ]
+            maximum_height = max(node.height() for node in level_nodes)
+            center_y_by_level[level_index] = current_top + maximum_height / 2
+            current_top += maximum_height + UML_NODE_PADDING_Y + 40
+        width_by_class_name = {}
+        for root_node in root_nodes:
+            self.subtree_widths(
+                root_node.class_name,
+                children_by_parent_name,
+                node_by_class_name,
+                width_by_class_name,
+            )
+        current_left_edge = UML_ORIGIN_X
+        for root_node in root_nodes:
+            self.place_subtree_nodes(
+                root_node.class_name,
+                current_left_edge,
+                children_by_parent_name,
+                node_by_class_name,
+                width_by_class_name,
+                center_y_by_level,
+                level_by_class_name,
+            )
+            current_left_edge += (
+                width_by_class_name[root_node.class_name] + UML_NODE_PADDING_X
+            )
+        for node in all_nodes:
+            self.uml_canvas.redraw_node(node)
+        self.uml_canvas.expand_scroll_region()
         snapshot_after = self.snapshot_diagram()
         if snapshot_after != snapshot_before:
             self.record_diagram_snapshot()
