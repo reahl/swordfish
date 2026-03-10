@@ -6511,6 +6511,37 @@ class Swordfish(tk.Tk):
         self.notebook.select(self.graph_tab)
         self.graph_tab.add_object(inspected_object)
 
+    def browse_object_class(self, inspected_object):
+        if inspected_object is None:
+            return
+        class_name = ""
+        show_instance_side = True
+        try:
+            is_behavior = inspected_object.isBehavior().to_py
+            if is_behavior:
+                class_name = inspected_object.asString().to_py
+                show_instance_side = False
+            if not is_behavior:
+                class_name = inspected_object.gemstone_class().asString().to_py
+        except (GemstoneError, AttributeError):
+            class_name = ""
+        class_name = " ".join(class_name.split()) if isinstance(class_name, str) else ""
+        if not class_name:
+            return
+        if self.browser_tab is not None and self.browser_tab.winfo_exists():
+            self.notebook.select(self.browser_tab)
+        self.gemstone_session_record.jump_to_class(class_name, show_instance_side)
+        self.event_queue.publish("SelectedClassChanged")
+
+    def add_method_for_class(self, class_name, show_instance_side=True):
+        if not class_name:
+            return None
+        if self.browser_tab is not None and self.browser_tab.winfo_exists():
+            self.notebook.select(self.browser_tab)
+        self.gemstone_session_record.jump_to_class(class_name, show_instance_side)
+        self.event_queue.publish("SelectedClassChanged")
+        return self.browser_tab.methods_widget.add_method()
+
     def open_uml_for_class(self, class_name):
         if not class_name:
             return
@@ -8569,13 +8600,13 @@ class MethodSelection(FramedWidget):
         selected_class = self.gemstone_session_record.selected_class
         if not selected_class:
             messagebox.showerror("Add Method", "Select a class first.")
-            return
+            return None
         method_selector = simpledialog.askstring("Add Method", "Method selector:")
         if method_selector is None:
-            return
+            return None
         method_selector = method_selector.strip()
         if not method_selector:
-            return
+            return None
         method_category = "as yet unclassified"
         show_instance_side = self.gemstone_session_record.show_instance_side
         try:
@@ -8593,8 +8624,10 @@ class MethodSelection(FramedWidget):
             self.event_queue.publish("SelectedClassChanged", origin=self)
             self.event_queue.publish("SelectedCategoryChanged", origin=self)
             self.event_queue.publish("MethodSelected", origin=self)
+            return method_selector
         except (GemstoneDomainException, GemstoneError) as error:
             messagebox.showerror("Add Method", str(error))
+        return None
 
     def toggle_method_hierarchy(self):
         if self.show_method_hierarchy_var.get():
@@ -10802,11 +10835,13 @@ class ObjectInspector(ttk.Frame):
         values=None,
         external_inspect_action=None,
         graph_inspect_action=None,
+        browse_class_action=None,
     ):
         super().__init__(parent)
         self.inspected_object = an_object
         self.external_inspect_action = external_inspect_action
         self.graph_inspect_action = graph_inspect_action
+        self.browse_class_action = browse_class_action
         self.current_object_menu = None
         self.page_size = 100
         self.current_page = 0
@@ -10838,6 +10873,12 @@ class ObjectInspector(ttk.Frame):
             self.footer, text="Next", command=self.on_next_page
         )
         self.next_button.grid(row=0, column=2, padx=(4, 0))
+        self.browse_class_button = ttk.Button(
+            self.footer,
+            text="Browse Class",
+            command=self.browse_inspected_object_class,
+        )
+        self.browse_class_button.grid(row=0, column=3, padx=(8, 0))
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
@@ -10853,6 +10894,10 @@ class ObjectInspector(ttk.Frame):
         self.treeview.bind("<Double-1>", self.on_item_double_click)
         self.treeview.bind("<Button-3>", self.open_object_menu)
         self.treeview.bind("<Button-1>", self.close_object_menu, add="+")
+        browse_class_state = tk.NORMAL
+        if self.browse_class_action is None or self.inspected_object is None:
+            browse_class_state = tk.DISABLED
+        self.browse_class_button.configure(state=browse_class_state)
 
     def class_name_of(self, an_object):
         class_name = "Unknown"
@@ -11271,6 +11316,13 @@ class ObjectInspector(ttk.Frame):
             return
         self.graph_inspect_action(value)
 
+    def browse_inspected_object_class(self):
+        if self.browse_class_action is None:
+            return
+        if self.inspected_object is None:
+            return
+        self.browse_class_action(self.inspected_object)
+
     def open_object_menu(self, event):
         self.close_object_menu()
         self.select_row_at_coordinates(event)
@@ -11311,11 +11363,13 @@ class Explorer(ttk.Notebook):
         root_tab_label=None,
         external_inspect_action=None,
         graph_inspect_action=None,
+        browse_class_action=None,
     ):
         super().__init__(parent)
         self.tab_registry = DeduplicatedTabRegistry(self)
         self.external_inspect_action = external_inspect_action
         self.graph_inspect_action = graph_inspect_action
+        self.browse_class_action = browse_class_action
 
         context_frame = ObjectInspector(
             self,
@@ -11323,6 +11377,7 @@ class Explorer(ttk.Notebook):
             values=values,
             external_inspect_action=self.external_inspect_action,
             graph_inspect_action=self.graph_inspect_action,
+            browse_class_action=self.browse_class_action,
         )
         tab_label = root_tab_label
         if tab_label is None:
@@ -11370,6 +11425,7 @@ class Explorer(ttk.Notebook):
                 an_object=an_object,
                 external_inspect_action=self.external_inspect_action,
                 graph_inspect_action=self.graph_inspect_action,
+                browse_class_action=self.browse_class_action,
             )
         except GemstoneError as e:
             messagebox.showerror("Inspector", f"Cannot inspect this object:\n{e}")
@@ -11446,6 +11502,7 @@ class InspectorTab(ttk.Frame):
             self,
             an_object=an_object,
             graph_inspect_action=graph_inspect_action,
+            browse_class_action=self.application.browse_object_class,
         )
         self.explorer.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
         self.explorer.bind(
@@ -11617,7 +11674,14 @@ class GraphObjectRegistry:
 
 
 class GraphNodeInspectorHost(ttk.Frame):
-    def __init__(self, parent, an_object, graph_node, on_navigate_to_child):
+    def __init__(
+        self,
+        parent,
+        an_object,
+        graph_node,
+        on_navigate_to_child,
+        browse_class_action,
+    ):
         super().__init__(parent)
         self.graph_node = graph_node
         self.on_navigate_to_child = on_navigate_to_child
@@ -11626,6 +11690,7 @@ class GraphNodeInspectorHost(ttk.Frame):
             an_object=an_object,
             external_inspect_action=None,
             graph_inspect_action=None,
+            browse_class_action=browse_class_action,
         )
         self.inspector.pack(fill="both", expand=True)
         self.columnconfigure(0, weight=1)
@@ -11654,12 +11719,171 @@ class ObjectDetailDialog:
             an_object=an_object,
             graph_node=graph_node,
             on_navigate_to_child=self.navigate_to_child,
+            browse_class_action=parent.application.browse_object_class,
         )
         self.inspector_host.pack(fill="both", expand=True)
 
     def navigate_to_child(self, target_object, instvar_label):
         self.on_add_to_graph(self.graph_node, target_object, instvar_label)
         self.dialog.destroy()
+
+
+class UmlMethodChooserDialog(tk.Toplevel):
+    def __init__(self, parent, application, class_name, on_method_selected):
+        super().__init__(parent)
+        self.application = application
+        self.class_name = class_name
+        self.on_method_selected = on_method_selected
+        self.selected_method_category = None
+        self.selected_method_selector = None
+        self.side_var = tk.StringVar(value="instance")
+
+        self.title(f"Add Method to UML: {class_name}")
+        self.geometry("620x420")
+        self.transient(parent)
+        self.grab_set()
+
+        controls_frame = ttk.Frame(self)
+        controls_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
+        ttk.Label(controls_frame, text=class_name).grid(
+            row=0,
+            column=0,
+            sticky="w",
+            padx=(0, 12),
+        )
+        self.instance_radiobutton = ttk.Radiobutton(
+            controls_frame,
+            text="Instance",
+            variable=self.side_var,
+            value="instance",
+            command=self.handle_side_changed,
+        )
+        self.instance_radiobutton.grid(row=0, column=1, sticky="w")
+        self.class_radiobutton = ttk.Radiobutton(
+            controls_frame,
+            text="Class",
+            variable=self.side_var,
+            value="class",
+            command=self.handle_side_changed,
+        )
+        self.class_radiobutton.grid(row=0, column=2, sticky="w", padx=(8, 0))
+        controls_frame.columnconfigure(3, weight=1)
+
+        lists_frame = ttk.Frame(self)
+        lists_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        lists_frame.columnconfigure(0, weight=1)
+        lists_frame.columnconfigure(1, weight=1)
+        lists_frame.rowconfigure(1, weight=1)
+
+        ttk.Label(lists_frame, text="Categories").grid(row=0, column=0, sticky="w")
+        ttk.Label(lists_frame, text="Methods").grid(row=0, column=1, sticky="w")
+
+        self.category_selection = InteractiveSelectionList(
+            lists_frame,
+            self.get_all_categories,
+            self.get_selected_category,
+            self.select_category,
+        )
+        self.category_selection.grid(row=1, column=0, sticky="nsew", padx=(0, 6))
+        self.method_selection = InteractiveSelectionList(
+            lists_frame,
+            self.get_all_methods,
+            self.get_selected_method,
+            self.select_method,
+        )
+        self.method_selection.grid(row=1, column=1, sticky="nsew", padx=(6, 0))
+        self.method_selection.selection_listbox.bind(
+            "<Double-1>",
+            self.add_selected_method,
+        )
+
+        buttons_frame = ttk.Frame(self)
+        buttons_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
+        buttons_frame.columnconfigure(0, weight=1)
+        self.add_button = ttk.Button(
+            buttons_frame,
+            text="Add",
+            command=self.add_selected_method,
+            state=tk.DISABLED,
+        )
+        self.add_button.grid(row=0, column=1)
+        ttk.Button(
+            buttons_frame,
+            text="Cancel",
+            command=self.destroy,
+        ).grid(row=0, column=2, padx=(6, 0))
+
+        self.rowconfigure(1, weight=1)
+        self.columnconfigure(0, weight=1)
+        self.repopulate()
+
+    @property
+    def show_instance_side(self):
+        return self.side_var.get() == "instance"
+
+    def repopulate(self):
+        self.selected_method_category = None
+        self.selected_method_selector = None
+        self.category_selection.repopulate()
+        category_entries = list(self.category_selection.selection_listbox.get(0, "end"))
+        if category_entries:
+            self.select_category(category_entries[0])
+        if not category_entries:
+            self.method_selection.repopulate()
+            self.refresh_add_button()
+
+    def get_all_categories(self):
+        categories = list(
+            self.application.gemstone_session_record.get_categories_in_class(
+                self.class_name,
+                self.show_instance_side,
+            )
+        )
+        return ["all"] + categories
+
+    def get_selected_category(self):
+        return self.selected_method_category
+
+    def select_category(self, selected_category):
+        self.selected_method_category = selected_category
+        self.selected_method_selector = None
+        self.method_selection.repopulate()
+        self.refresh_add_button()
+
+    def get_all_methods(self):
+        if self.selected_method_category is None:
+            return []
+        return list(
+            self.application.gemstone_session_record.get_selectors_in_class(
+                self.class_name,
+                self.selected_method_category,
+                self.show_instance_side,
+            )
+        )
+
+    def get_selected_method(self):
+        return self.selected_method_selector
+
+    def select_method(self, selected_method):
+        self.selected_method_selector = selected_method
+        self.refresh_add_button()
+
+    def refresh_add_button(self):
+        button_state = tk.NORMAL if self.selected_method_selector else tk.DISABLED
+        self.add_button.configure(state=button_state)
+
+    def handle_side_changed(self):
+        self.repopulate()
+
+    def add_selected_method(self, event=None):
+        if not self.selected_method_selector:
+            return
+        self.on_method_selected(
+            self.class_name,
+            self.show_instance_side,
+            self.selected_method_selector,
+        )
+        self.destroy()
 
 
 class GraphCanvas(ttk.Frame):
@@ -12526,6 +12750,34 @@ class UmlTab(ttk.Frame):
         if self.current_context_menu is not None:
             self.current_context_menu.unpost()
         menu = self.current_context_menu = tk.Menu(self, tearoff=0)
+        menu.add_command(
+            label="Browse Class",
+            command=lambda: self.browse_class(node.class_name),
+        )
+        menu.add_command(
+            label="Add Method...",
+            command=lambda: self.open_add_method_dialog(node),
+        )
+
+        browse_method_menu = tk.Menu(menu, tearoff=0)
+        has_pinned_methods = len(node.pinned_methods) > 0
+        if has_pinned_methods:
+            for method_entry in node.pinned_methods:
+                browse_method_menu.add_command(
+                    label=method_entry["label"],
+                    command=lambda entry=method_entry: self.browse_method(
+                        node.class_name,
+                        entry,
+                    ),
+                )
+            menu.add_cascade(label="Browse Method...", menu=browse_method_menu)
+        if not has_pinned_methods:
+            menu.add_command(
+                label="Browse Method...",
+                state=tk.DISABLED,
+            )
+
+        menu.add_separator()
 
         association_menu = tk.Menu(menu, tearoff=0)
         has_instvars = len(node.inst_var_names) > 0
@@ -12546,7 +12798,6 @@ class UmlTab(ttk.Frame):
             )
 
         remove_method_menu = tk.Menu(menu, tearoff=0)
-        has_pinned_methods = len(node.pinned_methods) > 0
         if has_pinned_methods:
             for method_entry in node.pinned_methods:
                 remove_method_menu.add_command(
@@ -12569,6 +12820,35 @@ class UmlTab(ttk.Frame):
         )
         add_close_command_to_popup_menu(menu)
         popup_menu(menu, event)
+
+    def browse_class(self, class_name):
+        self.application.handle_find_selection(True, class_name)
+        if self.application.browser_tab is not None and self.application.browser_tab.winfo_exists():
+            self.application.notebook.select(self.application.browser_tab)
+
+    def browse_method(self, class_name, method_entry):
+        self.application.handle_sender_selection(
+            class_name,
+            method_entry["show_instance_side"],
+            method_entry["selector"],
+        )
+        if self.application.browser_tab is not None and self.application.browser_tab.winfo_exists():
+            self.application.notebook.select(self.application.browser_tab)
+
+    def add_existing_method_to_node(self, class_name, show_instance_side, method_selector):
+        self.pin_method(
+            class_name,
+            show_instance_side,
+            method_selector,
+        )
+
+    def open_add_method_dialog(self, node):
+        UmlMethodChooserDialog(
+            self,
+            self.application,
+            node.class_name,
+            self.add_existing_method_to_node,
+        )
 
     def prompt_add_association(self, source_node, inst_var_name):
         target_class_name = simpledialog.askstring(
