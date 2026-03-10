@@ -12681,7 +12681,7 @@ class UmlCanvas(ttk.Frame):
             self.canvas.delete(item_id)
         node.canvas_item_ids = []
         self.draw_node(node)
-        self.redraw_relationships_for_node(node)
+        self.redraw_all_relationships()
 
     def draw_node(self, node):
         x1, y1, x2, y2 = node.bounding_box()
@@ -12739,14 +12739,6 @@ class UmlCanvas(ttk.Frame):
         return from_node.x + delta_x * scale, from_node.y + delta_y * scale
 
     def draw_relationship(self, relationship):
-        x1, y1 = self.edge_boundary_point(
-            relationship.source_node,
-            relationship.target_node,
-        )
-        x2, y2 = self.edge_boundary_point(
-            relationship.target_node,
-            relationship.source_node,
-        )
         relationship.canvas_item_ids = []
         fill = "#444444"
         width = 1.5
@@ -12755,6 +12747,14 @@ class UmlCanvas(ttk.Frame):
             width = 2
             if relationship.relationship_style == "inferred":
                 fill = "#9aa4b2"
+        x1, y1 = self.edge_boundary_point(
+            relationship.source_node,
+            relationship.target_node,
+        )
+        x2, y2 = self.edge_boundary_point(
+            relationship.target_node,
+            relationship.source_node,
+        )
         line_id = self.canvas.create_line(
             x1,
             y1,
@@ -12780,14 +12780,104 @@ class UmlCanvas(ttk.Frame):
             )
             relationship.canvas_item_ids.append(label_id)
 
-    def redraw_relationships_for_node(self, node):
-        for relationship in self.registry.all_relationships():
-            touches_node = (
-                relationship.source_node is node or relationship.target_node is node
+    def draw_direct_inheritance_group(self, relationships):
+        if not relationships:
+            return
+        parent_node = relationships[0].target_node
+        child_nodes = [
+            relationship.source_node for relationship in relationships
+        ]
+        parent_bottom_y = parent_node.bounding_box()[3]
+        branch_y = parent_bottom_y + 28
+        child_top_points = [
+            (child_node.x, child_node.bounding_box()[1])
+            for child_node in child_nodes
+        ]
+        left_x = min(point[0] for point in child_top_points)
+        right_x = max(point[0] for point in child_top_points)
+        canvas_item_ids = []
+        stem_id = self.canvas.create_line(
+            parent_node.x,
+            branch_y,
+            parent_node.x,
+            parent_bottom_y,
+            arrow=tk.LAST,
+            arrowshape=(12, 14, 6),
+            fill='#2266aa',
+            width=2,
+        )
+        canvas_item_ids.append(stem_id)
+        should_draw_horizontal_line = left_x != right_x
+        if should_draw_horizontal_line:
+            horizontal_id = self.canvas.create_line(
+                left_x,
+                branch_y,
+                right_x,
+                branch_y,
+                fill='#2266aa',
+                width=2,
             )
-            if touches_node:
-                self.delete_relationship_items(relationship)
-                self.draw_relationship(relationship)
+            canvas_item_ids.append(horizontal_id)
+        for child_x, child_top_y in child_top_points:
+            child_line_id = self.canvas.create_line(
+                child_x,
+                branch_y,
+                child_x,
+                child_top_y,
+                fill='#2266aa',
+                width=2,
+            )
+            canvas_item_ids.append(child_line_id)
+        for relationship in relationships:
+            relationship.canvas_item_ids = list(canvas_item_ids)
+
+    def redraw_relationships_for_node(self, node):
+        self.redraw_all_relationships()
+
+    def clear_relationship_items(self):
+        item_ids = set()
+        for relationship in self.registry.all_relationships():
+            for item_id in relationship.canvas_item_ids:
+                item_ids.add(item_id)
+        for item_id in item_ids:
+            self.canvas.delete(item_id)
+        for relationship in self.registry.all_relationships():
+            relationship.canvas_item_ids = []
+
+    def redraw_all_relationships(self):
+        self.clear_relationship_items()
+        direct_inheritance_relationships_by_parent = {}
+        other_relationships = []
+        for relationship in self.registry.all_relationships():
+            is_direct_inheritance = (
+                relationship.relationship_kind == 'inheritance'
+                and relationship.relationship_style == 'direct'
+            )
+            if is_direct_inheritance:
+                parent_name = relationship.target_node.class_name
+                grouped_relationships = direct_inheritance_relationships_by_parent.get(
+                    parent_name,
+                    [],
+                )
+                grouped_relationships.append(relationship)
+                direct_inheritance_relationships_by_parent[parent_name] = (
+                    grouped_relationships
+                )
+            if not is_direct_inheritance:
+                other_relationships.append(relationship)
+        parent_names = sorted(direct_inheritance_relationships_by_parent.keys())
+        for parent_name in parent_names:
+            relationships = direct_inheritance_relationships_by_parent[parent_name]
+            ordered_relationships = sorted(
+                relationships,
+                key=lambda relationship: (
+                    relationship.source_node.x,
+                    relationship.source_node.class_name,
+                ),
+            )
+            self.draw_direct_inheritance_group(ordered_relationships)
+        for relationship in other_relationships:
+            self.draw_relationship(relationship)
 
     def delete_relationship_items(self, relationship):
         for item_id in relationship.canvas_item_ids:
@@ -12815,13 +12905,13 @@ class UmlCanvas(ttk.Frame):
             relationship_style,
         )
         if relationship is not None:
-            self.draw_relationship(relationship)
+            self.redraw_all_relationships()
             self.expand_scroll_region()
         return relationship
 
     def remove_relationship(self, relationship):
-        self.delete_relationship_items(relationship)
         self.registry.remove_relationship(relationship)
+        self.redraw_all_relationships()
         self.expand_scroll_region()
 
     def remove_class_node(self, class_name):
@@ -12832,6 +12922,7 @@ class UmlCanvas(ttk.Frame):
         for relationship in relationships_to_remove:
             self.delete_relationship_items(relationship)
         self.delete_node_items(node)
+        self.redraw_all_relationships()
         self.expand_scroll_region()
 
     def node_at_canvas_coordinates(self, canvas_x, canvas_y):
