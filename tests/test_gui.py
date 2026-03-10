@@ -115,6 +115,15 @@ class SwordfishGuiFixture(Fixture):
         self.mock_browser.list_breakpoints.return_value = []
         self.mock_browser.get_method_category.return_value = "accessing"
         class_definitions = {
+            "OrderAudit": {
+                "class_name": "OrderAudit",
+                "superclass_name": "Order",
+                "package_name": "Kernel",
+                "inst_var_names": ["entries"],
+                "class_var_names": [],
+                "class_inst_var_names": [],
+                "pool_dictionary_names": [],
+            },
             "SpecialOrderLine": {
                 "class_name": "SpecialOrderLine",
                 "superclass_name": "OrderLine",
@@ -1576,6 +1585,15 @@ class SwordfishAppFixture(Fixture):
         self.mock_browser.list_breakpoints.return_value = []
         self.mock_browser.get_method_category.return_value = "accessing"
         class_definitions = {
+            "OrderAudit": {
+                "class_name": "OrderAudit",
+                "superclass_name": "Order",
+                "package_name": "Kernel",
+                "inst_var_names": ["entries"],
+                "class_var_names": [],
+                "class_inst_var_names": [],
+                "pool_dictionary_names": [],
+            },
             "SpecialOrderLine": {
                 "class_name": "SpecialOrderLine",
                 "superclass_name": "OrderLine",
@@ -2828,6 +2846,27 @@ def test_uml_tab_shows_inferred_inheritance_for_transitive_ancestors(fixture):
     assert inheritance_relationships[0].source_node.class_name == "OrderLine"
     assert inheritance_relationships[0].target_node.class_name == "Object"
     assert inheritance_relationships[0].relationship_style == "inferred"
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_direct_inheritance_uses_one_grouped_connector_per_superclass(fixture):
+    """AI: Direct subclasses of the same visible superclass should share one grouped inheritance connector."""
+    fixture.simulate_login()
+
+    fixture.app.open_uml_for_class("Order")
+    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.open_uml_for_class("OrderAudit")
+    fixture.app.update()
+
+    inheritance_relationships = [
+        relationship
+        for relationship in fixture.app.uml_tab.uml_canvas.registry.all_relationships()
+        if relationship.relationship_kind == "inheritance"
+    ]
+
+    assert len(inheritance_relationships) == 2
+    assert inheritance_relationships[0].canvas_item_ids == inheritance_relationships[1].canvas_item_ids
+    assert len(inheritance_relationships[0].canvas_item_ids) >= 4
 
 
 @with_fixtures(SwordfishAppFixture)
