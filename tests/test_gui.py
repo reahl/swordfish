@@ -2030,22 +2030,24 @@ def test_read_only_config_in_prod_locks_permission_toggles(fixture):
         return_value=False,
     ):
         fixture.simulate_login()
-        dialog = McpConfigurationDialog(
-            fixture.app,
-            fixture.app.mcp_runtime_config,
-            fixture.app.mcp_configuration_access(),
-        )
-        fixture.app.update()
+        with patch.object(McpConfigurationDialog, "wait_visibility"):
+            with patch.object(McpConfigurationDialog, "grab_set"):
+                dialog = McpConfigurationDialog(
+                    fixture.app,
+                    fixture.app.mcp_runtime_config,
+                    fixture.app.mcp_configuration_access(),
+                )
+                fixture.app.update()
     try:
-        assert dialog.allow_source_read_checkbutton.cget("state") == tk.DISABLED
-        assert dialog.allow_source_write_checkbutton.cget("state") == tk.DISABLED
-        assert dialog.allow_eval_arbitrary_checkbutton.cget("state") == tk.DISABLED
-        assert dialog.allow_test_execution_checkbutton.cget("state") == tk.DISABLED
-        assert dialog.allow_ide_read_checkbutton.cget("state") == tk.DISABLED
-        assert dialog.allow_ide_write_checkbutton.cget("state") == tk.DISABLED
-        assert dialog.allow_commit_checkbutton.cget("state") == tk.DISABLED
-        assert dialog.allow_tracing_checkbutton.cget("state") == tk.DISABLED
-        assert dialog.require_gemstone_ast_checkbutton.cget("state") == tk.DISABLED
+        assert str(dialog.allow_source_read_checkbutton.cget("state")) == tk.DISABLED
+        assert str(dialog.allow_source_write_checkbutton.cget("state")) == tk.DISABLED
+        assert str(dialog.allow_eval_arbitrary_checkbutton.cget("state")) == tk.DISABLED
+        assert str(dialog.allow_test_execution_checkbutton.cget("state")) == tk.DISABLED
+        assert str(dialog.allow_ide_read_checkbutton.cget("state")) == tk.DISABLED
+        assert str(dialog.allow_ide_write_checkbutton.cget("state")) == tk.DISABLED
+        assert str(dialog.allow_commit_checkbutton.cget("state")) == tk.DISABLED
+        assert str(dialog.allow_tracing_checkbutton.cget("state")) == tk.DISABLED
+        assert str(dialog.require_gemstone_ast_checkbutton.cget("state")) == tk.DISABLED
         assert "locked" in dialog.permission_note_variable.get().lower()
     finally:
         dialog.destroy()
@@ -2080,16 +2082,18 @@ def test_read_only_config_non_prod_allows_session_only_permission_changes(
         return_value=False,
     ):
         fixture.simulate_login()
-        dialog = McpConfigurationDialog(
-            fixture.app,
-            fixture.app.mcp_runtime_config,
-            fixture.app.mcp_configuration_access(),
-        )
-        fixture.app.update()
-        assert dialog.allow_eval_arbitrary_checkbutton.cget("state") == tk.NORMAL
-        assert "session" in dialog.permission_note_variable.get().lower()
-        dialog.destroy()
-        fixture.app.update()
+        with patch.object(McpConfigurationDialog, "wait_visibility"):
+            with patch.object(McpConfigurationDialog, "grab_set"):
+                dialog = McpConfigurationDialog(
+                    fixture.app,
+                    fixture.app.mcp_runtime_config,
+                    fixture.app.mcp_configuration_access(),
+                )
+                fixture.app.update()
+                assert str(dialog.allow_eval_arbitrary_checkbutton.cget("state")) == tk.NORMAL
+                assert "session" in dialog.permission_note_variable.get().lower()
+                dialog.destroy()
+                fixture.app.update()
 
         fake_dialog = types.SimpleNamespace(result=updated_runtime_config)
         with patch(
