@@ -46,7 +46,7 @@ UML_METHOD_LINE_HEIGHT = 18
 UML_HEADER_HEIGHT = 26
 
 
-def uml_method_label(show_instance_side, method_selector):
+def format_class_diagram_method_label(show_instance_side, method_selector):
     if show_instance_side:
         return method_selector
     return f"class>>{method_selector}"
@@ -5204,8 +5204,8 @@ class Swordfish(tk.Tk):
         self.debugger_tab = None
         self.run_tab = None
         self.inspector_tab = None
-        self.graph_tab = None
-        self.uml_tab = None
+        self.object_diagram_tab = None
+        self.class_diagram_tab = None
         self.global_navigation_history = GlobalNavigationHistory()
         self.global_navigation_selection_in_progress = False
         self.next_global_navigation_session_number = 1
@@ -5385,8 +5385,8 @@ class Swordfish(tk.Tk):
         self.debugger_tab = None
         self.run_tab = None
         self.inspector_tab = None
-        self.graph_tab = None
-        self.uml_tab = None
+        self.object_diagram_tab = None
+        self.class_diagram_tab = None
         self.global_navigation_history = GlobalNavigationHistory()
         self.global_navigation_selection_in_progress = False
         self.next_global_navigation_session_number = 1
@@ -5738,23 +5738,23 @@ class Swordfish(tk.Tk):
                 )
             )
             return
-        if self.graph_tab is not None and selected_tab_id == str(self.graph_tab):
+        if self.object_diagram_tab is not None and selected_tab_id == str(self.object_diagram_tab):
             self.record_global_navigation_entry(
                 GlobalNavigationEntry(
-                    'graph_session',
-                    'Graph',
-                    {'session_key': self.graph_tab.global_navigation_session_key},
-                    place_key=('graph_session', self.graph_tab.global_navigation_session_key),
+                    'object_diagram_session',
+                    'Object Diagram',
+                    {'session_key': self.object_diagram_tab.global_navigation_session_key},
+                    place_key=('object_diagram_session', self.object_diagram_tab.global_navigation_session_key),
                 )
             )
             return
-        if self.uml_tab is not None and selected_tab_id == str(self.uml_tab):
+        if self.class_diagram_tab is not None and selected_tab_id == str(self.class_diagram_tab):
             self.record_global_navigation_entry(
                 GlobalNavigationEntry(
-                    'uml_session',
-                    'UML',
-                    {'session_key': self.uml_tab.global_navigation_session_key},
-                    place_key=('uml_session', self.uml_tab.global_navigation_session_key),
+                    'class_diagram_session',
+                    'Class Diagram',
+                    {'session_key': self.class_diagram_tab.global_navigation_session_key},
+                    place_key=('class_diagram_session', self.class_diagram_tab.global_navigation_session_key),
                 )
             )
             return
@@ -5817,10 +5817,10 @@ class Swordfish(tk.Tk):
             candidate = self.debugger_tab
         elif kind == 'inspector_session':
             candidate = self.inspector_tab
-        elif kind == 'graph_session':
-            candidate = self.graph_tab
-        elif kind == 'uml_session':
-            candidate = self.uml_tab
+        elif kind == 'object_diagram_session':
+            candidate = self.object_diagram_tab
+        elif kind == 'class_diagram_session':
+            candidate = self.class_diagram_tab
         else:
             candidate = None
         if candidate is None or not candidate.winfo_exists():
@@ -6172,7 +6172,7 @@ class Swordfish(tk.Tk):
             )
         raise last_error
 
-    def open_graph_for_oop_labels(self, oop_labels, clear_existing=False):
+    def open_object_diagram_for_oop_labels(self, oop_labels, clear_existing=False):
         if not self.is_logged_in:
             return {
                 "ok": False,
@@ -6181,9 +6181,9 @@ class Swordfish(tk.Tk):
                 "unresolved_oops": [],
             }
         if clear_existing:
-            tab_exists = self.graph_tab is not None and self.graph_tab.winfo_exists()
+            tab_exists = self.object_diagram_tab is not None and self.object_diagram_tab.winfo_exists()
             if tab_exists:
-                self.graph_tab.clear_graph()
+                self.object_diagram_tab.clear_diagram()
         opened_oops = []
         unresolved_oops = []
         for oop_label in oop_labels:
@@ -6198,7 +6198,7 @@ class Swordfish(tk.Tk):
             except (DomainException, GemstoneDomainException, GemstoneError) as error:
                 failure_message = str(error)
             if opened_object is not None:
-                self.open_graph_inspector_for_object(opened_object)
+                self.open_object_diagram_for_object(opened_object)
                 opened_oops.append(normalized_oop_label)
             if opened_object is None:
                 unresolved_label = str(oop_label)
@@ -6214,8 +6214,8 @@ class Swordfish(tk.Tk):
             "ok": len(opened_oops) > 0,
             "opened_oops": opened_oops,
             "unresolved_oops": unresolved_oops,
-            "graph_tab_open": self.graph_tab is not None
-            and self.graph_tab.winfo_exists(),
+            "object_diagram_tab_open": self.object_diagram_tab is not None
+            and self.object_diagram_tab.winfo_exists(),
         }
 
     def method_context_payload(self, method_context):
@@ -6386,10 +6386,10 @@ class Swordfish(tk.Tk):
             active_tab_kind = 'debugger'
         if self.inspector_tab is not None and active_tab_id == str(self.inspector_tab):
             active_tab_kind = 'inspect'
-        if self.graph_tab is not None and active_tab_id == str(self.graph_tab):
-            active_tab_kind = 'graph'
-        if self.uml_tab is not None and active_tab_id == str(self.uml_tab):
-            active_tab_kind = 'uml'
+        if self.object_diagram_tab is not None and active_tab_id == str(self.object_diagram_tab):
+            active_tab_kind = 'object_diagram'
+        if self.class_diagram_tab is not None and active_tab_id == str(self.class_diagram_tab):
+            active_tab_kind = 'class_diagram'
         if active_tab_kind == 'none' and active_tab_label:
             active_tab_kind = active_tab_label.lower()
 
@@ -6529,7 +6529,7 @@ class Swordfish(tk.Tk):
     def execute_mcp_ide_navigation_action(self, action_name, action_parameters=None):
         if action_parameters is None:
             action_parameters = {}
-        if action_name == "open_graph_for_oops":
+        if action_name == "open_object_diagram_for_oops":
             oop_labels = action_parameters.get("oop_labels")
             if not isinstance(oop_labels, list):
                 return {
@@ -6542,7 +6542,7 @@ class Swordfish(tk.Tk):
                     "ok": False,
                     "error": {"message": "clear_existing must be a boolean."},
                 }
-            return self.open_graph_for_oop_labels(
+            return self.open_object_diagram_for_oop_labels(
                 oop_labels,
                 clear_existing=clear_existing,
             )
@@ -6677,12 +6677,12 @@ class Swordfish(tk.Tk):
                 "ok": True,
                 "source": source,
             }
-        if action_name == 'query_uml_diagram':
+        if action_name == 'query_class_diagram':
             return {
                 'ok': True,
-                'uml_state': self.uml_diagram_state_for_mcp(),
+                'class_diagram_state': self.class_diagram_state_for_mcp(),
             }
-        if action_name == 'add_class_to_uml':
+        if action_name == 'add_class_to_class_diagram':
             class_name = action_parameters.get('class_name')
             if not isinstance(class_name, str):
                 return {
@@ -6701,7 +6701,7 @@ class Swordfish(tk.Tk):
                     'error': {'message': 'No active GemStone session in the IDE.'},
                 }
             try:
-                self.open_uml_for_class(class_name)
+                self.open_class_diagram_for_class(class_name)
             except (
                 DomainException,
                 GemstoneDomainException,
@@ -6714,9 +6714,9 @@ class Swordfish(tk.Tk):
             return {
                 'ok': True,
                 'class_name': class_name,
-                'uml_state': self.uml_diagram_state_for_mcp(),
+                'class_diagram_state': self.class_diagram_state_for_mcp(),
             }
-        if action_name == 'remove_class_from_uml':
+        if action_name == 'remove_class_from_class_diagram':
             class_name = action_parameters.get('class_name')
             if not isinstance(class_name, str):
                 return {
@@ -6729,18 +6729,18 @@ class Swordfish(tk.Tk):
                     'ok': False,
                     'error': {'message': 'class_name cannot be empty.'},
                 }
-            if self.uml_tab is None or not self.uml_tab.winfo_exists():
+            if self.class_diagram_tab is None or not self.class_diagram_tab.winfo_exists():
                 return {
                     'ok': False,
-                    'error': {'message': 'No open UML diagram in the IDE.'},
+                    'error': {'message': 'No open class diagram in the IDE.'},
                 }
-            self.uml_tab.remove_class_from_diagram(class_name)
+            self.class_diagram_tab.remove_class_from_diagram(class_name)
             return {
                 'ok': True,
                 'class_name': class_name,
-                'uml_state': self.uml_diagram_state_for_mcp(),
+                'class_diagram_state': self.class_diagram_state_for_mcp(),
             }
-        if action_name == 'pin_method_in_uml':
+        if action_name == 'pin_method_in_class_diagram':
             class_name = action_parameters.get('class_name')
             if not isinstance(class_name, str):
                 return {
@@ -6777,7 +6777,7 @@ class Swordfish(tk.Tk):
                     'error': {'message': 'No active GemStone session in the IDE.'},
                 }
             try:
-                self.pin_method_in_uml(
+                self.pin_method_in_class_diagram(
                     class_name,
                     show_instance_side,
                     method_symbol,
@@ -6796,9 +6796,9 @@ class Swordfish(tk.Tk):
                 'class_name': class_name,
                 'method_symbol': method_symbol,
                 'show_instance_side': show_instance_side,
-                'uml_state': self.uml_diagram_state_for_mcp(),
+                'class_diagram_state': self.class_diagram_state_for_mcp(),
             }
-        if action_name == 'add_association_to_uml':
+        if action_name == 'add_association_to_class_diagram':
             source_class_name = action_parameters.get('source_class_name')
             if not isinstance(source_class_name, str):
                 return {
@@ -6841,7 +6841,7 @@ class Swordfish(tk.Tk):
                     'error': {'message': 'No active GemStone session in the IDE.'},
                 }
             try:
-                uml_tab = self.ensure_uml_tab()
+                uml_tab = self.ensure_class_diagram_tab()
                 uml_tab.add_association(
                     source_class_name,
                     inst_var_name,
@@ -6861,9 +6861,9 @@ class Swordfish(tk.Tk):
                 'source_class_name': source_class_name,
                 'target_class_name': target_class_name,
                 'inst_var_name': inst_var_name,
-                'uml_state': self.uml_diagram_state_for_mcp(),
+                'class_diagram_state': self.class_diagram_state_for_mcp(),
             }
-        if action_name == 'add_inheritance_details_to_uml':
+        if action_name == 'add_inheritance_details_to_class_diagram':
             source_class_name = action_parameters.get('source_class_name')
             if not isinstance(source_class_name, str):
                 return {
@@ -6888,13 +6888,13 @@ class Swordfish(tk.Tk):
                     'ok': False,
                     'error': {'message': 'target_class_name cannot be empty.'},
                 }
-            if self.uml_tab is None or not self.uml_tab.winfo_exists():
+            if self.class_diagram_tab is None or not self.class_diagram_tab.winfo_exists():
                 return {
                     'ok': False,
-                    'error': {'message': 'No open UML diagram in the IDE.'},
+                    'error': {'message': 'No open class diagram in the IDE.'},
                 }
             try:
-                added_class_names = self.uml_tab.add_inheritance_details_for(
+                added_class_names = self.class_diagram_tab.add_inheritance_details_for(
                     source_class_name,
                     target_class_name,
                 )
@@ -6912,31 +6912,31 @@ class Swordfish(tk.Tk):
                 'source_class_name': source_class_name,
                 'target_class_name': target_class_name,
                 'added_class_names': added_class_names,
-                'uml_state': self.uml_diagram_state_for_mcp(),
+                'class_diagram_state': self.class_diagram_state_for_mcp(),
             }
-        if action_name == 'clear_uml_diagram':
-            if self.uml_tab is None or not self.uml_tab.winfo_exists():
+        if action_name == 'clear_class_diagram':
+            if self.class_diagram_tab is None or not self.class_diagram_tab.winfo_exists():
                 return {
                     'ok': False,
-                    'error': {'message': 'No open UML diagram in the IDE.'},
+                    'error': {'message': 'No open class diagram in the IDE.'},
                 }
-            diagram_changed = self.uml_tab.clear_diagram()
+            diagram_changed = self.class_diagram_tab.clear_diagram()
             return {
                 'ok': True,
                 'diagram_changed': diagram_changed,
-                'uml_state': self.uml_diagram_state_for_mcp(),
+                'class_diagram_state': self.class_diagram_state_for_mcp(),
             }
-        if action_name == 'undo_uml_diagram':
-            if self.uml_tab is None or not self.uml_tab.winfo_exists():
+        if action_name == 'undo_class_diagram':
+            if self.class_diagram_tab is None or not self.class_diagram_tab.winfo_exists():
                 return {
                     'ok': False,
-                    'error': {'message': 'No open UML diagram in the IDE.'},
+                    'error': {'message': 'No open class diagram in the IDE.'},
                 }
-            diagram_changed = self.uml_tab.undo_diagram()
+            diagram_changed = self.class_diagram_tab.undo_diagram()
             return {
                 'ok': True,
                 'diagram_changed': diagram_changed,
-                'uml_state': self.uml_diagram_state_for_mcp(),
+                'class_diagram_state': self.class_diagram_state_for_mcp(),
             }
         if action_name == "filter_senders_in_find_dialog":
             try:
@@ -7219,7 +7219,7 @@ class Swordfish(tk.Tk):
             self.notebook,
             self,
             an_object=inspected_object,
-            graph_inspect_action=self.open_graph_inspector_for_object,
+            graph_inspect_action=self.open_object_diagram_for_object,
         )
         self.inspector_tab.global_navigation_session_key = (
             self.allocate_global_navigation_session_key('inspect')
@@ -7227,17 +7227,17 @@ class Swordfish(tk.Tk):
         self.notebook.add(self.inspector_tab, text="Inspect")
         self.notebook.select(self.inspector_tab)
 
-    def open_graph_inspector_for_object(self, inspected_object):
+    def open_object_diagram_for_object(self, inspected_object):
         self.ensure_current_browser_place_in_global_history()
-        tab_is_missing = self.graph_tab is None or not self.graph_tab.winfo_exists()
+        tab_is_missing = self.object_diagram_tab is None or not self.object_diagram_tab.winfo_exists()
         if tab_is_missing:
-            self.graph_tab = GraphTab(self.notebook, self)
-            self.graph_tab.global_navigation_session_key = (
-                self.allocate_global_navigation_session_key('graph')
+            self.object_diagram_tab = UmlObjectDiagramTab(self.notebook, self)
+            self.object_diagram_tab.global_navigation_session_key = (
+                self.allocate_global_navigation_session_key('object_diagram')
             )
-            self.notebook.add(self.graph_tab, text="Graph")
-        self.notebook.select(self.graph_tab)
-        self.graph_tab.add_object(inspected_object)
+            self.notebook.add(self.object_diagram_tab, text="Object Diagram")
+        self.notebook.select(self.object_diagram_tab)
+        self.object_diagram_tab.add_object(inspected_object)
 
     def browse_object_class(self, inspected_object):
         if inspected_object is None:
@@ -7270,36 +7270,36 @@ class Swordfish(tk.Tk):
         self.event_queue.publish("SelectedClassChanged")
         return self.browser_tab.methods_widget.add_method()
 
-    def open_uml_for_class(self, class_name):
+    def open_class_diagram_for_class(self, class_name):
         if not class_name:
             return
         self.ensure_current_browser_place_in_global_history()
-        self.ensure_uml_tab()
-        self.uml_tab.add_class(class_name)
+        self.ensure_class_diagram_tab()
+        self.class_diagram_tab.add_class(class_name)
 
-    def pin_method_in_uml(self, class_name, show_instance_side, method_selector):
+    def pin_method_in_class_diagram(self, class_name, show_instance_side, method_selector):
         if not class_name or not method_selector:
             return
-        self.ensure_uml_tab()
-        self.uml_tab.pin_method(
+        self.ensure_class_diagram_tab()
+        self.class_diagram_tab.pin_method(
             class_name,
             show_instance_side,
             method_selector,
         )
 
-    def ensure_uml_tab(self):
-        tab_is_missing = self.uml_tab is None or not self.uml_tab.winfo_exists()
+    def ensure_class_diagram_tab(self):
+        tab_is_missing = self.class_diagram_tab is None or not self.class_diagram_tab.winfo_exists()
         if tab_is_missing:
-            self.uml_tab = UmlTab(self.notebook, self)
-            self.uml_tab.global_navigation_session_key = (
-                self.allocate_global_navigation_session_key('uml')
+            self.class_diagram_tab = UmlClassDiagramTab(self.notebook, self)
+            self.class_diagram_tab.global_navigation_session_key = (
+                self.allocate_global_navigation_session_key('class_diagram')
             )
-            self.notebook.add(self.uml_tab, text="UML")
-        self.notebook.select(self.uml_tab)
-        return self.uml_tab
+            self.notebook.add(self.class_diagram_tab, text="Class Diagram")
+        self.notebook.select(self.class_diagram_tab)
+        return self.class_diagram_tab
 
-    def uml_diagram_state_for_mcp(self):
-        tab_is_open = self.uml_tab is not None and self.uml_tab.winfo_exists()
+    def class_diagram_state_for_mcp(self):
+        tab_is_open = self.class_diagram_tab is not None and self.class_diagram_tab.winfo_exists()
         if not tab_is_open:
             return {
                 'is_open': False,
@@ -7317,8 +7317,8 @@ class Swordfish(tk.Tk):
                 selected_tab_id = None
         return {
             'is_open': True,
-            'is_selected': selected_tab_id == str(self.uml_tab),
-            'diagram': self.uml_tab.snapshot_diagram(),
+            'is_selected': selected_tab_id == str(self.class_diagram_tab),
+            'diagram': self.class_diagram_tab.snapshot_diagram(),
         }
 
     def close_inspector_tab(self):
@@ -7344,47 +7344,47 @@ class Swordfish(tk.Tk):
         self.inspector_tab.destroy()
         self.inspector_tab = None
 
-    def close_graph_tab(self):
-        tab_exists = self.graph_tab is not None and self.graph_tab.winfo_exists()
+    def close_object_diagram_tab(self):
+        tab_exists = self.object_diagram_tab is not None and self.object_diagram_tab.winfo_exists()
         if not tab_exists:
-            self.graph_tab = None
+            self.object_diagram_tab = None
             return
-        graph_session_key = getattr(
-            self.graph_tab,
+        object_diagram_session_key = getattr(
+            self.object_diagram_tab,
             'global_navigation_session_key',
             None,
         )
-        if graph_session_key:
+        if object_diagram_session_key:
             self.mark_global_navigation_place_stale(
-                ('graph_session', graph_session_key),
+                ('object_diagram_session', object_diagram_session_key),
             )
         try:
-            self.notebook.forget(self.graph_tab)
+            self.notebook.forget(self.object_diagram_tab)
         except tk.TclError:
             pass
-        self.graph_tab.destroy()
-        self.graph_tab = None
+        self.object_diagram_tab.destroy()
+        self.object_diagram_tab = None
 
-    def close_uml_tab(self):
-        tab_exists = self.uml_tab is not None and self.uml_tab.winfo_exists()
+    def close_class_diagram_tab(self):
+        tab_exists = self.class_diagram_tab is not None and self.class_diagram_tab.winfo_exists()
         if not tab_exists:
-            self.uml_tab = None
+            self.class_diagram_tab = None
             return
-        uml_session_key = getattr(
-            self.uml_tab,
+        class_diagram_session_key = getattr(
+            self.class_diagram_tab,
             'global_navigation_session_key',
             None,
         )
-        if uml_session_key:
+        if class_diagram_session_key:
             self.mark_global_navigation_place_stale(
-                ('uml_session', uml_session_key),
+                ('class_diagram_session', class_diagram_session_key),
             )
         try:
-            self.notebook.forget(self.uml_tab)
+            self.notebook.forget(self.class_diagram_tab)
         except tk.TclError:
             pass
-        self.uml_tab.destroy()
-        self.uml_tab = None
+        self.class_diagram_tab.destroy()
+        self.class_diagram_tab = None
 
     def open_find_dialog(
         self,
@@ -7710,25 +7710,29 @@ class RunTab(ttk.Frame):
         finally:
             self.application.end_foreground_activity()
 
-    def graph_inspect_selected_source_text(self):
+    def show_selected_source_text_in_object_diagram(self):
         if self.is_read_only():
-            self.status_label.config(text="MCP is busy. Graph inspect is disabled.")
+            self.status_label.config(
+                text="MCP is busy. Object diagram is disabled."
+            )
             return
         selected_text = self.selected_source_text()
         if not selected_text.strip():
-            self.status_label.config(text="Select source text to graph inspect")
+            self.status_label.config(
+                text="Select source text to show in Object Diagram"
+            )
             return
-        self.status_label.config(text="Graph inspecting selection...")
+        self.status_label.config(text="Showing selection in Object Diagram...")
         self.last_exception = None
         self.clear_source_error_highlight()
         self.application.begin_foreground_activity(
-            "Graph inspecting selected source..."
+            "Showing selected source in Object Diagram..."
         )
         try:
             try:
                 result = self.gemstone_session_record.run_code(selected_text)
                 self.on_run_complete(result)
-                self.application.open_graph_inspector_for_object(result)
+                self.application.open_object_diagram_for_object(result)
             except (DomainException, GemstoneDomainException) as domain_exception:
                 self.status_label.config(text=str(domain_exception))
                 self.show_error_in_result_panel(str(domain_exception), None, None)
@@ -7793,8 +7797,8 @@ class RunTab(ttk.Frame):
                 state=run_command_state,
             )
             self.current_text_menu.add_command(
-                label="Graph Inspect",
-                command=self.graph_inspect_selected_source_text,
+                label="Show in Object Diagram",
+                command=self.show_selected_source_text_in_object_diagram,
                 state=run_command_state,
             )
         add_close_command_to_popup_menu(self.current_text_menu)
@@ -8808,8 +8812,8 @@ class ClassSelection(FramedWidget):
             state=tk.NORMAL if has_selection else tk.DISABLED,
         )
         menu.add_command(
-            label="Add to UML",
-            command=self.add_selected_class_to_uml,
+            label="Add to Class Diagram",
+            command=self.add_selected_class_to_class_diagram,
             state=tk.NORMAL if has_selection else tk.DISABLED,
         )
         menu.add_command(
@@ -8862,21 +8866,21 @@ class ClassSelection(FramedWidget):
             return
         self.browser_window.application.open_find_dialog_for_class(class_name)
 
-    def add_selected_class_to_uml(self):
+    def add_selected_class_to_class_diagram(self):
         class_name = self.context_menu_class_name
         if class_name is None:
             class_name = self.gemstone_session_record.selected_class
         if not class_name:
             return
-        self.browser_window.application.open_uml_for_class(class_name)
+        self.browser_window.application.open_class_diagram_for_class(class_name)
 
-    def add_selected_hierarchy_classes_to_uml(self):
+    def add_selected_hierarchy_classes_to_class_diagram(self):
         selected_class_names = self.selected_class_names_from_hierarchy()
         if not selected_class_names:
-            self.add_selected_class_to_uml()
+            self.add_selected_class_to_class_diagram()
             return
         for class_name in selected_class_names:
-            self.browser_window.application.open_uml_for_class(class_name)
+            self.browser_window.application.open_class_diagram_for_class(class_name)
 
     def show_hierarchy_context_menu(self, event):
         selected_class_name = self.class_name_from_hierarchy_context_event(event)
@@ -8892,13 +8896,13 @@ class ClassSelection(FramedWidget):
             state=tk.NORMAL if selected_class_name is not None else tk.DISABLED,
         )
         menu.add_command(
-            label="Add to UML",
-            command=self.add_selected_class_to_uml,
+            label="Add to Class Diagram",
+            command=self.add_selected_class_to_class_diagram,
             state=tk.NORMAL if selected_class_name is not None else tk.DISABLED,
         )
         menu.add_command(
-            label="Add Selected to UML",
-            command=self.add_selected_hierarchy_classes_to_uml,
+            label="Add Selected to Class Diagram",
+            command=self.add_selected_hierarchy_classes_to_class_diagram,
             state=tk.NORMAL if has_selection else tk.DISABLED,
         )
         add_close_command_to_popup_menu(menu)
@@ -9596,8 +9600,8 @@ class MethodSelection(FramedWidget):
             state=delete_command_state,
         )
         menu.add_command(
-            label="Show in UML",
-            command=self.show_method_in_uml,
+            label="Show in Class Diagram",
+            command=self.show_method_in_class_diagram,
             state=tk.NORMAL if has_selection else tk.DISABLED,
         )
         menu.add_separator()
@@ -9620,12 +9624,12 @@ class MethodSelection(FramedWidget):
         add_close_command_to_popup_menu(menu)
         popup_menu(menu, event)
 
-    def show_method_in_uml(self):
+    def show_method_in_class_diagram(self):
         class_name = self.gemstone_session_record.selected_class
         method_selector = self.gemstone_session_record.selected_method_symbol
         if not class_name or not method_selector:
             return
-        self.browser_window.application.pin_method_in_uml(
+        self.browser_window.application.pin_method_in_class_diagram(
             class_name,
             self.gemstone_session_record.show_instance_side,
             method_selector,
@@ -10463,8 +10467,8 @@ class CodePanel(tk.Frame):
                 state=run_command_state,
             )
             self.current_context_menu.add_command(
-                label="Graph Inspect",
-                command=lambda: self.graph_inspect_selected_text(selected_text),
+                label="Show in Object Diagram",
+                command=lambda: self.show_selected_text_in_object_diagram(selected_text),
                 state=run_command_state,
             )
             self.current_context_menu.add_separator()
@@ -10671,27 +10675,27 @@ class CodePanel(tk.Frame):
         if hasattr(self.application, "open_inspector_for_object"):
             self.application.open_inspector_for_object(inspected_object)
 
-    def graph_inspect_selected_text(self, selected_text):
+    def show_selected_text_in_object_diagram(self, selected_text):
         if self.is_read_only():
             messagebox.showwarning(
                 "Read Only",
-                "MCP is busy. Graph inspect is disabled until MCP finishes.",
+                "MCP is busy. Object diagram is disabled until MCP finishes.",
             )
             return
         if self.is_debugger_source_panel():
             debugger_tab = self.application.debugger_tab
-            debugger_tab.graph_inspect_selected_source_expression(selected_text)
+            debugger_tab.show_selected_source_expression_in_object_diagram(selected_text)
             return
         try:
             inspected_object = self.gemstone_session_record.run_code(selected_text)
         except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror("Graph Inspect Selection", str(domain_exception))
+            messagebox.showerror("Show in Object Diagram", str(domain_exception))
             return
         except GemstoneError as gemstone_exception:
-            messagebox.showerror("Graph Inspect Selection", str(gemstone_exception))
+            messagebox.showerror("Show in Object Diagram", str(gemstone_exception))
             return
-        if hasattr(self.application, "open_graph_inspector_for_object"):
-            self.application.open_graph_inspector_for_object(inspected_object)
+        if hasattr(self.application, "open_object_diagram_for_object"):
+            self.application.open_object_diagram_for_object(inspected_object)
 
     def open_implementors_from_source(self):
         selector = self.selector_for_navigation()
@@ -12209,7 +12213,7 @@ class ObjectInspector(ttk.Frame):
             return
         self.external_inspect_action(value)
 
-    def graph_inspect_selected_row(self):
+    def show_selected_row_in_object_diagram(self):
         if self.graph_inspect_action is None:
             return
         value = self.selected_row_value()
@@ -12238,8 +12242,8 @@ class ObjectInspector(ttk.Frame):
             )
         if self.graph_inspect_action is not None:
             object_menu.add_command(
-                label="Graph Inspect",
-                command=self.graph_inspect_selected_row,
+                label="Show in Object Diagram",
+                command=self.show_selected_row_in_object_diagram,
             )
         has_menu_entries = object_menu.index("end") is not None
         if not has_menu_entries:
@@ -12494,7 +12498,7 @@ class InspectorTab(ttk.Frame):
         self.record_object_navigation()
 
 
-class GraphNode:
+class UmlObjectNode:
     def __init__(self, an_object, oop_key, class_name, label):
         self.gemstone_object = an_object
         self.oop_key = oop_key
@@ -12515,7 +12519,7 @@ class GraphNode:
         )
 
 
-class GraphEdge:
+class UmlObjectRelationship:
     def __init__(self, source_node, target_node, instvar_label):
         self.source_node = source_node
         self.target_node = target_node
@@ -12523,7 +12527,7 @@ class GraphEdge:
         self.canvas_item_ids = []
 
 
-class GraphObjectRegistry:
+class UmlObjectDiagramRegistry:
     def __init__(self):
         self.nodes_by_oop_key = {}
         self.edges = []
@@ -12564,7 +12568,7 @@ class GraphObjectRegistry:
             )
             if is_same:
                 return None
-        self.edges.append(GraphEdge(source_node, target_node, instvar_label))
+        self.edges.append(UmlObjectRelationship(source_node, target_node, instvar_label))
         return self.edges[-1]
 
     def all_nodes(self):
@@ -12574,7 +12578,7 @@ class GraphObjectRegistry:
         return list(self.edges)
 
 
-class GraphNodeInspectorHost(ttk.Frame):
+class UmlObjectDiagramNodeInspectorHost(ttk.Frame):
     def __init__(
         self,
         parent,
@@ -12607,15 +12611,15 @@ class GraphNodeInspectorHost(ttk.Frame):
         self.on_navigate_to_child(value, instvar_label)
 
 
-class ObjectDetailDialog:
+class UmlObjectDiagramNodeDetailDialog:
     def __init__(self, parent, an_object, graph_node, on_add_to_graph):
         self.graph_node = graph_node
         self.on_add_to_graph = on_add_to_graph
         self.dialog = tk.Toplevel(parent)
-        self.dialog.title(f"Graph Node: {graph_node.label}")
+        self.dialog.title(f"Object Diagram Node: {graph_node.label}")
         self.dialog.geometry("650x420")
         self.dialog.grab_set()
-        self.inspector_host = GraphNodeInspectorHost(
+        self.inspector_host = UmlObjectDiagramNodeInspectorHost(
             self.dialog,
             an_object=an_object,
             graph_node=graph_node,
@@ -12629,7 +12633,7 @@ class ObjectDetailDialog:
         self.dialog.destroy()
 
 
-class UmlMethodChooserDialog(tk.Toplevel):
+class UmlClassDiagramMethodChooserDialog(tk.Toplevel):
     def __init__(self, parent, application, class_name, on_method_selected):
         super().__init__(parent)
         self.application = application
@@ -12639,7 +12643,7 @@ class UmlMethodChooserDialog(tk.Toplevel):
         self.selected_method_selector = None
         self.side_var = tk.StringVar(value="instance")
 
-        self.title(f"Add Method to UML: {class_name}")
+        self.title(f"Add Method to Class Diagram: {class_name}")
         self.geometry("620x420")
         self.transient(parent)
         self.grab_set()
@@ -12787,11 +12791,11 @@ class UmlMethodChooserDialog(tk.Toplevel):
         self.destroy()
 
 
-class GraphCanvas(ttk.Frame):
+class UmlObjectDiagramCanvas(ttk.Frame):
     def __init__(self, parent, node_detail_action):
         super().__init__(parent)
         self.node_detail_action = node_detail_action
-        self.registry = GraphObjectRegistry()
+        self.registry = UmlObjectDiagramRegistry()
         self.dragging_node = None
         self.drag_start_x = 0
         self.drag_start_y = 0
@@ -12827,7 +12831,7 @@ class GraphCanvas(ttk.Frame):
         self.canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
         self.canvas.bind("<Button-3>", self.on_canvas_right_click)
 
-    def add_object_to_graph(self, an_object, source_node=None, instvar_label=None):
+    def add_object_to_diagram(self, an_object, source_node=None, instvar_label=None):
         if an_object is None:
             return
         existing_node = self.registry.node_for(an_object)
@@ -12848,7 +12852,7 @@ class GraphCanvas(ttk.Frame):
                 pass
             oop_string = oop_key[1] if oop_key[0] == "oop" else "?"
             label = f"{oop_string}:{class_name}"
-            target_node = GraphNode(an_object, oop_key, class_name, label)
+            target_node = UmlObjectNode(an_object, oop_key, class_name, label)
             self.place_new_node(target_node)
             self.draw_node(target_node)
             self.registry.register_node(target_node)
@@ -13021,11 +13025,11 @@ class GraphCanvas(ttk.Frame):
 
     def clear_all(self):
         self.canvas.delete("all")
-        self.registry = GraphObjectRegistry()
+        self.registry = UmlObjectDiagramRegistry()
         self.expand_scroll_region()
 
 
-class GraphTab(ttk.Frame):
+class UmlObjectDiagramTab(ttk.Frame):
     def __init__(self, parent, application):
         super().__init__(parent)
         self.application = application
@@ -13033,12 +13037,12 @@ class GraphTab(ttk.Frame):
         actions_frame = ttk.Frame(self)
         actions_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
 
-        ttk.Label(actions_frame, text="Graph Inspector").grid(
+        ttk.Label(actions_frame, text="Object Diagram").grid(
             row=0,
             column=0,
             sticky="w",
         )
-        ttk.Button(actions_frame, text="Clear", command=self.clear_graph).grid(
+        ttk.Button(actions_frame, text="Clear", command=self.clear_diagram).grid(
             row=0,
             column=1,
             padx=(6, 0),
@@ -13046,10 +13050,10 @@ class GraphTab(ttk.Frame):
         ttk.Button(
             actions_frame,
             text="Close",
-            command=self.application.close_graph_tab,
+            command=self.application.close_object_diagram_tab,
         ).grid(row=0, column=2, padx=(6, 0))
 
-        self.graph_canvas = GraphCanvas(
+        self.graph_canvas = UmlObjectDiagramCanvas(
             self,
             node_detail_action=self.open_node_detail,
         )
@@ -13059,14 +13063,14 @@ class GraphTab(ttk.Frame):
         self.columnconfigure(0, weight=1)
 
     def add_object(self, an_object):
-        self.graph_canvas.add_object_to_graph(
+        self.graph_canvas.add_object_to_diagram(
             an_object,
             source_node=None,
             instvar_label=None,
         )
 
     def open_node_detail(self, graph_node):
-        ObjectDetailDialog(
+        UmlObjectDiagramNodeDetailDialog(
             self,
             an_object=graph_node.gemstone_object,
             graph_node=graph_node,
@@ -13074,13 +13078,13 @@ class GraphTab(ttk.Frame):
         )
 
     def on_add_to_graph_from_dialog(self, source_node, target_object, instvar_label):
-        self.graph_canvas.add_object_to_graph(
+        self.graph_canvas.add_object_to_diagram(
             target_object,
             source_node=source_node,
             instvar_label=instvar_label,
         )
 
-    def clear_graph(self):
+    def clear_diagram(self):
         self.graph_canvas.clear_all()
 
 
@@ -13115,7 +13119,7 @@ class UmlClassNode:
         )
 
 
-class UmlRelationship:
+class UmlClassRelationship:
     def __init__(
         self,
         source_node,
@@ -13132,7 +13136,7 @@ class UmlRelationship:
         self.canvas_item_ids = []
 
 
-class UmlDiagramRegistry:
+class UmlClassDiagramRegistry:
     def __init__(self):
         self.nodes_by_class_name = {}
         self.relationships = []
@@ -13182,7 +13186,7 @@ class UmlDiagramRegistry:
                 existing_relationship = relationship
         if existing_relationship is not None:
             return None
-        relationship = UmlRelationship(
+        relationship = UmlClassRelationship(
             source_node,
             target_node,
             label,
@@ -13222,12 +13226,12 @@ class UmlDiagramRegistry:
         return matching_relationship
 
 
-class UmlCanvas(ttk.Frame):
+class UmlClassDiagramCanvas(ttk.Frame):
     def __init__(self, parent, node_menu_action, relationship_menu_action):
         super().__init__(parent)
         self.node_menu_action = node_menu_action
         self.relationship_menu_action = relationship_menu_action
-        self.registry = UmlDiagramRegistry()
+        self.registry = UmlClassDiagramRegistry()
         self.dragging_node = None
         self.drag_start_x = 0
         self.drag_start_y = 0
@@ -13629,11 +13633,11 @@ class UmlCanvas(ttk.Frame):
 
     def clear_all(self):
         self.canvas.delete("all")
-        self.registry = UmlDiagramRegistry()
+        self.registry = UmlClassDiagramRegistry()
         self.expand_scroll_region()
 
 
-class UmlTab(ttk.Frame):
+class UmlClassDiagramTab(ttk.Frame):
     def __init__(self, parent, application):
         super().__init__(parent)
         self.application = application
@@ -13643,7 +13647,7 @@ class UmlTab(ttk.Frame):
         actions_frame = ttk.Frame(self)
         actions_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 5))
 
-        ttk.Label(actions_frame, text="UML Class Diagram").grid(
+        ttk.Label(actions_frame, text="Class Diagram").grid(
             row=0,
             column=0,
             sticky="w",
@@ -13667,10 +13671,10 @@ class UmlTab(ttk.Frame):
         ttk.Button(
             actions_frame,
             text="Close",
-            command=self.application.close_uml_tab,
+            command=self.application.close_class_diagram_tab,
         ).grid(row=0, column=4, padx=(6, 0))
 
-        self.uml_canvas = UmlCanvas(
+        self.uml_canvas = UmlClassDiagramCanvas(
             self,
             node_menu_action=self.open_node_menu,
             relationship_menu_action=self.open_relationship_menu,
@@ -13767,7 +13771,7 @@ class UmlTab(ttk.Frame):
             return browser_session.get_class_definition(class_name)
         except (GemstoneDomainException, GemstoneError) as error:
             if show_errors:
-                messagebox.showerror("UML", str(error))
+                messagebox.showerror("Class Diagram", str(error))
             return None
 
     def add_class(self, class_name, record_history=True):
@@ -13787,7 +13791,7 @@ class UmlTab(ttk.Frame):
         node = self.add_class(class_name, record_history=False)
         if node is None:
             return
-        method_label = uml_method_label(show_instance_side, method_selector)
+        method_label = format_class_diagram_method_label(show_instance_side, method_selector)
         existing_method = None
         for method_entry in node.pinned_methods:
             is_same_method = (
@@ -13878,7 +13882,7 @@ class UmlTab(ttk.Frame):
             )
 
         menu.add_command(
-            label="Remove From UML",
+            label="Remove From Class Diagram",
             command=lambda: self.remove_class_from_diagram(node.class_name),
         )
         add_close_command_to_popup_menu(menu)
@@ -13927,7 +13931,7 @@ class UmlTab(ttk.Frame):
         )
 
     def open_add_method_dialog(self, node):
-        UmlMethodChooserDialog(
+        UmlClassDiagramMethodChooserDialog(
             self,
             self.application,
             node.class_name,
@@ -13936,7 +13940,7 @@ class UmlTab(ttk.Frame):
 
     def prompt_add_association(self, source_node, inst_var_name):
         target_class_name = simpledialog.askstring(
-            "Add UML Association",
+            "Add Class Diagram Association",
             f"Target class for {source_node.class_name}>>{inst_var_name}:",
             parent=self,
         )
@@ -14389,7 +14393,7 @@ class DebuggerWindow(ttk.PanedWindow):
             values=dict([("self", frame.self)] + list(frame.vars.items())),
             root_tab_label="Context",
             external_inspect_action=self.application.open_inspector_for_object,
-            graph_inspect_action=self.application.open_graph_inspector_for_object,
+            graph_inspect_action=self.application.open_object_diagram_for_object,
         )
         self.explorer = explorer
         explorer.grid(row=0, column=0, sticky="nsew")
@@ -14512,7 +14516,7 @@ class DebuggerWindow(ttk.PanedWindow):
             return
         self.application.open_inspector_for_object(inspected_object)
 
-    def graph_inspect_selected_source_expression(self, source_expression):
+    def show_selected_source_expression_in_object_diagram(self, source_expression):
         expression = source_expression.strip()
         if not expression:
             messagebox.showwarning(
@@ -14535,7 +14539,7 @@ class DebuggerWindow(ttk.PanedWindow):
         except (DomainException, GemstoneDomainException, GemstoneError) as error:
             messagebox.showerror("Inspect Expression", str(error))
             return
-        self.application.open_graph_inspector_for_object(inspected_object)
+        self.application.open_object_diagram_for_object(inspected_object)
 
     def frame_method_context(self, frame):
         if frame is None:
