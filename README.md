@@ -106,6 +106,59 @@ accordingly. `stdio` mode cannot attach to an already-running process.
 In the GUI, use the `MCP` menu to start/stop the embedded server and edit
 runtime MCP policy/network settings.
 
+### Locking MCP permission toggles for protected databases
+
+Swordfish stores MCP GUI config in `~/.config/swordfish/mcp.json` unless
+`XDG_CONFIG_HOME` is set.
+
+If the running user cannot write that config file, Swordfish treats MCP
+permission toggles specially:
+
+- Host, port, and HTTP path remain editable in the GUI.
+- MCP permission toggles may be locked or session-only, depending on a
+  configured Smalltalk check.
+- If the Smalltalk check says the connected database is protected, all MCP
+  permission toggles are disabled in the GUI.
+- If the Smalltalk check says the connected database is not protected, the
+  user may change MCP permission toggles for the current session only.
+- Session-only permission changes are not persisted and are reset on logout.
+- The Smalltalk check source is config-only; it is not editable via the GUI.
+
+To configure this, add an `mcp_permission_policy` section to `mcp.json`:
+
+```json
+{
+  "schema_version": 2,
+  "mcp_permission_policy": {
+    "allow_session_permission_changes_condition_source": "System stoneName ~= 'prod'"
+  },
+  "mcp_runtime_config": {
+    "allow_source_read": true,
+    "allow_source_write": false,
+    "allow_eval_arbitrary": false,
+    "allow_test_execution": false,
+    "allow_ide_read": true,
+    "allow_ide_write": false,
+    "allow_commit": false,
+    "allow_tracing": false,
+    "require_gemstone_ast": false,
+    "mcp_host": "127.0.0.1",
+    "mcp_port": 8000,
+    "mcp_http_path": "/mcp"
+  }
+}
+```
+
+The configured Smalltalk source must answer `true` or `false` in the current
+GemStone session:
+
+- `true`: session-only MCP permission changes are allowed when the config file
+  is read-only.
+- `false`: MCP permission toggles are locked when the config file is read-only.
+
+If the policy is missing, answers something other than a boolean, or raises an
+error, Swordfish fails closed and locks the permission toggles.
+
 ### Add MCP to Claude Code and Codex (Docker-over-SSH)
 
 For Docker and SSH setup details used by this flow, see `How to Develop (Docker)` at the end of this README.

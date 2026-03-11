@@ -1265,6 +1265,81 @@ class EventQueue:
 
 MCP_RUNTIME_CONFIG_SCHEMA_VERSION = 2
 MCP_RUNTIME_CONFIG_FILE_NAME = "mcp.json"
+MCP_PERMISSION_POLICY_CONFIG_NAME = "mcp_permission_policy"
+MCP_PERMISSION_POLICY_SOURCE_NAME = (
+    "allow_session_permission_changes_condition_source"
+)
+
+
+class McpPermissionPolicy:
+    def __init__(self, allow_session_permission_changes_condition_source=""):
+        self.allow_session_permission_changes_condition_source = (
+            str(allow_session_permission_changes_condition_source).strip()
+        )
+
+    def copy(self):
+        return McpPermissionPolicy(
+            allow_session_permission_changes_condition_source=(
+                self.allow_session_permission_changes_condition_source
+            )
+        )
+
+    @classmethod
+    def from_dict(cls, config_payload):
+        if config_payload is None:
+            return cls()
+        return cls(
+            allow_session_permission_changes_condition_source=str(
+                config_payload.get(MCP_PERMISSION_POLICY_SOURCE_NAME, "")
+            ).strip()
+        )
+
+    def to_dict(self):
+        if not self.allow_session_permission_changes_condition_source:
+            return {}
+        return {
+            MCP_PERMISSION_POLICY_SOURCE_NAME: (
+                self.allow_session_permission_changes_condition_source
+            )
+        }
+
+    def has_session_permission_change_condition(self):
+        return bool(self.allow_session_permission_changes_condition_source)
+
+    def session_permission_changes_allowed_for(self, gemstone_session_record):
+        if not self.has_session_permission_change_condition():
+            return False
+        evaluation_result = gemstone_session_record.run_code(
+            self.allow_session_permission_changes_condition_source
+        )
+        if isinstance(evaluation_result, bool):
+            return evaluation_result
+        python_value = getattr(evaluation_result, "to_py", None)
+        if callable(python_value):
+            python_value = python_value()
+        if isinstance(python_value, bool):
+            return python_value
+        if isinstance(python_value, str):
+            normalized_value = python_value.strip().lower()
+            if normalized_value == "true":
+                return True
+            if normalized_value == "false":
+                return False
+        raise DomainException(
+            "Configured MCP permission condition must answer true or false."
+        )
+
+
+class McpConfigurationAccess:
+    def __init__(
+        self,
+        permission_controls_editable=True,
+        configuration_persistable=True,
+        note="",
+    ):
+        self.permission_controls_editable = bool(permission_controls_editable)
+        self.configuration_persistable = bool(configuration_persistable)
+        self.note = str(note)
 
 
 class McpConfigurationStore:
@@ -1300,34 +1375,84 @@ class McpConfigurationStore:
                 raise ValueError("mcp_http_path must start with '/'.")
         return config_payload
 
-    def load(self):
+    def validate_permission_policy_dict(self, config_payload):
+        if config_payload is None:
+            return {}
+        if not isinstance(config_payload, dict):
+            raise ValueError("mcp_permission_policy must be an object.")
+        if MCP_PERMISSION_POLICY_SOURCE_NAME in config_payload:
+            config_payload = dict(config_payload)
+            config_payload[MCP_PERMISSION_POLICY_SOURCE_NAME] = str(
+                config_payload[MCP_PERMISSION_POLICY_SOURCE_NAME]
+            ).strip()
+        return config_payload
+
+    def config_payload(self):
         config_file_path = self.config_file_path()
         if not os.path.exists(config_file_path):
             return None
         try:
             with open(config_file_path, "r", encoding="utf-8") as config_file:
                 payload = json.load(config_file)
-            if not isinstance(payload, dict):
-                return None
-            schema_version = payload.get(
-                "schema_version",
-                MCP_RUNTIME_CONFIG_SCHEMA_VERSION,
-            )
-            if schema_version != MCP_RUNTIME_CONFIG_SCHEMA_VERSION:
-                return None
+        except (OSError, TypeError, json.JSONDecodeError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        schema_version = payload.get(
+            "schema_version",
+            MCP_RUNTIME_CONFIG_SCHEMA_VERSION,
+        )
+        if schema_version != MCP_RUNTIME_CONFIG_SCHEMA_VERSION:
+            return None
+        return payload
+
+    def load(self):
+        payload = self.config_payload()
+        if payload is None:
+            return None
+        try:
             config_payload = payload.get("mcp_runtime_config")
             validated_payload = self.validate_config_dict(config_payload)
             return McpRuntimeConfig.from_dict(validated_payload)
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        except (ValueError, TypeError):
             return None
 
-    def save(self, runtime_config):
+    def load_permission_policy(self):
+        payload = self.config_payload()
+        if payload is None:
+            return McpPermissionPolicy()
+        try:
+            validated_payload = self.validate_permission_policy_dict(
+                payload.get(MCP_PERMISSION_POLICY_CONFIG_NAME)
+            )
+            return McpPermissionPolicy.from_dict(validated_payload)
+        except (ValueError, TypeError):
+            return McpPermissionPolicy()
+
+    def can_write_config(self):
         config_file_path = self.config_file_path()
+        if os.path.exists(config_file_path):
+            return os.access(config_file_path, os.W_OK)
         config_directory = os.path.dirname(config_file_path)
+        if os.path.isdir(config_directory):
+            return os.access(config_directory, os.W_OK)
+        config_home_directory = self.config_home_directory()
+        if os.path.isdir(config_home_directory):
+            return os.access(config_home_directory, os.W_OK)
+        return os.access(os.path.expanduser("~"), os.W_OK)
+
+    def save(self, runtime_config, permission_policy=None):
+        if permission_policy is None:
+            permission_policy = self.load_permission_policy()
+        permission_policy_payload = permission_policy.to_dict()
         payload = {
             "schema_version": MCP_RUNTIME_CONFIG_SCHEMA_VERSION,
             "mcp_runtime_config": runtime_config.to_dict(),
         }
+        if permission_policy_payload:
+            payload[MCP_PERMISSION_POLICY_CONFIG_NAME] = permission_policy_payload
+        config_file_path = self.config_file_path()
+        config_directory = os.path.dirname(config_file_path)
         temporary_file_path = config_file_path + ".tmp"
         try:
             os.makedirs(config_directory, exist_ok=True)
@@ -1654,8 +1779,11 @@ class McpServerController:
         with self.lock:
             self.runtime_config = runtime_config.copy()
 
-    def save_configuration(self):
-        self.configuration_store.save(self.current_runtime_config())
+    def save_configuration(self, permission_policy=None):
+        self.configuration_store.save(
+            self.current_runtime_config(),
+            permission_policy=permission_policy,
+        )
 
     def status(self):
         with self.lock:
@@ -1779,6 +1907,20 @@ class McpServerController:
             wait_thread.start()
         return True
 
+    def stop_for_session_reset(self):
+        with self.lock:
+            server_thread = self.server_thread
+        stopped = self.stop()
+        if not stopped:
+            return False
+        if (
+            server_thread is not None
+            and server_thread.is_alive()
+            and threading.current_thread() is not server_thread
+        ):
+            self.wait_for_server_thread_exit(server_thread)
+        return True
+
     def wait_for_server_thread_exit(self, server_thread):
         server_thread.join(timeout=5)
 
@@ -1858,13 +2000,16 @@ class McpServerController:
 
 
 class McpConfigurationDialog(tk.Toplevel):
-    def __init__(self, parent, current_runtime_config):
+    def __init__(self, parent, current_runtime_config, configuration_access=None):
         super().__init__(parent)
         self.parent = parent
         self.current_runtime_config = current_runtime_config.copy()
+        if configuration_access is None:
+            configuration_access = McpConfigurationAccess()
+        self.configuration_access = configuration_access
         self.result = None
         self.title("MCP Configuration")
-        self.geometry("500x560")
+        self.geometry("500x620")
         self.transient(parent)
         self.wait_visibility()
         self.grab_set()
@@ -1903,6 +2048,9 @@ class McpConfigurationDialog(tk.Toplevel):
         self.require_gemstone_ast_variable = tk.BooleanVar(
             value=self.current_runtime_config.require_gemstone_ast
         )
+        self.permission_note_variable = tk.StringVar(
+            value=self.configuration_access.note
+        )
         self.risk_note_variable = tk.StringVar()
 
         self.create_widgets()
@@ -1920,6 +2068,9 @@ class McpConfigurationDialog(tk.Toplevel):
         body_frame.grid(row=0, column=0, sticky="nsew")
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
+        permission_state = tk.NORMAL
+        if not self.configuration_access.permission_controls_editable:
+            permission_state = tk.DISABLED
 
         ttk.Label(body_frame, text="Host").grid(
             row=0, column=0, sticky="w", pady=(0, 4)
@@ -1942,51 +2093,77 @@ class McpConfigurationDialog(tk.Toplevel):
             row=5, column=0, sticky="ew", pady=(0, 12)
         )
 
-        ttk.Checkbutton(
+        self.permission_note_label = ttk.Label(
+            body_frame,
+            textvariable=self.permission_note_variable,
+            wraplength=440,
+            justify="left",
+        )
+        self.permission_note_label.grid(row=6, column=0, sticky="w", pady=(0, 10))
+
+        self.allow_source_read_checkbutton = ttk.Checkbutton(
             body_frame,
             text="Allow source read tools",
             variable=self.allow_source_read_variable,
-        ).grid(row=6, column=0, sticky="w")
-        ttk.Checkbutton(
+            state=permission_state,
+        )
+        self.allow_source_read_checkbutton.grid(row=7, column=0, sticky="w")
+        self.allow_source_write_checkbutton = ttk.Checkbutton(
             body_frame,
             text="Allow source write/refactor tools",
             variable=self.allow_source_write_variable,
-        ).grid(row=7, column=0, sticky="w")
-        ttk.Checkbutton(
+            state=permission_state,
+        )
+        self.allow_source_write_checkbutton.grid(row=8, column=0, sticky="w")
+        self.allow_eval_arbitrary_checkbutton = ttk.Checkbutton(
             body_frame,
             text="Allow arbitrary eval tools",
             variable=self.allow_eval_arbitrary_variable,
-        ).grid(row=8, column=0, sticky="w")
-        ttk.Checkbutton(
+            state=permission_state,
+        )
+        self.allow_eval_arbitrary_checkbutton.grid(row=9, column=0, sticky="w")
+        self.allow_test_execution_checkbutton = ttk.Checkbutton(
             body_frame,
             text="Allow test execution tools",
             variable=self.allow_test_execution_variable,
-        ).grid(row=9, column=0, sticky="w")
-        ttk.Checkbutton(
+            state=permission_state,
+        )
+        self.allow_test_execution_checkbutton.grid(row=10, column=0, sticky="w")
+        self.allow_ide_read_checkbutton = ttk.Checkbutton(
             body_frame,
             text="Allow IDE state read tools",
             variable=self.allow_ide_read_variable,
-        ).grid(row=10, column=0, sticky="w")
-        ttk.Checkbutton(
+            state=permission_state,
+        )
+        self.allow_ide_read_checkbutton.grid(row=11, column=0, sticky="w")
+        self.allow_ide_write_checkbutton = ttk.Checkbutton(
             body_frame,
             text="Allow IDE state write tools",
             variable=self.allow_ide_write_variable,
-        ).grid(row=11, column=0, sticky="w")
-        ttk.Checkbutton(
+            state=permission_state,
+        )
+        self.allow_ide_write_checkbutton.grid(row=12, column=0, sticky="w")
+        self.allow_commit_checkbutton = ttk.Checkbutton(
             body_frame,
             text="Enable commit tool",
             variable=self.allow_commit_variable,
-        ).grid(row=12, column=0, sticky="w")
-        ttk.Checkbutton(
+            state=permission_state,
+        )
+        self.allow_commit_checkbutton.grid(row=13, column=0, sticky="w")
+        self.allow_tracing_checkbutton = ttk.Checkbutton(
             body_frame,
             text="Enable tracing tools",
             variable=self.allow_tracing_variable,
-        ).grid(row=13, column=0, sticky="w")
-        ttk.Checkbutton(
+            state=permission_state,
+        )
+        self.allow_tracing_checkbutton.grid(row=14, column=0, sticky="w")
+        self.require_gemstone_ast_checkbutton = ttk.Checkbutton(
             body_frame,
             text="Require GemStone AST backend",
             variable=self.require_gemstone_ast_variable,
-        ).grid(row=14, column=0, sticky="w")
+            state=permission_state,
+        )
+        self.require_gemstone_ast_checkbutton.grid(row=15, column=0, sticky="w")
 
         self.risk_note_label = ttk.Label(
             body_frame,
@@ -1994,10 +2171,10 @@ class McpConfigurationDialog(tk.Toplevel):
             wraplength=440,
             justify="left",
         )
-        self.risk_note_label.grid(row=15, column=0, sticky="w", pady=(12, 0))
+        self.risk_note_label.grid(row=16, column=0, sticky="w", pady=(12, 0))
 
         button_frame = ttk.Frame(body_frame)
-        button_frame.grid(row=16, column=0, sticky="e", pady=(16, 0))
+        button_frame.grid(row=17, column=0, sticky="e", pady=(16, 0))
         ttk.Button(
             button_frame,
             text="Cancel",
@@ -2092,16 +2269,35 @@ class McpConfigurationDialog(tk.Toplevel):
                 "HTTP path must start with /.",
             )
             return
+        allow_source_read = self.current_runtime_config.allow_source_read
+        allow_source_write = self.current_runtime_config.allow_source_write
+        allow_eval_arbitrary = self.current_runtime_config.allow_eval_arbitrary
+        allow_test_execution = self.current_runtime_config.allow_test_execution
+        allow_ide_read = self.current_runtime_config.allow_ide_read
+        allow_ide_write = self.current_runtime_config.allow_ide_write
+        allow_commit = self.current_runtime_config.allow_commit
+        allow_tracing = self.current_runtime_config.allow_tracing
+        require_gemstone_ast = self.current_runtime_config.require_gemstone_ast
+        if self.configuration_access.permission_controls_editable:
+            allow_source_read = self.allow_source_read_variable.get()
+            allow_source_write = self.allow_source_write_variable.get()
+            allow_eval_arbitrary = self.allow_eval_arbitrary_variable.get()
+            allow_test_execution = self.allow_test_execution_variable.get()
+            allow_ide_read = self.allow_ide_read_variable.get()
+            allow_ide_write = self.allow_ide_write_variable.get()
+            allow_commit = self.allow_commit_variable.get()
+            allow_tracing = self.allow_tracing_variable.get()
+            require_gemstone_ast = self.require_gemstone_ast_variable.get()
         self.result = McpRuntimeConfig(
-            allow_source_read=self.allow_source_read_variable.get(),
-            allow_source_write=self.allow_source_write_variable.get(),
-            allow_eval_arbitrary=self.allow_eval_arbitrary_variable.get(),
-            allow_test_execution=self.allow_test_execution_variable.get(),
-            allow_ide_read=self.allow_ide_read_variable.get(),
-            allow_ide_write=self.allow_ide_write_variable.get(),
-            allow_commit=self.allow_commit_variable.get(),
-            allow_tracing=self.allow_tracing_variable.get(),
-            require_gemstone_ast=self.require_gemstone_ast_variable.get(),
+            allow_source_read=allow_source_read,
+            allow_source_write=allow_source_write,
+            allow_eval_arbitrary=allow_eval_arbitrary,
+            allow_test_execution=allow_test_execution,
+            allow_ide_read=allow_ide_read,
+            allow_ide_write=allow_ide_write,
+            allow_commit=allow_commit,
+            allow_tracing=allow_tracing,
+            require_gemstone_ast=require_gemstone_ast,
             mcp_host=mcp_host,
             mcp_port=mcp_port,
             mcp_http_path=mcp_http_path,
@@ -4429,12 +4625,17 @@ class Swordfish(tk.Tk):
         self.last_mcp_config_save_error_message = None
         if mcp_runtime_config is None:
             mcp_runtime_config = McpRuntimeConfig()
-        self.mcp_runtime_config = mcp_runtime_config.copy()
+        self.base_mcp_runtime_config = mcp_runtime_config.copy()
+        self.mcp_runtime_config = self.base_mcp_runtime_config.copy()
         self.mcp_server_controller = McpServerController(
             self.integrated_session_state,
             self.mcp_runtime_config,
             configuration_store=mcp_configuration_store,
         )
+        self.mcp_permission_policy = (
+            self.mcp_server_controller.configuration_store.load_permission_policy()
+        )
+        self.session_only_mcp_runtime_config_active = False
 
         self.event_queue.subscribe("LoggedInSuccessfully", self.show_main_app)
         self.event_queue.subscribe("LoggedOut", self.show_login_screen)
@@ -4494,6 +4695,93 @@ class Swordfish(tk.Tk):
     def embedded_mcp_server_status(self):
         return self.mcp_server_controller.status()
 
+    def mcp_configuration_access(self):
+        can_write_config = self.mcp_server_controller.configuration_store.can_write_config()
+        if can_write_config:
+            return McpConfigurationAccess()
+        if not self.is_logged_in:
+            return McpConfigurationAccess(
+                permission_controls_editable=False,
+                configuration_persistable=False,
+                note=(
+                    "Config file is read-only. Permission toggles unlock only after "
+                    "login to a database that passes the configured policy."
+                ),
+            )
+        if not self.mcp_permission_policy.has_session_permission_change_condition():
+            return McpConfigurationAccess(
+                permission_controls_editable=False,
+                configuration_persistable=False,
+                note=(
+                    "Config file is read-only. Permission toggles are locked because "
+                    "no Smalltalk permission policy is configured."
+                ),
+            )
+        try:
+            session_changes_allowed = (
+                self.mcp_permission_policy.session_permission_changes_allowed_for(
+                    self.gemstone_session_record
+                )
+            )
+        except (
+            AttributeError,
+            DomainException,
+            GemstoneDomainException,
+            GemstoneError,
+            TypeError,
+            ValueError,
+        ):
+            session_changes_allowed = False
+        if session_changes_allowed:
+            return McpConfigurationAccess(
+                permission_controls_editable=True,
+                configuration_persistable=False,
+                note=(
+                    "Config file is read-only. Changes apply only for this session "
+                    "and reset on logout."
+                ),
+            )
+        return McpConfigurationAccess(
+            permission_controls_editable=False,
+            configuration_persistable=False,
+            note=(
+                "Config file is read-only for this database. Permission toggles "
+                "are locked."
+            ),
+        )
+
+    def apply_mcp_runtime_config(self, runtime_config, configuration_access):
+        self.mcp_runtime_config = runtime_config.copy()
+        self.mcp_server_controller.update_runtime_config(self.mcp_runtime_config)
+        if not configuration_access.configuration_persistable:
+            self.last_mcp_config_save_error_message = None
+            self.session_only_mcp_runtime_config_active = (
+                self.mcp_runtime_config != self.base_mcp_runtime_config
+            )
+            return
+        try:
+            self.mcp_server_controller.save_configuration(self.mcp_permission_policy)
+            self.base_mcp_runtime_config = self.mcp_runtime_config.copy()
+            self.last_mcp_config_save_error_message = None
+            self.session_only_mcp_runtime_config_active = False
+        except DomainException as error:
+            self.last_mcp_config_save_error_message = str(error)
+            self.session_only_mcp_runtime_config_active = (
+                self.mcp_runtime_config != self.base_mcp_runtime_config
+            )
+            messagebox.showerror(
+                "MCP Configuration",
+                str(error),
+            )
+
+    def reset_session_mcp_runtime_config(self):
+        if not self.session_only_mcp_runtime_config_active:
+            return
+        self.mcp_runtime_config = self.base_mcp_runtime_config.copy()
+        self.mcp_server_controller.update_runtime_config(self.mcp_runtime_config)
+        self.session_only_mcp_runtime_config_active = False
+        self.last_mcp_config_save_error_message = None
+
     def start_mcp_server(self, report_errors=True):
         started = self.mcp_server_controller.start()
         if not started and report_errors:
@@ -4535,21 +4823,16 @@ class Swordfish(tk.Tk):
             self.end_foreground_activity()
 
     def configure_mcp_server_from_menu(self):
-        dialog = McpConfigurationDialog(self, self.mcp_runtime_config)
+        configuration_access = self.mcp_configuration_access()
+        dialog = McpConfigurationDialog(
+            self,
+            self.mcp_runtime_config,
+            configuration_access,
+        )
         self.wait_window(dialog)
         if dialog.result is None:
             return
-        self.mcp_runtime_config = dialog.result.copy()
-        self.mcp_server_controller.update_runtime_config(self.mcp_runtime_config)
-        try:
-            self.mcp_server_controller.save_configuration()
-            self.last_mcp_config_save_error_message = None
-        except DomainException as error:
-            self.last_mcp_config_save_error_message = str(error)
-            messagebox.showerror(
-                "MCP Configuration",
-                str(error),
-            )
+        self.apply_mcp_runtime_config(dialog.result, configuration_access)
         self.menu_bar.update_menus()
         self.refresh_collaboration_status()
 
@@ -4572,6 +4855,12 @@ class Swordfish(tk.Tk):
                 "Logout is disabled while MCP is running an operation.",
             )
             return
+        mcp_server_status = self.embedded_mcp_server_status()
+        if self.session_only_mcp_runtime_config_active and (
+            mcp_server_status["running"] or mcp_server_status["starting"]
+        ):
+            self.mcp_server_controller.stop_for_session_reset()
+        self.reset_session_mcp_runtime_config()
         self.gemstone_session_record.log_out()
         self.gemstone_session_record = None
         self.integrated_session_state.detach_ide_session()
