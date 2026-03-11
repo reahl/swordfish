@@ -910,7 +910,7 @@ def test_set_breakpoint_reports_nearest_executable_location_when_snapped(
             "step_point": 2,
         }
     )
-    with patch("reahl.swordfish.main.messagebox") as mock_messagebox:
+    with patch("reahl.swordfish.text_editing.messagebox") as mock_messagebox:
         tab.code_panel.set_breakpoint_at_cursor()
 
     mock_messagebox.showinfo.assert_called_once()
@@ -6584,7 +6584,7 @@ def test_right_click_on_method_runs_test_and_shows_pass_result(fixture):
     }
     fixture.mock_browser.run_test_method = Mock(return_value=passing_result)
 
-    with patch("reahl.swordfish.main.messagebox") as mock_msgbox:
+    with patch("reahl.swordfish.browser.messagebox") as mock_msgbox:
         fixture.browser_window.methods_widget.run_test()
 
     fixture.mock_browser.run_test_method.assert_called_once_with("OrderLine", "total")
@@ -6597,7 +6597,7 @@ def test_method_context_menu_covering_tests_opens_browse_dialog(fixture):
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
     methods_widget = fixture.browser_window.methods_widget
 
-    with patch("reahl.swordfish.main.CoveringTestsBrowseDialog") as dialog_class:
+    with patch("reahl.swordfish.browser.CoveringTestsBrowseDialog") as dialog_class:
         methods_widget.open_covering_tests()
 
     dialog_class.assert_called_once_with(
@@ -6693,10 +6693,10 @@ def test_method_context_menu_preview_add_parameter_calls_browser_preview(fixture
     ]
 
     with patch(
-        "reahl.swordfish.main.simpledialog.askstring",
+        "reahl.swordfish.text_editing.simpledialog.askstring",
         side_effect=["with:", "extraValue", "nil"],
     ):
-        with patch("reahl.swordfish.main.JsonResultDialog") as mock_result_dialog:
+        with patch("reahl.swordfish.text_editing.JsonResultDialog") as mock_result_dialog:
             tab.code_panel.preview_method_add_parameter()
 
     fixture.mock_browser.method_add_parameter_preview.assert_called_once_with(
@@ -6734,9 +6734,9 @@ def test_method_context_menu_preview_extract_calls_browser_preview(fixture):
     tab.code_panel.text_editor.tag_add(tk.SEL, "2.0", "2.end")
 
     with patch(
-        "reahl.swordfish.main.simpledialog.askstring", return_value="extractedPart"
+        "reahl.swordfish.text_editing.simpledialog.askstring", return_value="extractedPart"
     ):
-        with patch("reahl.swordfish.main.JsonResultDialog") as mock_result_dialog:
+        with patch("reahl.swordfish.text_editing.JsonResultDialog") as mock_result_dialog:
             tab.code_panel.preview_method_extract()
 
     fixture.mock_browser.method_ast.assert_called_once_with(
@@ -6762,7 +6762,7 @@ def test_method_context_menu_preview_extract_requires_selection(fixture):
         ("OrderLine", True, "total")
     ]
 
-    with patch("reahl.swordfish.main.messagebox") as mock_msgbox:
+    with patch("reahl.swordfish.text_editing.messagebox") as mock_msgbox:
         tab.code_panel.preview_method_extract()
 
     mock_msgbox.showerror.assert_called_once()
@@ -6793,8 +6793,8 @@ def test_method_context_menu_preview_extract_partial_return_selection_reports_se
     ]
     tab.code_panel.text_editor.tag_add(tk.SEL, "2.14", "2.end")
 
-    with patch("reahl.swordfish.main.messagebox") as mock_msgbox:
-        with patch("reahl.swordfish.main.simpledialog.askstring") as mock_askstring:
+    with patch("reahl.swordfish.text_editing.messagebox") as mock_msgbox:
+        with patch("reahl.swordfish.text_editing.simpledialog.askstring") as mock_askstring:
             tab.code_panel.preview_method_extract()
 
     mock_askstring.assert_not_called()
@@ -6842,7 +6842,7 @@ def test_method_context_menu_preview_extract_suggests_keyword_selector_when_argu
         return None
 
     with patch(
-        "reahl.swordfish.main.simpledialog.askstring", side_effect=fake_askstring
+        "reahl.swordfish.text_editing.simpledialog.askstring", side_effect=fake_askstring
     ):
         tab.code_panel.preview_method_extract()
 
@@ -6864,10 +6864,10 @@ def test_method_context_menu_preview_add_parameter_shows_error_for_browser_domai
     ]
 
     with patch(
-        "reahl.swordfish.main.simpledialog.askstring",
+        "reahl.swordfish.text_editing.simpledialog.askstring",
         side_effect=["with:", "extraValue", "nil"],
     ):
-        with patch("reahl.swordfish.main.messagebox") as mock_msgbox:
+        with patch("reahl.swordfish.text_editing.messagebox") as mock_msgbox:
             tab.code_panel.preview_method_add_parameter()
 
     mock_msgbox.showerror.assert_called_once()
@@ -6886,8 +6886,8 @@ def test_method_context_menu_preview_inline_shows_error_for_browser_domain_excep
         ("OrderLine", True, "total")
     ]
 
-    with patch("reahl.swordfish.main.simpledialog.askstring", return_value="ifTrue:"):
-        with patch("reahl.swordfish.main.messagebox") as mock_msgbox:
+    with patch("reahl.swordfish.text_editing.simpledialog.askstring", return_value="ifTrue:"):
+        with patch("reahl.swordfish.text_editing.messagebox") as mock_msgbox:
             tab.code_panel.preview_method_inline()
 
     mock_msgbox.showerror.assert_called_once()
@@ -6911,7 +6911,7 @@ def test_right_click_on_method_shows_error_dialog_when_test_fails(fixture):
     }
     fixture.mock_browser.run_test_method = Mock(return_value=failing_result)
 
-    with patch("reahl.swordfish.main.messagebox") as mock_msgbox:
+    with patch("reahl.swordfish.browser.messagebox") as mock_msgbox:
         fixture.browser_window.methods_widget.run_test()
 
     mock_msgbox.showerror.assert_called_once()
@@ -6942,7 +6942,7 @@ def test_right_click_on_class_runs_all_tests_and_shows_result(fixture):
     }
     fixture.mock_browser.run_gemstone_tests = Mock(return_value=passing_result)
 
-    with patch("reahl.swordfish.main.messagebox") as mock_msgbox:
+    with patch("reahl.swordfish.browser.messagebox") as mock_msgbox:
         fixture.browser_window.classes_widget.run_all_tests()
 
     fixture.mock_browser.run_gemstone_tests.assert_called_once_with("OrderLine")
