@@ -30,8 +30,8 @@ from reahl.swordfish.main import (
     GemstoneSessionRecord,
     GlobalNavigationEntry,
     GlobalNavigationHistory,
-    GraphNode,
-    GraphObjectRegistry,
+    UmlObjectNode,
+    UmlObjectDiagramRegistry,
     InspectorTab,
     McpConfigurationStore,
     McpRuntimeConfig,
@@ -39,8 +39,8 @@ from reahl.swordfish.main import (
     ObjectInspector,
     Swordfish,
     UmlClassNode,
-    UmlDiagramRegistry,
-    UmlMethodChooserDialog,
+    UmlClassDiagramRegistry,
+    UmlClassDiagramMethodChooserDialog,
 )
 from reahl.swordfish.mcp.integration_state import IntegratedSessionState
 
@@ -82,10 +82,10 @@ class FakeApplication:
     def end_foreground_activity(self):
         pass
 
-    def open_uml_for_class(self, class_name):
+    def open_class_diagram_for_class(self, class_name):
         pass
 
-    def pin_method_in_uml(self, class_name, show_instance_side, method_selector):
+    def pin_method_in_class_diagram(self, class_name, show_instance_side, method_selector):
         pass
 
 
@@ -942,7 +942,7 @@ def test_text_context_menu_includes_run_and_inspect_for_selected_text_in_open_ta
 def test_text_context_menu_includes_graph_inspect_for_selected_text_in_open_tab(
     fixture,
 ):
-    """AI: Selecting method source text should expose Graph Inspect in the editor context menu."""
+    """AI: Selecting method source text should expose Show in Object Diagram in the editor context menu."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
     tab = fixture.browser_window.editor_area_widget.open_tabs[
         ("OrderLine", True, "total")
@@ -954,7 +954,7 @@ def test_text_context_menu_includes_graph_inspect_for_selected_text_in_open_tab(
     menu = fixture.open_text_context_menu_for_tab(tab)
     command_labels = menu_command_labels(menu)
 
-    assert "Graph Inspect" in command_labels
+    assert "Show in Object Diagram" in command_labels
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -1010,7 +1010,7 @@ def test_inspect_command_from_method_source_context_menu_opens_inspector_for_sel
 def test_graph_inspect_command_from_method_source_context_menu_opens_graph_for_selection(
     fixture,
 ):
-    """AI: Choosing Graph Inspect from method source context menu should evaluate selected source and open Graph on the result."""
+    """AI: Choosing Show in Object Diagram from method source context menu should evaluate selected source and open Graph on the result."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
     tab = fixture.browser_window.editor_area_widget.open_tabs[
         ("OrderLine", True, "total")
@@ -1020,13 +1020,13 @@ def test_graph_inspect_command_from_method_source_context_menu_opens_graph_for_s
     tab.code_panel.text_editor.tag_add(tk.SEL, "1.0", "1.5")
     inspected_object = make_mock_gemstone_object("Integer", "7", oop=3004)
     fixture.mock_browser.run_code.return_value = inspected_object
-    tab.code_panel.application.open_graph_inspector_for_object = Mock()
+    tab.code_panel.application.open_object_diagram_for_object = Mock()
 
     menu = fixture.open_text_context_menu_for_tab(tab)
-    fixture.invoke_menu_command(menu, "Graph Inspect")
+    fixture.invoke_menu_command(menu, "Show in Object Diagram")
 
     fixture.mock_browser.run_code.assert_called_with("3 + 4")
-    tab.code_panel.application.open_graph_inspector_for_object.assert_called_with(
+    tab.code_panel.application.open_object_diagram_for_object.assert_called_with(
         inspected_object,
     )
 
@@ -2708,7 +2708,7 @@ def test_run_source_context_menu_includes_run_and_inspect_for_selected_text(fixt
 
 @with_fixtures(SwordfishAppFixture)
 def test_run_source_context_menu_includes_graph_inspect_for_selected_text(fixture):
-    """AI: Run source context menu should expose Graph Inspect when source text is selected."""
+    """AI: Run source context menu should expose Show in Object Diagram when source text is selected."""
     fixture.simulate_login()
     fixture.app.run_code()
     fixture.app.update()
@@ -2719,7 +2719,7 @@ def test_run_source_context_menu_includes_graph_inspect_for_selected_text(fixtur
 
     run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
     labels = menu_command_labels(run_tab.current_text_menu)
-    assert "Graph Inspect" in labels
+    assert "Show in Object Diagram" in labels
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -2773,7 +2773,7 @@ def test_run_context_menu_inspect_opens_inspector_for_selected_result(fixture):
 
 @with_fixtures(SwordfishAppFixture)
 def test_run_context_menu_graph_inspect_opens_graph_for_selected_result(fixture):
-    """AI: Graph Inspect in Run source context menu should evaluate selected source and open the Graph tab on that result."""
+    """AI: Show in Object Diagram in Run source context menu should evaluate selected source and open the Graph tab on that result."""
     fixture.simulate_login()
     fixture.app.run_code()
     fixture.app.update()
@@ -2786,14 +2786,14 @@ def test_run_context_menu_graph_inspect_opens_graph_for_selected_result(fixture)
     fixture.mock_browser.run_code.return_value = inspected_result
 
     run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
-    invoke_menu_command_by_label(run_tab.current_text_menu, "Graph Inspect")
+    invoke_menu_command_by_label(run_tab.current_text_menu, "Show in Object Diagram")
     fixture.app.update()
 
     fixture.mock_browser.run_code.assert_called_with("3 + 4")
-    assert fixture.app.graph_tab is not None
+    assert fixture.app.object_diagram_tab is not None
     selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
-    assert selected_tab_text == "Graph"
-    assert fixture.app.graph_tab.graph_canvas.registry.contains_object(inspected_result)
+    assert selected_tab_text == "Object Diagram"
+    assert fixture.app.object_diagram_tab.graph_canvas.registry.contains_object(inspected_result)
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -2812,7 +2812,7 @@ def test_mcp_ide_navigation_action_opens_graph_for_oops(fixture):
 
     fixture.mock_browser.run_code.side_effect = object_for_source
     response = fixture.app.perform_mcp_ide_navigation_action(
-        "open_graph_for_oops",
+        "open_object_diagram_for_oops",
         {
             "oop_labels": ["3001", "3002"],
             "clear_existing": True,
@@ -2823,25 +2823,25 @@ def test_mcp_ide_navigation_action_opens_graph_for_oops(fixture):
     assert response["ok"], response
     assert response["opened_oops"] == ["3001", "3002"]
     assert response["unresolved_oops"] == []
-    assert fixture.app.graph_tab is not None
-    registry = fixture.app.graph_tab.graph_canvas.registry
+    assert fixture.app.object_diagram_tab is not None
+    registry = fixture.app.object_diagram_tab.graph_canvas.registry
     assert registry.contains_object(first_object)
     assert registry.contains_object(second_object)
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_open_uml_for_class_creates_uml_tab_and_adds_class(fixture):
+def test_open_class_diagram_for_class_creates_uml_tab_and_adds_class(fixture):
     """AI: Opening UML for a class should create the UML tab and register that class node."""
     fixture.simulate_login()
 
-    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.open_class_diagram_for_class("OrderLine")
     fixture.app.update()
 
-    assert fixture.app.uml_tab is not None
+    assert fixture.app.class_diagram_tab is not None
     selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
-    assert selected_tab_text == "UML"
+    assert selected_tab_text == "Class Diagram"
     assert (
-        fixture.app.uml_tab.uml_canvas.registry.class_node_for("OrderLine")
+        fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("OrderLine")
         is not None
     )
 
@@ -2851,11 +2851,11 @@ def test_uml_tab_shows_inheritance_for_added_classes(fixture):
     """AI: Adding related classes to the UML should create one inheritance edge between them."""
     fixture.simulate_login()
 
-    fixture.app.open_uml_for_class("Order")
-    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.open_class_diagram_for_class("Order")
+    fixture.app.open_class_diagram_for_class("OrderLine")
     fixture.app.update()
 
-    relationships = fixture.app.uml_tab.uml_canvas.registry.all_relationships()
+    relationships = fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()
     inheritance_relationships = [
         relationship
         for relationship in relationships
@@ -2873,11 +2873,11 @@ def test_uml_tab_shows_inferred_inheritance_for_transitive_ancestors(fixture):
     """AI: Adding a class and a transitive ancestor to the UML should show an inferred inheritance edge."""
     fixture.simulate_login()
 
-    fixture.app.open_uml_for_class("Object")
-    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.open_class_diagram_for_class("Object")
+    fixture.app.open_class_diagram_for_class("OrderLine")
     fixture.app.update()
 
-    relationships = fixture.app.uml_tab.uml_canvas.registry.all_relationships()
+    relationships = fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()
     inheritance_relationships = [
         relationship
         for relationship in relationships
@@ -2895,14 +2895,14 @@ def test_uml_direct_inheritance_uses_one_grouped_connector_per_superclass(fixtur
     """AI: Direct subclasses of the same visible superclass should share one grouped inheritance connector."""
     fixture.simulate_login()
 
-    fixture.app.open_uml_for_class("Order")
-    fixture.app.open_uml_for_class("OrderLine")
-    fixture.app.open_uml_for_class("OrderAudit")
+    fixture.app.open_class_diagram_for_class("Order")
+    fixture.app.open_class_diagram_for_class("OrderLine")
+    fixture.app.open_class_diagram_for_class("OrderAudit")
     fixture.app.update()
 
     inheritance_relationships = [
         relationship
-        for relationship in fixture.app.uml_tab.uml_canvas.registry.all_relationships()
+        for relationship in fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()
         if relationship.relationship_kind == "inheritance"
     ]
 
@@ -2918,24 +2918,24 @@ def test_uml_grouped_inheritance_adds_horizontal_join_after_child_is_moved(fixtu
     """AI: A grouped inheritance connector with one child should add a horizontal join when the child moves off the parent's x-position."""
     fixture.simulate_login()
 
-    fixture.app.open_uml_for_class("Order")
-    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.open_class_diagram_for_class("Order")
+    fixture.app.open_class_diagram_for_class("OrderLine")
     fixture.app.update()
 
-    inheritance_relationship = fixture.app.uml_tab.uml_canvas.registry.all_relationships()[0]
+    inheritance_relationship = fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()[0]
     parent_node = inheritance_relationship.target_node
     child_node = inheritance_relationship.source_node
     child_node.x = parent_node.x + 140
 
-    fixture.app.uml_tab.uml_canvas.redraw_all_relationships()
+    fixture.app.class_diagram_tab.uml_canvas.redraw_all_relationships()
     fixture.app.update()
 
     horizontal_line_ids = [
         item_id
         for item_id in inheritance_relationship.canvas_item_ids
-        if len(fixture.app.uml_tab.uml_canvas.canvas.coords(item_id)) == 4
-        and fixture.app.uml_tab.uml_canvas.canvas.coords(item_id)[1]
-        == fixture.app.uml_tab.uml_canvas.canvas.coords(item_id)[3]
+        if len(fixture.app.class_diagram_tab.uml_canvas.canvas.coords(item_id)) == 4
+        and fixture.app.class_diagram_tab.uml_canvas.canvas.coords(item_id)[1]
+        == fixture.app.class_diagram_tab.uml_canvas.canvas.coords(item_id)[3]
     ]
 
     assert len(horizontal_line_ids) == 1
@@ -2946,14 +2946,14 @@ def test_uml_inferred_inheritance_is_grouped_with_other_visible_children(fixture
     """AI: Inferred inheritance into a visible superclass should share the grouped connector with direct subclasses of that superclass."""
     fixture.simulate_login()
 
-    fixture.app.open_uml_for_class("Order")
-    fixture.app.open_uml_for_class("OrderAudit")
-    fixture.app.open_uml_for_class("SpecialOrderLine")
+    fixture.app.open_class_diagram_for_class("Order")
+    fixture.app.open_class_diagram_for_class("OrderAudit")
+    fixture.app.open_class_diagram_for_class("SpecialOrderLine")
     fixture.app.update()
 
     inheritance_relationships = [
         relationship
-        for relationship in fixture.app.uml_tab.uml_canvas.registry.all_relationships()
+        for relationship in fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()
         if relationship.relationship_kind == "inheritance"
     ]
     direct_relationship = next(
@@ -2981,11 +2981,11 @@ def test_uml_inferred_edge_menu_can_add_inheritance_details(fixture):
     """AI: Adding inheritance details should replace an inferred edge with the direct superclass chain, and restore the inferred edge if that detail is removed."""
     fixture.simulate_login()
 
-    fixture.app.open_uml_for_class("Object")
-    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.open_class_diagram_for_class("Object")
+    fixture.app.open_class_diagram_for_class("OrderLine")
     fixture.app.update()
 
-    uml_tab = fixture.app.uml_tab
+    uml_tab = fixture.app.class_diagram_tab
     relationships = uml_tab.uml_canvas.registry.all_relationships()
     inferred_relationship = relationships[0]
     line_id = inferred_relationship.canvas_item_ids[0]
@@ -3059,13 +3059,13 @@ def test_uml_shows_only_one_visible_inheritance_path_to_common_ancestor(fixture)
     """AI: When an intermediate class is missing from the UML, each class should connect only to its nearest visible ancestor."""
     fixture.simulate_login()
 
-    fixture.app.open_uml_for_class("Object")
-    fixture.app.open_uml_for_class("Order")
-    fixture.app.open_uml_for_class("OrderLine")
-    fixture.app.open_uml_for_class("SpecialOrderLine")
+    fixture.app.open_class_diagram_for_class("Object")
+    fixture.app.open_class_diagram_for_class("Order")
+    fixture.app.open_class_diagram_for_class("OrderLine")
+    fixture.app.open_class_diagram_for_class("SpecialOrderLine")
     fixture.app.update()
 
-    uml_tab = fixture.app.uml_tab
+    uml_tab = fixture.app.class_diagram_tab
     uml_tab.remove_class_from_diagram("Order")
     fixture.app.update()
 
@@ -3101,13 +3101,13 @@ def test_uml_rearrange_places_ancestors_above_descendants(fixture):
     """AI: Rearranging the UML should place visible ancestors above their descendants and align a single inheritance chain."""
     fixture.simulate_login()
 
-    fixture.app.open_uml_for_class("Object")
-    fixture.app.open_uml_for_class("Order")
-    fixture.app.open_uml_for_class("OrderLine")
-    fixture.app.open_uml_for_class("SpecialOrderLine")
+    fixture.app.open_class_diagram_for_class("Object")
+    fixture.app.open_class_diagram_for_class("Order")
+    fixture.app.open_class_diagram_for_class("OrderLine")
+    fixture.app.open_class_diagram_for_class("SpecialOrderLine")
     fixture.app.update()
 
-    uml_tab = fixture.app.uml_tab
+    uml_tab = fixture.app.class_diagram_tab
     object_node = uml_tab.uml_canvas.registry.class_node_for("Object")
     order_node = uml_tab.uml_canvas.registry.class_node_for("Order")
     order_line_node = uml_tab.uml_canvas.registry.class_node_for("OrderLine")
@@ -3131,14 +3131,14 @@ def test_uml_rearrange_places_ancestors_above_descendants(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_pin_method_in_uml_adds_method_to_class_node(fixture):
+def test_pin_method_in_class_diagram_adds_method_to_class_node(fixture):
     """AI: Pinning a method into UML should add a method entry to that class node."""
     fixture.simulate_login()
 
-    fixture.app.pin_method_in_uml("OrderLine", True, "total")
+    fixture.app.pin_method_in_class_diagram("OrderLine", True, "total")
     fixture.app.update()
 
-    node = fixture.app.uml_tab.uml_canvas.registry.class_node_for("OrderLine")
+    node = fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("OrderLine")
 
     assert node is not None
     assert node.pinned_methods == [
@@ -3156,11 +3156,11 @@ def test_uml_browse_class_selects_browser_class(fixture):
     fixture.simulate_login()
     fixture.app.handle_find_selection = Mock()
 
-    fixture.app.uml_tab = None
-    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.class_diagram_tab = None
+    fixture.app.open_class_diagram_for_class("OrderLine")
     fixture.app.update()
 
-    fixture.app.uml_tab.browse_class("OrderLine")
+    fixture.app.class_diagram_tab.browse_class("OrderLine")
     fixture.app.update()
 
     fixture.app.handle_find_selection.assert_called_once_with(True, "OrderLine")
@@ -3172,11 +3172,11 @@ def test_uml_browse_method_selects_browser_method(fixture):
     fixture.simulate_login()
     fixture.app.handle_sender_selection = Mock()
 
-    fixture.app.pin_method_in_uml("OrderLine", True, "total")
+    fixture.app.pin_method_in_class_diagram("OrderLine", True, "total")
     fixture.app.update()
 
-    node = fixture.app.uml_tab.uml_canvas.registry.class_node_for("OrderLine")
-    fixture.app.uml_tab.browse_method("OrderLine", node.pinned_methods[0])
+    node = fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("OrderLine")
+    fixture.app.class_diagram_tab.browse_method("OrderLine", node.pinned_methods[0])
     fixture.app.update()
 
     fixture.app.handle_sender_selection.assert_called_once_with(
@@ -3204,7 +3204,7 @@ def test_uml_method_chooser_lists_and_filters_methods_before_pinning(fixture):
     fixture.mock_browser.list_methods.side_effect = list_methods
     on_method_selected = Mock()
 
-    dialog = UmlMethodChooserDialog(
+    dialog = UmlClassDiagramMethodChooserDialog(
         fixture.app,
         fixture.app,
         "OrderLine",
@@ -3254,12 +3254,12 @@ def test_uml_method_chooser_lists_and_filters_methods_before_pinning(fixture):
 def test_uml_add_existing_method_pins_it_on_class_node(fixture):
     """AI: Adding a chosen existing method from UML should pin it on the UML node without invoking method creation."""
     fixture.simulate_login()
-    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.open_class_diagram_for_class("OrderLine")
     fixture.app.update()
 
-    node = fixture.app.uml_tab.uml_canvas.registry.class_node_for("OrderLine")
+    node = fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("OrderLine")
 
-    fixture.app.uml_tab.add_existing_method_to_node(
+    fixture.app.class_diagram_tab.add_existing_method_to_node(
         "OrderLine",
         True,
         "total",
@@ -3278,19 +3278,19 @@ def test_uml_add_existing_method_pins_it_on_class_node(fixture):
 def test_uml_association_prompt_adds_target_class_and_relationship(fixture):
     """AI: Adding an association from a UML node should prompt for a target class and create the labeled edge."""
     fixture.simulate_login()
-    fixture.app.open_uml_for_class("Order")
+    fixture.app.open_class_diagram_for_class("Order")
     fixture.app.update()
-    source_node = fixture.app.uml_tab.uml_canvas.registry.class_node_for("Order")
+    source_node = fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("Order")
 
     with patch(
         "reahl.swordfish.main.simpledialog.askstring",
         return_value="OrderLine",
     ):
-        fixture.app.uml_tab.prompt_add_association(source_node, "lines")
+        fixture.app.class_diagram_tab.prompt_add_association(source_node, "lines")
         fixture.app.update()
 
-    target_node = fixture.app.uml_tab.uml_canvas.registry.class_node_for("OrderLine")
-    relationships = fixture.app.uml_tab.uml_canvas.registry.all_relationships()
+    target_node = fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("OrderLine")
+    relationships = fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()
     association_relationships = [
         relationship
         for relationship in relationships
@@ -3308,21 +3308,21 @@ def test_uml_association_prompt_adds_target_class_and_relationship(fixture):
 def test_uml_undo_restores_diagram_after_clear(fixture):
     """AI: Undo after clearing the UML should restore the previously shown classes."""
     fixture.simulate_login()
-    fixture.app.open_uml_for_class("Order")
-    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.open_class_diagram_for_class("Order")
+    fixture.app.open_class_diagram_for_class("OrderLine")
     fixture.app.update()
 
-    fixture.app.uml_tab.clear_diagram()
+    fixture.app.class_diagram_tab.clear_diagram()
     fixture.app.update()
 
-    assert fixture.app.uml_tab.uml_canvas.registry.all_nodes() == []
+    assert fixture.app.class_diagram_tab.uml_canvas.registry.all_nodes() == []
 
-    fixture.app.uml_tab.undo_diagram()
+    fixture.app.class_diagram_tab.undo_diagram()
     fixture.app.update()
 
     restored_class_names = [
         node.class_name
-        for node in fixture.app.uml_tab.uml_canvas.registry.all_nodes()
+        for node in fixture.app.class_diagram_tab.uml_canvas.registry.all_nodes()
     ]
     assert sorted(restored_class_names) == ["Order", "OrderLine"]
 
@@ -3331,26 +3331,26 @@ def test_uml_undo_restores_diagram_after_clear(fixture):
 def test_uml_undo_reverts_association_addition_in_one_step(fixture):
     """AI: Undoing an association add should remove both the edge and any target class added by that action."""
     fixture.simulate_login()
-    fixture.app.open_uml_for_class("Order")
+    fixture.app.open_class_diagram_for_class("Order")
     fixture.app.update()
-    source_node = fixture.app.uml_tab.uml_canvas.registry.class_node_for("Order")
+    source_node = fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("Order")
 
     with patch(
         "reahl.swordfish.main.simpledialog.askstring",
         return_value="OrderLine",
     ):
-        fixture.app.uml_tab.prompt_add_association(source_node, "lines")
+        fixture.app.class_diagram_tab.prompt_add_association(source_node, "lines")
         fixture.app.update()
 
-    fixture.app.uml_tab.undo_diagram()
+    fixture.app.class_diagram_tab.undo_diagram()
     fixture.app.update()
 
     remaining_class_names = [
         node.class_name
-        for node in fixture.app.uml_tab.uml_canvas.registry.all_nodes()
+        for node in fixture.app.class_diagram_tab.uml_canvas.registry.all_nodes()
     ]
     assert remaining_class_names == ["Order"]
-    assert fixture.app.uml_tab.uml_canvas.registry.all_relationships() == []
+    assert fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships() == []
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -3358,13 +3358,13 @@ def test_uml_undo_reverts_pinned_method_and_added_class_in_one_step(fixture):
     """AI: Undoing the first method pin should remove both the pinned method and the class added for it."""
     fixture.simulate_login()
 
-    fixture.app.pin_method_in_uml("OrderLine", True, "total")
+    fixture.app.pin_method_in_class_diagram("OrderLine", True, "total")
     fixture.app.update()
 
-    fixture.app.uml_tab.undo_diagram()
+    fixture.app.class_diagram_tab.undo_diagram()
     fixture.app.update()
 
-    assert fixture.app.uml_tab.uml_canvas.registry.all_nodes() == []
+    assert fixture.app.class_diagram_tab.uml_canvas.registry.all_nodes() == []
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -3418,15 +3418,15 @@ def test_mcp_ide_navigation_action_opens_method_in_browser(fixture):
 def test_mcp_ide_navigation_action_queries_uml_diagram_state(fixture):
     """AI: MCP UML query should report the current UML diagram state from the IDE."""
     fixture.simulate_login()
-    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.open_class_diagram_for_class("OrderLine")
     fixture.app.update()
 
-    response = fixture.app.perform_mcp_ide_navigation_action("query_uml_diagram")
+    response = fixture.app.perform_mcp_ide_navigation_action("query_class_diagram")
 
     assert response["ok"], response
-    assert response["uml_state"]["is_open"]
-    assert response["uml_state"]["is_selected"]
-    assert response["uml_state"]["diagram"]["nodes"][0]["class_name"] == "OrderLine"
+    assert response["class_diagram_state"]["is_open"]
+    assert response["class_diagram_state"]["is_selected"]
+    assert response["class_diagram_state"]["diagram"]["nodes"][0]["class_name"] == "OrderLine"
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -3435,7 +3435,7 @@ def test_mcp_ide_navigation_action_adds_class_to_uml(fixture):
     fixture.simulate_login()
 
     response = fixture.app.perform_mcp_ide_navigation_action(
-        "add_class_to_uml",
+        "add_class_to_class_diagram",
         {
             "class_name": "OrderLine",
         },
@@ -3443,8 +3443,8 @@ def test_mcp_ide_navigation_action_adds_class_to_uml(fixture):
     fixture.app.update()
 
     assert response["ok"], response
-    assert fixture.app.uml_tab is not None
-    assert response["uml_state"]["diagram"]["nodes"][0]["class_name"] == "OrderLine"
+    assert fixture.app.class_diagram_tab is not None
+    assert response["class_diagram_state"]["diagram"]["nodes"][0]["class_name"] == "OrderLine"
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -3453,7 +3453,7 @@ def test_mcp_ide_navigation_action_adds_association_to_uml(fixture):
     fixture.simulate_login()
 
     response = fixture.app.perform_mcp_ide_navigation_action(
-        "add_association_to_uml",
+        "add_association_to_class_diagram",
         {
             "source_class_name": "Order",
             "inst_var_name": "lines",
@@ -3462,7 +3462,7 @@ def test_mcp_ide_navigation_action_adds_association_to_uml(fixture):
     )
     fixture.app.update()
 
-    relationships = fixture.app.uml_tab.uml_canvas.registry.all_relationships()
+    relationships = fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()
     association_relationships = [
         relationship
         for relationship in relationships
@@ -3482,12 +3482,12 @@ def test_mcp_ide_navigation_action_adds_association_to_uml(fixture):
 def test_mcp_ide_navigation_action_adds_inheritance_details_to_uml(fixture):
     """AI: MCP UML inheritance-detail action should replace an inferred edge with the missing direct superclass classes."""
     fixture.simulate_login()
-    fixture.app.open_uml_for_class("Object")
-    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.open_class_diagram_for_class("Object")
+    fixture.app.open_class_diagram_for_class("OrderLine")
     fixture.app.update()
 
     response = fixture.app.perform_mcp_ide_navigation_action(
-        "add_inheritance_details_to_uml",
+        "add_inheritance_details_to_class_diagram",
         {
             "source_class_name": "OrderLine",
             "target_class_name": "Object",
@@ -3495,7 +3495,7 @@ def test_mcp_ide_navigation_action_adds_inheritance_details_to_uml(fixture):
     )
     fixture.app.update()
 
-    relationships = fixture.app.uml_tab.uml_canvas.registry.all_relationships()
+    relationships = fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()
     inferred_relationships = [
         relationship
         for relationship in relationships
@@ -3505,7 +3505,7 @@ def test_mcp_ide_navigation_action_adds_inheritance_details_to_uml(fixture):
 
     assert response["ok"], response
     assert response["added_class_names"] == ["Order"]
-    assert fixture.app.uml_tab.uml_canvas.registry.class_node_for("Order") is not None
+    assert fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("Order") is not None
     assert inferred_relationships == []
 
 
@@ -3513,22 +3513,22 @@ def test_mcp_ide_navigation_action_adds_inheritance_details_to_uml(fixture):
 def test_mcp_ide_navigation_action_clears_and_undoes_uml_diagram(fixture):
     """AI: MCP UML clear and undo actions should edit the diagram history just like the UI controls."""
     fixture.simulate_login()
-    fixture.app.open_uml_for_class("OrderLine")
+    fixture.app.open_class_diagram_for_class("OrderLine")
     fixture.app.update()
 
     clear_response = fixture.app.perform_mcp_ide_navigation_action(
-        "clear_uml_diagram"
+        "clear_class_diagram"
     )
     fixture.app.update()
-    undo_response = fixture.app.perform_mcp_ide_navigation_action("undo_uml_diagram")
+    undo_response = fixture.app.perform_mcp_ide_navigation_action("undo_class_diagram")
     fixture.app.update()
 
     assert clear_response["ok"], clear_response
     assert clear_response["diagram_changed"] is True
-    assert clear_response["uml_state"]["diagram"]["nodes"] == []
+    assert clear_response["class_diagram_state"]["diagram"]["nodes"] == []
     assert undo_response["ok"], undo_response
     assert undo_response["diagram_changed"] is True
-    assert undo_response["uml_state"]["diagram"]["nodes"][0]["class_name"] == "OrderLine"
+    assert undo_response["class_diagram_state"]["diagram"]["nodes"][0]["class_name"] == "OrderLine"
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -3976,10 +3976,10 @@ def test_global_navigation_history_replaces_current_place_without_losing_forward
         place_key=('browser_selection', 'OrderLine'),
     )
     uml_entry = GlobalNavigationEntry(
-        'uml_session',
-        'UML',
+        'class_diagram_session',
+        'Class Diagram',
         {'session_key': 'uml:1'},
-        place_key=('uml_session', 'uml:1'),
+        place_key=('class_diagram_session', 'uml:1'),
     )
     run_entry = GlobalNavigationEntry(
         'run_session',
@@ -4076,10 +4076,10 @@ def test_global_forward_revisits_live_graph_session(fixture):
     fixture.simulate_login()
     fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
     graphed_object = make_mock_gemstone_object('Integer', '7', oop=3007)
-    fixture.app.open_graph_inspector_for_object(graphed_object)
+    fixture.app.open_object_diagram_for_object(graphed_object)
     fixture.app.update()
 
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Graph'
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Object Diagram'
 
     fixture.app.global_back_button.invoke()
     fixture.app.update()
@@ -4090,7 +4090,7 @@ def test_global_forward_revisits_live_graph_session(fixture):
     fixture.app.global_forward_button.invoke()
     fixture.app.update()
 
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Graph'
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Object Diagram'
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -4118,10 +4118,10 @@ def test_global_back_skips_closed_graph_session_entries(fixture):
     fixture.simulate_login()
     fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
     graphed_object = make_mock_gemstone_object('Integer', '7', oop=3007)
-    fixture.app.open_graph_inspector_for_object(graphed_object)
+    fixture.app.open_object_diagram_for_object(graphed_object)
     fixture.app.update()
     fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
-    fixture.app.close_graph_tab()
+    fixture.app.close_object_diagram_tab()
     fixture.app.update()
 
     fixture.app.global_back_button.invoke()
@@ -4136,10 +4136,10 @@ def test_global_forward_revisits_live_uml_session(fixture):
     """AI: A live UML session should remain revisitable through app-level Back and Forward."""
     fixture.simulate_login()
     fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
-    fixture.app.open_uml_for_class('OrderLine')
+    fixture.app.open_class_diagram_for_class('OrderLine')
     fixture.app.update()
 
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'UML'
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Class Diagram'
 
     fixture.app.global_back_button.invoke()
     fixture.app.update()
@@ -4150,7 +4150,7 @@ def test_global_forward_revisits_live_uml_session(fixture):
     fixture.app.global_forward_button.invoke()
     fixture.app.update()
 
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'UML'
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Class Diagram'
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -4158,10 +4158,10 @@ def test_global_back_restores_browser_class_selection_without_open_method(fixtur
     """AI: Leaving the browser from a class-only selection should still preserve that browser place in global history."""
     fixture.simulate_login()
     fixture.select_down_to_class('Kernel', 'OrderLine')
-    fixture.app.open_uml_for_class('OrderLine')
+    fixture.app.open_class_diagram_for_class('OrderLine')
     fixture.app.update()
 
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'UML'
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Class Diagram'
 
     fixture.app.global_back_button.invoke()
     fixture.app.update()
@@ -4176,7 +4176,7 @@ def test_browsing_more_in_browser_after_global_back_keeps_forward_history(fixtur
     """AI: Changing browser-local selection after global Back should update the browser place without truncating forward places."""
     fixture.simulate_login()
     fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
-    fixture.app.open_uml_for_class('OrderLine')
+    fixture.app.open_class_diagram_for_class('OrderLine')
     fixture.app.update()
     fixture.app.open_run_tab()
     fixture.app.update()
@@ -4191,7 +4191,7 @@ def test_browsing_more_in_browser_after_global_back_keeps_forward_history(fixtur
 
     fixture.app.global_forward_button.invoke()
     fixture.app.update()
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'UML'
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Class Diagram'
 
     fixture.app.global_forward_button.invoke()
     fixture.app.update()
@@ -4203,14 +4203,14 @@ def test_global_history_dropdown_jumps_to_selected_place(fixture):
     """AI: Choosing an entry in the global history dropdown should jump directly to that place."""
     fixture.simulate_login()
     fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
-    fixture.app.open_uml_for_class('OrderLine')
+    fixture.app.open_class_diagram_for_class('OrderLine')
     fixture.app.update()
     fixture.app.open_run_tab()
     fixture.app.update()
 
     history_values = fixture.app.global_history_combobox.cget('values')
     matching_indices = [
-        index for index, value in enumerate(history_values) if value == 'UML'
+        index for index, value in enumerate(history_values) if value == 'Class Diagram'
     ]
     target_index = matching_indices[0]
 
@@ -4218,7 +4218,7 @@ def test_global_history_dropdown_jumps_to_selected_place(fixture):
     fixture.app.global_history_combobox.event_generate('<<ComboboxSelected>>')
     fixture.app.update()
 
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'UML'
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Class Diagram'
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -4253,10 +4253,10 @@ def test_global_back_skips_closed_uml_session_entries(fixture):
     """AI: Closing a UML session should stale its global entries so app-level Back skips them."""
     fixture.simulate_login()
     fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
-    fixture.app.open_uml_for_class('OrderLine')
+    fixture.app.open_class_diagram_for_class('OrderLine')
     fixture.app.update()
     fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
-    fixture.app.close_uml_tab()
+    fixture.app.close_class_diagram_tab()
     fixture.app.update()
 
     fixture.app.global_back_button.invoke()
@@ -6207,13 +6207,13 @@ def make_mock_instance_with_inst_vars(class_name, string_repr, inst_vars, oop=No
 class GraphObjectRegistryFixture(Fixture):
     @set_up
     def create_registry(self):
-        self.registry = GraphObjectRegistry()
+        self.registry = UmlObjectDiagramRegistry()
 
 
 class UmlDiagramRegistryFixture(Fixture):
     @set_up
     def create_registry(self):
-        self.registry = UmlDiagramRegistry()
+        self.registry = UmlClassDiagramRegistry()
 
 
 class GraphObjectKeyScenarios(Fixture):
@@ -6261,7 +6261,7 @@ def test_graph_registry_registers_and_resolves_nodes_by_key(fixture):
     """AI: Registering a graph node should allow node lookup by an equivalent object key."""
     gemstone_object = make_mock_gemstone_object("OrderLine", "anOrderLine", oop=2003)
     oop_key = fixture.registry.oop_key_for(gemstone_object)
-    node = GraphNode(
+    node = UmlObjectNode(
         gemstone_object,
         oop_key,
         class_name="OrderLine",
@@ -6281,13 +6281,13 @@ def test_graph_registry_avoids_duplicate_edges_for_same_source_target_and_label(
     """AI: Re-adding an existing source-target-label edge should not duplicate graph links."""
     source_object = make_mock_gemstone_object("Order", "anOrder", oop=101)
     target_object = make_mock_gemstone_object("OrderLine", "aLine", oop=102)
-    source_node = GraphNode(
+    source_node = UmlObjectNode(
         source_object,
         fixture.registry.oop_key_for(source_object),
         class_name="Order",
         label="101:Order",
     )
-    target_node = GraphNode(
+    target_node = UmlObjectNode(
         target_object,
         fixture.registry.oop_key_for(target_object),
         class_name="OrderLine",
@@ -6469,7 +6469,7 @@ def test_double_clicking_equivalent_oop_reuses_existing_tab(fixture):
 
 @with_fixtures(ObjectInspectorFixture)
 def test_object_inspector_row_menu_graph_inspect_routes_selected_value(fixture):
-    """AI: The object row context menu should expose Graph Inspect and pass the selected row value to the graph action."""
+    """AI: The object row context menu should expose Show in Object Diagram and pass the selected row value to the graph action."""
     graph_inspect_action = Mock()
     inspector = ObjectInspector(
         fixture.root,
@@ -6488,9 +6488,9 @@ def test_object_inspector_row_menu_graph_inspect_routes_selected_value(fixture):
     fixture.root.update()
 
     command_labels = menu_command_labels(inspector.current_object_menu)
-    assert "Graph Inspect" in command_labels
+    assert "Show in Object Diagram" in command_labels
 
-    invoke_menu_command_by_label(inspector.current_object_menu, "Graph Inspect")
+    invoke_menu_command_by_label(inspector.current_object_menu, "Show in Object Diagram")
     fixture.root.update()
 
     graph_inspect_action.assert_called_once_with(fixture.mock_self)
@@ -6611,7 +6611,7 @@ def test_method_context_menu_show_in_uml_routes_selected_method(fixture):
     """AI: The method context menu should route the selected method to the UML pin action."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
     methods_widget = fixture.browser_window.methods_widget
-    methods_widget.browser_window.application.pin_method_in_uml = Mock()
+    methods_widget.browser_window.application.pin_method_in_class_diagram = Mock()
 
     methods_widget.show_context_menu(
         types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1),
@@ -6620,11 +6620,11 @@ def test_method_context_menu_show_in_uml_routes_selected_method(fixture):
 
     command_labels = menu_command_labels(methods_widget.current_context_menu)
 
-    assert "Show in UML" in command_labels
+    assert "Show in Class Diagram" in command_labels
 
-    invoke_menu_command_by_label(methods_widget.current_context_menu, "Show in UML")
+    invoke_menu_command_by_label(methods_widget.current_context_menu, "Show in Class Diagram")
 
-    methods_widget.browser_window.application.pin_method_in_uml.assert_called_once_with(
+    methods_widget.browser_window.application.pin_method_in_class_diagram.assert_called_once_with(
         "OrderLine",
         True,
         "total",
@@ -7049,7 +7049,7 @@ def test_class_hierarchy_context_menu_add_selected_to_uml_routes_all_selected_cl
         "Kernel",
     )
     classes_widget = fixture.browser_window.classes_widget
-    classes_widget.browser_window.application.open_uml_for_class = Mock()
+    classes_widget.browser_window.application.open_class_diagram_for_class = Mock()
     classes_widget.classes_notebook.select(classes_widget.hierarchy_frame)
     fixture.root.update()
     tree = classes_widget.hierarchy_tree
@@ -7085,11 +7085,11 @@ def test_class_hierarchy_context_menu_add_selected_to_uml_routes_all_selected_cl
     menu = classes_widget.current_context_menu
     command_labels = menu_command_labels(menu)
 
-    assert "Add Selected to UML" in command_labels
+    assert "Add Selected to Class Diagram" in command_labels
 
-    fixture.invoke_menu_command(menu, "Add Selected to UML")
+    fixture.invoke_menu_command(menu, "Add Selected to Class Diagram")
 
-    classes_widget.browser_window.application.open_uml_for_class.assert_has_calls(
+    classes_widget.browser_window.application.open_class_diagram_for_class.assert_has_calls(
         [
             call("Order"),
             call("OrderLine"),
@@ -7105,7 +7105,7 @@ def test_class_list_context_menu_add_to_uml_routes_selected_class(fixture):
         "Kernel",
     )
     classes_widget = fixture.browser_window.classes_widget
-    classes_widget.browser_window.application.open_uml_for_class = Mock()
+    classes_widget.browser_window.application.open_class_diagram_for_class = Mock()
     class_listbox = classes_widget.selection_list.selection_listbox
     class_index = list(class_listbox.get(0, "end")).index("OrderLine")
     class_item_box = class_listbox.bbox(class_index)
@@ -7122,11 +7122,11 @@ def test_class_list_context_menu_add_to_uml_routes_selected_class(fixture):
     menu = classes_widget.current_context_menu
     command_labels = menu_command_labels(menu)
 
-    assert "Add to UML" in command_labels
+    assert "Add to Class Diagram" in command_labels
 
-    fixture.invoke_menu_command(menu, "Add to UML")
+    fixture.invoke_menu_command(menu, "Add to Class Diagram")
 
-    classes_widget.browser_window.application.open_uml_for_class.assert_called_once_with(
+    classes_widget.browser_window.application.open_class_diagram_for_class.assert_called_once_with(
         "OrderLine",
     )
 
