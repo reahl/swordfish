@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import tkinter as tk
@@ -33,7 +34,9 @@ from reahl.swordfish.main import (
     UmlObjectNode,
     UmlObjectDiagramRegistry,
     InspectorTab,
+    McpConfigurationDialog,
     McpConfigurationStore,
+    McpPermissionPolicy,
     McpRuntimeConfig,
     McpServerController,
     ObjectInspector,
@@ -1969,6 +1972,226 @@ def test_save_and_load_mcp_runtime_config_uses_xdg_home_location():
             assert configuration_store.config_file_path() == expected_config_path
             assert loaded_runtime_config is not None
             assert loaded_runtime_config.to_dict() == runtime_config.to_dict()
+
+
+def test_save_mcp_runtime_config_preserves_permission_policy_source():
+    """AI: Saving MCP runtime config should preserve the hand-edited Smalltalk permission policy."""
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": temporary_directory}):
+            configuration_store = McpConfigurationStore()
+            config_file_path = configuration_store.config_file_path()
+            os.makedirs(os.path.dirname(config_file_path), exist_ok=True)
+            with open(config_file_path, "w", encoding="utf-8") as config_file:
+                config_file.write(
+                    """
+{
+  "schema_version": 2,
+  "mcp_permission_policy": {
+    "allow_session_permission_changes_condition_source": "System stoneName ~= 'prod'"
+  },
+  "mcp_runtime_config": {
+    "allow_source_read": true
+  }
+}
+""".strip()
+                    + "\n"
+                )
+
+            configuration_store.save(
+                McpRuntimeConfig(
+                    allow_source_read=True,
+                    allow_source_write=True,
+                    mcp_host="127.0.0.1",
+                    mcp_port=8123,
+                    mcp_http_path="/saved",
+                )
+            )
+
+            with open(config_file_path, "r", encoding="utf-8") as config_file:
+                saved_payload = json.load(config_file)
+
+            assert saved_payload["mcp_permission_policy"] == {
+                "allow_session_permission_changes_condition_source": (
+                    "System stoneName ~= 'prod'"
+                )
+            }
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_read_only_config_in_prod_locks_permission_toggles(fixture):
+    """AI: A read-only config should lock all permission toggles when the connected database is treated as production."""
+    fixture.app.mcp_permission_policy = McpPermissionPolicy(
+        allow_session_permission_changes_condition_source="System stoneName = 'prod'"
+    )
+    fixture.session_record.run_code = Mock(return_value=types.SimpleNamespace(to_py=False))
+    with patch.object(
+        fixture.app.mcp_server_controller.configuration_store,
+        "can_write_config",
+        return_value=False,
+    ):
+        fixture.simulate_login()
+        dialog = McpConfigurationDialog(
+            fixture.app,
+            fixture.app.mcp_runtime_config,
+            fixture.app.mcp_configuration_access(),
+        )
+        fixture.app.update()
+    try:
+        assert dialog.allow_source_read_checkbutton.cget("state") == tk.DISABLED
+        assert dialog.allow_source_write_checkbutton.cget("state") == tk.DISABLED
+        assert dialog.allow_eval_arbitrary_checkbutton.cget("state") == tk.DISABLED
+        assert dialog.allow_test_execution_checkbutton.cget("state") == tk.DISABLED
+        assert dialog.allow_ide_read_checkbutton.cget("state") == tk.DISABLED
+        assert dialog.allow_ide_write_checkbutton.cget("state") == tk.DISABLED
+        assert dialog.allow_commit_checkbutton.cget("state") == tk.DISABLED
+        assert dialog.allow_tracing_checkbutton.cget("state") == tk.DISABLED
+        assert dialog.require_gemstone_ast_checkbutton.cget("state") == tk.DISABLED
+        assert "locked" in dialog.permission_note_variable.get().lower()
+    finally:
+        dialog.destroy()
+        fixture.app.update()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_read_only_config_non_prod_allows_session_only_permission_changes(
+    fixture,
+):
+    """AI: A read-only config should allow permission changes only for the current session when the connected database is not production."""
+    fixture.app.mcp_permission_policy = McpPermissionPolicy(
+        allow_session_permission_changes_condition_source="System stoneName ~= 'prod'"
+    )
+    fixture.session_record.run_code = Mock(return_value=types.SimpleNamespace(to_py=True))
+    updated_runtime_config = McpRuntimeConfig(
+        allow_source_read=True,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
+        allow_commit=True,
+        allow_tracing=True,
+        require_gemstone_ast=True,
+        mcp_host="127.0.0.1",
+        mcp_port=9177,
+        mcp_http_path="/updated",
+    )
+    with patch.object(
+        fixture.app.mcp_server_controller.configuration_store,
+        "can_write_config",
+        return_value=False,
+    ):
+        fixture.simulate_login()
+        dialog = McpConfigurationDialog(
+            fixture.app,
+            fixture.app.mcp_runtime_config,
+            fixture.app.mcp_configuration_access(),
+        )
+        fixture.app.update()
+        assert dialog.allow_eval_arbitrary_checkbutton.cget("state") == tk.NORMAL
+        assert "session" in dialog.permission_note_variable.get().lower()
+        dialog.destroy()
+        fixture.app.update()
+
+        fake_dialog = types.SimpleNamespace(result=updated_runtime_config)
+        with patch(
+            "reahl.swordfish.main.McpConfigurationDialog", return_value=fake_dialog
+        ):
+            with patch.object(fixture.app, "wait_window") as wait_window:
+                with patch.object(
+                    fixture.app.mcp_server_controller,
+                    "save_configuration",
+                ) as save_configuration:
+                    fixture.app.configure_mcp_server_from_menu()
+
+    wait_window.assert_called_once_with(fake_dialog)
+    save_configuration.assert_not_called()
+    assert fixture.app.mcp_runtime_config.to_dict() == updated_runtime_config.to_dict()
+    assert fixture.app.base_mcp_runtime_config.to_dict() != updated_runtime_config.to_dict()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_logout_resets_session_only_mcp_configuration(fixture):
+    """AI: Session-only MCP configuration changes should be cleared on logout."""
+    fixture.app.mcp_permission_policy = McpPermissionPolicy(
+        allow_session_permission_changes_condition_source="System stoneName ~= 'prod'"
+    )
+    fixture.session_record.run_code = Mock(return_value=types.SimpleNamespace(to_py=True))
+    updated_runtime_config = McpRuntimeConfig(
+        allow_source_read=True,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
+        allow_commit=True,
+        allow_tracing=True,
+        require_gemstone_ast=True,
+        mcp_host="127.0.0.1",
+        mcp_port=9177,
+        mcp_http_path="/updated",
+    )
+    base_runtime_config = fixture.app.mcp_runtime_config.copy()
+    with patch.object(
+        fixture.app.mcp_server_controller.configuration_store,
+        "can_write_config",
+        return_value=False,
+    ):
+        fixture.simulate_login()
+        fake_dialog = types.SimpleNamespace(result=updated_runtime_config)
+        with patch(
+            "reahl.swordfish.main.McpConfigurationDialog", return_value=fake_dialog
+        ):
+            with patch.object(fixture.app, "wait_window"):
+                fixture.app.configure_mcp_server_from_menu()
+        with patch.object(
+            fixture.app.mcp_server_controller,
+            "stop_for_session_reset",
+        ) as stop_for_session_reset:
+            fixture.app.logout()
+
+    stop_for_session_reset.assert_not_called()
+    assert fixture.app.mcp_runtime_config.to_dict() == base_runtime_config.to_dict()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_logout_stops_mcp_when_session_only_config_is_active(fixture):
+    """AI: Logout should stop embedded MCP before clearing a session-only configuration that was never persisted."""
+    fixture.app.mcp_permission_policy = McpPermissionPolicy(
+        allow_session_permission_changes_condition_source="System stoneName ~= 'prod'"
+    )
+    fixture.session_record.run_code = Mock(return_value=types.SimpleNamespace(to_py=True))
+    updated_runtime_config = McpRuntimeConfig(
+        allow_source_read=True,
+        allow_eval_arbitrary=True,
+        allow_source_write=True,
+        allow_ide_read=True,
+        allow_ide_write=True,
+        allow_commit=True,
+        allow_tracing=True,
+        require_gemstone_ast=True,
+        mcp_host="127.0.0.1",
+        mcp_port=9177,
+        mcp_http_path="/updated",
+    )
+    with patch.object(
+        fixture.app.mcp_server_controller.configuration_store,
+        "can_write_config",
+        return_value=False,
+    ):
+        fixture.simulate_login()
+        fake_dialog = types.SimpleNamespace(result=updated_runtime_config)
+        with patch(
+            "reahl.swordfish.main.McpConfigurationDialog", return_value=fake_dialog
+        ):
+            with patch.object(fixture.app, "wait_window"):
+                fixture.app.configure_mcp_server_from_menu()
+        with patch.object(
+            fixture.app.mcp_server_controller,
+            "stop_for_session_reset",
+        ) as stop_for_session_reset:
+            with fixture.app.mcp_server_controller.lock:
+                fixture.app.mcp_server_controller.running = True
+            fixture.app.logout()
+
+    stop_for_session_reset.assert_called_once()
 
 
 def test_run_mcp_server_passes_streamable_http_options_to_create_server():
