@@ -5206,6 +5206,13 @@ class Swordfish(tk.Tk):
         self.inspector_tab = None
         self.graph_tab = None
         self.uml_tab = None
+        self.global_navigation_history = GlobalNavigationHistory()
+        self.global_navigation_selection_in_progress = False
+        self.next_global_navigation_session_number = 1
+        self.global_back_button = None
+        self.global_forward_button = None
+        self.global_history_combobox = None
+        self.global_history_choice_indices = []
         self.collaboration_status_frame = None
         self.collaboration_status_label = None
         self.collaboration_status_text = tk.StringVar(value="")
@@ -5250,6 +5257,10 @@ class Swordfish(tk.Tk):
         self.event_queue.subscribe(
             "OpenRunWindow",
             self.handle_open_run_window,
+        )
+        self.event_queue.subscribe(
+            "MethodSelected",
+            self.record_current_browser_place_in_global_history,
         )
         self.integrated_session_state.subscribe_mcp_busy_state(
             self.publish_mcp_busy_state_event,
@@ -5376,6 +5387,13 @@ class Swordfish(tk.Tk):
         self.inspector_tab = None
         self.graph_tab = None
         self.uml_tab = None
+        self.global_navigation_history = GlobalNavigationHistory()
+        self.global_navigation_selection_in_progress = False
+        self.next_global_navigation_session_number = 1
+        self.global_back_button = None
+        self.global_forward_button = None
+        self.global_history_combobox = None
+        self.global_history_choice_indices = []
         self.collaboration_status_frame = None
         self.collaboration_status_label = None
         self.mcp_activity_indicator = None
@@ -5436,6 +5454,10 @@ class Swordfish(tk.Tk):
     def create_notebook(self):
         self.notebook = ttk.Notebook(self)
         self.notebook.grid(row=0, column=0, sticky="nsew")
+        self.notebook.bind(
+            "<<NotebookTabChanged>>",
+            self.record_selected_tab_in_global_history,
+        )
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
@@ -5448,7 +5470,43 @@ class Swordfish(tk.Tk):
             padx=6,
             pady=(2, 4),
         )
-        self.collaboration_status_frame.columnconfigure(0, weight=1)
+        self.collaboration_status_frame.columnconfigure(2, weight=1)
+        self.global_back_button = ttk.Button(
+            self.collaboration_status_frame,
+            text="Back",
+            command=self.go_to_previous_global_place,
+        )
+        self.global_back_button.grid(
+            row=0,
+            column=0,
+            sticky="w",
+        )
+        self.global_forward_button = ttk.Button(
+            self.collaboration_status_frame,
+            text="Forward",
+            command=self.go_to_next_global_place,
+        )
+        self.global_forward_button.grid(
+            row=0,
+            column=1,
+            sticky="w",
+            padx=(4, 8),
+        )
+        self.global_history_combobox = ttk.Combobox(
+            self.collaboration_status_frame,
+            state='readonly',
+            width=36,
+        )
+        self.global_history_combobox.grid(
+            row=0,
+            column=2,
+            sticky='w',
+            padx=(0, 8),
+        )
+        self.global_history_combobox.bind(
+            '<<ComboboxSelected>>',
+            self.jump_to_selected_global_history_entry,
+        )
         self.collaboration_status_label = ttk.Label(
             self.collaboration_status_frame,
             textvariable=self.collaboration_status_text,
@@ -5456,7 +5514,7 @@ class Swordfish(tk.Tk):
         )
         self.collaboration_status_label.grid(
             row=0,
-            column=0,
+            column=3,
             sticky="ew",
         )
         self.mcp_activity_indicator = ttk.Progressbar(
@@ -5466,12 +5524,396 @@ class Swordfish(tk.Tk):
         )
         self.mcp_activity_indicator.grid(
             row=0,
-            column=1,
+            column=4,
             sticky="e",
             padx=(8, 0),
         )
         self.set_mcp_activity_indicator_visibility(False)
+        self.refresh_global_navigation_controls()
         self.rowconfigure(1, weight=0)
+
+    def allocate_global_navigation_session_key(self, kind):
+        session_number = self.next_global_navigation_session_number
+        self.next_global_navigation_session_number += 1
+        return f"{kind}:{session_number}"
+
+    def method_context_for_global_navigation(self):
+        if not self.is_logged_in:
+            return None
+        selected_class = self.gemstone_session_record.selected_class
+        selected_method_symbol = self.gemstone_session_record.selected_method_symbol
+        if not selected_class or not selected_method_symbol:
+            return None
+        return (
+            selected_class,
+            self.gemstone_session_record.show_instance_side,
+            selected_method_symbol,
+        )
+
+    def browser_state_for_global_navigation(self):
+        if not self.is_logged_in:
+            return None
+        selected_class_category = (
+            self.gemstone_session_record.selected_dictionary
+            if self.gemstone_session_record.browse_mode == 'dictionaries'
+            else self.gemstone_session_record.selected_package
+        )
+        has_browser_selection = any(
+            (
+                selected_class_category,
+                self.gemstone_session_record.selected_class,
+                self.gemstone_session_record.selected_method_category,
+                self.gemstone_session_record.selected_method_symbol,
+            )
+        )
+        if not has_browser_selection:
+            return None
+        return {
+            'browse_mode': self.gemstone_session_record.browse_mode,
+            'selected_package': self.gemstone_session_record.selected_package,
+            'selected_dictionary': self.gemstone_session_record.selected_dictionary,
+            'selected_class': self.gemstone_session_record.selected_class,
+            'selected_method_category': (
+                self.gemstone_session_record.selected_method_category
+            ),
+            'selected_method_symbol': self.gemstone_session_record.selected_method_symbol,
+            'show_instance_side': self.gemstone_session_record.show_instance_side,
+        }
+
+    def label_for_global_method_context(self, method_context):
+        if method_context is None:
+            return ""
+        class_name, show_instance_side, method_symbol = method_context
+        if show_instance_side:
+            return f"{class_name}>>{method_symbol}"
+        return f"{class_name} class>>{method_symbol}"
+
+    def label_for_browser_state(self, browser_state):
+        if browser_state is None:
+            return ""
+        method_symbol = browser_state.get('selected_method_symbol')
+        selected_class = browser_state.get('selected_class')
+        show_instance_side = browser_state.get('show_instance_side', True)
+        if selected_class and method_symbol:
+            return self.label_for_global_method_context(
+                (
+                    selected_class,
+                    show_instance_side,
+                    method_symbol,
+                )
+            )
+        if selected_class:
+            if show_instance_side:
+                return selected_class
+            return f"{selected_class} class"
+        selected_dictionary = browser_state.get('selected_dictionary')
+        if selected_dictionary:
+            return selected_dictionary
+        selected_package = browser_state.get('selected_package')
+        if selected_package:
+            return selected_package
+        return browser_state.get('browse_mode', 'browser')
+
+    def browser_place_key(self, browser_state):
+        return (
+            'browser_selection',
+            browser_state.get('browse_mode'),
+            browser_state.get('selected_package'),
+            browser_state.get('selected_dictionary'),
+            browser_state.get('selected_class'),
+            browser_state.get('selected_method_category'),
+            browser_state.get('selected_method_symbol'),
+            browser_state.get('show_instance_side'),
+        )
+
+    def current_browser_place_entry(self):
+        browser_state = self.browser_state_for_global_navigation()
+        if browser_state is None:
+            return None
+        method_context = self.method_context_for_global_navigation()
+        if method_context is not None:
+            return GlobalNavigationEntry(
+                'browser_method',
+                self.label_for_global_method_context(method_context),
+                {
+                    'method_context': method_context,
+                    'browser_state': browser_state,
+                },
+                place_key=self.browser_place_key(browser_state),
+            )
+        return GlobalNavigationEntry(
+            'browser_selection',
+            self.label_for_browser_state(browser_state),
+            {'browser_state': browser_state},
+            place_key=self.browser_place_key(browser_state),
+        )
+
+    def record_global_navigation_entry(self, entry):
+        if self.global_navigation_selection_in_progress:
+            self.refresh_global_navigation_controls()
+            return
+        self.global_navigation_history.record(entry)
+        self.refresh_global_navigation_controls()
+
+    def record_current_browser_place_in_global_history(self, origin=None):
+        browser_entry = self.current_browser_place_entry()
+        if browser_entry is None:
+            self.refresh_global_navigation_controls()
+            return
+        if self.global_navigation_selection_in_progress:
+            self.refresh_global_navigation_controls()
+            return
+        current_entry = self.global_navigation_history.current_entry()
+        if current_entry is not None and current_entry.kind in (
+            'browser_method',
+            'browser_selection',
+        ):
+            self.global_navigation_history.replace_current(browser_entry)
+            self.refresh_global_navigation_controls()
+            return
+        self.record_global_navigation_entry(browser_entry)
+
+    def ensure_current_browser_place_in_global_history(self):
+        if self.notebook is None or not self.notebook.winfo_exists():
+            return
+        browser_is_open = self.browser_tab is not None and self.browser_tab.winfo_exists()
+        if not browser_is_open:
+            return
+        try:
+            selected_tab_id = self.notebook.select()
+        except tk.TclError:
+            return
+        if selected_tab_id != str(self.browser_tab):
+            return
+        self.record_current_browser_place_in_global_history()
+
+    def record_selected_tab_in_global_history(self, event=None):
+        if self.notebook is None or not self.notebook.winfo_exists():
+            self.refresh_global_navigation_controls()
+            return
+        try:
+            selected_tab_id = self.notebook.select()
+        except tk.TclError:
+            self.refresh_global_navigation_controls()
+            return
+        if not selected_tab_id:
+            self.refresh_global_navigation_controls()
+            return
+        if self.browser_tab is not None and selected_tab_id == str(self.browser_tab):
+            self.record_current_browser_place_in_global_history()
+            return
+        if self.run_tab is not None and selected_tab_id == str(self.run_tab):
+            self.record_global_navigation_entry(
+                GlobalNavigationEntry(
+                    'run_session',
+                    'Run',
+                    {'session_key': self.run_tab.global_navigation_session_key},
+                    place_key=('run_session', self.run_tab.global_navigation_session_key),
+                )
+            )
+            return
+        if self.debugger_tab is not None and selected_tab_id == str(self.debugger_tab):
+            self.record_global_navigation_entry(
+                GlobalNavigationEntry(
+                    'debugger_session',
+                    'Debugger',
+                    {'session_key': self.debugger_tab.global_navigation_session_key},
+                    place_key=(
+                        'debugger_session',
+                        self.debugger_tab.global_navigation_session_key,
+                    ),
+                )
+            )
+            return
+        if self.inspector_tab is not None and selected_tab_id == str(self.inspector_tab):
+            self.record_global_navigation_entry(
+                GlobalNavigationEntry(
+                    'inspector_session',
+                    'Inspect',
+                    {'session_key': self.inspector_tab.global_navigation_session_key},
+                    place_key=(
+                        'inspector_session',
+                        self.inspector_tab.global_navigation_session_key,
+                    ),
+                )
+            )
+            return
+        if self.graph_tab is not None and selected_tab_id == str(self.graph_tab):
+            self.record_global_navigation_entry(
+                GlobalNavigationEntry(
+                    'graph_session',
+                    'Graph',
+                    {'session_key': self.graph_tab.global_navigation_session_key},
+                    place_key=('graph_session', self.graph_tab.global_navigation_session_key),
+                )
+            )
+            return
+        if self.uml_tab is not None and selected_tab_id == str(self.uml_tab):
+            self.record_global_navigation_entry(
+                GlobalNavigationEntry(
+                    'uml_session',
+                    'UML',
+                    {'session_key': self.uml_tab.global_navigation_session_key},
+                    place_key=('uml_session', self.uml_tab.global_navigation_session_key),
+                )
+            )
+            return
+        self.refresh_global_navigation_controls()
+
+    def global_history_label(self, history_entry):
+        entry = history_entry['entry']
+        label = entry.label
+        if entry.is_stale:
+            return f"{label} (unavailable)"
+        return label
+
+    def refresh_global_navigation_controls(self):
+        if self.global_back_button is not None and self.global_back_button.winfo_exists():
+            back_button_state = (
+                tk.NORMAL
+                if self.global_navigation_history.can_go_back()
+                else tk.DISABLED
+            )
+            self.global_back_button.configure(state=back_button_state)
+        if (
+            self.global_forward_button is not None
+            and self.global_forward_button.winfo_exists()
+        ):
+            forward_button_state = (
+                tk.NORMAL
+                if self.global_navigation_history.can_go_forward()
+                else tk.DISABLED
+            )
+            self.global_forward_button.configure(state=forward_button_state)
+        if (
+            self.global_history_combobox is not None
+            and self.global_history_combobox.winfo_exists()
+        ):
+            history_entries = (
+                self.global_navigation_history.entries_with_current_marker()
+            )
+            self.global_history_choice_indices = []
+            history_labels = []
+            for history_entry in reversed(history_entries):
+                history_index = history_entry['history_index']
+                history_labels.append(self.global_history_label(history_entry))
+                self.global_history_choice_indices.append(history_index)
+            self.global_history_combobox['values'] = history_labels
+            if len(history_labels) > 0:
+                current_history_index = self.global_navigation_history.current_index
+                selected_index = len(history_labels) - current_history_index - 1
+                self.global_history_combobox.current(selected_index)
+            if len(history_labels) == 0:
+                self.global_history_combobox.set('')
+
+    def mark_global_navigation_place_stale(self, place_key):
+        self.global_navigation_history.mark_place_stale(place_key)
+        self.refresh_global_navigation_controls()
+
+    def tab_for_global_navigation_session(self, kind, session_key):
+        if kind == 'run_session':
+            candidate = self.run_tab
+        elif kind == 'debugger_session':
+            candidate = self.debugger_tab
+        elif kind == 'inspector_session':
+            candidate = self.inspector_tab
+        elif kind == 'graph_session':
+            candidate = self.graph_tab
+        elif kind == 'uml_session':
+            candidate = self.uml_tab
+        else:
+            candidate = None
+        if candidate is None or not candidate.winfo_exists():
+            return None
+        if getattr(candidate, 'global_navigation_session_key', None) != session_key:
+            return None
+        return candidate
+
+    def restore_global_navigation_entry(self, entry):
+        if entry is None or entry.is_stale:
+            return False
+        if entry.kind in ('browser_method', 'browser_selection'):
+            browser_state = entry.payload.get('browser_state')
+            if browser_state is None:
+                return False
+            self.gemstone_session_record.browse_mode = browser_state['browse_mode']
+            self.gemstone_session_record.selected_package = browser_state[
+                'selected_package'
+            ]
+            self.gemstone_session_record.selected_dictionary = browser_state[
+                'selected_dictionary'
+            ]
+            self.gemstone_session_record.selected_class = browser_state['selected_class']
+            self.gemstone_session_record.selected_method_category = browser_state[
+                'selected_method_category'
+            ]
+            self.gemstone_session_record.selected_method_symbol = browser_state[
+                'selected_method_symbol'
+            ]
+            self.gemstone_session_record.show_instance_side = browser_state[
+                'show_instance_side'
+            ]
+            self.event_queue.publish('BrowseModeChanged')
+            self.event_queue.publish('SelectedClassChanged')
+            self.event_queue.publish('SelectedCategoryChanged')
+            self.event_queue.publish('MethodSelected')
+            if self.browser_tab is not None and self.browser_tab.winfo_exists():
+                self.notebook.select(self.browser_tab)
+            return True
+        session_key = entry.payload.get('session_key')
+        session_tab = self.tab_for_global_navigation_session(entry.kind, session_key)
+        if session_tab is None:
+            self.mark_global_navigation_place_stale(entry.place_key)
+            return False
+        self.notebook.select(session_tab)
+        return True
+
+    def navigate_global_history(self, direction):
+        history_entry = None
+        if direction == 'back':
+            history_entry = self.global_navigation_history.go_back()
+        if direction == 'forward':
+            history_entry = self.global_navigation_history.go_forward()
+        if history_entry is None:
+            self.refresh_global_navigation_controls()
+            return
+        self.global_navigation_selection_in_progress = True
+        try:
+            restored = self.restore_global_navigation_entry(history_entry)
+        finally:
+            self.global_navigation_selection_in_progress = False
+        if restored:
+            self.refresh_global_navigation_controls()
+            return
+        self.navigate_global_history(direction)
+
+    def go_to_previous_global_place(self):
+        self.navigate_global_history('back')
+
+    def go_to_next_global_place(self):
+        self.navigate_global_history('forward')
+
+    def jump_to_selected_global_history_entry(self, event=None):
+        combobox_index = self.global_history_combobox.current()
+        if combobox_index < 0:
+            return
+        if combobox_index >= len(self.global_history_choice_indices):
+            return
+        history_index = self.global_history_choice_indices[combobox_index]
+        selected_entry = self.global_navigation_history.entries[history_index]
+        if selected_entry.is_stale:
+            self.refresh_global_navigation_controls()
+            return
+        self.global_navigation_history.jump_to(history_index)
+        self.global_navigation_selection_in_progress = True
+        try:
+            restored = self.restore_global_navigation_entry(selected_entry)
+        finally:
+            self.global_navigation_selection_in_progress = False
+        if not restored:
+            self.refresh_global_navigation_controls()
+            return
+        self.refresh_global_navigation_controls()
 
     def set_mcp_activity_indicator_visibility(self, visible):
         if self.mcp_activity_indicator is None:
@@ -6647,6 +7089,7 @@ class Swordfish(tk.Tk):
         exception,
         ask_before_open=False,
     ):
+        self.ensure_current_browser_place_in_global_history()
         if ask_before_open:
             response = messagebox.askquestion(
                 "Open Debugger",
@@ -6666,6 +7109,15 @@ class Swordfish(tk.Tk):
                 )
                 if response == "cancel":
                     return False
+            debugger_session_key = getattr(
+                self.debugger_tab,
+                'global_navigation_session_key',
+                None,
+            )
+            if debugger_session_key:
+                self.mark_global_navigation_place_stale(
+                    ('debugger_session', debugger_session_key),
+                )
             self.debugger_tab.destroy()
 
         self.add_debugger_tab(exception)
@@ -6705,6 +7157,9 @@ class Swordfish(tk.Tk):
             self.event_queue,
             exception,
         )
+        self.debugger_tab.global_navigation_session_key = (
+            self.allocate_global_navigation_session_key('debugger')
+        )
         self.notebook.add(self.debugger_tab, text="Debugger")
 
     def select_debugger_tab(self):
@@ -6742,8 +7197,12 @@ class Swordfish(tk.Tk):
         self.event_queue.publish("MethodSelected")
 
     def open_run_tab(self):
+        self.ensure_current_browser_place_in_global_history()
         if self.run_tab is None or not self.run_tab.winfo_exists():
             self.run_tab = RunTab(self.notebook, self)
+            self.run_tab.global_navigation_session_key = (
+                self.allocate_global_navigation_session_key('run')
+            )
             self.notebook.add(self.run_tab, text='Run')
         self.run_tab.set_read_only(self.integrated_session_state.is_mcp_busy())
         self.notebook.select(self.run_tab)
@@ -6754,6 +7213,7 @@ class Swordfish(tk.Tk):
         self.run_tab.present_source(source, run_immediately=run_immediately)
 
     def open_inspector_for_object(self, inspected_object):
+        self.ensure_current_browser_place_in_global_history()
         self.close_inspector_tab()
         self.inspector_tab = InspectorTab(
             self.notebook,
@@ -6761,13 +7221,20 @@ class Swordfish(tk.Tk):
             an_object=inspected_object,
             graph_inspect_action=self.open_graph_inspector_for_object,
         )
+        self.inspector_tab.global_navigation_session_key = (
+            self.allocate_global_navigation_session_key('inspect')
+        )
         self.notebook.add(self.inspector_tab, text="Inspect")
         self.notebook.select(self.inspector_tab)
 
     def open_graph_inspector_for_object(self, inspected_object):
+        self.ensure_current_browser_place_in_global_history()
         tab_is_missing = self.graph_tab is None or not self.graph_tab.winfo_exists()
         if tab_is_missing:
             self.graph_tab = GraphTab(self.notebook, self)
+            self.graph_tab.global_navigation_session_key = (
+                self.allocate_global_navigation_session_key('graph')
+            )
             self.notebook.add(self.graph_tab, text="Graph")
         self.notebook.select(self.graph_tab)
         self.graph_tab.add_object(inspected_object)
@@ -6806,6 +7273,7 @@ class Swordfish(tk.Tk):
     def open_uml_for_class(self, class_name):
         if not class_name:
             return
+        self.ensure_current_browser_place_in_global_history()
         self.ensure_uml_tab()
         self.uml_tab.add_class(class_name)
 
@@ -6823,6 +7291,9 @@ class Swordfish(tk.Tk):
         tab_is_missing = self.uml_tab is None or not self.uml_tab.winfo_exists()
         if tab_is_missing:
             self.uml_tab = UmlTab(self.notebook, self)
+            self.uml_tab.global_navigation_session_key = (
+                self.allocate_global_navigation_session_key('uml')
+            )
             self.notebook.add(self.uml_tab, text="UML")
         self.notebook.select(self.uml_tab)
         return self.uml_tab
@@ -6857,6 +7328,15 @@ class Swordfish(tk.Tk):
         if not has_open_tab:
             self.inspector_tab = None
             return
+        inspector_session_key = getattr(
+            self.inspector_tab,
+            'global_navigation_session_key',
+            None,
+        )
+        if inspector_session_key:
+            self.mark_global_navigation_place_stale(
+                ('inspector_session', inspector_session_key),
+            )
         try:
             self.notebook.forget(self.inspector_tab)
         except tk.TclError:
@@ -6869,6 +7349,15 @@ class Swordfish(tk.Tk):
         if not tab_exists:
             self.graph_tab = None
             return
+        graph_session_key = getattr(
+            self.graph_tab,
+            'global_navigation_session_key',
+            None,
+        )
+        if graph_session_key:
+            self.mark_global_navigation_place_stale(
+                ('graph_session', graph_session_key),
+            )
         try:
             self.notebook.forget(self.graph_tab)
         except tk.TclError:
@@ -6881,6 +7370,15 @@ class Swordfish(tk.Tk):
         if not tab_exists:
             self.uml_tab = None
             return
+        uml_session_key = getattr(
+            self.uml_tab,
+            'global_navigation_session_key',
+            None,
+        )
+        if uml_session_key:
+            self.mark_global_navigation_place_stale(
+                ('uml_session', uml_session_key),
+            )
         try:
             self.notebook.forget(self.uml_tab)
         except tk.TclError:
@@ -7640,6 +8138,11 @@ class RunTab(ttk.Frame):
 
     def close_tab(self):
         self.ui_context.invalidate()
+        run_session_key = getattr(self, 'global_navigation_session_key', None)
+        if run_session_key:
+            self.application.mark_global_navigation_place_stale(
+                ('run_session', run_session_key),
+            )
         if self.application.run_tab is self:
             self.application.run_tab = None
         try:
@@ -9273,6 +9776,120 @@ class NavigationHistory:
                     "history_index": index,
                     "entry": entry,
                     "is_current": index == self.current_index,
+                },
+            )
+        return entry_details
+
+
+class GlobalNavigationEntry:
+    def __init__(self, kind, label, payload, place_key, is_stale=False):
+        self.kind = kind
+        self.label = label
+        self.payload = dict(payload)
+        self.place_key = place_key
+        self.is_stale = is_stale
+
+    def __eq__(self, other):
+        if not isinstance(other, GlobalNavigationEntry):
+            return False
+        return (
+            self.kind == other.kind
+            and self.label == other.label
+            and self.payload == other.payload
+            and self.place_key == other.place_key
+            and self.is_stale == other.is_stale
+        )
+
+
+class GlobalNavigationHistory:
+    def __init__(self, maximum_entries=200):
+        self.maximum_entries = maximum_entries
+        self.entries = []
+        self.current_index = -1
+
+    def current_entry(self):
+        if 0 <= self.current_index < len(self.entries):
+            return self.entries[self.current_index]
+        return None
+
+    def record(self, entry):
+        if entry is None:
+            return
+        if self.current_entry() == entry:
+            return
+        if self.current_index < len(self.entries) - 1:
+            self.entries = self.entries[: self.current_index + 1]
+        self.entries.append(entry)
+        overflow = len(self.entries) - self.maximum_entries
+        if overflow > 0:
+            self.entries = self.entries[overflow:]
+        self.current_index = len(self.entries) - 1
+
+    def replace_current(self, entry):
+        if entry is None:
+            return
+        if self.current_index < 0:
+            self.record(entry)
+            return
+        self.entries[self.current_index] = entry
+
+    def jump_to(self, history_index):
+        if history_index < 0:
+            return None
+        if history_index >= len(self.entries):
+            return None
+        self.current_index = history_index
+        return self.current_entry()
+
+    def previous_available_index(self):
+        history_index = self.current_index - 1
+        while history_index >= 0:
+            if not self.entries[history_index].is_stale:
+                return history_index
+            history_index -= 1
+        return None
+
+    def next_available_index(self):
+        history_index = self.current_index + 1
+        while history_index < len(self.entries):
+            if not self.entries[history_index].is_stale:
+                return history_index
+            history_index += 1
+        return None
+
+    def can_go_back(self):
+        return self.previous_available_index() is not None
+
+    def can_go_forward(self):
+        return self.next_available_index() is not None
+
+    def go_back(self):
+        history_index = self.previous_available_index()
+        if history_index is None:
+            return None
+        self.current_index = history_index
+        return self.current_entry()
+
+    def go_forward(self):
+        history_index = self.next_available_index()
+        if history_index is None:
+            return None
+        self.current_index = history_index
+        return self.current_entry()
+
+    def mark_place_stale(self, place_key):
+        for entry in self.entries:
+            if entry.place_key == place_key:
+                entry.is_stale = True
+
+    def entries_with_current_marker(self):
+        entry_details = []
+        for index, entry in enumerate(self.entries):
+            entry_details.append(
+                {
+                    'history_index': index,
+                    'entry': entry,
+                    'is_current': index == self.current_index,
                 },
             )
         return entry_details
@@ -14005,6 +14622,11 @@ class DebuggerWindow(ttk.PanedWindow):
 
     def dismiss(self):
         self.stack_frames = None
+        debugger_session_key = getattr(self, 'global_navigation_session_key', None)
+        if debugger_session_key:
+            self.application.mark_global_navigation_place_stale(
+                ('debugger_session', debugger_session_key),
+            )
         if self.application.debugger_tab is self:
             self.application.debugger_tab = None
         try:

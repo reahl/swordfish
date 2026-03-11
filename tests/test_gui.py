@@ -28,6 +28,8 @@ from reahl.swordfish.main import (
     Explorer,
     FindDialog,
     GemstoneSessionRecord,
+    GlobalNavigationEntry,
+    GlobalNavigationHistory,
     GraphNode,
     GraphObjectRegistry,
     InspectorTab,
@@ -1581,7 +1583,7 @@ class SwordfishAppFixture(Fixture):
         self.mock_browser.list_rowan_packages.return_value = []
         self.mock_browser.list_classes_in_rowan_package.return_value = []
         self.mock_browser.list_method_categories.return_value = ["accessing"]
-        self.mock_browser.list_methods.return_value = ["total"]
+        self.mock_browser.list_methods.return_value = ["total", "description"]
         self.mock_browser.list_breakpoints.return_value = []
         self.mock_browser.get_method_category.return_value = "accessing"
         class_definitions = {
@@ -1673,6 +1675,46 @@ class SwordfishAppFixture(Fixture):
         self.app.event_queue.publish("LoggedInSuccessfully", self.session_record)
         self.app.update()
         self.mock_browser.reset_mock()
+
+    def select_in_listbox(self, listbox, item):
+        """AI: Simulate a user clicking an item in one of the full app browser lists."""
+        items = listbox.get(0, "end")
+        item_index = list(items).index(item)
+        listbox.selection_clear(0, "end")
+        listbox.selection_set(item_index)
+        selection_list = listbox.master
+        selection_list.handle_selection(types.SimpleNamespace(widget=listbox))
+        self.app.update()
+
+    def select_down_to_method(self, package, class_name, category, method):
+        """AI: Navigate the main browser tab to a concrete method selection."""
+        self.select_in_listbox(
+            self.app.browser_tab.packages_widget.selection_list.selection_listbox,
+            package,
+        )
+        self.select_in_listbox(
+            self.app.browser_tab.classes_widget.selection_list.selection_listbox,
+            class_name,
+        )
+        self.select_in_listbox(
+            self.app.browser_tab.categories_widget.selection_list.selection_listbox,
+            category,
+        )
+        self.select_in_listbox(
+            self.app.browser_tab.methods_widget.selection_list.selection_listbox,
+            method,
+        )
+
+    def select_down_to_class(self, package, class_name):
+        """AI: Navigate the main browser tab to a class selection without selecting a method."""
+        self.select_in_listbox(
+            self.app.browser_tab.packages_widget.selection_list.selection_listbox,
+            package,
+        )
+        self.select_in_listbox(
+            self.app.browser_tab.classes_widget.selection_list.selection_listbox,
+            class_name,
+        )
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -3889,6 +3931,379 @@ def test_inspector_tab_navigates_object_history_with_back_and_forward(fixture):
     history_labels = list(inspector_tab.history_combobox["values"])
     assert nested_label in history_labels
     assert context_label in history_labels
+
+
+def test_global_navigation_history_skips_stale_entries_but_keeps_them():
+    """AI: Global history should retain stale visits while skipping them during traversal."""
+    history = GlobalNavigationHistory()
+    total_entry = GlobalNavigationEntry(
+        'browser_method',
+        'OrderLine>>total',
+        {'method_context': ('OrderLine', True, 'total')},
+        place_key=('browser_method', 'OrderLine', True, 'total'),
+    )
+    run_entry = GlobalNavigationEntry(
+        'run_session',
+        'Run',
+        {'session_key': 'run:1'},
+        place_key=('run_session', 'run:1'),
+    )
+    description_entry = GlobalNavigationEntry(
+        'browser_method',
+        'OrderLine>>description',
+        {'method_context': ('OrderLine', True, 'description')},
+        place_key=('browser_method', 'OrderLine', True, 'description'),
+    )
+
+    history.record(total_entry)
+    history.record(run_entry)
+    history.record(description_entry)
+    history.mark_place_stale(('run_session', 'run:1'))
+
+    assert len(history.entries) == 3
+    assert history.entries[1].is_stale
+    assert history.go_back() == total_entry
+    assert history.go_forward() == description_entry
+
+
+def test_global_navigation_history_replaces_current_place_without_losing_forward_entries():
+    """AI: Updating the current place should preserve existing forward entries instead of truncating them."""
+    history = GlobalNavigationHistory()
+    initial_browser_entry = GlobalNavigationEntry(
+        'browser_selection',
+        'OrderLine',
+        {'browser_state': {'selected_class': 'OrderLine'}},
+        place_key=('browser_selection', 'OrderLine'),
+    )
+    uml_entry = GlobalNavigationEntry(
+        'uml_session',
+        'UML',
+        {'session_key': 'uml:1'},
+        place_key=('uml_session', 'uml:1'),
+    )
+    run_entry = GlobalNavigationEntry(
+        'run_session',
+        'Run',
+        {'session_key': 'run:1'},
+        place_key=('run_session', 'run:1'),
+    )
+    updated_browser_entry = GlobalNavigationEntry(
+        'browser_selection',
+        'Order class',
+        {'browser_state': {'selected_class': 'Order', 'show_instance_side': False}},
+        place_key=('browser_selection', 'Order'),
+    )
+
+    history.record(initial_browser_entry)
+    history.record(uml_entry)
+    history.record(run_entry)
+    assert history.go_back() == uml_entry
+    assert history.go_back() == initial_browser_entry
+
+    history.replace_current(updated_browser_entry)
+
+    assert history.current_entry() == updated_browser_entry
+    assert history.go_forward() == uml_entry
+    assert history.go_forward() == run_entry
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_global_back_and_forward_navigate_places_across_browser_and_run(fixture):
+    """AI: App-level navigation should move between browser-method visits and the run session."""
+    fixture.simulate_login()
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    fixture.app.open_run_tab()
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Run'
+
+    fixture.app.global_back_button.invoke()
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
+    assert fixture.session_record.selected_method_symbol == 'total'
+
+    fixture.app.global_forward_button.invoke()
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Run'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_global_back_skips_closed_run_session_entries(fixture):
+    """AI: Closing a run session should stale its global entries so app-level Back skips them."""
+    fixture.simulate_login()
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    fixture.app.open_run_tab()
+    fixture.app.update()
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
+    fixture.app.run_tab.close_tab()
+    fixture.app.update()
+
+    fixture.app.global_back_button.invoke()
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
+    assert fixture.session_record.selected_method_symbol == 'total'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_global_forward_revisits_live_inspector_session(fixture):
+    """AI: A live inspector session should remain revisitable through app-level Back and Forward."""
+    fixture.simulate_login()
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    inspected_object = make_mock_gemstone_object('Integer', '7', oop=2007)
+    fixture.app.open_inspector_for_object(inspected_object)
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Inspect'
+
+    fixture.app.global_back_button.invoke()
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
+    assert fixture.session_record.selected_method_symbol == 'total'
+
+    fixture.app.global_forward_button.invoke()
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Inspect'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_global_forward_revisits_live_graph_session(fixture):
+    """AI: A live graph session should remain revisitable through app-level Back and Forward."""
+    fixture.simulate_login()
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    graphed_object = make_mock_gemstone_object('Integer', '7', oop=3007)
+    fixture.app.open_graph_inspector_for_object(graphed_object)
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Graph'
+
+    fixture.app.global_back_button.invoke()
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
+    assert fixture.session_record.selected_method_symbol == 'total'
+
+    fixture.app.global_forward_button.invoke()
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Graph'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_global_back_skips_closed_inspector_session_entries(fixture):
+    """AI: Closing an inspector session should stale its global entries so app-level Back skips them."""
+    fixture.simulate_login()
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    inspected_object = make_mock_gemstone_object('Integer', '7', oop=2007)
+    fixture.app.open_inspector_for_object(inspected_object)
+    fixture.app.update()
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
+    fixture.app.close_inspector_tab()
+    fixture.app.update()
+
+    fixture.app.global_back_button.invoke()
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
+    assert fixture.session_record.selected_method_symbol == 'total'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_global_back_skips_closed_graph_session_entries(fixture):
+    """AI: Closing a graph session should stale its global entries so app-level Back skips them."""
+    fixture.simulate_login()
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    graphed_object = make_mock_gemstone_object('Integer', '7', oop=3007)
+    fixture.app.open_graph_inspector_for_object(graphed_object)
+    fixture.app.update()
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
+    fixture.app.close_graph_tab()
+    fixture.app.update()
+
+    fixture.app.global_back_button.invoke()
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
+    assert fixture.session_record.selected_method_symbol == 'total'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_global_forward_revisits_live_uml_session(fixture):
+    """AI: A live UML session should remain revisitable through app-level Back and Forward."""
+    fixture.simulate_login()
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    fixture.app.open_uml_for_class('OrderLine')
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'UML'
+
+    fixture.app.global_back_button.invoke()
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
+    assert fixture.session_record.selected_method_symbol == 'total'
+
+    fixture.app.global_forward_button.invoke()
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'UML'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_global_back_restores_browser_class_selection_without_open_method(fixture):
+    """AI: Leaving the browser from a class-only selection should still preserve that browser place in global history."""
+    fixture.simulate_login()
+    fixture.select_down_to_class('Kernel', 'OrderLine')
+    fixture.app.open_uml_for_class('OrderLine')
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'UML'
+
+    fixture.app.global_back_button.invoke()
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
+    assert fixture.session_record.selected_class == 'OrderLine'
+    assert fixture.session_record.selected_method_symbol is None
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_browsing_more_in_browser_after_global_back_keeps_forward_history(fixture):
+    """AI: Changing browser-local selection after global Back should update the browser place without truncating forward places."""
+    fixture.simulate_login()
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    fixture.app.open_uml_for_class('OrderLine')
+    fixture.app.update()
+    fixture.app.open_run_tab()
+    fixture.app.update()
+
+    fixture.app.global_back_button.invoke()
+    fixture.app.update()
+    fixture.app.global_back_button.invoke()
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
+
+    fixture.app.global_forward_button.invoke()
+    fixture.app.update()
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'UML'
+
+    fixture.app.global_forward_button.invoke()
+    fixture.app.update()
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Run'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_global_history_dropdown_jumps_to_selected_place(fixture):
+    """AI: Choosing an entry in the global history dropdown should jump directly to that place."""
+    fixture.simulate_login()
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    fixture.app.open_uml_for_class('OrderLine')
+    fixture.app.update()
+    fixture.app.open_run_tab()
+    fixture.app.update()
+
+    history_values = fixture.app.global_history_combobox.cget('values')
+    matching_indices = [
+        index for index, value in enumerate(history_values) if value == 'UML'
+    ]
+    target_index = matching_indices[0]
+
+    fixture.app.global_history_combobox.current(target_index)
+    fixture.app.global_history_combobox.event_generate('<<ComboboxSelected>>')
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'UML'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_global_history_dropdown_marks_stale_entries_unavailable(fixture):
+    """AI: The global history dropdown should show stale entries as unavailable and leave the current place unchanged when selected."""
+    fixture.simulate_login()
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    fixture.app.open_run_tab()
+    fixture.app.update()
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
+    fixture.app.run_tab.close_tab()
+    fixture.app.update()
+
+    history_values = fixture.app.global_history_combobox.cget('values')
+    unavailable_indices = [
+        index
+        for index, value in enumerate(history_values)
+        if value == 'Run (unavailable)'
+    ]
+    target_index = unavailable_indices[0]
+
+    fixture.app.global_history_combobox.current(target_index)
+    fixture.app.global_history_combobox.event_generate('<<ComboboxSelected>>')
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
+    assert fixture.session_record.selected_method_symbol == 'description'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_global_back_skips_closed_uml_session_entries(fixture):
+    """AI: Closing a UML session should stale its global entries so app-level Back skips them."""
+    fixture.simulate_login()
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    fixture.app.open_uml_for_class('OrderLine')
+    fixture.app.update()
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
+    fixture.app.close_uml_tab()
+    fixture.app.update()
+
+    fixture.app.global_back_button.invoke()
+    fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
+    assert fixture.session_record.selected_method_symbol == 'total'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_global_back_skips_replaced_debugger_session_entries(fixture):
+    """AI: Replacing a debugger session should stale the old debugger visits instead of revisiting the new debugger incorrectly."""
+    fixture.simulate_login()
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    fixture.mock_browser.run_code.side_effect = [
+        FakeGemstoneError(),
+        FakeGemstoneError(),
+        FakeGemstoneError(),
+        FakeGemstoneError(),
+    ]
+
+    fixture.app.run_code('1/0')
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
+    with patch('reahl.swordfish.main.messagebox.askquestion', return_value='ok'):
+        fixture.app.run_code('2/0')
+        fixture.app.update()
+        fixture.app.run_tab.debug_button.invoke()
+        fixture.app.update()
+
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Debugger'
+
+    fixture.app.global_back_button.invoke()
+    fixture.app.update()
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Run'
+
+    fixture.app.global_back_button.invoke()
+    fixture.app.update()
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
+    assert fixture.session_record.selected_method_symbol == 'description'
+
+    fixture.app.global_back_button.invoke()
+    fixture.app.update()
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Run'
 
 
 @with_fixtures(SwordfishAppFixture)
