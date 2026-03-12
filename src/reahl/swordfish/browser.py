@@ -1548,17 +1548,21 @@ class MethodSelection(FramedWidget):
         self.method_selection_frame.rowconfigure(0, weight=1)
         self.method_selection_frame.columnconfigure(0, weight=1)
         self.method_content_paned.add(self.method_selection_frame, weight=3)
+        self.inherited_method_selectors = set()
+        self.show_inherited_methods_var = tk.BooleanVar(value=False)
 
         self.selection_list = InteractiveSelectionList(
             self.method_selection_frame,
             self.get_all_methods,
             self.get_selected_method,
             self.select_method,
+            style_entry=self.style_method_entry,
         )
         self.selection_list.grid(row=0, column=0, sticky='nsew')
         self.controls_frame = ttk.Frame(self)
         self.controls_frame.grid(row=1, column=0, sticky='ew')
         self.controls_frame.columnconfigure(0, weight=1)
+        self.controls_frame.columnconfigure(1, weight=1)
         self.show_method_hierarchy_var = tk.BooleanVar(value=False)
         self.show_method_hierarchy_checkbox = tk.Checkbutton(
             self.controls_frame,
@@ -1567,6 +1571,13 @@ class MethodSelection(FramedWidget):
             command=self.toggle_method_hierarchy,
         )
         self.show_method_hierarchy_checkbox.grid(row=0, column=0, sticky='w')
+        self.show_inherited_methods_checkbox = tk.Checkbutton(
+            self.controls_frame,
+            text='Inherited Methods',
+            variable=self.show_inherited_methods_var,
+            command=self.repopulate,
+        )
+        self.show_inherited_methods_checkbox.grid(row=0, column=1, sticky='w')
         self.method_hierarchy_frame = ttk.Frame(self.method_content_paned)
         self.method_hierarchy_frame.rowconfigure(0, weight=1)
         self.method_hierarchy_frame.columnconfigure(0, weight=1)
@@ -1618,7 +1629,50 @@ class MethodSelection(FramedWidget):
                 self.refresh_method_hierarchy()
 
     def get_all_methods(self):
-        return self.gemstone_session_record.get_current_methods()
+        self.inherited_method_selectors = set()
+        method_selectors = list(self.gemstone_session_record.get_current_methods())
+        if not self.show_inherited_methods_var.get():
+            return method_selectors
+        selected_class = self.gemstone_session_record.selected_class
+        selected_method_category = self.gemstone_session_record.selected_method_category
+        show_instance_side = self.gemstone_session_record.show_instance_side
+        if not selected_class or not selected_method_category:
+            return method_selectors
+        seen_selectors = set(method_selectors)
+        current_class_name = selected_class
+        try:
+            class_definition = self.gemstone_session_record.gemstone_browser_session.get_class_definition(
+                current_class_name,
+            )
+        except GemstoneDomainException:
+            class_definition = {}
+        current_class_name = class_definition.get('superclass_name')
+        while current_class_name:
+            inherited_selectors = list(
+                self.gemstone_session_record.get_selectors_in_class(
+                    current_class_name,
+                    selected_method_category,
+                    show_instance_side,
+                )
+            )
+            for method_selector in inherited_selectors:
+                if method_selector in seen_selectors:
+                    continue
+                self.inherited_method_selectors.add(method_selector)
+                seen_selectors.add(method_selector)
+                method_selectors.append(method_selector)
+            try:
+                class_definition = self.gemstone_session_record.gemstone_browser_session.get_class_definition(
+                    current_class_name,
+                )
+            except GemstoneDomainException:
+                class_definition = {}
+            current_class_name = class_definition.get('superclass_name')
+        return sorted(method_selectors)
+
+    def style_method_entry(self, listbox, index, method_selector):
+        if method_selector in self.inherited_method_selectors:
+            listbox.itemconfig(index, foreground='gray50')
 
     def get_selected_method(self):
         return self.gemstone_session_record.selected_method_symbol
