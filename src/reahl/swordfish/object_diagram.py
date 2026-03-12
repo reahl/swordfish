@@ -132,10 +132,11 @@ class UmlObjectDiagramNodeInspectorHost(ttk.Frame):
 
 class UmlObjectDiagramNodeDetailDialog:
     def __init__(self, parent, an_object, graph_node, on_add_to_graph):
+        self.parent = parent
         self.graph_node = graph_node
         self.on_add_to_graph = on_add_to_graph
         self.dialog = tk.Toplevel(parent)
-        self.dialog.title(f'Object Diagram Node: {graph_node.label}')
+        self.dialog.title(f'Object: {graph_node.label}')
         self.dialog.geometry('650x420')
         self.dialog.grab_set()
         self.inspector_host = UmlObjectDiagramNodeInspectorHost(
@@ -143,7 +144,7 @@ class UmlObjectDiagramNodeDetailDialog:
             an_object=an_object,
             graph_node=graph_node,
             on_navigate_to_child=self.navigate_to_child,
-            browse_class_action=parent.application.browse_object_class,
+            browse_class_action=self.browse_object_class,
         )
         self.inspector_host.pack(fill='both', expand=True)
 
@@ -151,15 +152,21 @@ class UmlObjectDiagramNodeDetailDialog:
         self.on_add_to_graph(self.graph_node, target_object, instvar_label)
         self.dialog.destroy()
 
+    def browse_object_class(self, inspected_object):
+        self.parent.application.browse_object_class(inspected_object)
+        self.dialog.destroy()
+
 
 class UmlObjectDiagramCanvas(ttk.Frame):
-    def __init__(self, parent, node_detail_action):
+    def __init__(self, parent, node_detail_action, browse_class_action):
         super().__init__(parent)
         self.node_detail_action = node_detail_action
+        self.browse_class_action = browse_class_action
         self.registry = UmlObjectDiagramRegistry()
         self.dragging_node = None
         self.drag_start_x = 0
         self.drag_start_y = 0
+        self.current_context_menu = None
 
         self.canvas = tk.Canvas(
             self,
@@ -354,10 +361,16 @@ class UmlObjectDiagramCanvas(ttk.Frame):
         node = self.node_at_canvas_coordinates(canvas_x, canvas_y)
         if node is None:
             return
-        menu = tk.Menu(self, tearoff=0)
+        if self.current_context_menu is not None:
+            self.current_context_menu.unpost()
+        menu = self.current_context_menu = tk.Menu(self, tearoff=0)
         menu.add_command(
             label='Inspect Object',
             command=lambda: self.node_detail_action(node),
+        )
+        menu.add_command(
+            label='Browse Class',
+            command=lambda: self.browse_class_action(node.gemstone_object),
         )
         add_close_command_to_popup_menu(menu)
         popup_menu(menu, event)
@@ -417,6 +430,7 @@ class UmlObjectDiagramTab(ttk.Frame):
         self.graph_canvas = UmlObjectDiagramCanvas(
             self,
             node_detail_action=self.open_node_detail,
+            browse_class_action=self.application.browse_object_class,
         )
         self.graph_canvas.grid(row=1, column=0, sticky='nsew', padx=10, pady=(0, 10))
 

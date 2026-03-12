@@ -31,8 +31,6 @@ from reahl.swordfish.main import (
     GemstoneSessionRecord,
     GlobalNavigationEntry,
     GlobalNavigationHistory,
-    UmlObjectNode,
-    UmlObjectDiagramRegistry,
     InspectorTab,
     McpConfigurationDialog,
     McpConfigurationStore,
@@ -41,11 +39,14 @@ from reahl.swordfish.main import (
     McpServerController,
     ObjectInspector,
     Swordfish,
-    UmlClassNode,
-    UmlClassDiagramRegistry,
     UmlClassDiagramMethodChooserDialog,
+    UmlClassDiagramRegistry,
+    UmlClassNode,
+    UmlObjectDiagramRegistry,
+    UmlObjectNode,
 )
 from reahl.swordfish.mcp.integration_state import IntegratedSessionState
+from reahl.swordfish.object_diagram import UmlObjectDiagramNodeDetailDialog
 
 
 class FakeApplication:
@@ -1483,8 +1484,8 @@ def test_method_list_can_show_inherited_methods_in_grey(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
-def test_selecting_inherited_method_from_method_list_keeps_class_context(fixture):
-    """AI: Selecting an inherited method from the method list should keep the current class selected while changing the selector."""
+def test_selecting_inherited_method_from_method_list_selects_owner_class(fixture):
+    """AI: Selecting an inherited method from the method list should switch the browser to the class that defines that selector."""
     def list_methods(class_name, method_category, show_instance_side):
         if not show_instance_side or method_category != "accessing":
             return []
@@ -1506,8 +1507,10 @@ def test_selecting_inherited_method_from_method_list_keeps_class_context(fixture
         "total",
     )
 
-    assert fixture.session_record.selected_class == "OrderLine"
+    assert fixture.session_record.selected_class == "Order"
+    assert fixture.session_record.selected_method_category == "accessing"
     assert fixture.session_record.selected_method_symbol == "total"
+    assert ("Order", True, "total") in fixture.browser_window.editor_area_widget.open_tabs
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -4411,6 +4414,90 @@ def test_global_back_skips_closed_graph_session_entries(fixture):
 
     assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
     assert fixture.session_record.selected_method_symbol == 'total'
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_object_diagram_node_menu_browse_class_routes_graphed_object(fixture):
+    """AI: The object diagram node context menu should browse the clicked object's class."""
+    fixture.simulate_login()
+    graphed_object = make_mock_gemstone_object('Integer', '7', oop=3007)
+    browse_class_action = Mock()
+    fixture.app.browse_object_class = browse_class_action
+    fixture.app.open_object_diagram_for_object(graphed_object)
+    fixture.app.update()
+
+    graph_node = fixture.app.object_diagram_tab.graph_canvas.registry.node_for(graphed_object)
+    fixture.app.object_diagram_tab.graph_canvas.on_canvas_right_click(
+        types.SimpleNamespace(
+            x=int(graph_node.x),
+            y=int(graph_node.y),
+            x_root=1,
+            y_root=1,
+        )
+    )
+    fixture.app.update()
+
+    command_labels = menu_command_labels(
+        fixture.app.object_diagram_tab.graph_canvas.current_context_menu
+    )
+    assert 'Browse Class' in command_labels
+
+    invoke_menu_command_by_label(
+        fixture.app.object_diagram_tab.graph_canvas.current_context_menu,
+        'Browse Class',
+    )
+    fixture.app.update()
+
+    browse_class_action.assert_called_once_with(graphed_object)
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_object_diagram_detail_dialog_uses_object_title(fixture):
+    """AI: The UML object detail dialog should title itself as an object rather than an object diagram node."""
+    fixture.simulate_login()
+    graphed_object = make_mock_gemstone_object('Integer', '7', oop=3007)
+    fixture.app.open_object_diagram_for_object(graphed_object)
+    fixture.app.update()
+
+    graph_node = fixture.app.object_diagram_tab.graph_canvas.registry.node_for(graphed_object)
+    dialog = UmlObjectDiagramNodeDetailDialog(
+        fixture.app.object_diagram_tab,
+        graphed_object,
+        graph_node,
+        on_add_to_graph=Mock(),
+    )
+    fixture.app.update()
+
+    assert dialog.dialog.title() == f'Object: {graph_node.label}'
+
+    dialog.dialog.destroy()
+    fixture.app.update()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_object_diagram_detail_browse_class_closes_dialog(fixture):
+    """AI: Browsing a class from an object diagram detail dialog should close that dialog."""
+    fixture.simulate_login()
+    graphed_object = make_mock_gemstone_object('Integer', '7', oop=3007)
+    fixture.app.open_object_diagram_for_object(graphed_object)
+    browse_class_action = Mock()
+    fixture.app.browse_object_class = browse_class_action
+    fixture.app.update()
+
+    graph_node = fixture.app.object_diagram_tab.graph_canvas.registry.node_for(graphed_object)
+    dialog = UmlObjectDiagramNodeDetailDialog(
+        fixture.app.object_diagram_tab,
+        graphed_object,
+        graph_node,
+        on_add_to_graph=Mock(),
+    )
+    fixture.app.update()
+
+    dialog.inspector_host.inspector.browse_class_button.invoke()
+    fixture.app.update()
+
+    browse_class_action.assert_called_once_with(graphed_object)
+    assert not dialog.dialog.winfo_exists()
 
 
 @with_fixtures(SwordfishAppFixture)
