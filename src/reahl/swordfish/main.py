@@ -38,8 +38,8 @@ from reahl.swordfish.class_diagram import (
     UmlClassRelationship,
     format_class_diagram_method_label,
 )
-from reahl.swordfish.execution import DebuggerControls, DebuggerWindow, RunTab
 from reahl.swordfish.exceptions import DomainException
+from reahl.swordfish.execution import DebuggerControls, DebuggerWindow, RunTab
 from reahl.swordfish.gemstone import GemstoneBrowserSession, GemstoneDebugSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.inspector import Explorer, InspectorTab, ObjectInspector
