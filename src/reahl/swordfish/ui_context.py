@@ -1,6 +1,5 @@
 import threading
 
-
 UI_CONTEXT_SEQUENCE = 0
 UI_CONTEXT_SEQUENCE_LOCK = threading.RLock()
 

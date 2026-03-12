@@ -1,6 +1,5 @@
 import tkinter as tk
 
-
 GRAPH_NODE_WIDTH = 200
 GRAPH_NODE_HEIGHT = 60
 GRAPH_NODE_PADDING_X = 40
