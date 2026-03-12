@@ -3,12 +3,20 @@ from tkinter import ttk
 
 
 class InteractiveSelectionList(ttk.Frame):
-    def __init__(self, parent, get_all_entries, get_selected_entry, set_selected_to):
+    def __init__(
+        self,
+        parent,
+        get_all_entries,
+        get_selected_entry,
+        set_selected_to,
+        style_entry=None,
+    ):
         super().__init__(parent)
 
         self.get_all_entries = get_all_entries
         self.get_selected_entry = get_selected_entry
         self.set_selected_to = set_selected_to
+        self.style_entry = style_entry
         self.synchronizing_selection = False
 
         self.filter_var = tk.StringVar()
@@ -57,6 +65,8 @@ class InteractiveSelectionList(ttk.Frame):
         for entry in self.all_entries:
             if filter_text in entry.lower():
                 self.selection_listbox.insert(tk.END, entry)
+                if self.style_entry is not None:
+                    self.style_entry(self.selection_listbox, filtered_index, entry)
                 if selected_entry and selected_entry == entry:
                     self.selection_listbox.selection_set(filtered_index)
                 filtered_index += 1

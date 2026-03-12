@@ -1456,6 +1456,61 @@ def test_method_inheritance_hierarchy_refreshes_on_method_selection_change(fixtu
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_method_list_can_show_inherited_methods_in_grey(fixture):
+    """AI: Enabling inherited methods should add inherited selectors to the current class method list and render them in grey."""
+    def list_methods(class_name, method_category, show_instance_side):
+        if not show_instance_side or method_category != "accessing":
+            return []
+        if class_name == "OrderLine":
+            return ["description"]
+        if class_name == "Order":
+            return ["total"]
+        return []
+
+    fixture.mock_browser.list_methods.side_effect = list_methods
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "description")
+    methods_widget = fixture.browser_window.methods_widget
+    methods_listbox = methods_widget.selection_list.selection_listbox
+
+    assert list(methods_listbox.get(0, "end")) == ["description"]
+
+    methods_widget.show_inherited_methods_var.set(True)
+    methods_widget.repopulate()
+    fixture.root.update()
+
+    assert list(methods_listbox.get(0, "end")) == ["description", "total"]
+    assert str(methods_listbox.itemcget(1, "foreground")) == "gray50"
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_selecting_inherited_method_from_method_list_keeps_class_context(fixture):
+    """AI: Selecting an inherited method from the method list should keep the current class selected while changing the selector."""
+    def list_methods(class_name, method_category, show_instance_side):
+        if not show_instance_side or method_category != "accessing":
+            return []
+        if class_name == "OrderLine":
+            return ["description"]
+        if class_name == "Order":
+            return ["total"]
+        return []
+
+    fixture.mock_browser.list_methods.side_effect = list_methods
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "description")
+    methods_widget = fixture.browser_window.methods_widget
+    methods_widget.show_inherited_methods_var.set(True)
+    methods_widget.repopulate()
+    fixture.root.update()
+
+    fixture.select_in_listbox(
+        methods_widget.selection_list.selection_listbox,
+        "total",
+    )
+
+    assert fixture.session_record.selected_class == "OrderLine"
+    assert fixture.session_record.selected_method_symbol == "total"
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_method_inheritance_updates_after_explicit_method_click_from_hierarchy_class_view(
     fixture,
 ):
