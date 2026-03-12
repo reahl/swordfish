@@ -1549,6 +1549,7 @@ class MethodSelection(FramedWidget):
         self.method_selection_frame.columnconfigure(0, weight=1)
         self.method_content_paned.add(self.method_selection_frame, weight=3)
         self.inherited_method_selectors = set()
+        self.inherited_method_owner_by_selector = {}
         self.show_inherited_methods_var = tk.BooleanVar(value=False)
 
         self.selection_list = InteractiveSelectionList(
@@ -1630,6 +1631,7 @@ class MethodSelection(FramedWidget):
 
     def get_all_methods(self):
         self.inherited_method_selectors = set()
+        self.inherited_method_owner_by_selector = {}
         method_selectors = list(self.gemstone_session_record.get_current_methods())
         if not self.show_inherited_methods_var.get():
             return method_selectors
@@ -1659,6 +1661,9 @@ class MethodSelection(FramedWidget):
                 if method_selector in seen_selectors:
                     continue
                 self.inherited_method_selectors.add(method_selector)
+                self.inherited_method_owner_by_selector[
+                    method_selector
+                ] = current_class_name
                 seen_selectors.add(method_selector)
                 method_selectors.append(method_selector)
             try:
@@ -1678,9 +1683,51 @@ class MethodSelection(FramedWidget):
         return self.gemstone_session_record.selected_method_symbol
 
     def select_method(self, selected_method):
+        inherited_method_owner = self.inherited_method_owner_by_selector.get(
+            selected_method
+        )
+        if inherited_method_owner:
+            self.select_inherited_method(selected_method, inherited_method_owner)
+            return
         self.gemstone_session_record.select_method_symbol(selected_method)
         if self.show_method_hierarchy_var.get():
             self.refresh_method_hierarchy()
+        self.event_queue.publish('MethodSelected', origin=self)
+
+    def select_inherited_method(self, selected_method, owner_class_name):
+        show_instance_side = self.gemstone_session_record.show_instance_side
+        if self.gemstone_session_record.gemstone_session is not None:
+            self.gemstone_session_record.jump_to_method(
+                owner_class_name,
+                show_instance_side,
+                selected_method,
+            )
+        else:
+            selected_class_category = (
+                self.gemstone_session_record.class_category_containing_class(
+                    owner_class_name
+                )
+            )
+            selected_method_category = self.gemstone_session_record.gemstone_browser_session.get_method_category(
+                owner_class_name,
+                selected_method,
+                show_instance_side,
+            )
+            if selected_class_category:
+                self.gemstone_session_record.select_class_category(
+                    selected_class_category
+                )
+            self.gemstone_session_record.select_instance_side(show_instance_side)
+            self.gemstone_session_record.select_class(owner_class_name)
+            self.gemstone_session_record.select_method_category(
+                selected_method_category
+            )
+            self.gemstone_session_record.select_method_symbol(selected_method)
+        if self.show_method_hierarchy_var.get():
+            self.refresh_method_hierarchy()
+        self.event_queue.publish('SelectedPackageChanged', origin=self)
+        self.event_queue.publish('SelectedClassChanged', origin=self)
+        self.event_queue.publish('SelectedCategoryChanged', origin=self)
         self.event_queue.publish('MethodSelected', origin=self)
 
     def new_method_argument_names(self, method_selector):
