@@ -108,7 +108,7 @@ runtime MCP policy/network settings.
 
 ### Locking MCP permission toggles for protected databases
 
-Swordfish stores MCP GUI config in `~/.config/swordfish/mcp.json` unless
+Swordfish stores GUI and MCP config in `~/.config/swordfish/swordfish.json` unless
 `XDG_CONFIG_HOME` is set.
 
 If the running user cannot write that config file, Swordfish treats MCP
@@ -124,7 +124,7 @@ permission toggles specially:
 - Session-only permission changes are not persisted and are reset on logout.
 - The Smalltalk check source is config-only; it is not editable via the GUI.
 
-To configure this, add an `mcp_permission_policy` section to `mcp.json`:
+To configure this, add an `mcp_permission_policy` section to `swordfish.json`:
 
 ```json
 {
@@ -158,6 +158,46 @@ GemStone session:
 
 If the policy is missing, answers something other than a boolean, or raises an
 error, Swordfish fails closed and locks the permission toggles.
+
+### Run GemStone code on login
+
+Swordfish can also evaluate a configured GemStone script immediately after a
+successful login.
+
+- The script source is config-only; it is not editable via the GUI.
+- The script is evaluated in the logged-in GemStone session before the IDE
+  transitions to the main browser UI.
+- If the script raises an error, login is aborted and the opened session is
+  logged out again.
+
+To configure this, add a `login` section to `swordfish.json`:
+
+```json
+{
+  "schema_version": 2,
+  "login": {
+    "gemstone_script_source": "System stoneName"
+  },
+  "mcp_runtime_config": {
+    "allow_source_read": true,
+    "allow_source_write": false,
+    "allow_eval_arbitrary": false,
+    "allow_test_execution": false,
+    "allow_ide_read": true,
+    "allow_ide_write": false,
+    "allow_commit": false,
+    "allow_tracing": false,
+    "require_gemstone_ast": false,
+    "mcp_host": "127.0.0.1",
+    "mcp_port": 8000,
+    "mcp_http_path": "/mcp"
+  }
+}
+```
+
+The configured source is passed to the same GemStone code-evaluation path used
+by the IDE Run tool, so it may contain any Smalltalk you would normally execute
+in the connected session.
 
 ### Add MCP to Claude Code and Codex (Docker-over-SSH)
 
@@ -371,7 +411,7 @@ This project uses GitHub Actions for continuous integration and deployment:
 
 To create a new release:
 
-1. Update the version in `pyproject.toml`
+1. Update the version in `src/reahl/swordfish/__init__.py`
 2. Commit your changes and push to main branch
 3. Create and push a version tag:
    ```bash
