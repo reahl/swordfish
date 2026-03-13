@@ -1264,13 +1264,13 @@ class EventQueue:
 
 
 MCP_RUNTIME_CONFIG_SCHEMA_VERSION = 2
-MCP_RUNTIME_CONFIG_FILE_NAME = "mcp.json"
+SWORDFISH_CONFIG_FILE_NAME = "swordfish.json"
 MCP_PERMISSION_POLICY_CONFIG_NAME = "mcp_permission_policy"
 MCP_PERMISSION_POLICY_SOURCE_NAME = (
     "allow_session_permission_changes_condition_source"
 )
-
-
+LOGIN_CONFIG_NAME = "login"
+LOGIN_GEMSTONE_SCRIPT_SOURCE_NAME = "gemstone_script_source"
 class McpPermissionPolicy:
     def __init__(self, allow_session_permission_changes_condition_source=""):
         self.allow_session_permission_changes_condition_source = (
@@ -1353,7 +1353,7 @@ class McpConfigurationStore:
         return os.path.join(
             self.config_home_directory(),
             "swordfish",
-            MCP_RUNTIME_CONFIG_FILE_NAME,
+            SWORDFISH_CONFIG_FILE_NAME,
         )
 
     def validate_config_dict(self, config_payload):
@@ -1385,6 +1385,21 @@ class McpConfigurationStore:
             config_payload[MCP_PERMISSION_POLICY_SOURCE_NAME] = str(
                 config_payload[MCP_PERMISSION_POLICY_SOURCE_NAME]
             ).strip()
+        return config_payload
+
+    def validate_login_dict(self, config_payload):
+        if config_payload is None:
+            return {}
+        if not isinstance(config_payload, dict):
+            raise ValueError("login must be an object.")
+        if LOGIN_GEMSTONE_SCRIPT_SOURCE_NAME in config_payload:
+            config_payload = dict(config_payload)
+            script_source = str(
+                config_payload[LOGIN_GEMSTONE_SCRIPT_SOURCE_NAME]
+            )
+            if not script_source.strip():
+                script_source = ""
+            config_payload[LOGIN_GEMSTONE_SCRIPT_SOURCE_NAME] = script_source
         return config_payload
 
     def config_payload(self):
@@ -1429,6 +1444,20 @@ class McpConfigurationStore:
         except (ValueError, TypeError):
             return McpPermissionPolicy()
 
+    def load_login_gemstone_script_source(self):
+        payload = self.config_payload()
+        if payload is None:
+            return ""
+        try:
+            validated_payload = self.validate_login_dict(
+                payload.get(LOGIN_CONFIG_NAME)
+            )
+            return str(
+                validated_payload.get(LOGIN_GEMSTONE_SCRIPT_SOURCE_NAME, "")
+            )
+        except (ValueError, TypeError):
+            return ""
+
     def can_write_config(self):
         config_file_path = self.config_file_path()
         if os.path.exists(config_file_path):
@@ -1441,9 +1470,16 @@ class McpConfigurationStore:
             return os.access(config_home_directory, os.W_OK)
         return os.access(os.path.expanduser("~"), os.W_OK)
 
-    def save(self, runtime_config, permission_policy=None):
+    def save(
+        self,
+        runtime_config,
+        permission_policy=None,
+        login_gemstone_script_source=None,
+    ):
         if permission_policy is None:
             permission_policy = self.load_permission_policy()
+        if login_gemstone_script_source is None:
+            login_gemstone_script_source = self.load_login_gemstone_script_source()
         permission_policy_payload = permission_policy.to_dict()
         payload = {
             "schema_version": MCP_RUNTIME_CONFIG_SCHEMA_VERSION,
@@ -1451,6 +1487,12 @@ class McpConfigurationStore:
         }
         if permission_policy_payload:
             payload[MCP_PERMISSION_POLICY_CONFIG_NAME] = permission_policy_payload
+        if str(login_gemstone_script_source):
+            payload[LOGIN_CONFIG_NAME] = {
+                LOGIN_GEMSTONE_SCRIPT_SOURCE_NAME: str(
+                    login_gemstone_script_source
+                )
+            }
         config_file_path = self.config_file_path()
         config_directory = os.path.dirname(config_file_path)
         temporary_file_path = config_file_path + ".tmp"
@@ -1467,7 +1509,8 @@ class McpConfigurationStore:
             except OSError:
                 pass
             raise DomainException(
-                "Unable to save MCP configuration to %s: %s" % (config_file_path, error)
+                "Unable to save Swordfish configuration to %s: %s"
+                % (config_file_path, error)
             )
 
     def argument_is_explicitly_set(self, argument_tokens, option_name):
@@ -1779,10 +1822,15 @@ class McpServerController:
         with self.lock:
             self.runtime_config = runtime_config.copy()
 
-    def save_configuration(self, permission_policy=None):
+    def save_configuration(
+        self,
+        permission_policy=None,
+        login_gemstone_script_source=None,
+    ):
         self.configuration_store.save(
             self.current_runtime_config(),
             permission_policy=permission_policy,
+            login_gemstone_script_source=login_gemstone_script_source,
         )
 
     def status(self):
@@ -2367,7 +2415,6 @@ class MainMenu(tk.Menu):
             self.session_menu.add_command(
                 label="Login", command=self.parent.show_login_screen
             )
-
     def update_mcp_menu(self):
         self.mcp_menu.delete(0, tk.END)
         mcp_state = self.parent.embedded_mcp_server_status()
@@ -2460,7 +2507,6 @@ class MainMenu(tk.Menu):
 
     def configure_mcp_server(self):
         self.parent.configure_mcp_server_from_menu()
-
 
 class FindDialog(tk.Toplevel):
     def __init__(
@@ -4635,6 +4681,9 @@ class Swordfish(tk.Tk):
         self.mcp_permission_policy = (
             self.mcp_server_controller.configuration_store.load_permission_policy()
         )
+        self.login_gemstone_script_source = (
+            self.mcp_server_controller.configuration_store.load_login_gemstone_script_source()
+        )
         self.session_only_mcp_runtime_config_active = False
 
         self.event_queue.subscribe("LoggedInSuccessfully", self.show_main_app)
@@ -4760,7 +4809,9 @@ class Swordfish(tk.Tk):
             )
             return
         try:
-            self.mcp_server_controller.save_configuration(self.mcp_permission_policy)
+            self.mcp_server_controller.save_configuration(
+                self.mcp_permission_policy,
+            )
             self.base_mcp_runtime_config = self.mcp_runtime_config.copy()
             self.last_mcp_config_save_error_message = None
             self.session_only_mcp_runtime_config_active = False
@@ -7071,6 +7122,7 @@ class LoginFrame(ttk.Frame):
         stone_name = self.stone_name_entry.get()
         netldi_name = self.netldi_name_entry.get()
         rpc_hostname = self.rpc_hostname_entry.get()
+        gemstone_session_record = None
         try:
             if self.login_rpc:
                 gemstone_session_record = GemstoneSessionRecord.log_in_rpc(
@@ -7080,10 +7132,16 @@ class LoginFrame(ttk.Frame):
                 gemstone_session_record = GemstoneSessionRecord.log_in_linked(
                     username, password, stone_name
                 )
+            if self.parent.login_gemstone_script_source:
+                gemstone_session_record.run_code(
+                    self.parent.login_gemstone_script_source
+                )
             self.parent.event_queue.publish(
                 "LoggedInSuccessfully", gemstone_session_record
             )
         except DomainException as ex:
+            if gemstone_session_record is not None:
+                gemstone_session_record.log_out()
             self.error_label = ttk.Label(
                 self.form_frame,
                 text=str(ex),

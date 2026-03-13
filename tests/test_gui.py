@@ -32,6 +32,7 @@ from reahl.swordfish.main import (
     GlobalNavigationEntry,
     GlobalNavigationHistory,
     InspectorTab,
+    McpConfigurationAccess,
     McpConfigurationDialog,
     McpConfigurationStore,
     McpPermissionPolicy,
@@ -1724,6 +1725,10 @@ class SwordfishAppFixture(Fixture):
 
         self.app = Swordfish()
         self.app.withdraw()
+        self.app.mcp_server_controller.configuration_store.can_write_config = Mock(
+            return_value=True
+        )
+        self.app.login_gemstone_script_source = ""
         self.app.update()
 
     @tear_down
@@ -1790,6 +1795,56 @@ def test_successful_login_switches_to_browser_interface(fixture):
 
     assert fixture.app.is_logged_in
     assert fixture.app.notebook is not None
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_login_runs_configured_gemstone_login_script_before_showing_main_screen(
+    fixture,
+):
+    """AI: A configured GemStone login script should be evaluated as part of login before the IDE enters the logged-in state."""
+    fixture.app.login_gemstone_script_source = "System stoneName"
+    fixture.session_record.run_code = Mock(
+        return_value=types.SimpleNamespace(to_py="gs64stone")
+    )
+    published_events = []
+    original_publish = fixture.app.event_queue.publish
+
+    def publish_and_record(*args, **kwargs):
+        published_events.append(args[0])
+        return original_publish(*args, **kwargs)
+
+    with patch.object(
+        GemstoneSessionRecord, "log_in_linked", return_value=fixture.session_record
+    ):
+        with patch.object(
+            fixture.app.event_queue,
+            "publish",
+            side_effect=publish_and_record,
+        ):
+            fixture.app.login_frame.attempt_login()
+    fixture.app.update()
+
+    assert fixture.app.is_logged_in
+    fixture.session_record.run_code.assert_called_once_with("System stoneName")
+    assert published_events == ["LoggedInSuccessfully"]
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_failed_login_script_keeps_user_on_login_screen(fixture):
+    """AI: If the configured GemStone login script fails, login should abort and the opened session should be closed."""
+    fixture.app.login_gemstone_script_source = "self error: 'boom'"
+    fixture.session_record.run_code = Mock(side_effect=DomainException("boom"))
+
+    with patch.object(
+        GemstoneSessionRecord, "log_in_linked", return_value=fixture.session_record
+    ):
+        fixture.app.login_frame.attempt_login()
+    fixture.app.update()
+
+    assert not fixture.app.is_logged_in
+    assert fixture.app.login_frame.error_label is not None
+    assert "boom" in fixture.app.login_frame.error_label.cget("text")
+    fixture.mock_gemstone_session.log_out.assert_called_once()
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -2003,7 +2058,7 @@ def test_run_application_supports_legacy_headless_mode_argument():
 
 
 def test_save_and_load_mcp_runtime_config_uses_xdg_home_location():
-    """AI: MCP runtime config should persist under XDG config home and round-trip all permission flags."""
+    """AI: Swordfish config should persist under XDG config home and round-trip all permission flags."""
     with tempfile.TemporaryDirectory() as temporary_directory:
         with patch.dict(os.environ, {"XDG_CONFIG_HOME": temporary_directory}):
             runtime_config = McpRuntimeConfig(
@@ -2025,7 +2080,7 @@ def test_save_and_load_mcp_runtime_config_uses_xdg_home_location():
             expected_config_path = os.path.join(
                 temporary_directory,
                 "swordfish",
-                "mcp.json",
+                "swordfish.json",
             )
             assert configuration_store.config_file_path() == expected_config_path
             assert loaded_runtime_config is not None
@@ -2072,6 +2127,75 @@ def test_save_mcp_runtime_config_preserves_permission_policy_source():
                 "allow_session_permission_changes_condition_source": (
                     "System stoneName ~= 'prod'"
                 )
+            }
+
+
+def test_load_login_gemstone_script_source_from_config():
+    """AI: The Swordfish config should load a configured GemStone login script source verbatim."""
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": temporary_directory}):
+            configuration_store = McpConfigurationStore()
+            config_file_path = configuration_store.config_file_path()
+            os.makedirs(os.path.dirname(config_file_path), exist_ok=True)
+            with open(config_file_path, "w", encoding="utf-8") as config_file:
+                config_file.write(
+                    """
+{
+  "login": {
+    "gemstone_script_source": "System stoneName"
+  },
+  "schema_version": 2,
+  "mcp_runtime_config": {
+    "allow_source_read": true
+  }
+}
+""".strip()
+                    + "\n"
+                )
+
+            assert configuration_store.load_login_gemstone_script_source() == (
+                "System stoneName"
+            )
+
+
+def test_save_mcp_runtime_config_preserves_login_gemstone_script_source():
+    """AI: Saving MCP runtime config should preserve a hand-edited GemStone login script from config."""
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        with patch.dict(os.environ, {"XDG_CONFIG_HOME": temporary_directory}):
+            configuration_store = McpConfigurationStore()
+            config_file_path = configuration_store.config_file_path()
+            os.makedirs(os.path.dirname(config_file_path), exist_ok=True)
+            with open(config_file_path, "w", encoding="utf-8") as config_file:
+                config_file.write(
+                    """
+{
+  "login": {
+    "gemstone_script_source": "System stoneName"
+  },
+  "schema_version": 2,
+  "mcp_runtime_config": {
+    "allow_source_read": true
+  }
+}
+""".strip()
+                    + "\n"
+                )
+
+            configuration_store.save(
+                McpRuntimeConfig(
+                    allow_source_read=True,
+                    allow_source_write=True,
+                    mcp_host="127.0.0.1",
+                    mcp_port=8123,
+                    mcp_http_path="/saved",
+                )
+            )
+
+            with open(config_file_path, "r", encoding="utf-8") as config_file:
+                saved_payload = json.load(config_file)
+
+            assert saved_payload["login"] == {
+                "gemstone_script_source": "System stoneName"
             }
 
 
