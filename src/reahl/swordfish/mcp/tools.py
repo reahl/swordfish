@@ -59,6 +59,7 @@ def register_tools(
     allow_tracing=False,
     integrated_session_state=None,
     require_gemstone_ast=False,
+    experimental=False,
 ):
     if integrated_session_state is None:
         integrated_session_state = IntegratedSessionState()
@@ -70,6 +71,7 @@ def register_tools(
     tracer_alias_selector_prefix = "swordfishMcpTracerOriginal__"
     collected_sender_evidence = {}
     planned_sender_tests = {}
+    experimental_tool = mcp_server.tool if experimental else (lambda: lambda fn: fn)
 
     def tool_name_writes_model(tool_name):
         if tool_name in {
@@ -3856,7 +3858,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_tracer_status(connection_id):
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
@@ -3882,7 +3884,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_tracer_install(connection_id):
         tracing_error_response = require_tracing_enabled(
             connection_id,
@@ -3917,7 +3919,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_tracer_enable(connection_id, force=False):
         tracing_error_response = require_tracing_enabled(
             connection_id,
@@ -3962,7 +3964,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_tracer_disable(connection_id):
         tracing_error_response = require_tracing_enabled(
             connection_id,
@@ -3997,7 +3999,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_tracer_uninstall(connection_id):
         tracing_error_response = require_tracing_enabled(
             connection_id,
@@ -4032,7 +4034,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_tracer_trace_selector(
         connection_id,
         method_name,
@@ -4089,7 +4091,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_tracer_untrace_selector(
         connection_id,
         method_name,
@@ -4137,7 +4139,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_tracer_clear_observed_senders(connection_id, method_name=None):
         tracing_error_response = require_tracing_enabled(
             connection_id,
@@ -4181,7 +4183,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_tracer_find_observed_senders(
         connection_id,
         method_name,
@@ -4243,7 +4245,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_plan_evidence_tests(
         connection_id,
         method_name,
@@ -4324,7 +4326,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_collect_sender_evidence(
         connection_id,
         method_name,
@@ -5307,7 +5309,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_preview_rename_method(
         connection_id,
         class_name,
@@ -5362,7 +5364,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_apply_rename_method(
         connection_id,
         class_name,
@@ -5429,7 +5431,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_preview_move_method(
         connection_id,
         source_class_name,
@@ -5498,7 +5500,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_apply_move_method(
         connection_id,
         source_class_name,
@@ -5593,7 +5595,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_preview_add_parameter(
         connection_id,
         class_name,
@@ -5671,7 +5673,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_apply_add_parameter(
         connection_id,
         class_name,
@@ -5761,7 +5763,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_preview_remove_parameter(
         connection_id,
         class_name,
@@ -5832,7 +5834,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_apply_remove_parameter(
         connection_id,
         class_name,
@@ -5922,7 +5924,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_preview_extract_method(
         connection_id,
         class_name,
@@ -5993,7 +5995,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_apply_extract_method(
         connection_id,
         class_name,
@@ -6083,7 +6085,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_preview_inline_method(
         connection_id,
         class_name,
@@ -6147,7 +6149,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_apply_inline_method(
         connection_id,
         class_name,
@@ -6230,7 +6232,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_preview_selector_rename(
         connection_id,
         old_selector,
@@ -6274,7 +6276,7 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
+    @experimental_tool()
     def gs_apply_selector_rename(
         connection_id,
         old_selector,

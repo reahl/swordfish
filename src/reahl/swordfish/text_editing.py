@@ -583,37 +583,38 @@ class CodePanel(tk.Frame):
             label='References',
             command=self.find_references_from_source,
         )
-        self.current_context_menu.add_separator()
-        self.current_context_menu.add_command(
-            label='Apply Rename Method',
-            command=self.apply_method_rename,
-            state=write_command_state,
-        )
-        self.current_context_menu.add_command(
-            label='Apply Move Method',
-            command=self.apply_method_move,
-            state=write_command_state,
-        )
-        self.current_context_menu.add_command(
-            label='Apply Add Parameter',
-            command=self.apply_method_add_parameter,
-            state=write_command_state,
-        )
-        self.current_context_menu.add_command(
-            label='Apply Remove Parameter',
-            command=self.apply_method_remove_parameter,
-            state=write_command_state,
-        )
-        self.current_context_menu.add_command(
-            label='Apply Extract Method',
-            command=self.apply_method_extract,
-            state=write_command_state,
-        )
-        self.current_context_menu.add_command(
-            label='Apply Inline Method',
-            command=self.apply_method_inline,
-            state=write_command_state,
-        )
+        if self.application.experimental_features_enabled:
+            self.current_context_menu.add_separator()
+            self.current_context_menu.add_command(
+                label='Apply Rename Method',
+                command=self.apply_method_rename,
+                state=write_command_state,
+            )
+            self.current_context_menu.add_command(
+                label='Apply Move Method',
+                command=self.apply_method_move,
+                state=write_command_state,
+            )
+            self.current_context_menu.add_command(
+                label='Apply Add Parameter',
+                command=self.apply_method_add_parameter,
+                state=write_command_state,
+            )
+            self.current_context_menu.add_command(
+                label='Apply Remove Parameter',
+                command=self.apply_method_remove_parameter,
+                state=write_command_state,
+            )
+            self.current_context_menu.add_command(
+                label='Apply Extract Method',
+                command=self.apply_method_extract,
+                state=write_command_state,
+            )
+            self.current_context_menu.add_command(
+                label='Apply Inline Method',
+                command=self.apply_method_inline,
+                state=write_command_state,
+            )
         add_close_command_to_popup_menu(self.current_context_menu)
         self.current_context_menu.bind(
             '<Escape>',

@@ -74,7 +74,7 @@ class McpToolRegistrar:
 class RestrictedToolsFixture(Fixture):
     def new_registered_mcp_tools(self):
         registrar = McpToolRegistrar()
-        register_tools(registrar)
+        register_tools(registrar, experimental=True)
         return registrar.registered_tools_by_name
 
     def new_gs_eval(self):
@@ -259,6 +259,7 @@ class AllowedToolsFixture(Fixture):
             allow_ide_write=True,
             allow_commit=True,
             allow_tracing=True,
+            experimental=True,
         )
         return registrar.registered_tools_by_name
 
@@ -444,6 +445,7 @@ class AllowedToolsWithCommitConfirmationFixture(Fixture):
             allow_ide_write=True,
             allow_commit=True,
             allow_tracing=True,
+            experimental=True,
         )
         return registrar.registered_tools_by_name
 
@@ -475,6 +477,7 @@ class AllowedToolsWithNoActiveTransactionFixture(Fixture):
             allow_ide_write=True,
             allow_commit=True,
             allow_tracing=True,
+            experimental=True,
         )
         return registrar.registered_tools_by_name
 
@@ -618,6 +621,7 @@ class AllowedToolsWithNoActiveTransactionAndStrictAstFixture(Fixture):
             allow_commit=True,
             allow_tracing=True,
             require_gemstone_ast=True,
+            experimental=True,
         )
         return registrar.registered_tools_by_name
 
@@ -658,6 +662,7 @@ class AllowedToolsWithActiveTransactionFixture(Fixture):
             allow_ide_write=True,
             allow_commit=True,
             allow_tracing=True,
+            experimental=True,
         )
         return registrar.registered_tools_by_name
 
@@ -719,6 +724,7 @@ class AllowedToolsWithTracingDisabledFixture(Fixture):
             allow_ide_write=True,
             allow_commit=True,
             allow_tracing=False,
+            experimental=True,
         )
         return registrar.registered_tools_by_name
 

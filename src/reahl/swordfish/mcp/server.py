@@ -30,6 +30,7 @@ def create_server(
     allow_tracing=False,
     integrated_session_state=None,
     require_gemstone_ast=False,
+    experimental=False,
     mcp_host="127.0.0.1",
     mcp_port=8000,
     mcp_streamable_http_path="/mcp",
@@ -80,6 +81,7 @@ def create_server(
         allow_tracing=allow_tracing,
         integrated_session_state=integrated_session_state,
         require_gemstone_ast=require_gemstone_ast,
+        experimental=experimental,
     )
     return mcp_server
 
