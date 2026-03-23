@@ -2746,12 +2746,6 @@ class FindDialog(tk.Toplevel):
         )
         self.narrow_button.grid(row=0, column=2, padx=5)
 
-        self.narrow_to_source_class_button = ttk.Button(
-            self.button_frame,
-            text="Narrow to Source Class",
-            command=self.narrow_to_source_class_button_clicked,
-        )
-        self.narrow_to_source_class_button.grid(row=0, column=3, padx=5)
 
         self.cancel_button = ttk.Button(
             self.button_frame,
@@ -2903,12 +2897,10 @@ class FindDialog(tk.Toplevel):
             self.reference_target_frame.grid_remove()
         if tracing_controls_visible:
             self.narrow_button.grid()
-            self.narrow_to_source_class_button.grid()
             self.filter_frame.grid()
             self.status_label.grid()
         else:
             self.narrow_button.grid_remove()
-            self.narrow_to_source_class_button.grid_remove()
             self.filter_frame.grid_remove()
             self.status_label.grid_remove()
             self.status_var.set("")
@@ -2918,20 +2910,13 @@ class FindDialog(tk.Toplevel):
     def update_trace_narrow_state(self):
         source_class_known = self.sender_source_class_name is not None
         can_trace = bool(self.sender_tracing_selector) and source_class_known
-        can_narrow_to_source = source_class_known
         if self.search_type.get() != "reference":
             can_trace = False
-            can_narrow_to_source = False
         if self.reference_target.get() != "method":
             can_trace = False
-            can_narrow_to_source = False
         if self.find_operation_running:
             can_trace = False
-            can_narrow_to_source = False
         self.narrow_button.config(state=tk.NORMAL if can_trace else tk.DISABLED)
-        self.narrow_to_source_class_button.config(
-            state=tk.NORMAL if can_narrow_to_source else tk.DISABLED
-        )
 
     def set_find_operation_state(self, is_running):
         self.find_operation_running = is_running
@@ -3401,41 +3386,6 @@ class FindDialog(tk.Toplevel):
             'sender_selector_query': self.last_reference_method_query,
             'sender_source_class_name': self.sender_source_class_name,
         }
-
-    def source_class_category(self):
-        if self.sender_source_class_name is None:
-            return None
-        for result in self.static_sender_results:
-            entry = self.sender_entry_for_result(result)
-            if entry.get('class_name') == self.sender_source_class_name:
-                return entry.get('class_category')
-        return None
-
-    def narrow_to_source_class_category(self):
-        if self.sender_source_class_name is None:
-            return {
-                'ok': False,
-                'error': {'message': 'No source class context recorded for this sender search.'},
-            }
-        category = self.source_class_category()
-        if category is None:
-            return {
-                'ok': False,
-                'error': {
-                    'message': 'Could not determine class category for %s from sender results.' % self.sender_source_class_name,
-                },
-            }
-        return self.apply_sender_filters(
-            class_category_filters=[category],
-            reasoning_note='Narrowed to class category "%s" of source class %s.' % (
-                category, self.sender_source_class_name,
-            ),
-        )
-
-    def narrow_to_source_class_button_clicked(self):
-        result = self.narrow_to_source_class_category()
-        if not result.get('ok'):
-            messagebox.showerror('Narrow to Source Class', result['error']['message'])
 
     def apply_regex_filter_button_clicked(self):
         result = self.apply_regex_sender_filters(
@@ -6057,15 +6007,6 @@ class Swordfish(tk.Tk):
             reasoning_note=reasoning_note,
         )
 
-    def narrow_find_dialog_senders_to_source_class_category(self):
-        find_dialog = self.active_find_dialog()
-        if find_dialog is None:
-            return {
-                'ok': False,
-                'error': {'message': 'No open Find dialog in the IDE.'},
-            }
-        return find_dialog.narrow_to_source_class_category()
-
     def execute_mcp_ide_navigation_action(self, action_name, action_parameters=None):
         if action_parameters is None:
             action_parameters = {}
@@ -6531,8 +6472,6 @@ class Swordfish(tk.Tk):
             return self.current_ide_view_state()
         if action_name == "query_find_dialog_state":
             return {'ok': True, **self.find_dialog_state_for_mcp()}
-        if action_name == "narrow_senders_to_source_class_category":
-            return self.narrow_find_dialog_senders_to_source_class_category()
         return {
             "ok": False,
             "error": {"message": f"Unknown IDE navigation action: {action_name}."},

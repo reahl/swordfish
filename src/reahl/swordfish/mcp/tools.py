@@ -2596,21 +2596,6 @@ def register_tools(
         )
 
     @mcp_server.tool()
-    def gs_ide_narrow_senders_to_source_class(connection_id, reasoning_note=''):
-        """Narrow the find dialog sender list to senders in the same class category as the source class recorded when the search was opened."""
-        if not isinstance(reasoning_note, str):
-            return {
-                'ok': False,
-                'connection_id': connection_id,
-                'error': {'message': 'reasoning_note must be a string.'},
-            }
-        return perform_ide_navigation_action(
-            connection_id,
-            'narrow_senders_to_source_class_category',
-            {'reasoning_note': reasoning_note},
-        )
-
-    @mcp_server.tool()
     def gs_ide_open_run_window(
         connection_id,
         source="",
