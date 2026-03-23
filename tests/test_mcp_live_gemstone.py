@@ -109,6 +109,7 @@ class LiveMcpConnectionFixture(Fixture):
             allow_ide_write=True,
             allow_commit=True,
             allow_tracing=True,
+            experimental=True,
         )
         return registrar.registered_tools_by_name
 

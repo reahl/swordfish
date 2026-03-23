@@ -1797,11 +1797,13 @@ class McpServerController:
         integrated_session_state,
         runtime_config,
         configuration_store=None,
+        experimental=False,
     ):
         self.integrated_session_state = integrated_session_state
         if configuration_store is None:
             configuration_store = McpConfigurationStore()
         self.configuration_store = configuration_store
+        self.experimental = experimental
         self.runtime_config = runtime_config.copy()
         self.applied_runtime_config = None
         self.lock = threading.RLock()
@@ -1984,6 +1986,7 @@ class McpServerController:
             allow_tracing=runtime_config.allow_tracing,
             integrated_session_state=self.integrated_session_state,
             require_gemstone_ast=runtime_config.require_gemstone_ast,
+            experimental=self.experimental,
             mcp_host=runtime_config.mcp_host,
             mcp_port=runtime_config.mcp_port,
             mcp_streamable_http_path=runtime_config.mcp_http_path,
@@ -2739,12 +2742,14 @@ class FindDialog(tk.Toplevel):
         )
         self.stop_button.grid(row=0, column=1, padx=5)
 
-        self.narrow_button = ttk.Button(
-            self.button_frame,
-            text="Narrow With Tracing",
-            command=self.narrow_senders_with_tracing,
-        )
-        self.narrow_button.grid(row=0, column=2, padx=5)
+        self.narrow_button = None
+        if self.parent.experimental_features_enabled:
+            self.narrow_button = ttk.Button(
+                self.button_frame,
+                text="Narrow With Tracing",
+                command=self.narrow_senders_with_tracing,
+            )
+            self.narrow_button.grid(row=0, column=2, padx=5)
 
 
         self.cancel_button = ttk.Button(
@@ -2901,11 +2906,13 @@ class FindDialog(tk.Toplevel):
             self.reference_target_label.grid_remove()
             self.reference_target_frame.grid_remove()
         if tracing_controls_visible:
-            self.narrow_button.grid()
+            if self.narrow_button is not None:
+                self.narrow_button.grid()
             self.filter_frame.grid()
             self.status_label.grid()
         else:
-            self.narrow_button.grid_remove()
+            if self.narrow_button is not None:
+                self.narrow_button.grid_remove()
             self.filter_frame.grid_remove()
             self.status_label.grid_remove()
             self.status_var.set("")
@@ -2921,7 +2928,8 @@ class FindDialog(tk.Toplevel):
             can_trace = False
         if self.find_operation_running:
             can_trace = False
-        self.narrow_button.config(state=tk.NORMAL if can_trace else tk.DISABLED)
+        if self.narrow_button is not None:
+            self.narrow_button.config(state=tk.NORMAL if can_trace else tk.DISABLED)
 
     def set_find_operation_state(self, is_running):
         self.find_operation_running = is_running
@@ -4545,6 +4553,12 @@ class Swordfish(tk.Tk):
                 "When enabled, heuristic refactorings are blocked."
             ),
         )
+        argument_parser.add_argument(
+            "--experimental",
+            action="store_true",
+            default=False,
+            help="Enable experimental features (tracing, refactoring tools). Disabled by default.",
+        )
         return argument_parser
 
     @classmethod
@@ -4575,6 +4589,7 @@ class Swordfish(tk.Tk):
                 integrated_session_state=None,
                 runtime_config=runtime_config,
                 configuration_store=configuration_store,
+                experimental=arguments.experimental,
             )
             mcp_server_controller.run(arguments.transport)
             return
@@ -4583,6 +4598,7 @@ class Swordfish(tk.Tk):
             start_embedded_mcp=False,
             mcp_runtime_config=runtime_config,
             mcp_configuration_store=configuration_store,
+            experimental=arguments.experimental,
         )
         app.mainloop()
 
@@ -4592,6 +4608,7 @@ class Swordfish(tk.Tk):
         start_embedded_mcp=False,
         mcp_runtime_config=None,
         mcp_configuration_store=None,
+        experimental=False,
     ):
         super().__init__()
         self.action_gate = ActionGate()
@@ -4638,10 +4655,12 @@ class Swordfish(tk.Tk):
             mcp_runtime_config = McpRuntimeConfig()
         self.base_mcp_runtime_config = mcp_runtime_config.copy()
         self.mcp_runtime_config = self.base_mcp_runtime_config.copy()
+        self.experimental_features_enabled = experimental
         self.mcp_server_controller = McpServerController(
             self.integrated_session_state,
             self.mcp_runtime_config,
             configuration_store=mcp_configuration_store,
+            experimental=experimental,
         )
         self.mcp_permission_policy = (
             self.mcp_server_controller.configuration_store.load_permission_policy()

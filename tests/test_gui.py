@@ -57,6 +57,7 @@ class FakeApplication:
         self.event_queue = event_queue
         self.gemstone_session_record = gemstone_session_record
         self.integrated_session_state = IntegratedSessionState()
+        self.experimental_features_enabled = True
 
     def handle_sender_selection(self, class_name, show_instance_side, method_symbol):
         if self.gemstone_session_record.gemstone_session is not None:
@@ -1723,7 +1724,7 @@ class SwordfishAppFixture(Fixture):
         self.session_record.show_instance_side = True
         self.session_record.browse_mode = "dictionaries"
 
-        self.app = Swordfish()
+        self.app = Swordfish(experimental=True)
         self.app.withdraw()
         self.app.mcp_server_controller.configuration_store.can_write_config = Mock(
             return_value=True
@@ -2415,6 +2416,7 @@ def test_run_mcp_server_passes_streamable_http_options_to_create_server():
         allow_tracing=True,
         integrated_session_state=None,
         require_gemstone_ast=False,
+        experimental=False,
         mcp_host="127.0.0.1",
         mcp_port=9177,
         mcp_streamable_http_path="/running-ide",
