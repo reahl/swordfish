@@ -2768,11 +2768,16 @@ class FindDialog(tk.Toplevel):
         )
         self.class_regex_entry = ttk.Entry(self.filter_frame, width=20)
         self.class_regex_entry.pack(side="left", padx=(0, 12))
-        ttk.Label(self.filter_frame, text="Filter by category (regex):").pack(
+        ttk.Label(self.filter_frame, text="Filter by class category (regex):").pack(
             side="left", padx=(0, 4)
         )
-        self.category_regex_entry = ttk.Entry(self.filter_frame, width=20)
-        self.category_regex_entry.pack(side="left", padx=(0, 12))
+        self.class_category_regex_entry = ttk.Entry(self.filter_frame, width=20)
+        self.class_category_regex_entry.pack(side="left", padx=(0, 12))
+        ttk.Label(self.filter_frame, text="Filter by method category (regex):").pack(
+            side="left", padx=(0, 4)
+        )
+        self.method_category_regex_entry = ttk.Entry(self.filter_frame, width=20)
+        self.method_category_regex_entry.pack(side="left", padx=(0, 12))
         self.apply_regex_filter_button = ttk.Button(
             self.filter_frame,
             text="Apply Filter",
@@ -3390,12 +3395,13 @@ class FindDialog(tk.Toplevel):
     def apply_regex_filter_button_clicked(self):
         result = self.apply_regex_sender_filters(
             class_regex=self.class_regex_entry.get(),
-            category_regex=self.category_regex_entry.get(),
+            class_category_regex=self.class_category_regex_entry.get(),
+            method_category_regex=self.method_category_regex_entry.get(),
         )
         if not result.get('ok'):
             messagebox.showerror('Apply Filter', result['error']['message'])
 
-    def apply_regex_sender_filters(self, class_regex='', category_regex=''):
+    def apply_regex_sender_filters(self, class_regex='', class_category_regex='', method_category_regex=''):
         if self.search_type.get() != 'reference' or self.reference_target.get() != 'method':
             return {
                 'ok': False,
@@ -3407,15 +3413,17 @@ class FindDialog(tk.Toplevel):
         filtered_sender_results = []
         for sender_result in baseline_sender_results:
             sender_entry = self.sender_entry_for_result(sender_result)
-            if not self.sender_entry_matches_regex_filters(sender_entry, class_regex, category_regex):
+            if not self.sender_entry_matches_regex_filters(sender_entry, class_regex, class_category_regex, method_category_regex):
                 continue
             filtered_sender_results.append(sender_result)
         self.populate_navigation_results(filtered_sender_results)
         parts = []
         if class_regex:
             parts.append('class~/%s/' % class_regex)
-        if category_regex:
-            parts.append('category~/%s/' % category_regex)
+        if class_category_regex:
+            parts.append('class-category~/%s/' % class_category_regex)
+        if method_category_regex:
+            parts.append('method-category~/%s/' % method_category_regex)
         filter_desc = ', '.join(parts) if parts else '(none)'
         self.status_var.set(
             'Filtered senders: %s of %s displayed. Filter: %s' % (
@@ -3430,7 +3438,7 @@ class FindDialog(tk.Toplevel):
             'filtered_out_sender_count': len(baseline_sender_results) - len(filtered_sender_results),
         }
 
-    def sender_entry_matches_regex_filters(self, sender_entry, class_regex, category_regex):
+    def sender_entry_matches_regex_filters(self, sender_entry, class_regex, class_category_regex, method_category_regex):
         if class_regex:
             class_name = sender_entry.get('class_name') or ''
             try:
@@ -3438,10 +3446,17 @@ class FindDialog(tk.Toplevel):
                     return False
             except re.error:
                 return False
-        if category_regex:
-            category = sender_entry.get('class_category') or sender_entry.get('method_category') or ''
+        if class_category_regex:
+            class_category = sender_entry.get('class_category') or ''
             try:
-                if not re.search(category_regex, category, re.IGNORECASE):
+                if not re.search(class_category_regex, class_category, re.IGNORECASE):
+                    return False
+            except re.error:
+                return False
+        if method_category_regex:
+            method_category = sender_entry.get('method_category') or ''
+            try:
+                if not re.search(method_category_regex, method_category, re.IGNORECASE):
                     return False
             except re.error:
                 return False
