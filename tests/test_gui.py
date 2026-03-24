@@ -297,7 +297,7 @@ def test_selecting_group_fetches_and_shows_classes(fixture):
         "Kernel",
     )
 
-    fixture.mock_browser.list_classes_in_dictionary.assert_called_with("Kernel")
+    fixture.mock_browser.list_classes_in_category.assert_called_with("Kernel")
     class_listbox = (
         fixture.browser_window.classes_widget.selection_list.selection_listbox
     )
