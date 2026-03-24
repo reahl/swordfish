@@ -18,6 +18,7 @@ from tkinter import ttk
 
 from reahl.ptongue import GemstoneError, LinkedSession, RPCSession
 
+from reahl.swordfish import __version__
 from reahl.swordfish.browser import (
     BrowserWindow,
     CategorySelection,
@@ -5052,6 +5053,16 @@ class Swordfish(tk.Tk):
             sticky="e",
             padx=(8, 0),
         )
+        ttk.Label(
+            self.collaboration_status_frame,
+            text=f'v{__version__}',
+            foreground='gray',
+        ).grid(
+            row=0,
+            column=5,
+            sticky="e",
+            padx=(8, 4),
+        )
         self.set_mcp_activity_indicator_visibility(False)
         self.refresh_global_navigation_controls()
         self.rowconfigure(1, weight=0)
@@ -7054,6 +7065,18 @@ class LoginFrame(ttk.Frame):
             row=8,
             sticky="e",
             pady=(10, 0),
+        )
+
+        ttk.Label(
+            self,
+            text=f'Swordfish {__version__}',
+            foreground='gray',
+        ).grid(
+            row=1,
+            column=0,
+            sticky="se",
+            padx=8,
+            pady=4,
         )
 
     @property
