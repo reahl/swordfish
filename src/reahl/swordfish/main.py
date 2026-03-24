@@ -106,7 +106,7 @@ class GemstoneSessionRecord:
         self.selected_method_category = None
         self.selected_method_symbol = None
         self.show_instance_side = True
-        self.browse_mode = "dictionaries"
+        self.browse_mode = "categories"
 
     def set_integrated_session_state(self, integrated_session_state):
         self.integrated_session_state = integrated_session_state
