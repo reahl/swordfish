@@ -7719,6 +7719,25 @@ def test_class_organizer_initialized_after_login(fixture):
     fixture.session_record.initialize_class_organizer.assert_called_once()
 
 
+def test_class_organizer_warm_up_runs_when_supported():
+    """AI: When cachedOrganizer is available in the image, initialize_class_organizer should call it to pre-warm the cache."""
+    session_record = GemstoneSessionRecord.__new__(GemstoneSessionRecord)
+    session_record.gemstone_session = Mock()
+    session_record.gemstone_session.ClassOrganizer.respondsTo.return_value = Mock(to_py=True)
+    session_record.initialize_class_organizer()
+    session_record.gemstone_session.ClassOrganizer.cachedOrganizer().updateClassInfo.assert_called()
+
+
+def test_class_organizer_warm_up_skipped_when_not_supported():
+    """AI: If the image does not have cachedOrganizer loaded, initialize_class_organizer should skip the warm-up without error."""
+    session_record = GemstoneSessionRecord.__new__(GemstoneSessionRecord)
+    session_record.gemstone_session = Mock()
+    session_record.gemstone_session.ClassOrganizer.respondsTo.return_value = Mock(to_py=False)
+    with expected(NoException):
+        session_record.initialize_class_organizer()
+    session_record.gemstone_session.ClassOrganizer.cachedOrganizer.assert_not_called()
+
+
 def test_read_gemstone_exe_conf_from_config_file():
     """AI: The gemstone_exe_conf path should be read from swordfish.json independently of MCP config."""
     with tempfile.TemporaryDirectory() as temporary_directory:

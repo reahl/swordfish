@@ -244,7 +244,8 @@ class GemstoneSessionRecord:
 
     def initialize_class_organizer(self):
         """Pre-warm the ClassOrganizer cache so the first user action after login is not slow."""
-        self.gemstone_session.ClassOrganizer.cachedOrganizer().updateClassInfo()
+        if self.gemstone_session.ClassOrganizer.respondsTo('cachedOrganizer').to_py:
+            self.gemstone_session.ClassOrganizer.cachedOrganizer().updateClassInfo()
 
     @property
     def stone_name(self):
