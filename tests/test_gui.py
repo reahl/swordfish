@@ -28,6 +28,7 @@ from reahl.swordfish.main import (
     EventQueue,
     Explorer,
     FindDialog,
+    GEMSTONE_EXE_CONF_CONFIG_NAME,
     GemstoneSessionRecord,
     GlobalNavigationEntry,
     GlobalNavigationHistory,
@@ -45,6 +46,8 @@ from reahl.swordfish.main import (
     UmlClassNode,
     UmlObjectDiagramRegistry,
     UmlObjectNode,
+    apply_gemstone_exe_conf,
+    read_gemstone_exe_conf,
 )
 from reahl.swordfish.mcp.integration_state import IntegratedSessionState
 from reahl.swordfish.object_diagram import UmlObjectDiagramNodeDetailDialog
@@ -7701,3 +7704,100 @@ def test_debug_test_opens_debugger_even_for_assertion_failures(fixture):
         fixture.app.notebook.tab(t, "text") for t in fixture.app.notebook.tabs()
     ]
     assert "Debugger" in tab_labels
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_class_organizer_initialized_after_login(fixture):
+    """AI: The ClassOrganizer cache should be initialized at login to avoid the first-execution slowdown on every new session."""
+    fixture.session_record.initialize_class_organizer = Mock()
+    with patch.object(
+        GemstoneSessionRecord, 'log_in_linked', return_value=fixture.session_record
+    ):
+        fixture.app.login_frame.attempt_login()
+    fixture.app.update()
+
+    fixture.session_record.initialize_class_organizer.assert_called_once()
+
+
+def test_read_gemstone_exe_conf_from_config_file():
+    """AI: The gemstone_exe_conf path should be read from swordfish.json independently of MCP config."""
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        config_file_path = os.path.join(temporary_directory, 'swordfish.json')
+        with open(config_file_path, 'w', encoding='utf-8') as f:
+            json.dump(
+                {
+                    GEMSTONE_EXE_CONF_CONFIG_NAME: '/home/wonka/gem.conf',
+                    'schema_version': 2,
+                    'mcp_runtime_config': {},
+                },
+                f,
+            )
+
+        assert read_gemstone_exe_conf(config_file_path) == '/home/wonka/gem.conf'
+
+
+def test_read_gemstone_exe_conf_returns_empty_when_key_absent():
+    """AI: Reading gemstone_exe_conf from a config file that does not contain the key should return an empty string."""
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        config_file_path = os.path.join(temporary_directory, 'swordfish.json')
+        with open(config_file_path, 'w', encoding='utf-8') as f:
+            json.dump({'schema_version': 2, 'mcp_runtime_config': {}}, f)
+
+        assert read_gemstone_exe_conf(config_file_path) == ''
+
+
+def test_apply_gemstone_exe_conf_sets_env_var():
+    """AI: Applying a configured gemstone_exe_conf path should set GEMSTONE_EXE_CONF in the process environment."""
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop('GEMSTONE_EXE_CONF', None)
+        apply_gemstone_exe_conf('/home/wonka/gem.conf')
+        assert os.environ['GEMSTONE_EXE_CONF'] == '/home/wonka/gem.conf'
+
+
+def test_apply_gemstone_exe_conf_clears_env_var_when_empty():
+    """AI: Applying an empty gemstone_exe_conf should remove GEMSTONE_EXE_CONF so the GemStone default lookup applies."""
+    with patch.dict(os.environ, {'GEMSTONE_EXE_CONF': '/some/existing.conf'}):
+        apply_gemstone_exe_conf('')
+        assert 'GEMSTONE_EXE_CONF' not in os.environ
+
+
+def test_apply_gemstone_exe_conf_warns_when_overriding_env_var(caplog):
+    """AI: If swordfish.json specifies a different gemstone_exe_conf than the environment already has, a warning should be logged so the user knows the env var was overridden."""
+    import logging
+
+    with patch.dict(os.environ, {'GEMSTONE_EXE_CONF': '/env/existing.conf'}):
+        with caplog.at_level(logging.WARNING):
+            apply_gemstone_exe_conf('/config/override.conf')
+        assert os.environ.get('GEMSTONE_EXE_CONF') == '/config/override.conf'
+
+    assert any(
+        '/env/existing.conf' in record.message and '/config/override.conf' in record.message
+        for record in caplog.records
+    )
+
+
+def test_save_preserves_unrecognised_top_level_keys():
+    """AI: Saving MCP runtime config should not silently discard top-level keys it does not know about, such as gemstone_exe_conf."""
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        with patch.dict(os.environ, {'XDG_CONFIG_HOME': temporary_directory}):
+            configuration_store = McpConfigurationStore()
+            config_file_path = configuration_store.config_file_path()
+            os.makedirs(os.path.dirname(config_file_path), exist_ok=True)
+            with open(config_file_path, 'w', encoding='utf-8') as config_file:
+                config_file.write(
+                    json.dumps(
+                        {
+                            'schema_version': 2,
+                            'mcp_runtime_config': {'allow_source_read': True},
+                            GEMSTONE_EXE_CONF_CONFIG_NAME: '/home/wonka/gem.conf',
+                        }
+                    )
+                    + '\n'
+                )
+
+            configuration_store.save(McpRuntimeConfig(allow_source_read=True))
+
+            with open(config_file_path, 'r', encoding='utf-8') as config_file:
+                saved_payload = json.load(config_file)
+
+            assert saved_payload[GEMSTONE_EXE_CONF_CONFIG_NAME] == '/home/wonka/gem.conf'

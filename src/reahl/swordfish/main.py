@@ -242,6 +242,10 @@ class GemstoneSessionRecord:
             raise DomainException("Gemstone error: %s" % e)
         return cls(gemstone_session)
 
+    def initialize_class_organizer(self):
+        """Pre-warm the ClassOrganizer cache so the first user action after login is not slow."""
+        self.gemstone_session.ClassOrganizer.cachedOrganizer().updateClassInfo()
+
     @property
     def stone_name(self):
         return self.gemstone_session.System.stoneName().to_py
@@ -1272,6 +1276,48 @@ MCP_PERMISSION_POLICY_SOURCE_NAME = (
 )
 LOGIN_CONFIG_NAME = "login"
 LOGIN_GEMSTONE_SCRIPT_SOURCE_NAME = "gemstone_script_source"
+GEMSTONE_EXE_CONF_CONFIG_NAME = "gemstone_exe_conf"
+
+
+def read_gemstone_exe_conf(config_file_path):
+    """Read the gemstone_exe_conf path directly from swordfish.json.
+
+    This is intentionally independent of McpConfigurationStore since
+    GEMSTONE_EXE_CONF is a GemStone process-level setting for the whole app,
+    not part of MCP configuration.
+    """
+    if not os.path.exists(config_file_path):
+        return ""
+    try:
+        with open(config_file_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except (OSError, TypeError, json.JSONDecodeError, ValueError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    return str(payload.get(GEMSTONE_EXE_CONF_CONFIG_NAME, "")).strip()
+
+
+def apply_gemstone_exe_conf(gemstone_exe_conf):
+    """Set or clear the GEMSTONE_EXE_CONF environment variable from swordfish.json config.
+
+    When the config value differs from a pre-existing env var, the config wins
+    and a warning is logged so the override is visible.
+    """
+    existing = os.environ.get("GEMSTONE_EXE_CONF", "")
+    if gemstone_exe_conf:
+        if existing and existing != gemstone_exe_conf:
+            logging.getLogger(__name__).warning(
+                "swordfish.json %s (%s) overrides GEMSTONE_EXE_CONF from environment (%s)",
+                GEMSTONE_EXE_CONF_CONFIG_NAME,
+                gemstone_exe_conf,
+                existing,
+            )
+        os.environ["GEMSTONE_EXE_CONF"] = gemstone_exe_conf
+    elif existing:
+        del os.environ["GEMSTONE_EXE_CONF"]
+
+
 class McpPermissionPolicy:
     def __init__(self, allow_session_permission_changes_condition_source=""):
         self.allow_session_permission_changes_condition_source = (
@@ -1482,10 +1528,23 @@ class McpConfigurationStore:
         if login_gemstone_script_source is None:
             login_gemstone_script_source = self.load_login_gemstone_script_source()
         permission_policy_payload = permission_policy.to_dict()
+        known_keys = {
+            "schema_version",
+            "mcp_runtime_config",
+            MCP_PERMISSION_POLICY_CONFIG_NAME,
+            LOGIN_CONFIG_NAME,
+        }
+        existing_payload = self.config_payload() or {}
+        preserved_keys = {
+            key: value
+            for key, value in existing_payload.items()
+            if key not in known_keys
+        }
         payload = {
             "schema_version": MCP_RUNTIME_CONFIG_SCHEMA_VERSION,
             "mcp_runtime_config": runtime_config.to_dict(),
         }
+        payload.update(preserved_keys)
         if permission_policy_payload:
             payload[MCP_PERMISSION_POLICY_CONFIG_NAME] = permission_policy_payload
         if str(login_gemstone_script_source):
@@ -4580,6 +4639,9 @@ class Swordfish(tk.Tk):
             arguments,
             argument_tokens=argument_tokens,
         )
+        apply_gemstone_exe_conf(
+            read_gemstone_exe_conf(configuration_store.config_file_path())
+        )
         run_headless_mcp = arguments.headless_mcp
         if arguments.mode == "mcp-headless":
             run_headless_mcp = True
@@ -7128,6 +7190,7 @@ class LoginFrame(ttk.Frame):
                 gemstone_session_record = GemstoneSessionRecord.log_in_linked(
                     username, password, stone_name
                 )
+            gemstone_session_record.initialize_class_organizer()
             if self.parent.login_gemstone_script_source:
                 gemstone_session_record.run_code(
                     self.parent.login_gemstone_script_source
