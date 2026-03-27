@@ -1,7 +1,20 @@
-from reahl.tofu import Fixture, expected, with_fixtures
+from unittest.mock import Mock
+
+from reahl.ptongue import GemstoneError
+from reahl.tofu import Fixture, NoException, expected, with_fixtures
 
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 from reahl.swordfish.gemstone.session import DomainException
+
+
+class FakeGemstoneError(GemstoneError):
+    """AI: Minimal GemstoneError for unit tests — bypasses the real constructor which requires an active session."""
+
+    def __init__(self):
+        pass
+
+    def __str__(self):
+        return 'AI: Simulated GemStone error'
 
 
 class ExtractPlanningFixture(Fixture):
@@ -98,3 +111,35 @@ def test_extract_plan_unary_selector_still_works_when_no_arguments_are_needed(
     assert extract_plan["extracted_argument_names"] == []
     assert extract_plan["new_method_source"].startswith("extractedFirstStep\n")
     assert "self extractedFirstStep" in extract_plan["updated_method_source"]
+
+
+def test_get_class_definition_treats_class_as_root_when_superclass_proxy_unavailable():
+    """AI: When superclass() raises a GemstoneError (e.g. nil OID in a full image), get_class_definition should return superclass_name=None rather than crashing the hierarchy view."""
+    browser_session = GemstoneBrowserSession(None)
+    mock_gemstone_class = Mock()
+    mock_gemstone_class.superclass.side_effect = FakeGemstoneError()
+    mock_gemstone_class.name.return_value.to_py = 'ClassOrganizer'
+    mock_gemstone_class.category.return_value.to_py = 'Kernel'
+    mock_gemstone_class.allSharedPools.return_value = []
+    mock_gemstone_class.instVarNames.return_value = []
+    mock_gemstone_class.classVarNames.return_value = []
+    mock_gemstone_class.gemstone_class.return_value.instVarNames.return_value = []
+    browser_session.resolved_class = Mock(return_value=mock_gemstone_class)
+
+    with expected(NoException):
+        result = browser_session.get_class_definition('ClassOrganizer')
+
+    assert result['superclass_name'] is None
+
+
+def test_list_methods_returns_empty_for_categories_that_cannot_be_queried():
+    """AI: When selectorsIn: raises a GemstoneError (e.g. *bootstrap-caching internal category), list_methods should return [] rather than crashing the method listing."""
+    browser_session = GemstoneBrowserSession(None)
+    mock_class = Mock()
+    mock_class.selectorsIn.side_effect = FakeGemstoneError()
+    browser_session.class_to_query = Mock(return_value=mock_class)
+
+    with expected(NoException):
+        result = browser_session.list_methods('Object', '*bootstrap-caching', False)
+
+    assert result == []
