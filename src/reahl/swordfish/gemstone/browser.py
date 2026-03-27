@@ -462,7 +462,10 @@ class GemstoneBrowserSession:
         if method_category == "all":
             selectors = class_to_query.selectors().asSortedCollection()
         else:
-            selectors = class_to_query.selectorsIn(method_category).asSortedCollection()
+            try:
+                selectors = class_to_query.selectorsIn(method_category).asSortedCollection()
+            except GemstoneError:
+                return []  # AI: category exists in categoryNames() but selectorsIn: cannot query it (e.g. *bootstrap-caching)
         return [gemstone_selector.to_py for gemstone_selector in selectors]
 
     def get_compiled_method(self, class_name, method_selector, show_instance_side):
@@ -3351,10 +3354,13 @@ class GemstoneBrowserSession:
         gemstone_class = self.resolved_class(class_name)
         if gemstone_class is None:
             raise DomainException("Unknown class_name.")
-        superclass = gemstone_class.superclass()
         superclass_name = None
-        if not superclass.isNil().to_py:
-            superclass_name = superclass.name().to_py
+        try:
+            superclass = gemstone_class.superclass()
+            if not superclass.isNil().to_py:
+                superclass_name = superclass.name().to_py
+        except GemstoneError:
+            pass  # AI: superclass proxy unavailable (e.g. nil OID in a full image) — treat as hierarchy root
         pool_names = [
             gemstone_pool.name().to_py
             for gemstone_pool in gemstone_class.allSharedPools()
