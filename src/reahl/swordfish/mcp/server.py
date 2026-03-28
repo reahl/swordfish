@@ -34,6 +34,7 @@ def create_server(
     mcp_host="127.0.0.1",
     mcp_port=8000,
     mcp_streamable_http_path="/mcp",
+    activity_log=None,
 ):
     if integrated_session_state is None:
         integrated_session_state = current_integrated_session_state()
@@ -69,6 +70,18 @@ def create_server(
         mcp_streamable_http_path,
     )
     mcp_server = fast_mcp(**server_arguments)
+    if activity_log is not None:
+        original_tool = mcp_server.tool
+
+        def tool_with_logging(*deco_args, **deco_kwargs):
+            base_decorator = original_tool(*deco_args, **deco_kwargs)
+
+            def logged_decorator(fn):
+                return base_decorator(activity_log.wrap_mcp_tool(fn))
+
+            return logged_decorator
+
+        mcp_server.tool = tool_with_logging
     register_tools(
         mcp_server,
         allow_source_read=allow_source_read,

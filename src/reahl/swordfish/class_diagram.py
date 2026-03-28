@@ -884,6 +884,7 @@ class UmlClassDiagramTab(ttk.Frame):
         snapshot_after = self.snapshot_diagram()
         if record_history and snapshot_after != snapshot_before:
             self.record_diagram_snapshot()
+        self.application.event_queue.publish('ClassAddedToDiagram', log_context={'class_name': class_name})
         return node
 
     def pin_method(self, class_name, show_instance_side, method_selector):
@@ -895,23 +896,27 @@ class UmlClassDiagramTab(ttk.Frame):
         existing_method = None
         for method_entry in node.pinned_methods:
             is_same_method = (
-                method_entry["selector"] == method_selector
-                and method_entry["show_instance_side"] == show_instance_side
+                method_entry['selector'] == method_selector
+                and method_entry['show_instance_side'] == show_instance_side
             )
             if is_same_method:
                 existing_method = method_entry
         if existing_method is None:
             node.pinned_methods.append(
                 {
-                    "selector": method_selector,
-                    "show_instance_side": show_instance_side,
-                    "label": method_label,
+                    'selector': method_selector,
+                    'show_instance_side': show_instance_side,
+                    'label': method_label,
                 }
             )
             self.uml_canvas.redraw_node(node)
         snapshot_after = self.snapshot_diagram()
         if snapshot_after != snapshot_before:
             self.record_diagram_snapshot()
+        self.application.event_queue.publish(
+            'MethodPinnedToDiagram',
+            log_context={'class_name': class_name, 'method': method_selector},
+        )
 
     def open_node_menu(self, node, event):
         if self.current_context_menu is not None:
@@ -1090,6 +1095,7 @@ class UmlClassDiagramTab(ttk.Frame):
         snapshot_after = self.snapshot_diagram()
         if snapshot_after != snapshot_before:
             self.record_diagram_snapshot()
+        self.application.event_queue.publish('ClassRemovedFromDiagram', log_context={'class_name': class_name})
 
     def inheritance_detail_class_names(self, relationship):
         if relationship.relationship_kind != "inheritance":
@@ -1190,6 +1196,7 @@ class UmlClassDiagramTab(ttk.Frame):
         snapshot_after = self.snapshot_diagram()
         if snapshot_after != snapshot_before:
             self.record_diagram_snapshot()
+            self.application.event_queue.publish('DiagramCleared')
             return True
         return False
 
@@ -1366,6 +1373,7 @@ class UmlClassDiagramTab(ttk.Frame):
         snapshot_after = self.snapshot_diagram()
         if snapshot_after != snapshot_before:
             self.record_diagram_snapshot()
+            self.application.event_queue.publish('DiagramRearranged')
             return True
         return False
 
@@ -1374,6 +1382,7 @@ class UmlClassDiagramTab(ttk.Frame):
         if snapshot is None:
             self.refresh_undo_controls()
             return False
+        self.application.event_queue.publish('DiagramUndone')
         self.restore_diagram_snapshot(snapshot)
         self.refresh_undo_controls()
         return True
