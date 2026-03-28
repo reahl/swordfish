@@ -18,12 +18,14 @@ class ObjectInspector(ttk.Frame):
         external_inspect_action=None,
         graph_inspect_action=None,
         browse_class_action=None,
+        event_queue=None,
     ):
         super().__init__(parent)
         self.inspected_object = an_object
         self.external_inspect_action = external_inspect_action
         self.graph_inspect_action = graph_inspect_action
         self.browse_class_action = browse_class_action
+        self.event_queue = event_queue
         self.current_object_menu = None
         self.page_size = 100
         self.current_page = 0
@@ -447,6 +449,9 @@ class ObjectInspector(ttk.Frame):
         if value is None:
             return
 
+        if self.event_queue is not None:
+            self.event_queue.publish('ObjectInspected', log_context={'label': self.tab_label_for(value)})
+
         if hasattr(self.master, 'open_or_select_object'):
             self.master.open_or_select_object(value)
             return
@@ -458,6 +463,7 @@ class ObjectInspector(ttk.Frame):
                 an_object=value,
                 external_inspect_action=self.external_inspect_action,
                 graph_inspect_action=self.graph_inspect_action,
+                event_queue=self.event_queue,
             )
         except GemstoneError as e:
             messagebox.showerror('Inspector', f'Cannot inspect this object:\n{e}')
@@ -544,12 +550,14 @@ class Explorer(ttk.Notebook):
         external_inspect_action=None,
         graph_inspect_action=None,
         browse_class_action=None,
+        event_queue=None,
     ):
         super().__init__(parent)
         self.tab_registry = DeduplicatedTabRegistry(self)
         self.external_inspect_action = external_inspect_action
         self.graph_inspect_action = graph_inspect_action
         self.browse_class_action = browse_class_action
+        self.event_queue = event_queue
 
         context_frame = ObjectInspector(
             self,
@@ -558,6 +566,7 @@ class Explorer(ttk.Notebook):
             external_inspect_action=self.external_inspect_action,
             graph_inspect_action=self.graph_inspect_action,
             browse_class_action=self.browse_class_action,
+            event_queue=self.event_queue,
         )
         tab_label = root_tab_label
         if tab_label is None:
@@ -683,6 +692,7 @@ class InspectorTab(ttk.Frame):
             an_object=an_object,
             graph_inspect_action=graph_inspect_action,
             browse_class_action=self.application.browse_object_class,
+            event_queue=self.application.event_queue,
         )
         self.explorer.grid(row=1, column=0, sticky='nsew', padx=10, pady=(0, 10))
         self.explorer.bind(
@@ -748,10 +758,12 @@ class InspectorTab(ttk.Frame):
         self.refresh_navigation_controls()
 
     def go_to_previous_object(self):
+        self.application.event_queue.publish('InspectorNavigatedBack')
         object_context = self.object_navigation_history.go_back()
         self.jump_to_object_context(object_context)
 
     def go_to_next_object(self):
+        self.application.event_queue.publish('InspectorNavigatedForward')
         object_context = self.object_navigation_history.go_forward()
         self.jump_to_object_context(object_context)
 

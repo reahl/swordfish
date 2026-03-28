@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import functools
 import json
 import logging
 import os
@@ -10,6 +11,8 @@ import re
 import sys
 import threading
 import tkinter as tk
+import traceback
+from datetime import datetime
 import tkinter.messagebox as messagebox
 import tkinter.simpledialog as simpledialog
 import weakref
@@ -1081,9 +1084,58 @@ class ActionGate:
     def read_only_for(self, action_name, is_busy=False):
         return not self.allows(action_name, is_busy=is_busy)
 
+class ActivityLog:
+    """AI: Records IDE events and MCP tool calls with stack traces to a JSONL file."""
+
+    def __init__(self, file_path):
+        self.file_path = file_path
+        self.lock = threading.Lock()
+        open(self.file_path, 'w').close()
+
+    def log_ide_event(self, event_name, args, kwargs):
+        stack = traceback.extract_stack()[:-2]
+        self.write_entry({
+            'ts': datetime.now().isoformat(),
+            'source': 'ide',
+            'action': event_name,
+            'args': self.repr_for_log(args),
+            'kwargs': self.repr_for_log(kwargs),
+            'stack': [str(frame) for frame in stack],
+        })
+
+    def wrap_mcp_tool(self, fn):
+        log = self
+
+        @functools.wraps(fn)
+        def logged(**kwargs):
+            stack = traceback.extract_stack()[:-1]
+            log.write_entry({
+                'ts': datetime.now().isoformat(),
+                'source': 'mcp',
+                'action': fn.__name__,
+                'args': log.repr_for_log(kwargs),
+                'stack': [str(frame) for frame in stack],
+            })
+            return fn(**kwargs)
+
+        return logged
+
+    def repr_for_log(self, value):
+        try:
+            return repr(value)
+        except Exception:
+            return '<unrepresentable>'
+
+    def write_entry(self, entry):
+        with self.lock:
+            with open(self.file_path, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(entry) + '\n')
+
+
 class EventQueue:
-    def __init__(self, root):
+    def __init__(self, root, activity_log=None):
         self.root = root
+        self.activity_log = activity_log
         self.events = {}
         self.queue = deque()
         self.queue_lock = threading.RLock()
@@ -1144,10 +1196,16 @@ class EventQueue:
             )
         )
 
-    def publish(self, event_name, *args, **kwargs):
+    def publish(self, event_name, *args, log_context=None, **kwargs):
         if event_name in self.events:
             with self.queue_lock:
                 self.queue.append((event_name, args, kwargs))
+        if self.activity_log is not None:
+            merged_context = {k: v for k, v in kwargs.items() if k != 'origin'}
+            merged_context.update(self.selection_snapshot_for(event_name))
+            if log_context:
+                merged_context.update(log_context)
+            self.activity_log.log_ide_event(event_name, args, merged_context)
         if threading.get_ident() == self.root_thread_ident:
             if self.processing_events:
                 return
@@ -1181,6 +1239,28 @@ class EventQueue:
                 if len(wakeup_payload) < 1024:
                     break
         self.schedule_event_processing()
+
+    def selection_snapshot_for(self, event_name):
+        selection_events = {
+            'SelectedPackageChanged',
+            'SelectedClassChanged',
+            'SelectedCategoryChanged',
+            'MethodSelected',
+        }
+        if event_name not in selection_events:
+            return {}
+        session_record = getattr(self.root, 'gemstone_session_record', None)
+        if session_record is None:
+            return {}
+        try:
+            return {
+                'package': getattr(session_record, 'selected_package', None),
+                'class_name': getattr(session_record, 'selected_class', None),
+                'category': getattr(session_record, 'selected_method_category', None),
+                'method': getattr(session_record, 'selected_method_symbol', None),
+            }
+        except Exception:
+            return {}
 
     def process_events(self):
         if self.processing_events:
@@ -1859,18 +1939,20 @@ class McpServerController:
         runtime_config,
         configuration_store=None,
         experimental=False,
+        activity_log=None,
     ):
         self.integrated_session_state = integrated_session_state
         if configuration_store is None:
             configuration_store = McpConfigurationStore()
         self.configuration_store = configuration_store
         self.experimental = experimental
+        self.activity_log = activity_log
         self.runtime_config = runtime_config.copy()
         self.applied_runtime_config = None
         self.lock = threading.RLock()
         self.server_thread = None
         self.uvicorn_server = None
-        self.last_error_message = ""
+        self.last_error_message = ''
         self.starting = False
         self.stopping = False
         self.running = False
@@ -2051,6 +2133,7 @@ class McpServerController:
             mcp_host=runtime_config.mcp_host,
             mcp_port=runtime_config.mcp_port,
             mcp_streamable_http_path=runtime_config.mcp_http_path,
+            activity_log=self.activity_log,
         )
 
     def run(self, transport):
@@ -2549,27 +2632,35 @@ class MainMenu(tk.Menu):
         self.file_menu.add_command(label="Exit", command=self.parent.quit)
 
     def show_find_dialog(self):
+        self.event_queue.publish('MenuCommandInvoked', command='Find')
         self.parent.open_find_dialog()
 
     def show_find_implementors_dialog(self):
+        self.event_queue.publish('MenuCommandInvoked', command='Implementors')
         self.parent.open_implementors_dialog()
 
     def show_find_senders_dialog(self):
+        self.event_queue.publish('MenuCommandInvoked', command='Senders')
         self.parent.open_senders_dialog()
 
     def show_run_dialog(self):
+        self.event_queue.publish('MenuCommandInvoked', command='Run')
         self.parent.open_run_tab()
 
     def show_breakpoints_dialog(self):
+        self.event_queue.publish('MenuCommandInvoked', command='Breakpoints')
         self.parent.open_breakpoints_dialog()
 
     def start_mcp_server(self):
+        self.event_queue.publish('MenuCommandInvoked', command='Start MCP Server')
         self.parent.start_mcp_server_from_menu()
 
     def stop_mcp_server(self):
+        self.event_queue.publish('MenuCommandInvoked', command='Stop MCP Server')
         self.parent.stop_mcp_server_from_menu()
 
     def configure_mcp_server(self):
+        self.event_queue.publish('MenuCommandInvoked', command='Configure MCP Server')
         self.parent.configure_mcp_server_from_menu()
 
 class FindDialog(tk.Toplevel):
@@ -4505,120 +4596,127 @@ class BreakpointsDialog(tk.Toplevel):
 
 class Swordfish(tk.Tk):
     @classmethod
-    def new_argument_parser(cls, default_mode="ide"):
+    def new_argument_parser(cls, default_mode='ide'):
         argument_parser = argparse.ArgumentParser(
-            description="Run Swordfish IDE and MCP server."
+            description='Run Swordfish IDE and MCP server.'
         )
-        default_headless_mcp = default_mode == "mcp-headless"
+        default_headless_mcp = default_mode == 'mcp-headless'
         argument_parser.add_argument(
-            "stone_name",
-            nargs="?",
-            default="gs64stone",
-            help="GemStone stone name to prefill in login form.",
+            'stone_name',
+            nargs='?',
+            default='gs64stone',
+            help='GemStone stone name to prefill in login form.',
         )
         argument_parser.add_argument(
-            "--headless-mcp",
-            action="store_true",
+            '--headless-mcp',
+            action='store_true',
             default=default_headless_mcp,
-            help="Run MCP only (headless, no GUI).",
+            help='Run MCP only (headless, no GUI).',
         )
         argument_parser.add_argument(
-            "--mode",
+            '--mode',
             default=None,
-            choices=["ide", "mcp-headless"],
+            choices=['ide', 'mcp-headless'],
             help=argparse.SUPPRESS,
         )
         argument_parser.add_argument(
-            "--transport",
-            default="stdio",
-            choices=["stdio", "streamable-http"],
-            help="MCP transport type for --headless-mcp mode.",
+            '--transport',
+            default='stdio',
+            choices=['stdio', 'streamable-http'],
+            help='MCP transport type for --headless-mcp mode.',
         )
         argument_parser.add_argument(
-            "--mcp-host",
-            default="127.0.0.1",
-            help="Host interface for embedded MCP and streamable-http mode.",
+            '--mcp-host',
+            default='127.0.0.1',
+            help='Host interface for embedded MCP and streamable-http mode.',
         )
         argument_parser.add_argument(
-            "--mcp-port",
+            '--mcp-port',
             default=8000,
             type=int,
-            help="TCP port for embedded MCP and streamable-http mode.",
+            help='TCP port for embedded MCP and streamable-http mode.',
         )
         argument_parser.add_argument(
-            "--mcp-http-path",
-            default="/mcp",
-            help="HTTP path for embedded MCP and streamable-http mode.",
+            '--mcp-http-path',
+            default='/mcp',
+            help='HTTP path for embedded MCP and streamable-http mode.',
         )
         argument_parser.add_argument(
-            "--allow-source-read",
-            action="store_true",
-            dest="allow_source_read",
+            '--allow-source-read',
+            action='store_true',
+            dest='allow_source_read',
             default=True,
-            help="Enable source read tools (enabled by default).",
+            help='Enable source read tools (enabled by default).',
         )
         argument_parser.add_argument(
-            "--disallow-source-read",
-            action="store_false",
-            dest="allow_source_read",
-            help="Disable source read tools.",
+            '--disallow-source-read',
+            action='store_false',
+            dest='allow_source_read',
+            help='Disable source read tools.',
         )
         argument_parser.add_argument(
-            "--allow-source-write",
-            action="store_true",
-            help="Enable source write/refactor tools (disabled by default).",
+            '--allow-source-write',
+            action='store_true',
+            help='Enable source write/refactor tools (disabled by default).',
         )
         argument_parser.add_argument(
-            "--allow-eval-arbitrary",
-            action="store_true",
-            help="Enable gs_eval and gs_debug_eval (disabled by default).",
+            '--allow-eval-arbitrary',
+            action='store_true',
+            help='Enable gs_eval and gs_debug_eval (disabled by default).',
         )
         argument_parser.add_argument(
-            "--allow-ide-read",
-            action="store_true",
-            dest="allow_ide_read",
+            '--allow-ide-read',
+            action='store_true',
+            dest='allow_ide_read',
             default=True,
-            help="Enable IDE state read tools (enabled by default).",
+            help='Enable IDE state read tools (enabled by default).',
         )
         argument_parser.add_argument(
-            "--disallow-ide-read",
-            action="store_false",
-            dest="allow_ide_read",
-            help="Disable IDE state read tools.",
+            '--disallow-ide-read',
+            action='store_false',
+            dest='allow_ide_read',
+            help='Disable IDE state read tools.',
         )
         argument_parser.add_argument(
-            "--allow-ide-write",
-            action="store_true",
-            help="Enable IDE navigation/write tools (disabled by default).",
+            '--allow-ide-write',
+            action='store_true',
+            help='Enable IDE navigation/write tools (disabled by default).',
         )
         argument_parser.add_argument(
-            "--allow-test-execution",
-            action="store_true",
-            help="Enable test execution tools (disabled by default).",
+            '--allow-test-execution',
+            action='store_true',
+            help='Enable test execution tools (disabled by default).',
         )
         argument_parser.add_argument(
-            "--allow-commit",
-            action="store_true",
-            help="Enable gs_commit tool (disabled by default).",
+            '--allow-commit',
+            action='store_true',
+            help='Enable gs_commit tool (disabled by default).',
         )
         argument_parser.add_argument(
-            "--allow-tracing",
-            action="store_true",
-            help="Enable gs_tracer_* and evidence tools (disabled by default).",
+            '--allow-tracing',
+            action='store_true',
+            help='Enable gs_tracer_* and evidence tools (disabled by default).',
         )
         argument_parser.add_argument(
-            "--require-gemstone-ast",
-            action="store_true",
+            '--require-gemstone-ast',
+            action='store_true',
             help=(
-                "Require real GemStone AST backend for refactoring tools. "
-                "When enabled, heuristic refactorings are blocked."
+                'Require real GemStone AST backend for refactoring tools. '
+                'When enabled, heuristic refactorings are blocked.'
             ),
         )
         argument_parser.add_argument(
-            "--experimental",
-            action="store_true",
+            '--experimental',
+            action='store_true',
             default=False,
-            help="Enable experimental features (tracing, refactoring tools). Disabled by default.",
+            help='Enable experimental features (tracing, refactoring tools). Disabled by default.',
+        )
+        argument_parser.add_argument(
+            '--activity-log',
+            default=None,
+            metavar='PATH',
+            dest='activity_log',
+            help='Write a JSONL activity log (IDE events and MCP tool calls with stack traces) to PATH.',
         )
         return argument_parser
 
@@ -4630,7 +4728,7 @@ class Swordfish(tk.Tk):
             argument_parser.error("--mcp-http-path must start with /.")
 
     @classmethod
-    def run(cls, default_mode="ide"):
+    def run(cls, default_mode='ide'):
         argument_parser = cls.new_argument_parser(default_mode=default_mode)
         arguments = argument_parser.parse_args()
         cls.validate_arguments(argument_parser, arguments)
@@ -4643,10 +4741,11 @@ class Swordfish(tk.Tk):
         apply_gemstone_exe_conf(
             read_gemstone_exe_conf(configuration_store.config_file_path())
         )
+        activity_log = ActivityLog(arguments.activity_log) if arguments.activity_log else None
         run_headless_mcp = arguments.headless_mcp
-        if arguments.mode == "mcp-headless":
+        if arguments.mode == 'mcp-headless':
             run_headless_mcp = True
-        if arguments.mode == "ide":
+        if arguments.mode == 'ide':
             run_headless_mcp = False
         if run_headless_mcp:
             mcp_server_controller = McpServerController(
@@ -4654,6 +4753,7 @@ class Swordfish(tk.Tk):
                 runtime_config=runtime_config,
                 configuration_store=configuration_store,
                 experimental=arguments.experimental,
+                activity_log=activity_log,
             )
             mcp_server_controller.run(arguments.transport)
             return
@@ -4663,28 +4763,30 @@ class Swordfish(tk.Tk):
             mcp_runtime_config=runtime_config,
             mcp_configuration_store=configuration_store,
             experimental=arguments.experimental,
+            activity_log=activity_log,
         )
         app.mainloop()
 
     def __init__(
         self,
-        default_stone_name="gs64stone",
+        default_stone_name='gs64stone',
         start_embedded_mcp=False,
         mcp_runtime_config=None,
         mcp_configuration_store=None,
         experimental=False,
+        activity_log=None,
     ):
         super().__init__()
         self.action_gate = ActionGate()
         self.busy_coordinator = BusyCoordinator()
-        self.event_queue = EventQueue(self)
+        self.event_queue = EventQueue(self, activity_log=activity_log)
         self.integrated_session_state = current_integrated_session_state()
         self.integrated_session_state.attach_ide_gui(
             ide_gui=self,
             ide_navigation_action=self.perform_mcp_ide_navigation_action,
         )
-        self.title("Swordfish")
-        self.geometry("800x600")
+        self.title('Swordfish')
+        self.geometry('800x600')
         self.default_stone_name = default_stone_name
 
         self.notebook = None
@@ -4703,10 +4805,10 @@ class Swordfish(tk.Tk):
         self.global_history_choice_indices = []
         self.collaboration_status_frame = None
         self.collaboration_status_label = None
-        self.collaboration_status_text = tk.StringVar(value="")
+        self.collaboration_status_text = tk.StringVar(value='')
         self.mcp_activity_indicator = None
         self.mcp_activity_indicator_visible = False
-        self.foreground_activity_message = ""
+        self.foreground_activity_message = ''
 
         self.gemstone_session_record = None
         self.last_mcp_busy_state = None
@@ -4725,6 +4827,7 @@ class Swordfish(tk.Tk):
             self.mcp_runtime_config,
             configuration_store=mcp_configuration_store,
             experimental=experimental,
+            activity_log=activity_log,
         )
         self.mcp_permission_policy = (
             self.mcp_server_controller.configuration_store.load_permission_policy()
@@ -4734,30 +4837,30 @@ class Swordfish(tk.Tk):
         )
         self.session_only_mcp_runtime_config_active = False
 
-        self.event_queue.subscribe("LoggedInSuccessfully", self.show_main_app)
-        self.event_queue.subscribe("LoggedOut", self.show_login_screen)
+        self.event_queue.subscribe('LoggedInSuccessfully', self.show_main_app)
+        self.event_queue.subscribe('LoggedOut', self.show_login_screen)
         self.event_queue.subscribe(
-            "McpBusyStateChanged",
+            'McpBusyStateChanged',
             self.handle_mcp_busy_state_changed,
         )
         self.event_queue.subscribe(
-            "McpServerStateChanged",
+            'McpServerStateChanged',
             self.handle_mcp_server_state_changed,
         )
         self.event_queue.subscribe(
-            "ModelRefreshRequested",
+            'ModelRefreshRequested',
             self.handle_model_refresh_requested,
         )
         self.event_queue.subscribe(
-            "McpIdeNavigationRequested",
+            'McpIdeNavigationRequested',
             self.handle_mcp_ide_navigation_requested,
         )
         self.event_queue.subscribe(
-            "OpenRunWindow",
+            'OpenRunWindow',
             self.handle_open_run_window,
         )
         self.event_queue.subscribe(
-            "MethodSelected",
+            'MethodSelected',
             self.record_current_browser_place_in_global_history,
         )
         self.integrated_session_state.subscribe_mcp_busy_state(
@@ -4938,13 +5041,21 @@ class Swordfish(tk.Tk):
     def commit(self):
         self.gemstone_session_record.commit()
         self.integrated_session_state.mark_ide_transaction_inactive()
-        self.event_queue.publish("Committed")
+        self.event_queue.publish("Committed", log_context={
+            'package': self.gemstone_session_record.selected_package,
+            'class_name': self.gemstone_session_record.selected_class,
+            'method': self.gemstone_session_record.selected_method_symbol,
+        })
         self.publish_model_change_events("transaction")
 
     def abort(self):
         self.gemstone_session_record.abort()
         self.integrated_session_state.mark_ide_transaction_inactive()
-        self.event_queue.publish("Aborted")
+        self.event_queue.publish("Aborted", log_context={
+            'package': self.gemstone_session_record.selected_package,
+            'class_name': self.gemstone_session_record.selected_class,
+            'method': self.gemstone_session_record.selected_method_symbol,
+        })
         self.publish_model_change_events("transaction")
 
     def logout(self):
@@ -4960,10 +5071,15 @@ class Swordfish(tk.Tk):
         ):
             self.mcp_server_controller.stop_for_session_reset()
         self.reset_session_mcp_runtime_config()
+        logged_out_user = self.gemstone_session_record.user_name
+        logged_out_stone = self.gemstone_session_record.stone_name
         self.gemstone_session_record.log_out()
         self.gemstone_session_record = None
         self.integrated_session_state.detach_ide_session()
-        self.event_queue.publish("LoggedOut")
+        self.event_queue.publish("LoggedOut", log_context={
+            'user': logged_out_user,
+            'stone': logged_out_stone,
+        })
 
     def clear_widgets(self):
         for widget in self.winfo_children():
@@ -5467,6 +5583,8 @@ class Swordfish(tk.Tk):
         return True
 
     def navigate_global_history(self, direction):
+        event_name = 'GlobalNavigationBack' if direction == 'back' else 'GlobalNavigationForward'
+        self.event_queue.publish(event_name)
         history_entry = None
         if direction == 'back':
             history_entry = self.global_navigation_history.go_back()
@@ -6709,6 +6827,7 @@ class Swordfish(tk.Tk):
 
         self.add_debugger_tab(exception)
         self.select_debugger_tab()
+        self.event_queue.publish('DebuggerOpened', log_context={'error': str(exception)})
         return True
 
     def open_debugger_for_mcp_exception(
@@ -6779,9 +6898,9 @@ class Swordfish(tk.Tk):
             show_instance_side,
             method_symbol,
         )
-        self.event_queue.publish("SelectedClassChanged")
-        self.event_queue.publish("SelectedCategoryChanged")
-        self.event_queue.publish("MethodSelected")
+        self.event_queue.publish('SelectedClassChanged', log_context={'class_name': class_name})
+        self.event_queue.publish('SelectedCategoryChanged')
+        self.event_queue.publish('MethodSelected', log_context={'method': method_symbol})
 
     def open_run_tab(self):
         self.ensure_current_browser_place_in_global_history()
@@ -7197,7 +7316,14 @@ class LoginFrame(ttk.Frame):
                     self.parent.login_gemstone_script_source
                 )
             self.parent.event_queue.publish(
-                "LoggedInSuccessfully", gemstone_session_record
+                "LoggedInSuccessfully",
+                gemstone_session_record,
+                log_context={
+                    'user': gemstone_session_record.user_name,
+                    'stone': gemstone_session_record.stone_name,
+                    'host': gemstone_session_record.host_name,
+                    'session_id': gemstone_session_record.session_id,
+                },
             )
         except DomainException as ex:
             if gemstone_session_record is not None:

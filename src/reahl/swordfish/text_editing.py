@@ -671,6 +671,14 @@ class CodePanel(tk.Frame):
                 method_selector,
                 requested_source_offset,
             )
+            self.application.event_queue.publish(
+                'BreakpointSet',
+                log_context={
+                    'class_name': class_name,
+                    'method': method_selector,
+                    'source_offset': breakpoint_entry['source_offset'],
+                },
+            )
             current_source = self.text_editor.get('1.0', 'end-1c')
             self.apply_breakpoint_markers(current_source)
             resolved_source_offset = breakpoint_entry['source_offset']
@@ -717,6 +725,14 @@ class CodePanel(tk.Frame):
                 method_selector,
                 source_offset,
             )
+            self.application.event_queue.publish(
+                'BreakpointCleared',
+                log_context={
+                    'class_name': class_name,
+                    'method': method_selector,
+                    'source_offset': source_offset,
+                },
+            )
             current_source = self.text_editor.get('1.0', 'end-1c')
             self.apply_breakpoint_markers(current_source)
         except (DomainException, GemstoneDomainException) as domain_exception:
@@ -751,6 +767,7 @@ class CodePanel(tk.Frame):
                 'MCP is busy. Run is disabled until MCP finishes.',
             )
             return
+        self.application.event_queue.publish('SourceTextRun', log_context={'code': selected_text})
         self.application.run_code(selected_text)
 
     def inspect_selected_text(self, selected_text):
@@ -764,13 +781,22 @@ class CodePanel(tk.Frame):
             debugger_tab = self.application.debugger_tab
             debugger_tab.inspect_selected_source_expression(selected_text)
             return
+        self.application.event_queue.publish('SourceTextInspected', log_context={'code': selected_text})
         try:
             inspected_object = self.gemstone_session_record.run_code(selected_text)
         except (DomainException, GemstoneDomainException) as domain_exception:
             messagebox.showerror('Inspect Selection', str(domain_exception))
+            self.application.event_queue.publish('SourceTextInspectFailed', log_context={
+                'code': selected_text,
+                'error': str(domain_exception),
+            })
             return
         except GemstoneError as gemstone_exception:
             messagebox.showerror('Inspect Selection', str(gemstone_exception))
+            self.application.event_queue.publish('SourceTextInspectFailed', log_context={
+                'code': selected_text,
+                'error': str(gemstone_exception),
+            })
             return
         if hasattr(self.application, 'open_inspector_for_object'):
             self.application.open_inspector_for_object(inspected_object)
@@ -805,6 +831,7 @@ class CodePanel(tk.Frame):
                 'Could not determine a selector at the current cursor position.',
             )
             return
+        self.application.event_queue.publish('ImplementorsOpened', log_context={'selector': selector})
         self.application.open_implementors_dialog(method_symbol=selector)
 
     def open_senders_from_source(self):
@@ -817,6 +844,7 @@ class CodePanel(tk.Frame):
             return
         context = self.method_context()
         source_class_name = context[0] if context is not None else None
+        self.application.event_queue.publish('SendersOpened', log_context={'selector': selector})
         self.application.open_senders_dialog(
             method_symbol=selector,
             source_class_name=source_class_name,

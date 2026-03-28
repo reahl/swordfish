@@ -2396,15 +2396,15 @@ def test_run_mcp_server_passes_streamable_http_options_to_create_server():
         allow_commit=False,
         allow_tracing=True,
         require_gemstone_ast=False,
-        mcp_host="127.0.0.1",
+        mcp_host='127.0.0.1',
         mcp_port=9177,
-        mcp_http_path="/running-ide",
-        transport="streamable-http",
+        mcp_http_path='/running-ide',
+        transport='streamable-http',
     )
     configuration_store = McpConfigurationStore()
     runtime_config = configuration_store.config_from_arguments(arguments)
     mcp_server_controller = McpServerController(None, runtime_config)
-    with patch("reahl.swordfish.main.create_server") as create_server:
+    with patch('reahl.swordfish.main.create_server') as create_server:
         mock_server = Mock()
         create_server.return_value = mock_server
         mcp_server_controller.run(arguments.transport)
@@ -2420,11 +2420,12 @@ def test_run_mcp_server_passes_streamable_http_options_to_create_server():
         integrated_session_state=None,
         require_gemstone_ast=False,
         experimental=False,
-        mcp_host="127.0.0.1",
+        mcp_host='127.0.0.1',
         mcp_port=9177,
-        mcp_streamable_http_path="/running-ide",
+        mcp_streamable_http_path='/running-ide',
+        activity_log=None,
     )
-    mock_server.run.assert_called_once_with(transport="streamable-http")
+    mock_server.run.assert_called_once_with(transport='streamable-http')
 
 
 @with_fixtures(SwordfishAppFixture)
