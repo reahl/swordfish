@@ -11,12 +11,12 @@ import re
 import sys
 import threading
 import tkinter as tk
-import traceback
-from datetime import datetime
 import tkinter.messagebox as messagebox
 import tkinter.simpledialog as simpledialog
+import traceback
 import weakref
 from collections import deque
+from datetime import datetime
 from tkinter import ttk
 
 from reahl.ptongue import GemstoneError, LinkedSession, RPCSession
