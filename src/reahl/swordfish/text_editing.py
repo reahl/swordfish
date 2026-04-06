@@ -945,12 +945,9 @@ class CodePanel(tk.Frame):
                 'Could not determine a selector at the current cursor position.',
             )
             return
-        context = self.method_context()
-        source_class_name = context[0] if context is not None else None
         self.application.event_queue.publish('SendersOpened', log_context={'selector': selector})
         self.application.open_senders_dialog(
             method_symbol=selector,
-            source_class_name=source_class_name,
         )
 
     def class_name_for_reference_lookup(self):
