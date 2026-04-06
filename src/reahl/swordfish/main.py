@@ -2966,27 +2966,32 @@ class FindDialog(tk.Toplevel):
             pady=(0, 4),
             sticky="ew",
         )
-        ttk.Label(self.filter_frame, text="Filter by class (regex):").pack(
-            side="left", padx=(0, 4)
+        self.filter_frame.columnconfigure(1, weight=1)
+        self.filter_frame.columnconfigure(3, weight=1)
+        ttk.Label(self.filter_frame, text="Class (regex):").grid(
+            row=0, column=0, padx=(0, 4), pady=(0, 4), sticky="w"
         )
-        self.class_regex_entry = ttk.Entry(self.filter_frame, width=20)
-        self.class_regex_entry.pack(side="left", padx=(0, 12))
-        ttk.Label(self.filter_frame, text="Filter by class category (regex):").pack(
-            side="left", padx=(0, 4)
+        self.class_regex_entry = ttk.Entry(self.filter_frame)
+        self.class_regex_entry.grid(row=0, column=1, padx=(0, 12), pady=(0, 4), sticky="ew")
+        self.class_regex_entry.bind('<KeyRelease>', lambda *_: self.apply_filter_from_entries())
+        ttk.Label(self.filter_frame, text="Class category (regex):").grid(
+            row=0, column=2, padx=(0, 4), pady=(0, 4), sticky="w"
         )
-        self.class_category_regex_entry = ttk.Entry(self.filter_frame, width=20)
-        self.class_category_regex_entry.pack(side="left", padx=(0, 12))
-        ttk.Label(self.filter_frame, text="Filter by method category (regex):").pack(
-            side="left", padx=(0, 4)
+        self.class_category_regex_entry = ttk.Entry(self.filter_frame)
+        self.class_category_regex_entry.grid(row=0, column=3, padx=(0, 0), pady=(0, 4), sticky="ew")
+        self.class_category_regex_entry.bind('<KeyRelease>', lambda *_: self.apply_filter_from_entries())
+        ttk.Label(self.filter_frame, text="Method category (regex):").grid(
+            row=1, column=0, padx=(0, 4), sticky="w"
         )
-        self.method_category_regex_entry = ttk.Entry(self.filter_frame, width=20)
-        self.method_category_regex_entry.pack(side="left", padx=(0, 12))
+        self.method_category_regex_entry = ttk.Entry(self.filter_frame)
+        self.method_category_regex_entry.grid(row=1, column=1, padx=(0, 12), sticky="ew")
+        self.method_category_regex_entry.bind('<KeyRelease>', lambda *_: self.apply_filter_from_entries())
         self.apply_regex_filter_button = ttk.Button(
             self.filter_frame,
             text="Apply Filter",
             command=self.apply_regex_filter_button_clicked,
         )
-        self.apply_regex_filter_button.pack(side="left")
+        self.apply_regex_filter_button.grid(row=1, column=2, columnspan=2, sticky="w")
 
         self.results_listbox = tk.Listbox(self)
         self.results_listbox.grid(
@@ -3106,11 +3111,15 @@ class FindDialog(tk.Toplevel):
         if tracing_controls_visible:
             if self.narrow_button is not None:
                 self.narrow_button.grid()
+            self.receiver_class_label.grid()
+            self.receiver_class_entry.grid()
             self.filter_frame.grid()
             self.status_label.grid()
         else:
             if self.narrow_button is not None:
                 self.narrow_button.grid_remove()
+            self.receiver_class_label.grid_remove()
+            self.receiver_class_entry.grid_remove()
             self.filter_frame.grid_remove()
             self.status_label.grid_remove()
             self.status_var.set("")
@@ -3604,6 +3613,13 @@ class FindDialog(tk.Toplevel):
             'sender_source_class_name': self.sender_source_class_name,
         }
 
+    def apply_filter_from_entries(self):
+        self.apply_regex_sender_filters(
+            class_regex=self.class_regex_entry.get(),
+            class_category_regex=self.class_category_regex_entry.get(),
+            method_category_regex=self.method_category_regex_entry.get(),
+        )
+
     def apply_regex_filter_button_clicked(self):
         result = self.apply_regex_sender_filters(
             class_regex=self.class_regex_entry.get(),
@@ -3619,9 +3635,7 @@ class FindDialog(tk.Toplevel):
                 'ok': False,
                 'error': {'message': 'Sender filtering requires Find in method-reference mode.'},
             }
-        baseline_sender_results = list(self.navigation_method_results)
-        if not baseline_sender_results:
-            baseline_sender_results = list(self.static_sender_results)
+        baseline_sender_results = list(self.static_sender_results)
         filtered_sender_results = []
         for sender_result in baseline_sender_results:
             sender_entry = self.sender_entry_for_result(sender_result)
