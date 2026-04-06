@@ -1726,6 +1726,7 @@ class SwordfishAppFixture(Fixture):
         self.session_record.selected_method_symbol = None
         self.session_record.show_instance_side = True
         self.session_record.browse_mode = "dictionaries"
+        self.session_record.transaction_is_dirty = False
 
         self.app = Swordfish(experimental=True)
         self.app.withdraw()

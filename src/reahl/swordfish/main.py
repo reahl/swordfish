@@ -111,6 +111,7 @@ class GemstoneSessionRecord:
         self.selected_method_symbol = None
         self.show_instance_side = True
         self.browse_mode = "categories"
+        self.transaction_is_dirty = False
 
     def set_integrated_session_state(self, integrated_session_state):
         self.integrated_session_state = integrated_session_state
@@ -138,6 +139,10 @@ class GemstoneSessionRecord:
         if self.change_event_publisher is None:
             return
         self.change_event_publisher(change_kind)
+
+    def mark_transaction_dirty(self):
+        self.transaction_is_dirty = True
+        self.publish_model_change('transaction_dirty')
 
     def select_package(self, package):
         self.selected_package = package
@@ -203,10 +208,12 @@ class GemstoneSessionRecord:
     def commit(self):
         self.require_write_access("commit")
         self.gemstone_session.commit()
+        self.transaction_is_dirty = False
 
     def abort(self):
         self.require_write_access("abort")
         self.gemstone_session.abort()
+        self.transaction_is_dirty = False
 
     @classmethod
     def log_in_rpc(
@@ -292,6 +299,7 @@ class GemstoneSessionRecord:
         self.require_write_access("create_and_install_package")
         self.gemstone_browser_session.create_and_install_package(package_name)
         self.publish_model_change("packages")
+        self.mark_transaction_dirty()
 
     def delete_package(self, package_name):
         self.require_write_access("delete_package")
@@ -302,6 +310,7 @@ class GemstoneSessionRecord:
             self.selected_method_category = None
             self.selected_method_symbol = None
         self.publish_model_change("packages")
+        self.mark_transaction_dirty()
 
     def create_class(
         self,
@@ -322,6 +331,7 @@ class GemstoneSessionRecord:
             in_dictionary=selected_dictionary,
         )
         self.publish_model_change("classes")
+        self.mark_transaction_dirty()
 
     def delete_class(self, class_name, in_dictionary=None):
         self.require_write_access("delete_class")
@@ -340,6 +350,7 @@ class GemstoneSessionRecord:
             self.selected_method_category = None
             self.selected_method_symbol = None
         self.publish_model_change("classes")
+        self.mark_transaction_dirty()
 
     def get_classes_in_category(self, category):
         if self.browse_mode == "dictionaries":
@@ -374,6 +385,7 @@ class GemstoneSessionRecord:
             show_instance_side,
         )
         self.publish_model_change("methods")
+        self.mark_transaction_dirty()
 
     def delete_method_category(
         self,
@@ -391,6 +403,7 @@ class GemstoneSessionRecord:
             self.selected_method_category = None
             self.selected_method_symbol = None
         self.publish_model_change("methods")
+        self.mark_transaction_dirty()
 
     def get_selectors_in_class(self, class_name, method_category, show_instance_side):
         yield from self.gemstone_browser_session.list_methods(
@@ -897,6 +910,7 @@ class GemstoneSessionRecord:
             source,
         )
         self.publish_model_change("methods")
+        self.mark_transaction_dirty()
 
     def create_method(
         self,
@@ -913,6 +927,7 @@ class GemstoneSessionRecord:
             method_category=method_category,
         )
         self.publish_model_change("methods")
+        self.mark_transaction_dirty()
 
     def delete_method(self, selected_class, show_instance_side, method_selector):
         self.require_write_access("delete_method")
@@ -924,23 +939,30 @@ class GemstoneSessionRecord:
         if self.selected_method_symbol == method_selector:
             self.selected_method_symbol = None
         self.publish_model_change("methods")
+        self.mark_transaction_dirty()
 
     def run_code(self, source):
         self.require_write_access("run_code")
-        return self.gemstone_browser_session.run_code(source)
+        result = self.gemstone_browser_session.run_code(source)
+        self.mark_transaction_dirty()
+        return result
 
     def resolve_object(self, source):
         return self.gemstone_browser_session.run_code(source)
 
     def run_gemstone_tests(self, class_name):
         self.require_write_access("run_gemstone_tests")
-        return self.gemstone_browser_session.run_gemstone_tests(class_name)
+        result = self.gemstone_browser_session.run_gemstone_tests(class_name)
+        self.mark_transaction_dirty()
+        return result
 
     def run_test_method(self, class_name, method_selector):
         self.require_write_access("run_test_method")
-        return self.gemstone_browser_session.run_test_method(
+        result = self.gemstone_browser_session.run_test_method(
             class_name, method_selector
         )
+        self.mark_transaction_dirty()
+        return result
 
     def debug_test_method(self, class_name, method_selector):
         self.require_write_access("debug_test_method")
@@ -4806,6 +4828,7 @@ class Swordfish(tk.Tk):
         self.collaboration_status_frame = None
         self.collaboration_status_label = None
         self.collaboration_status_text = tk.StringVar(value='')
+        self.transaction_dirty_text = tk.StringVar(value='')
         self.mcp_activity_indicator = None
         self.mcp_activity_indicator_visible = False
         self.foreground_activity_message = ''
@@ -5150,10 +5173,14 @@ class Swordfish(tk.Tk):
             self.event_queue.publish("SelectedCategoryChanged")
             self.event_queue.publish("MethodSelected")
             return
+        if change_kind == "transaction_dirty":
+            self.refresh_collaboration_status()
+            return
         if change_kind == "transaction":
             self.event_queue.publish("PackagesChanged")
             self.event_queue.publish("ClassesChanged")
             self.event_queue.publish("MethodsChanged")
+            self.refresh_collaboration_status()
 
     def create_notebook(self):
         self.notebook = ttk.Notebook(self)
@@ -5221,6 +5248,18 @@ class Swordfish(tk.Tk):
             column=3,
             sticky="ew",
         )
+        self.transaction_dirty_label = ttk.Label(
+            self.collaboration_status_frame,
+            textvariable=self.transaction_dirty_text,
+            foreground='darkorange',
+            anchor='e',
+        )
+        self.transaction_dirty_label.grid(
+            row=0,
+            column=4,
+            sticky='e',
+            padx=(8, 0),
+        )
         self.mcp_activity_indicator = ttk.Progressbar(
             self.collaboration_status_frame,
             mode="indeterminate",
@@ -5228,7 +5267,7 @@ class Swordfish(tk.Tk):
         )
         self.mcp_activity_indicator.grid(
             row=0,
-            column=4,
+            column=5,
             sticky="e",
             padx=(8, 0),
         )
@@ -5238,7 +5277,7 @@ class Swordfish(tk.Tk):
             foreground='gray',
         ).grid(
             row=0,
-            column=5,
+            column=6,
             sticky="e",
             padx=(8, 4),
         )
@@ -5746,6 +5785,14 @@ class Swordfish(tk.Tk):
     def refresh_collaboration_status(self):
         if not self.winfo_exists():
             return
+        session_is_dirty = (
+            self.is_logged_in
+            and self.gemstone_session_record is not None
+            and self.gemstone_session_record.transaction_is_dirty
+        )
+        self.transaction_dirty_text.set(
+            'Uncommitted changes' if session_is_dirty else ''
+        )
         mcp_busy = self.integrated_session_state.is_mcp_busy()
         mcp_server_status = self.mcp_server_controller.status()
         mcp_server_running = mcp_server_status["running"]
