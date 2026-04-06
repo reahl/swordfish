@@ -86,6 +86,12 @@ class EditableText:
         except tk.TclError:
             pass
 
+    def redo(self):
+        try:
+            self.text_widget.edit_redo()
+        except tk.TclError:
+            pass
+
     def delete_selection_before_typing(self, event):
         control_key_pressed = bool(event.state & 0x4)
         if control_key_pressed:
@@ -282,13 +288,17 @@ class JsonResultDialog(tk.Toplevel):
 
 
 class CodePanel(tk.Frame):
-    def __init__(self, parent, application, tab_key=None):
+    def __init__(self, parent, application, tab_key=None, on_text_changed=None):
         super().__init__(parent)
 
         self.application = application
         self.tab_key = tab_key
+        self.on_text_changed = on_text_changed
+        self.is_refreshing = False
+        self.chord_pending = False
 
         self.text_editor = tk.Text(self, tabs=('4',), wrap='none', undo=True)
+        self.text_editor.bind('<<Modified>>', self.notify_text_changed)
         self.editable_text = EditableText(self.text_editor, self)
 
         self.scrollbar_y = tk.Scrollbar(
@@ -350,7 +360,15 @@ class CodePanel(tk.Frame):
         self.text_editor.bind('<Control-v>', self.paste_into_text_editor)
         self.text_editor.bind('<Control-V>', self.paste_into_text_editor)
         self.text_editor.bind('<Control-z>', self.undo_text_editor)
-        self.text_editor.bind('<Control-Z>', self.undo_text_editor)
+        self.text_editor.bind('<Control-Z>', self.redo_text_editor)
+        self.text_editor.bind('<Control-s>', self.save_current_tab)
+        self.text_editor.bind('<Control-S>', self.save_current_tab)
+        self.text_editor.bind('<Control-w>', self.close_current_tab)
+        self.text_editor.bind('<Control-W>', self.close_current_tab)
+        self.text_editor.bind('<Control-j>', self.start_j_chord)
+        self.text_editor.bind('<Control-J>', self.start_j_chord)
+        self.text_editor.bind('<KeyPress-m>', self.complete_run_method_chord)
+        self.text_editor.bind('<KeyPress-c>', self.complete_run_class_tests_chord)
         self.text_editor.bind(
             '<KeyPress>', self.replace_selected_text_editor_before_typing, add='+'
         )
@@ -412,6 +430,20 @@ class CodePanel(tk.Frame):
     def undo_text_editor(self, event=None):
         self.editable_text.undo()
         return 'break'
+
+    def redo_text_editor(self, event=None):
+        self.editable_text.redo()
+        return 'break'
+
+    def notify_text_changed(self, event=None):
+        if self.is_refreshing:
+            return
+        try:
+            modified = bool(self.text_editor.edit_modified())
+        except tk.TclError:
+            modified = False
+        if modified and self.on_text_changed is not None:
+            self.on_text_changed()
 
     def replace_selected_text_editor_before_typing(self, event):
         self.editable_text.delete_selection_before_typing(event)
@@ -639,17 +671,88 @@ class CodePanel(tk.Frame):
             return False
         return debugger_tab.code_panel is self
 
-    def save_current_tab(self):
+    def save_current_tab(self, event=None):
         active_editor_tab = self.active_editor_tab()
         if active_editor_tab is None:
             return
         active_editor_tab.save()
+        return 'break'
 
-    def close_current_tab(self):
+    def close_current_tab(self, event=None):
         active_editor_tab = self.active_editor_tab()
         if active_editor_tab is None:
             return
         active_editor_tab.method_editor.close_tab(active_editor_tab)
+        return 'break'
+
+    def start_j_chord(self, event=None):
+        self.chord_pending = True
+        return 'break'
+
+    def complete_run_method_chord(self, event=None):
+        if not self.chord_pending:
+            return None
+        self.chord_pending = False
+        self.run_current_method_as_test()
+        return 'break'
+
+    def complete_run_class_tests_chord(self, event=None):
+        if not self.chord_pending:
+            return None
+        self.chord_pending = False
+        self.run_all_tests_for_current_class()
+        return 'break'
+
+    def run_current_method_as_test(self):
+        method_context = self.method_context()
+        if method_context is None:
+            return
+        class_name, show_instance_side, method_selector = method_context
+        self.application.begin_foreground_activity(
+            'Running test %s>>%s...' % (class_name, method_selector)
+        )
+        try:
+            try:
+                result = self.gemstone_session_record.run_test_method(
+                    class_name, method_selector
+                )
+                self.display_test_result(result)
+            except (DomainException, GemstoneDomainException) as e:
+                messagebox.showerror('Run Test', str(e))
+            except GemstoneError as error:
+                self.application.open_debugger(error)
+        finally:
+            self.application.end_foreground_activity()
+
+    def run_all_tests_for_current_class(self):
+        method_context = self.method_context()
+        if method_context is None:
+            return
+        class_name = method_context[0]
+        self.application.begin_foreground_activity(
+            'Running tests in %s...' % class_name
+        )
+        try:
+            try:
+                result = self.gemstone_session_record.run_gemstone_tests(class_name)
+                self.display_test_result(result)
+            except (DomainException, GemstoneDomainException) as e:
+                messagebox.showerror('Run All Tests', str(e))
+            except GemstoneError as error:
+                self.application.open_debugger(error)
+        finally:
+            self.application.end_foreground_activity()
+
+    def display_test_result(self, result):
+        if result['has_passed']:
+            messagebox.showinfo('Test Result', f"Passed ({result['run_count']} run)")
+        else:
+            lines = [
+                f"Failures: {result['failure_count']}, Errors: {result['error_count']}"
+            ]
+            lines.extend(result['failures'])
+            lines.extend(result['errors'])
+            messagebox.showerror('Test Result', '\n'.join(lines))
 
     def source_offset_at_cursor(self):
         return self.cursor_offset() + 1
@@ -1747,19 +1850,29 @@ class CodePanel(tk.Frame):
             index += 1
 
     def refresh(self, source, mark=None):
-        text_editor_was_disabled = self.text_editor.cget('state') == tk.DISABLED
-        if text_editor_was_disabled:
-            self.text_editor.configure(state=tk.NORMAL)
-        self.text_editor.delete('1.0', tk.END)
-        self.text_editor.insert('1.0', source)
-        if mark is not None and mark >= 0:
-            position = self.text_editor.index(f'1.0 + {mark-1} chars')
-            self.text_editor.tag_add('highlight', position, f'{position} + 1c')
-        self.apply_syntax_highlighting(source)
-        self.apply_breakpoint_markers(source)
-        self.cursor_position_indicator.update_position()
-        if text_editor_was_disabled:
-            self.text_editor.configure(state=tk.DISABLED)
+        self.is_refreshing = True
+        try:
+            text_editor_was_disabled = self.text_editor.cget('state') == tk.DISABLED
+            if text_editor_was_disabled:
+                self.text_editor.configure(state=tk.NORMAL)
+            self.text_editor.delete('1.0', tk.END)
+            self.text_editor.insert('1.0', source)
+            if mark is not None and mark >= 0:
+                position = self.text_editor.index(f'1.0 + {mark-1} chars')
+                self.text_editor.tag_add('highlight', position, f'{position} + 1c')
+            self.apply_syntax_highlighting(source)
+            self.apply_breakpoint_markers(source)
+            self.cursor_position_indicator.update_position()
+            self.line_number_column.refresh_line_numbers()
+            if text_editor_was_disabled:
+                self.text_editor.configure(state=tk.DISABLED)
+            self.text_editor.edit_reset()
+            try:
+                self.text_editor.edit_modified(False)
+            except tk.TclError:
+                pass
+        finally:
+            self.is_refreshing = False
 
 
 class EditorTab(tk.Frame):
@@ -1768,11 +1881,13 @@ class EditorTab(tk.Frame):
         self.browser_window = browser_window
         self.method_editor = method_editor
         self.tab_key = tab_key
+        self.is_dirty = False
 
         self.code_panel = CodePanel(
             self,
             self.browser_window.application,
             tab_key=tab_key,
+            on_text_changed=self.mark_dirty,
         )
         self.code_panel.grid(row=0, column=0, sticky='nsew')
 
@@ -1783,6 +1898,19 @@ class EditorTab(tk.Frame):
 
     def open_tab_menu(self, event):
         return None
+
+    def mark_dirty(self):
+        if not self.is_dirty:
+            self.is_dirty = True
+            self.update_tab_label()
+
+    def update_tab_label(self):
+        _, _, method_symbol = self.tab_key
+        label = ('*' + method_symbol) if self.is_dirty else method_symbol
+        try:
+            self.method_editor.editor_notebook.tab(self, text=label)
+        except tk.TclError:
+            pass
 
     def save(self):
         selected_class, show_instance_side, method_symbol = self.tab_key
@@ -1802,5 +1930,7 @@ class EditorTab(tk.Frame):
         if gemstone_method:
             method_source = gemstone_method.sourceString().to_py
             self.code_panel.refresh(method_source)
+            self.is_dirty = False
+            self.update_tab_label()
         else:
             self.method_editor.close_tab(self)
