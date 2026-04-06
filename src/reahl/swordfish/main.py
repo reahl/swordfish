@@ -2721,7 +2721,7 @@ class FindDialog(tk.Toplevel):
         self.find_stop_requested = False
 
         self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(7, weight=1)
+        self.grid_rowconfigure(8, weight=1)
 
         self.search_type = tk.StringVar(value="class")
         self.match_mode = tk.StringVar(value="contains")
@@ -2851,8 +2851,32 @@ class FindDialog(tk.Toplevel):
             lambda *_: self.update_search_context_fields(),
         )
 
-        ttk.Label(self, text="Search intent:").grid(
+        self.receiver_class_label = ttk.Label(self, text="Receiver class:")
+        self.receiver_class_label.grid(
             row=3,
+            column=0,
+            padx=10,
+            pady=5,
+            sticky="w",
+        )
+        self.receiver_class_entry = ttk.Entry(self)
+        self.receiver_class_entry.grid(
+            row=3,
+            column=1,
+            columnspan=5,
+            padx=10,
+            pady=5,
+            sticky="ew",
+        )
+        if sender_source_class_name:
+            self.receiver_class_entry.insert(0, sender_source_class_name)
+        self.receiver_class_entry.bind(
+            '<KeyRelease>',
+            lambda *_: self.on_receiver_class_changed(),
+        )
+
+        ttk.Label(self, text="Search intent:").grid(
+            row=4,
             column=0,
             padx=10,
             pady=(0, 2),
@@ -2864,7 +2888,7 @@ class FindDialog(tk.Toplevel):
             anchor="w",
         )
         self.search_intent_label.grid(
-            row=3,
+            row=4,
             column=1,
             columnspan=5,
             padx=10,
@@ -2873,7 +2897,7 @@ class FindDialog(tk.Toplevel):
         )
 
         ttk.Label(self, text="Result action:").grid(
-            row=4,
+            row=5,
             column=0,
             padx=10,
             pady=(0, 2),
@@ -2885,7 +2909,7 @@ class FindDialog(tk.Toplevel):
             anchor="w",
         )
         self.result_action_label.grid(
-            row=4,
+            row=5,
             column=1,
             columnspan=5,
             padx=10,
@@ -2894,7 +2918,7 @@ class FindDialog(tk.Toplevel):
         )
 
         self.button_frame = ttk.Frame(self)
-        self.button_frame.grid(row=5, column=0, columnspan=6, pady=10)
+        self.button_frame.grid(row=6, column=0, columnspan=6, pady=10)
         self.button_frame.grid_columnconfigure(0, weight=1)
         self.button_frame.grid_columnconfigure(1, weight=1)
         self.button_frame.grid_columnconfigure(2, weight=1)
@@ -2935,7 +2959,7 @@ class FindDialog(tk.Toplevel):
 
         self.filter_frame = ttk.Frame(self)
         self.filter_frame.grid(
-            row=6,
+            row=7,
             column=0,
             columnspan=6,
             padx=10,
@@ -2966,7 +2990,7 @@ class FindDialog(tk.Toplevel):
 
         self.results_listbox = tk.Listbox(self)
         self.results_listbox.grid(
-            row=7,
+            row=8,
             column=0,
             columnspan=6,
             padx=10,
@@ -2981,7 +3005,7 @@ class FindDialog(tk.Toplevel):
             anchor="w",
         )
         self.status_label.grid(
-            row=8,
+            row=9,
             column=0,
             columnspan=6,
             padx=10,
@@ -3312,6 +3336,12 @@ class FindDialog(tk.Toplevel):
         if reference_target == "method":
             return "Double-click a reference to open the caller method."
         return "Double-click a reference to open the method."
+
+    def on_receiver_class_changed(self):
+        typed = self.receiver_class_entry.get().strip()
+        self.sender_source_class_name = typed if typed else None
+        self.update_search_context_fields()
+        self.update_trace_narrow_state()
 
     def update_search_context_fields(self):
         search_type = self.search_type.get()
