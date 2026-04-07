@@ -2409,23 +2409,23 @@ def test_run_mcp_server_passes_streamable_http_options_to_create_server():
         mock_server = Mock()
         create_server.return_value = mock_server
         mcp_server_controller.run(arguments.transport)
-    create_server.assert_called_once_with(
-        allow_source_read=True,
-        allow_source_write=True,
-        allow_eval_arbitrary=False,
-        allow_test_execution=False,
-        allow_ide_read=True,
-        allow_ide_write=False,
-        allow_commit=False,
-        allow_tracing=True,
-        integrated_session_state=None,
-        require_gemstone_ast=False,
-        experimental=False,
-        mcp_host='127.0.0.1',
-        mcp_port=9177,
-        mcp_streamable_http_path='/running-ide',
-        activity_log=None,
-    )
+    _, call_kwargs = create_server.call_args
+    assert callable(call_kwargs['get_permissions'])
+    assert call_kwargs['get_permissions']() == {
+        'allow_source_read': True,
+        'allow_source_write': True,
+        'allow_eval_arbitrary': False,
+        'allow_test_execution': False,
+        'allow_ide_read': True,
+        'allow_ide_write': False,
+        'allow_commit': False,
+        'allow_tracing': True,
+        'require_gemstone_ast': False,
+    }
+    assert call_kwargs['mcp_host'] == '127.0.0.1'
+    assert call_kwargs['mcp_port'] == 9177
+    assert call_kwargs['mcp_streamable_http_path'] == '/running-ide'
+    assert call_kwargs['integrated_session_state'] is None
     mock_server.run.assert_called_once_with(transport='streamable-http')
 
 
@@ -2433,7 +2433,7 @@ def test_run_mcp_server_passes_streamable_http_options_to_create_server():
 def test_configure_mcp_server_updates_and_saves_config_without_forcing_restart(
     fixture,
 ):
-    """AI: MCP config dialog apply should persist settings and defer applying them to running MCP until restart."""
+    """AI: MCP config dialog apply should persist settings; permission changes apply immediately, network changes require restart."""
     fixture.simulate_login()
     updated_runtime_config = McpRuntimeConfig(
         allow_source_read=True,
@@ -2501,7 +2501,7 @@ def test_collaboration_status_mentions_restart_when_running_config_is_outdated(
     fixture.app.refresh_collaboration_status()
     fixture.app.update()
 
-    assert "MCP config changed; stop and start MCP to apply latest settings." in (
+    assert "Network settings changed; they will take effect at next MCP start." in (
         fixture.app.collaboration_status_text.get()
     )
 
@@ -2664,7 +2664,8 @@ def test_close_run_tab_drops_stale_mcp_busy_callback(fixture):
 
 @with_fixtures(SwordfishAppFixture)
 def test_mcp_menu_contains_start_stop_and_config_commands(fixture):
-    """AI: MCP menu should expose start/stop/configure commands for runtime control."""
+    """AI: MCP menu should expose start/stop/configure commands for runtime control when logged in."""
+    fixture.simulate_login()
     mcp_menu = fixture.app.menu_bar.mcp_menu
     labels = menu_command_labels(mcp_menu)
     assert labels == ["Start MCP", "Stop MCP", "Configure MCP"]
@@ -2850,6 +2851,7 @@ def test_breakpoints_dialog_double_click_navigates_to_selected_method(
 @with_fixtures(SwordfishAppFixture)
 def test_mcp_menu_commands_delegate_to_swordfish_handlers(fixture):
     """AI: Selecting MCP menu actions should call corresponding Swordfish command handlers."""
+    fixture.simulate_login()
     mcp_menu = fixture.app.menu_bar.mcp_menu
     with patch.object(fixture.app, "start_mcp_server_from_menu") as start_mcp:
         invoke_menu_command_by_label(mcp_menu, "Start MCP")

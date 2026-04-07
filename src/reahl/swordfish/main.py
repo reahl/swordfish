@@ -1906,6 +1906,26 @@ class McpRuntimeConfig:
             return False
         return self.to_dict() == other.to_dict()
 
+    def to_permissions_dict(self):
+        return {
+            'allow_source_read': self.allow_source_read,
+            'allow_source_write': self.allow_source_write,
+            'allow_eval_arbitrary': self.allow_eval_arbitrary,
+            'allow_test_execution': self.allow_test_execution,
+            'allow_ide_read': self.allow_ide_read,
+            'allow_ide_write': self.allow_ide_write,
+            'allow_commit': self.allow_commit,
+            'allow_tracing': self.allow_tracing,
+            'require_gemstone_ast': self.require_gemstone_ast,
+        }
+
+    def network_config_differs_from(self, other):
+        return (
+            self.mcp_host != other.mcp_host
+            or self.mcp_port != other.mcp_port
+            or self.mcp_http_path != other.mcp_http_path
+        )
+
     def endpoint_url(self):
         return "http://%s:%s%s" % (
             self.mcp_host,
@@ -1987,7 +2007,48 @@ class McpServerController:
 
     def update_runtime_config(self, runtime_config):
         with self.lock:
+            old_config = self.runtime_config
             self.runtime_config = runtime_config.copy()
+            if self.running:
+                notice = self.permission_change_notice(old_config, self.runtime_config)
+                if notice:
+                    self.integrated_session_state.add_config_change_notice(notice)
+
+    def current_permissions(self):
+        with self.lock:
+            return self.runtime_config.to_permissions_dict()
+
+    def permission_change_notice(self, old_config, new_config):
+        flag_labels = {
+            'allow_source_read': 'read Smalltalk source code',
+            'allow_source_write': 'modify Smalltalk source code',
+            'allow_eval_arbitrary': 'evaluate arbitrary Smalltalk expressions',
+            'allow_test_execution': 'execute tests',
+            'allow_ide_read': 'read IDE state',
+            'allow_ide_write': 'modify IDE state',
+            'allow_commit': 'commit GemStone transactions',
+            'allow_tracing': 'use tracing tools',
+            'require_gemstone_ast': 'use GemStone AST backend',
+        }
+        old_perms = old_config.to_permissions_dict()
+        new_perms = new_config.to_permissions_dict()
+        changes = []
+        for flag, label in flag_labels.items():
+            old_val = old_perms.get(flag)
+            new_val = new_perms.get(flag)
+            if old_val != new_val:
+                state = 'enabled' if new_val else 'disabled'
+                action = 'can now' if new_val else 'can no longer'
+                changes.append(
+                    '- %s: %s — you %s %s' % (flag, state, action, label)
+                )
+        if not changes:
+            return None
+        return (
+            '[MCP Config Update] Permissions were updated while the server was running '
+            'and took effect immediately:\n'
+            + '\n'.join(changes)
+        )
 
     def save_configuration(
         self,
@@ -2006,11 +2067,13 @@ class McpServerController:
             active_endpoint_url = configured_endpoint_url
             if self.applied_runtime_config is not None:
                 active_endpoint_url = self.applied_runtime_config.endpoint_url()
-            restart_required_for_config = False
-            if self.running and self.applied_runtime_config is not None:
-                restart_required_for_config = (
-                    self.runtime_config != self.applied_runtime_config
+            restart_required_for_config = (
+                self.running
+                and self.applied_runtime_config is not None
+                and self.runtime_config.network_config_differs_from(
+                    self.applied_runtime_config
                 )
+            )
             return {
                 "running": self.running,
                 "starting": self.starting,
@@ -2141,16 +2204,8 @@ class McpServerController:
 
     def server_for_runtime_config(self, runtime_config):
         return create_server(
-            allow_source_read=runtime_config.allow_source_read,
-            allow_source_write=runtime_config.allow_source_write,
-            allow_eval_arbitrary=runtime_config.allow_eval_arbitrary,
-            allow_test_execution=runtime_config.allow_test_execution,
-            allow_ide_read=runtime_config.allow_ide_read,
-            allow_ide_write=runtime_config.allow_ide_write,
-            allow_commit=runtime_config.allow_commit,
-            allow_tracing=runtime_config.allow_tracing,
+            get_permissions=self.current_permissions,
             integrated_session_state=self.integrated_session_state,
-            require_gemstone_ast=runtime_config.require_gemstone_ast,
             experimental=self.experimental,
             mcp_host=runtime_config.mcp_host,
             mcp_port=runtime_config.mcp_port,
@@ -2604,6 +2659,9 @@ class MainMenu(tk.Menu):
             stop_state = tk.DISABLED
         configure_state = tk.NORMAL
         if mcp_state["starting"] or mcp_state["stopping"]:
+            configure_state = tk.DISABLED
+        if not self.parent.is_logged_in:
+            start_state = tk.DISABLED
             configure_state = tk.DISABLED
         self.mcp_menu.add_command(
             label="Start MCP",
@@ -5872,7 +5930,7 @@ class Swordfish(tk.Tk):
             if mcp_server_status.get("restart_required_for_config"):
                 runtime_message = (
                     runtime_message
-                    + " MCP config changed; stop and start MCP to apply latest settings."
+                    + " Network settings changed; they will take effect at next MCP start."
                 )
             self.collaboration_status_text.set(runtime_message)
         elif self.is_logged_in:

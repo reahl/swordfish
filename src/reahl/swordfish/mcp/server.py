@@ -35,6 +35,7 @@ def create_server(
     mcp_port=8000,
     mcp_streamable_http_path="/mcp",
     activity_log=None,
+    get_permissions=None,
 ):
     if integrated_session_state is None:
         integrated_session_state = current_integrated_session_state()
@@ -95,6 +96,7 @@ def create_server(
         integrated_session_state=integrated_session_state,
         require_gemstone_ast=require_gemstone_ast,
         experimental=experimental,
+        get_permissions=get_permissions,
     )
     return mcp_server
 
