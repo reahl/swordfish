@@ -60,9 +60,23 @@ def register_tools(
     integrated_session_state=None,
     require_gemstone_ast=False,
     experimental=False,
+    get_permissions=None,
 ):
     if integrated_session_state is None:
         integrated_session_state = IntegratedSessionState()
+    if get_permissions is None:
+        _static_permissions = {
+            'allow_source_read': allow_source_read,
+            'allow_source_write': allow_source_write,
+            'allow_eval_arbitrary': allow_eval_arbitrary,
+            'allow_test_execution': allow_test_execution,
+            'allow_ide_read': allow_ide_read,
+            'allow_ide_write': allow_ide_write,
+            'allow_commit': allow_commit,
+            'allow_tracing': allow_tracing,
+            'require_gemstone_ast': require_gemstone_ast,
+        }
+        get_permissions = lambda: _static_permissions
 
     identifier_pattern = re.compile("^[A-Za-z][A-Za-z0-9_]*$")
     unary_selector_pattern = re.compile("^[A-Za-z][A-Za-z0-9_]*$")
@@ -129,6 +143,9 @@ def register_tools(
                     tool_result = function(*function_arguments, **function_keywords)
                     if should_refresh_model(function.__name__, tool_result):
                         integrated_session_state.request_model_refresh("transaction")
+                    notices = integrated_session_state.consume_config_change_notices()
+                    if notices and isinstance(tool_result, dict):
+                        tool_result = dict(tool_result, config_change_notices=notices)
                     return tool_result
                 finally:
                     integrated_session_state.end_mcp_operation()
@@ -217,7 +234,7 @@ def register_tools(
     def browser_session_for_policy(gemstone_session):
         return GemstoneBrowserSession(
             gemstone_session,
-            require_gemstone_ast=require_gemstone_ast,
+            require_gemstone_ast=get_permissions()['require_gemstone_ast'],
         )
 
     def get_active_debug_session(connection_id, debug_id):
@@ -299,27 +316,27 @@ def register_tools(
         )
 
     def require_source_read_enabled(connection_id, tool_name):
-        if allow_source_read:
+        if get_permissions()['allow_source_read']:
             return None
         return source_read_disabled_tool_response(connection_id, tool_name)
 
     def require_source_write_enabled(connection_id, tool_name):
-        if allow_source_write:
+        if get_permissions()['allow_source_write']:
             return None
         return source_write_disabled_tool_response(connection_id, tool_name)
 
     def require_eval_arbitrary_enabled(connection_id, tool_name):
-        if allow_eval_arbitrary:
+        if get_permissions()['allow_eval_arbitrary']:
             return None
         return eval_arbitrary_disabled_tool_response(connection_id, tool_name)
 
     def require_ide_read_enabled(connection_id, tool_name):
-        if allow_ide_read:
+        if get_permissions()['allow_ide_read']:
             return None
         return ide_read_disabled_tool_response(connection_id, tool_name)
 
     def require_ide_write_enabled(connection_id, tool_name):
-        if allow_ide_write:
+        if get_permissions()['allow_ide_write']:
             return None
         return ide_write_disabled_tool_response(connection_id, tool_name)
 
@@ -334,7 +351,7 @@ def register_tools(
         )
 
     def require_tracing_enabled(connection_id, tool_name):
-        if allow_tracing:
+        if get_permissions()['allow_tracing']:
             return None
         return tracing_disabled_tool_response(connection_id, tool_name)
 
@@ -349,7 +366,7 @@ def register_tools(
         )
 
     def require_test_execution_enabled(connection_id, tool_name):
-        if allow_test_execution:
+        if get_permissions()['allow_test_execution']:
             return None
         return test_execution_disabled_tool_response(connection_id, tool_name)
 
@@ -549,12 +566,12 @@ def register_tools(
         raise DomainException("%s must be a boolean." % argument_name)
 
     def current_eval_mode():
-        if not allow_eval_arbitrary:
+        if not get_permissions()['allow_eval_arbitrary']:
             return "disabled"
         return "approval_required"
 
     def commit_allowed_for_current_mode():
-        return bool(allow_commit)
+        return bool(get_permissions()['allow_commit'])
 
     def current_commit_approval_mode():
         if not commit_allowed_for_current_mode():
@@ -563,24 +580,25 @@ def register_tools(
 
     def policy_flags():
         gui_active = gui_session_is_active()
+        perms = get_permissions()
         return {
-            "allow_source_read": allow_source_read,
-            "allow_source_write": allow_source_write,
-            "allow_eval_arbitrary": allow_eval_arbitrary,
-            "allow_test_execution": allow_test_execution,
-            "allow_ide_read": allow_ide_read,
-            "allow_ide_write": allow_ide_write,
+            "allow_source_read": perms['allow_source_read'],
+            "allow_source_write": perms['allow_source_write'],
+            "allow_eval_arbitrary": perms['allow_eval_arbitrary'],
+            "allow_test_execution": perms['allow_test_execution'],
+            "allow_ide_read": perms['allow_ide_read'],
+            "allow_ide_write": perms['allow_ide_write'],
             "allow_commit": commit_allowed_for_current_mode(),
-            "allow_tracing": allow_tracing,
-            "require_gemstone_ast": require_gemstone_ast,
+            "allow_tracing": perms['allow_tracing'],
+            "require_gemstone_ast": perms['require_gemstone_ast'],
             "gui_session_active": gui_active,
             "mcp_can_connect_sessions": not gui_active,
             "mcp_can_disconnect_sessions": not gui_active,
             "eval_mode": current_eval_mode(),
             "commit_approval_mode": current_commit_approval_mode(),
             "eval_requires_unsafe": True,
-            "eval_requires_human_approval": allow_eval_arbitrary,
-            "commit_requires_human_approval": allow_commit,
+            "eval_requires_human_approval": perms['allow_eval_arbitrary'],
+            "commit_requires_human_approval": perms['allow_commit'],
             "writes_require_active_transaction": True,
             "ide_navigation_available": (
                 gui_active and integrated_session_state.has_ide_navigation_action()
@@ -836,7 +854,7 @@ def register_tools(
         ]
         cautions = []
         workflow = []
-        if allow_eval_arbitrary:
+        if get_permissions()['allow_eval_arbitrary']:
             decision_rules.append(
                 {
                     "when": "You are using gs_eval or gs_debug_eval.",
@@ -1074,7 +1092,7 @@ def register_tools(
                 )
                 % selector
             )
-        if selector_is_common_hotspot and not allow_tracing:
+        if selector_is_common_hotspot and not get_permissions()['allow_tracing']:
             cautions.append(
                 (
                     "Runtime evidence tools are disabled. "
@@ -1082,7 +1100,7 @@ def register_tools(
                     "for observed caller evidence."
                 )
             )
-        if selector_is_common_hotspot and allow_tracing:
+        if selector_is_common_hotspot and get_permissions()['allow_tracing']:
             decision_rules.append(
                 {
                     "when": "Selector fanout is high or ambiguous.",
@@ -1097,7 +1115,7 @@ def register_tools(
                     ),
                 }
             )
-        if require_gemstone_ast:
+        if get_permissions()['require_gemstone_ast']:
             cautions.append(
                 (
                     "Strict AST mode is active. Install AST support with "
@@ -3053,7 +3071,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_create_package(connection_id, package_name):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -3104,7 +3122,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_create_dictionary(connection_id, dictionary_name):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -3154,7 +3172,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_install_package(connection_id, package_name):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -3805,7 +3823,7 @@ def register_tools(
             return {
                 "ok": True,
                 "connection_id": connection_id,
-                "require_gemstone_ast": require_gemstone_ast,
+                "require_gemstone_ast": get_permissions()['require_gemstone_ast'],
                 **ast_status,
             }
         except GemstoneError as error:
@@ -3823,7 +3841,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_ast_install(connection_id):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -3868,7 +3886,7 @@ def register_tools(
             return {
                 "ok": True,
                 "connection_id": connection_id,
-                "tracing_allowed": allow_tracing,
+                "tracing_allowed": get_permissions()['allow_tracing'],
                 **tracer_status,
             }
         except GemstoneError as error:
@@ -4558,7 +4576,7 @@ def register_tools(
         method_category="as yet unclassified",
         in_dictionary=None,
     ):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -4641,7 +4659,7 @@ def register_tools(
         pool_dictionary_names=None,
         in_dictionary="UserGlobals",
     ):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -4733,7 +4751,7 @@ def register_tools(
         pool_dictionary_names=None,
         in_dictionary="UserGlobals",
     ):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -4829,7 +4847,7 @@ def register_tools(
         in_dictionary="UserGlobals",
         package_name="",
     ):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -4925,7 +4943,7 @@ def register_tools(
         class_name,
         in_dictionary="UserGlobals",
     ):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -4982,7 +5000,7 @@ def register_tools(
         method_selector,
         show_instance_side=True,
     ):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -5046,7 +5064,7 @@ def register_tools(
         method_category,
         show_instance_side=True,
     ):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -5372,7 +5390,7 @@ def register_tools(
         new_selector,
         show_instance_side=True,
     ):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -5511,7 +5529,7 @@ def register_tools(
         overwrite_target_method=False,
         delete_source_method=True,
     ):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -5683,7 +5701,7 @@ def register_tools(
         default_argument_source,
         show_instance_side=True,
     ):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -5844,7 +5862,7 @@ def register_tools(
         overwrite_new_method=False,
         rewrite_source_senders=False,
     ):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -6005,7 +6023,7 @@ def register_tools(
         show_instance_side=True,
         overwrite_new_method=False,
     ):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -6158,7 +6176,7 @@ def register_tools(
         show_instance_side=True,
         delete_inlined_method=False,
     ):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -6285,7 +6303,7 @@ def register_tools(
         evidence_run_id=None,
         evidence_max_age_seconds=3600,
     ):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -6368,7 +6386,7 @@ def register_tools(
         literal_value,
         in_dictionary="UserGlobals",
     ):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
@@ -6433,7 +6451,7 @@ def register_tools(
         symbol_name,
         in_dictionary="UserGlobals",
     ):
-        if not allow_source_write:
+        if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (

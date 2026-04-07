@@ -16,6 +16,7 @@ class IntegratedSessionState:
         self.ide_connection_identifier = "ide-session"
         self.mcp_busy_state_subscribers = []
         self.model_refresh_subscribers = []
+        self.pending_config_change_notices = []
 
     def callback_reference_for(self, callback):
         try:
@@ -167,6 +168,16 @@ class IntegratedSessionState:
             change_kinds = list(self.pending_model_changes)
             self.pending_model_changes = []
             return change_kinds
+
+    def add_config_change_notice(self, notice):
+        with self.lock:
+            self.pending_config_change_notices.append(notice)
+
+    def consume_config_change_notices(self):
+        with self.lock:
+            notices = list(self.pending_config_change_notices)
+            self.pending_config_change_notices = []
+            return notices
 
     def subscribe_mcp_busy_state(self, callback):
         with self.lock:
