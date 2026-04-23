@@ -5934,6 +5934,7 @@ def test_find_dialog_double_click_in_dictionary_mode_updates_dictionary_and_clas
         return []
 
     fixture.mock_browser.list_classes_in_dictionary.side_effect = classes_for_dictionary
+    fixture.mock_browser.dictionary_name_for_class.return_value = "Kernel"
     fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
         "Kernel"
     )
@@ -5981,6 +5982,7 @@ def test_find_dialog_double_click_in_dictionary_mode_uses_class_membership_not_s
         return []
 
     fixture.mock_browser.list_classes_in_dictionary.side_effect = classes_for_dictionary
+    fixture.mock_browser.dictionary_name_for_class.return_value = "UserGlobals"
     fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
         "Kernel"
     )
