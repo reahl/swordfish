@@ -398,6 +398,28 @@ class GemstoneBrowserSession:
         )
         return [class_name.to_py for class_name in class_names]
 
+    def dictionary_name_for_class(self, class_name):
+        class_name_literal = self.smalltalk_string_literal(class_name)
+        try:
+            result = self.run_code(
+                (
+                    "| className result |\n"
+                    "className := %s asSymbol.\n"
+                    "result := nil.\n"
+                    "System myUserProfile symbolList do: [:dict |\n"
+                    "    (result isNil and: [(dict includesKey: className)\n"
+                    "        and: [(dict at: className) isBehavior]]) ifTrue: [\n"
+                    "        result := dict name asString\n"
+                    "    ]\n"
+                    "].\n"
+                    "result"
+                )
+                % class_name_literal
+            )
+            return result.to_py
+        except (GemstoneError, GemstoneApiError, AttributeError):
+            return None
+
     def rowan_installed(self):
         if self.rowan_installed_cache is not None:
             return self.rowan_installed_cache
@@ -439,6 +461,31 @@ class GemstoneBrowserSession:
         except GemstoneApiError:
             return []
         return [class_name.to_py for class_name in class_names]
+
+    def rowan_package_name_for_class(self, class_name):
+        if not self.rowan_installed():
+            return None
+        class_name_literal = self.smalltalk_string_literal(class_name)
+        try:
+            result = self.run_code(
+                (
+                    "| className result |\n"
+                    "className := %s.\n"
+                    "result := nil.\n"
+                    "Rowan packageNames do: [:pkgName |\n"
+                    "    (result isNil and: [\n"
+                    "        (Rowan classNamesForPackageNamed: pkgName) includes: className\n"
+                    "    ]) ifTrue: [\n"
+                    "        result := pkgName\n"
+                    "    ]\n"
+                    "].\n"
+                    "result"
+                )
+                % class_name_literal
+            )
+            return result.to_py
+        except (GemstoneError, GemstoneApiError, AttributeError):
+            return None
 
     def list_method_categories(self, class_name, show_instance_side):
         if not class_name:

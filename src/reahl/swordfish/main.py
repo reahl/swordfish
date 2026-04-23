@@ -422,30 +422,22 @@ class GemstoneSessionRecord:
         except GemstoneError:
             return
 
-    def class_category_containing_class(self, class_name):
+    def class_category_containing_class(self, class_name, resolved_class=None):
         selected_category = self.selected_class_category()
         if selected_category:
-            classes_in_selected_category = list(
-                self.get_classes_in_category(selected_category)
-            )
-            if class_name in classes_in_selected_category:
+            if class_name in list(self.get_classes_in_category(selected_category)):
                 return selected_category
-        all_categories = list(self.class_categories)
-        matching_category = None
-        category_index = 0
-        while category_index < len(all_categories) and matching_category is None:
-            category_name = all_categories[category_index]
-            classes_in_category = list(self.get_classes_in_category(category_name))
-            if class_name in classes_in_category:
-                matching_category = category_name
-            category_index += 1
-        return matching_category
+        if self.browse_mode == 'categories':
+            if resolved_class is None:
+                return None
+            return resolved_class.category().to_py
+        if self.browse_mode == 'dictionaries':
+            return self.gemstone_browser_session.dictionary_name_for_class(class_name)
+        return self.gemstone_browser_session.rowan_package_name_for_class(class_name)
 
     def jump_to_class(self, class_name, show_instance_side):
         selected_gemstone_class = self.gemstone_session.resolve_symbol(class_name)
-        selected_category = self.class_category_containing_class(class_name)
-        if selected_category is None:
-            selected_category = selected_gemstone_class.category().to_py
+        selected_category = self.class_category_containing_class(class_name, selected_gemstone_class)
         self.select_class_category(selected_category)
         self.select_instance_side(show_instance_side)
         self.select_class(class_name)
