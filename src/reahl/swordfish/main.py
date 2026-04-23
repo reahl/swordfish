@@ -5009,6 +5009,12 @@ class Swordfish(tk.Tk):
         self.show_login_screen()
         self.refresh_collaboration_status()
 
+    def report_callback_exception(self, exc, val, tb):
+        if isinstance(val, (GemstoneDomainException, GemstoneError)):
+            messagebox.showerror('GemStone Error', str(val))
+        else:
+            super().report_callback_exception(exc, val, tb)
+
     @property
     def is_logged_in(self):
         return self.gemstone_session_record is not None
