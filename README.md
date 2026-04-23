@@ -6,15 +6,18 @@ A classic Smalltalk IDE for GemStone/Smalltalk developed by Reahl Software Servi
 
 Swordfish is a Python-based IDE that provides a classic Smalltalk development experience for GemStone/Smalltalk. It features class/method browsing, method editing, debugging capabilities with stepping functionality, and an object inspector.
 
+Swordfish also ships with a built-in **MCP (Model Context Protocol) server**. The MCP gives AI agents — such as Claude — two complementary capabilities: full programmatic access to the GemStone Smalltalk codebase (read source, compile methods, run tests, refactor, trace callers, …) *and* direct control of the live IDE itself (navigate to a class, open a method in the editor, open the debugger, narrow the list of senders in the Find dialog, compose UML diagrams, and more). This means you can literally ask your AI assistant to show you something in the IDE, or have it step through a failing test with the debugger open in front of you.
+
 This project was developed as an experiment in AI-assisted programming, with significant portions (including this README and other metadata) generated through collaboration between human developers and AI, followed by developer refinement and refactoring.
 
 ## Features
 
-- Class and method browsing
-- Method editing
-- Debugging with step execution
-- Object inspection
-- Classic Smalltalk IDE experience
+- **Class and method browsing**
+- **Method editing**
+- **Debugging with step execution**
+- **Object inspection**
+- **UML class and object diagrams** — build and explore class structure diagrams and live object graphs interactively; diagrams open as tabs alongside the browser and can be driven manually or by an AI agent via MCP
+- **Embedded MCP server** — lets AI agents interact with both the codebase and the live IDE
 
 ## Technical Details
 
@@ -86,10 +89,9 @@ swordfish --headless-mcp
 ### Attach Claude to a running IDE/MCP process
 
 To let Claude connect to an MCP server hosted inside an already-running IDE
-process, start the GUI (it now starts embedded MCP automatically):
+process, start the GUI (it starts the embedded MCP server automatically):
 
 ```bash
-# Run inside the container (GUI + embedded MCP)
 swordfish --mcp-host 0.0.0.0 --mcp-port 9177 --mcp-http-path /mcp
 ```
 
@@ -101,116 +103,23 @@ claude mcp add -s project --transport http swordfish http://127.0.0.1:9177/mcp
 claude mcp list
 ```
 
-If your IDE/MCP runs on a different host/port/path, change the URL
-accordingly. `stdio` mode cannot attach to an already-running process.
-In the GUI, use the `MCP` menu to start/stop the embedded server and edit
-runtime MCP policy/network settings.
-
-### Locking MCP permission toggles for protected databases
-
-Swordfish stores GUI and MCP config in `~/.config/swordfish/swordfish.json` unless
-`XDG_CONFIG_HOME` is set.
-
-If the running user cannot write that config file, Swordfish treats MCP
-permission toggles specially:
-
-- Host, port, and HTTP path remain editable in the GUI.
-- MCP permission toggles may be locked or session-only, depending on a
-  configured Smalltalk check.
-- If the Smalltalk check says the connected database is protected, all MCP
-  permission toggles are disabled in the GUI.
-- If the Smalltalk check says the connected database is not protected, the
-  user may change MCP permission toggles for the current session only.
-- Session-only permission changes are not persisted and are reset on logout.
-- The Smalltalk check source is config-only; it is not editable via the GUI.
-
-To configure this, add an `mcp_permission_policy` section to `swordfish.json`:
-
-```json
-{
-  "schema_version": 2,
-  "mcp_permission_policy": {
-    "allow_session_permission_changes_condition_source": "System stoneName ~= 'prod'"
-  },
-  "mcp_runtime_config": {
-    "allow_source_read": true,
-    "allow_source_write": false,
-    "allow_eval_arbitrary": false,
-    "allow_test_execution": false,
-    "allow_ide_read": true,
-    "allow_ide_write": false,
-    "allow_commit": false,
-    "allow_tracing": false,
-    "require_gemstone_ast": false,
-    "mcp_host": "127.0.0.1",
-    "mcp_port": 8000,
-    "mcp_http_path": "/mcp"
-  }
-}
-```
-
-The configured Smalltalk source must answer `true` or `false` in the current
-GemStone session:
-
-- `true`: session-only MCP permission changes are allowed when the config file
-  is read-only.
-- `false`: MCP permission toggles are locked when the config file is read-only.
-
-If the policy is missing, answers something other than a boolean, or raises an
-error, Swordfish fails closed and locks the permission toggles.
-
-### Run GemStone code on login
-
-Swordfish can also evaluate a configured GemStone script immediately after a
-successful login.
-
-- The script source is config-only; it is not editable via the GUI.
-- The script is evaluated in the logged-in GemStone session before the IDE
-  transitions to the main browser UI.
-- If the script raises an error, login is aborted and the opened session is
-  logged out again.
-
-To configure this, add a `login` section to `swordfish.json`:
-
-```json
-{
-  "schema_version": 2,
-  "login": {
-    "gemstone_script_source": "System stoneName"
-  },
-  "mcp_runtime_config": {
-    "allow_source_read": true,
-    "allow_source_write": false,
-    "allow_eval_arbitrary": false,
-    "allow_test_execution": false,
-    "allow_ide_read": true,
-    "allow_ide_write": false,
-    "allow_commit": false,
-    "allow_tracing": false,
-    "require_gemstone_ast": false,
-    "mcp_host": "127.0.0.1",
-    "mcp_port": 8000,
-    "mcp_http_path": "/mcp"
-  }
-}
-```
-
-The configured source is passed to the same GemStone code-evaluation path used
-by the IDE Run tool, so it may contain any Smalltalk you would normally execute
-in the connected session.
+`stdio` mode cannot attach to an already-running process. Use the `MCP` menu
+in the GUI to start/stop the embedded server and edit runtime policy and
+network settings.
 
 ### Add MCP to Claude Code and Codex (Docker-over-SSH)
 
-For Docker and SSH setup details used by this flow, see `How to Develop (Docker)` at the end of this README.
+For Docker and SSH setup details, see `How to Develop (Docker)` at the end of
+this README.
 
-Start the development container with SSH enabled in one terminal and keep it running:
+Start the development container with SSH enabled:
 
 ```bash
 ./docker-start.sh --enable-ssh --ssh-pubkey-file ~/.ssh/id_ed25519.pub --foreground
 ```
 
-In another terminal, from the project root, configure MCP clients to launch
-`swordfish --headless-mcp` through `docker-run-over-ssh.sh`:
+Then configure MCP clients to launch `swordfish --headless-mcp` through
+`docker-run-over-ssh.sh`:
 
 ```bash
 PROJECT_DIR="$(pwd)"
@@ -226,144 +135,88 @@ codex mcp add swordfish -- "$PROJECT_DIR/docker-run-over-ssh.sh" swordfish --hea
 codex mcp list --json
 ```
 
-To enable eval/commit with human-approval handshakes, add:
+Add `--allow-eval` and `--allow-commit` to enable evaluation and transaction
+commits; both require explicit human confirmation at each call.
 
-```bash
---allow-eval --allow-commit
+## Configuration
+
+Swordfish stores its configuration in `~/.config/swordfish/swordfish.json`
+(or `$XDG_CONFIG_HOME/swordfish/swordfish.json` if set). Most settings are
+editable via the GUI; the sections below cover config-file-only options.
+
+### GemStone executable configuration file
+
+`gemstone_exe_conf` sets the `GEMSTONE_EXE_CONF` environment variable at
+process startup, pointing GemStone to a specific executable configuration
+file. This is a process-level setting that takes effect before any session
+is opened. If `GEMSTONE_EXE_CONF` is already set in the environment and the
+config file specifies a different path, the config file wins and a warning is
+logged.
+
+```json
+{
+  "schema_version": 2,
+  "gemstone_exe_conf": "/path/to/gemstone.conf"
+}
 ```
 
-Add `--allow-eval` to enable `gs_eval` and `gs_debug_eval`.
-When enabled, each eval call requires explicit human confirmation:
-- Provide `approved_by_user=true` and a non-empty `approval_note`.
-- Keep `unsafe=True` and a non-empty `reason`.
-Add `--allow-commit` only when you explicitly want transactions to persist.
-When enabled, `gs_commit` always requires explicit human approval:
-- Provide `approved_by_user=true` and a non-empty `approval_note` on each
-  `gs_commit` call.
-Add `--require-gemstone-ast` to enforce AST-strict refactoring mode; when
-enabled, heuristic refactoring tools are blocked unless real GemStone AST
-adapter support is available. In strict mode, refactoring actions attempt an
-automatic AST support install/refresh when possible.
-For new AI sessions, call `gs_capabilities` first to discover active policy
-switches and available workflows, then call `gs_guidance` for task-specific
-tool selection and sequencing.
-For normal browse/edit/test workflows, prefer explicit tools like:
-`gs_create_class`, `gs_create_class_in_package`,
-`gs_create_test_case_class`,
-`gs_compile_method`, and `gs_run_gemstone_tests`.
-For selector exploration, use `gs_find_implementors` and `gs_find_senders`
-instead of free-form evaluation. Both support `max_results` and `count_only`.
-For method-level semantic navigation, use `gs_method_ast`,
-`gs_method_sends`, `gs_method_structure_summary`, and
-`gs_method_control_flow_summary` to inspect statement structure, send sites,
-structural counts, and control-flow signals.
-For versioned image support of AST helpers, use `gs_ast_status` to inspect
-manifest/hash status and `gs_ast_install` to install or refresh AST support
-code in the connected GemStone image.
-For pattern-based method discovery across a scope, use
-`gs_query_methods_by_ast_pattern` and tune ranking with `sort_by` /
-`sort_descending`.
-For class-scoped method renames, use `gs_preview_rename_method` and
-`gs_apply_rename_method` instead of a global selector rename.
-For class-scoped method moves, use `gs_preview_move_method` before
-`gs_apply_move_method`, and review sender warnings before deleting the source.
-For class-scoped parameter addition with compatibility forwarding, use
-`gs_preview_add_parameter` then `gs_apply_add_parameter`.
-For class-scoped parameter removal with compatibility forwarding, use
-`gs_preview_remove_parameter` then `gs_apply_remove_parameter`; when you want
-to update same-class callers immediately, set `rewrite_source_senders=true`.
-For statement-level method extraction in one class/side, use
-`gs_preview_extract_method` then `gs_apply_extract_method`.
-For conservative unary self-send inline in one caller method, use
-`gs_preview_inline_method` then `gs_apply_inline_method`.
-For optional tracer installation, use `gs_tracer_install` and verify with
-`gs_tracer_status` before enabling via `gs_tracer_enable`.
-For runtime caller evidence, use `gs_tracer_trace_selector`, run your tests,
-then query `gs_tracer_find_observed_senders`.
-Tracer and evidence tools require MCP startup with `--allow-tracing`.
-Use `gs_plan_evidence_tests` to build a static candidate test superset and
-`gs_collect_sender_evidence` to run that plan and collect observed callers.
-When you do use `gs_eval`, pass `unsafe=True`, `approved_by_user=true`,
-a non-empty `approval_note`, and a non-empty `reason`.
-Write tools require an explicit transaction: call `gs_begin` before writes,
-then `gs_commit` (or `gs_abort`) when done. With default policy,
-`gs_commit` is disabled unless the MCP server is started with
-`--allow-commit` and explicit confirmation is supplied.
+### MCP runtime permissions
 
-The server identifies itself as `SwordfishMCP` and currently supports:
+The `mcp_runtime_config` section controls which MCP capabilities are active.
+These can also be set at startup via command-line flags (`--allow-compile`,
+`--allow-eval`, etc.) or toggled in the GUI's MCP menu.
 
-- `gs_connect`
-- `gs_disconnect`
-- `gs_begin`
-- `gs_begin_if_needed`
-- `gs_commit`
-- `gs_abort`
-- `gs_transaction_status`
-- `gs_capabilities`
-- `gs_guidance`
-- `gs_list_packages`
-- `gs_list_classes`
-- `gs_list_method_categories`
-- `gs_list_methods`
-- `gs_get_method_source`
-- `gs_find_classes`
-- `gs_find_selectors`
-- `gs_find_implementors`
-- `gs_find_senders`
-- `gs_ast_status`
-- `gs_ast_install`
-- `gs_method_ast`
-- `gs_method_sends`
-- `gs_method_structure_summary`
-- `gs_method_control_flow_summary`
-- `gs_query_methods_by_ast_pattern`
-- `gs_preview_rename_method`
-- `gs_apply_rename_method`
-- `gs_preview_move_method`
-- `gs_apply_move_method`
-- `gs_preview_add_parameter`
-- `gs_apply_add_parameter`
-- `gs_preview_remove_parameter`
-- `gs_apply_remove_parameter`
-- `gs_preview_extract_method`
-- `gs_apply_extract_method`
-- `gs_preview_inline_method`
-- `gs_apply_inline_method`
-- `gs_tracer_status`
-- `gs_tracer_install`
-- `gs_tracer_enable`
-- `gs_tracer_disable`
-- `gs_tracer_uninstall`
-- `gs_tracer_trace_selector`
-- `gs_tracer_untrace_selector`
-- `gs_tracer_clear_observed_senders`
-- `gs_tracer_find_observed_senders`
-- `gs_plan_evidence_tests`
-- `gs_collect_sender_evidence`
-- `gs_create_class`
-- `gs_create_test_case_class`
-- `gs_get_class_definition`
-- `gs_delete_class`
-- `gs_compile_method`
-- `gs_delete_method`
-- `gs_set_method_category`
-- `gs_preview_selector_rename`
-- `gs_apply_selector_rename`
-- `gs_list_test_case_classes`
-- `gs_run_tests_in_package`
-- `gs_run_test_method`
-- `gs_global_set`
-- `gs_global_remove`
-- `gs_global_exists`
-- `gs_run_gemstone_tests`
-- `gs_debug_eval`
-- `gs_debug_stack`
-- `gs_debug_continue`
-- `gs_debug_step_over`
-- `gs_debug_step_into`
-- `gs_debug_step_through`
-- `gs_debug_stop`
-- `gs_eval`
+```json
+{
+  "schema_version": 2,
+  "mcp_runtime_config": {
+    "allow_source_read": true,
+    "allow_source_write": false,
+    "allow_eval_arbitrary": false,
+    "allow_test_execution": false,
+    "allow_ide_read": true,
+    "allow_ide_write": false,
+    "allow_commit": false,
+    "allow_tracing": false,
+    "require_gemstone_ast": false,
+    "mcp_host": "127.0.0.1",
+    "mcp_port": 8000,
+    "mcp_http_path": "/mcp"
+  }
+}
+```
+
+### Locking permissions for protected databases
+
+If the config file is read-only, `mcp_permission_policy` controls whether
+users can still change MCP permission toggles for the current session. The
+Smalltalk expression must evaluate to `true` (session changes allowed) or
+`false` (all toggles locked). Swordfish fails closed if the expression errors
+or returns a non-boolean.
+
+```json
+{
+  "schema_version": 2,
+  "mcp_permission_policy": {
+    "allow_session_permission_changes_condition_source": "System stoneName ~= 'prod'"
+  }
+}
+```
+
+### Run GemStone code on login
+
+A `login` script is evaluated immediately after a successful GemStone login,
+before the IDE opens. If the script raises an error, login is aborted and the
+session is closed.
+
+```json
+{
+  "schema_version": 2,
+  "login": {
+    "gemstone_script_source": "System stoneName"
+  }
+}
+```
 
 ## Requirements
 
@@ -429,7 +282,7 @@ To enable automated PyPI publishing, the repository must have a `PYPI_API_TOKEN`
 
 ## Contributing
 
-We welcome contributions! Please feel free to submit a Pull Request.
+We welcome contributions! Please feel free to submit a Pull Request or submit an Issue.
 
 ## About Reahl Software Services
 
