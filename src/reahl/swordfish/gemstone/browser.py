@@ -5554,15 +5554,18 @@ class GemstoneBrowserSession:
 
     def flatten_compiled_methods(self, candidate_value):
         flattened_methods = []
-        candidate_class_name = candidate_value.gemstone_class().name().to_py
-        if candidate_class_name == "GsNMethod":
-            flattened_methods.append(candidate_value)
-        else:
-            try:
-                for nested_candidate in candidate_value:
-                    flattened_methods += self.flatten_compiled_methods(nested_candidate)
-            except (TypeError, GemstoneError, GemstoneApiError):
-                flattened_methods = []
+        stack = [candidate_value]
+        while stack:
+            current = stack.pop()
+            candidate_class_name = current.gemstone_class().name().to_py
+            if candidate_class_name == "GsNMethod":
+                flattened_methods.append(current)
+            else:
+                try:
+                    for nested_candidate in current:
+                        stack.append(nested_candidate)
+                except (TypeError, GemstoneError, GemstoneApiError):
+                    pass
         return flattened_methods
 
     def planned_selector_rename_change(
@@ -6065,6 +6068,79 @@ class GemstoneBrowserSession:
         return method_summaries
 
     def selector_occurrence_summaries(
+        self,
+        method_name,
+        occurrence_type,
+        include_category_details=False,
+    ):
+        try:
+            return self.selector_occurrence_summaries_fast(
+                method_name, occurrence_type, include_category_details
+            )
+        except (GemstoneError, GemstoneApiError):
+            return self.selector_occurrence_summaries_slow(
+                method_name, occurrence_type, include_category_details
+            )
+
+    def selector_occurrence_summaries_fast(
+        self,
+        method_name,
+        occurrence_type,
+        include_category_details=False,
+    ):
+        selector_expression = self.selector_reference_expression(method_name)
+        if occurrence_type == "implementors":
+            query = "ClassOrganizer new implementorsOf: %s" % selector_expression
+        elif occurrence_type == "senders":
+            query = "ClassOrganizer new sendersOf: %s" % selector_expression
+        else:
+            raise DomainException("occurrence_type must be implementors or senders.")
+        smalltalk_source = """
+            | results seen stack |
+            results := OrderedCollection new.
+            seen := Set new.
+            stack := OrderedCollection with: (%s).
+            [ stack isEmpty ] whileFalse: [
+                | current |
+                current := stack removeLast.
+                (current isKindOf: GsNMethod) ifTrue: [
+                    | inClass className selector isInstanceSide key |
+                    inClass := current inClass.
+                    selector := current selector asString.
+                    isInstanceSide := inClass isMeta not.
+                    className := inClass name asString.
+                    (isInstanceSide not and: [ className endsWith: ' class' ])
+                        ifTrue: [ className := className copyFrom: 1 to: className size - 6 ].
+                    key := className, '>>',
+                        (isInstanceSide ifTrue: ['i'] ifFalse: ['c']), '>>',
+                        selector.
+                    (seen includes: key) ifFalse: [
+                        seen add: key.
+                        results add: className, Character tab asString,
+                            (isInstanceSide ifTrue: ['true'] ifFalse: ['false']), Character tab asString,
+                            selector ] ]
+                ifFalse: [
+                    (current isKindOf: Collection) ifTrue: [
+                        current do: [ :each | stack add: each ] ] ] ].
+            Character lf join: results
+        """ % query
+        result_string = self.run_code(smalltalk_source).to_py
+        if not result_string:
+            return []
+        method_summaries = []
+        for line in result_string.split("\n"):
+            parts = line.split("\t")
+            if len(parts) == 3:
+                method_summaries.append(
+                    {
+                        "class_name": parts[0],
+                        "show_instance_side": parts[1] == "true",
+                        "method_selector": parts[2],
+                    }
+                )
+        return self.unique_sorted_method_summaries(method_summaries)
+
+    def selector_occurrence_summaries_slow(
         self,
         method_name,
         occurrence_type,
