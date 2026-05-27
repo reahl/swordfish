@@ -80,7 +80,9 @@ jobs:
 
       - name: Run the full test suite (including live GemStone tests)
         run: |
-          set -euxo pipefail
+          # AI: No 'set -u' here: GemStone's gemsetup.sh references unset vars (MANPATH, VERSION),
+          # AI: which is fatal under nounset. -e/-x/pipefail still catch real failures.
+          set -exo pipefail
           WORK="$RUNNER_TEMP/gs"
           python3 -m venv "$WORK/venv"
           source "$WORK/venv/bin/activate"
