@@ -518,8 +518,7 @@ class UmlClassDiagramCanvas(ttk.Frame):
         parent_bottom_y = parent_node.bounding_box()[3]
         branch_y = parent_bottom_y + 28
         child_top_points = [
-            (child_node.x, child_node.bounding_box()[1])
-            for child_node in child_nodes
+            (child_node.x, child_node.bounding_box()[1]) for child_node in child_nodes
         ]
         child_left_x = min(point[0] for point in child_top_points)
         child_right_x = max(point[0] for point in child_top_points)
@@ -597,9 +596,7 @@ class UmlClassDiagramCanvas(ttk.Frame):
                     [],
                 )
                 grouped_relationships.append(relationship)
-                inheritance_relationships_by_parent[parent_name] = (
-                    grouped_relationships
-                )
+                inheritance_relationships_by_parent[parent_name] = grouped_relationships
             if not is_inheritance:
                 other_relationships.append(relationship)
         parent_names = sorted(inheritance_relationships_by_parent.keys())
@@ -796,7 +793,9 @@ class UmlClassDiagramTab(ttk.Frame):
                     "class_name": node.class_name,
                     "superclass_name": node.superclass_name,
                     "inst_var_names": list(node.inst_var_names),
-                    "pinned_methods": [dict(method_entry) for method_entry in node.pinned_methods],
+                    "pinned_methods": [
+                        dict(method_entry) for method_entry in node.pinned_methods
+                    ],
                     "x": node.x,
                     "y": node.y,
                 }
@@ -844,8 +843,12 @@ class UmlClassDiagramTab(ttk.Frame):
             self.uml_canvas.redraw_node(node)
             node_by_class_name[node.class_name] = node
         for relationship_entry in snapshot["relationships"]:
-            source_node = node_by_class_name.get(relationship_entry["source_class_name"])
-            target_node = node_by_class_name.get(relationship_entry["target_class_name"])
+            source_node = node_by_class_name.get(
+                relationship_entry["source_class_name"]
+            )
+            target_node = node_by_class_name.get(
+                relationship_entry["target_class_name"]
+            )
             if source_node is None or target_node is None:
                 continue
             self.uml_canvas.add_relationship(
@@ -866,7 +869,9 @@ class UmlClassDiagramTab(ttk.Frame):
         self.undo_button.configure(state=undo_state)
 
     def class_definition_for(self, class_name, show_errors=True):
-        browser_session = self.application.gemstone_session_record.gemstone_browser_session
+        browser_session = (
+            self.application.gemstone_session_record.gemstone_browser_session
+        )
         try:
             return browser_session.get_class_definition(class_name)
         except (GemstoneDomainException, GemstoneError) as error:
@@ -884,7 +889,9 @@ class UmlClassDiagramTab(ttk.Frame):
         snapshot_after = self.snapshot_diagram()
         if record_history and snapshot_after != snapshot_before:
             self.record_diagram_snapshot()
-        self.application.event_queue.publish('ClassAddedToDiagram', log_context={'class_name': class_name})
+        self.application.event_queue.publish(
+            'ClassAddedToDiagram', log_context={'class_name': class_name}
+        )
         return node
 
     def pin_method(self, class_name, show_instance_side, method_selector):
@@ -892,7 +899,9 @@ class UmlClassDiagramTab(ttk.Frame):
         node = self.add_class(class_name, record_history=False)
         if node is None:
             return
-        method_label = format_class_diagram_method_label(show_instance_side, method_selector)
+        method_label = format_class_diagram_method_label(
+            show_instance_side, method_selector
+        )
         existing_method = None
         for method_entry in node.pinned_methods:
             is_same_method = (
@@ -1016,7 +1025,10 @@ class UmlClassDiagramTab(ttk.Frame):
 
     def browse_class(self, class_name):
         self.application.handle_find_selection(True, class_name)
-        if self.application.browser_tab is not None and self.application.browser_tab.winfo_exists():
+        if (
+            self.application.browser_tab is not None
+            and self.application.browser_tab.winfo_exists()
+        ):
             self.application.notebook.select(self.application.browser_tab)
 
     def browse_method(self, class_name, method_entry):
@@ -1025,10 +1037,15 @@ class UmlClassDiagramTab(ttk.Frame):
             method_entry["show_instance_side"],
             method_entry["selector"],
         )
-        if self.application.browser_tab is not None and self.application.browser_tab.winfo_exists():
+        if (
+            self.application.browser_tab is not None
+            and self.application.browser_tab.winfo_exists()
+        ):
             self.application.notebook.select(self.application.browser_tab)
 
-    def add_existing_method_to_node(self, class_name, show_instance_side, method_selector):
+    def add_existing_method_to_node(
+        self, class_name, show_instance_side, method_selector
+    ):
         self.pin_method(
             class_name,
             show_instance_side,
@@ -1095,7 +1112,9 @@ class UmlClassDiagramTab(ttk.Frame):
         snapshot_after = self.snapshot_diagram()
         if snapshot_after != snapshot_before:
             self.record_diagram_snapshot()
-        self.application.event_queue.publish('ClassRemovedFromDiagram', log_context={'class_name': class_name})
+        self.application.event_queue.publish(
+            'ClassRemovedFromDiagram', log_context={'class_name': class_name}
+        )
 
     def inheritance_detail_class_names(self, relationship):
         if relationship.relationship_kind != "inheritance":
@@ -1104,7 +1123,9 @@ class UmlClassDiagramTab(ttk.Frame):
             return []
         class_names = []
         superclass_name = relationship.source_node.superclass_name
-        while superclass_name and superclass_name != relationship.target_node.class_name:
+        while (
+            superclass_name and superclass_name != relationship.target_node.class_name
+        ):
             class_names.append(superclass_name)
             superclass_definition = self.class_definition_for(
                 superclass_name, show_errors=False
@@ -1117,9 +1138,7 @@ class UmlClassDiagramTab(ttk.Frame):
             return []
         return class_names
 
-    def inferred_inheritance_relationship(
-        self, source_class_name, target_class_name
-    ):
+    def inferred_inheritance_relationship(self, source_class_name, target_class_name):
         matching_relationship = None
         for relationship in self.uml_canvas.registry.all_relationships():
             is_matching_inferred_inheritance = (
@@ -1166,7 +1185,9 @@ class UmlClassDiagramTab(ttk.Frame):
             ancestor_distance = 1
             found_visible_ancestor = False
             while superclass_name and not found_visible_ancestor:
-                superclass_node = self.uml_canvas.registry.class_node_for(superclass_name)
+                superclass_node = self.uml_canvas.registry.class_node_for(
+                    superclass_name
+                )
                 if superclass_node is not None:
                     relationship_style = "direct"
                     if ancestor_distance > 1:
@@ -1219,13 +1240,9 @@ class UmlClassDiagramTab(ttk.Frame):
 
     def rearranged_node_levels(self, parent_by_child_name, children_by_parent_name):
         all_nodes = self.uml_canvas.registry.all_nodes()
-        node_by_class_name = {
-            node.class_name: node for node in all_nodes
-        }
+        node_by_class_name = {node.class_name: node for node in all_nodes}
         root_nodes = [
-            node
-            for node in all_nodes
-            if node.class_name not in parent_by_child_name
+            node for node in all_nodes if node.class_name not in parent_by_child_name
         ]
         root_nodes = sorted(
             root_nodes,
@@ -1316,9 +1333,7 @@ class UmlClassDiagramTab(ttk.Frame):
                 center_y_by_level,
                 level_by_class_name,
             )
-            child_left_edge += (
-                width_by_class_name[child_name] + UML_NODE_PADDING_X
-            )
+            child_left_edge += width_by_class_name[child_name] + UML_NODE_PADDING_X
 
     def rearrange_diagram(self):
         all_nodes = self.uml_canvas.registry.all_nodes()
@@ -1326,9 +1341,7 @@ class UmlClassDiagramTab(ttk.Frame):
             return False
         snapshot_before = self.snapshot_diagram()
         parent_by_child_name, children_by_parent_name = self.visible_inheritance_paths()
-        node_by_class_name = {
-            node.class_name: node for node in all_nodes
-        }
+        node_by_class_name = {node.class_name: node for node in all_nodes}
         level_by_class_name, root_nodes = self.rearranged_node_levels(
             parent_by_child_name,
             children_by_parent_name,

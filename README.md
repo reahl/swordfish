@@ -58,7 +58,15 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install in development mode
 pip install -e .
+
+# Or, for development including the test suite, install with the test extra
+pip install -e '.[test]'
 ```
+
+The `test` extra pulls in the test-only dependencies (`reahl-tofu`,
+`pytest-xvfb`, `setuptools<81`) required to run `pytest`; a plain
+`pip install -e .` installs only what is needed to *run* the application. Quote
+`'.[test]'` so the shell does not treat the brackets as a glob pattern.
 
 ### Run the IDE
 
@@ -404,7 +412,8 @@ sudo -u gemstone bash -l -c "startstone gs64stone"
 sudo -u gemstone bash -l -c "gslist"
 
 # 3. Install Swordfish in development mode
-pip install -e .
+#    (use '.[test]' instead to also install the test dependencies for pytest)
+pip install -e '.[test]'
 
 # 4. Run Swordfish
 swordfish

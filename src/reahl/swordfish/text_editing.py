@@ -11,7 +11,9 @@ from reahl.swordfish.exceptions import DomainException
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.ui_support import (
     add_close_command_to_popup_menu,
+    add_source_code_commands,
     close_popup_menu,
+    is_compile_error,
 )
 
 
@@ -587,20 +589,11 @@ class CodePanel(tk.Frame):
             self.current_context_menu.add_separator()
         selected_text = self.selected_text()
         if selected_text:
-            self.current_context_menu.add_command(
-                label='Run',
-                command=lambda: self.run_selected_text(selected_text),
-                state=run_command_state,
-            )
-            self.current_context_menu.add_command(
-                label='Inspect',
-                command=lambda: self.inspect_selected_text(selected_text),
-                state=run_command_state,
-            )
-            self.current_context_menu.add_command(
-                label='Show in Object Diagram',
-                command=lambda: self.show_selected_text_in_object_diagram(selected_text),
-                state=run_command_state,
+            add_source_code_commands(
+                self.current_context_menu,
+                self,
+                selected_text,
+                enabled=run_command_state == tk.NORMAL,
             )
             self.current_context_menu.add_separator()
         self.current_context_menu.add_command(
@@ -863,17 +856,19 @@ class CodePanel(tk.Frame):
             self.current_context_menu.unpost()
             self.current_context_menu = None
 
-    def run_selected_text(self, selected_text):
+    def run_selected_source(self, selected_text):
         if self.is_read_only():
             messagebox.showwarning(
                 'Read Only',
                 'MCP is busy. Run is disabled until MCP finishes.',
             )
             return
-        self.application.event_queue.publish('SourceTextRun', log_context={'code': selected_text})
+        self.application.event_queue.publish(
+            'SourceTextRun', log_context={'code': selected_text}
+        )
         self.application.run_code(selected_text)
 
-    def inspect_selected_text(self, selected_text):
+    def inspect_selected_source(self, selected_text):
         if self.is_read_only():
             messagebox.showwarning(
                 'Read Only',
@@ -884,27 +879,35 @@ class CodePanel(tk.Frame):
             debugger_tab = self.application.debugger_tab
             debugger_tab.inspect_selected_source_expression(selected_text)
             return
-        self.application.event_queue.publish('SourceTextInspected', log_context={'code': selected_text})
+        self.application.event_queue.publish(
+            'SourceTextInspected', log_context={'code': selected_text}
+        )
         try:
             inspected_object = self.gemstone_session_record.run_code(selected_text)
         except (DomainException, GemstoneDomainException) as domain_exception:
             messagebox.showerror('Inspect Selection', str(domain_exception))
-            self.application.event_queue.publish('SourceTextInspectFailed', log_context={
-                'code': selected_text,
-                'error': str(domain_exception),
-            })
+            self.application.event_queue.publish(
+                'SourceTextInspectFailed',
+                log_context={
+                    'code': selected_text,
+                    'error': str(domain_exception),
+                },
+            )
             return
         except GemstoneError as gemstone_exception:
             messagebox.showerror('Inspect Selection', str(gemstone_exception))
-            self.application.event_queue.publish('SourceTextInspectFailed', log_context={
-                'code': selected_text,
-                'error': str(gemstone_exception),
-            })
+            self.application.event_queue.publish(
+                'SourceTextInspectFailed',
+                log_context={
+                    'code': selected_text,
+                    'error': str(gemstone_exception),
+                },
+            )
             return
         if hasattr(self.application, 'open_inspector_for_object'):
             self.application.open_inspector_for_object(inspected_object)
 
-    def show_selected_text_in_object_diagram(self, selected_text):
+    def show_selected_source_in_object_diagram(self, selected_text):
         if self.is_read_only():
             messagebox.showwarning(
                 'Read Only',
@@ -913,7 +916,9 @@ class CodePanel(tk.Frame):
             return
         if self.is_debugger_source_panel():
             debugger_tab = self.application.debugger_tab
-            debugger_tab.show_selected_source_expression_in_object_diagram(selected_text)
+            debugger_tab.show_selected_source_expression_in_object_diagram(
+                selected_text
+            )
             return
         try:
             inspected_object = self.gemstone_session_record.run_code(selected_text)
@@ -926,6 +931,27 @@ class CodePanel(tk.Frame):
         if hasattr(self.application, 'open_object_diagram_for_object'):
             self.application.open_object_diagram_for_object(inspected_object)
 
+    def debug_selected_source(self, selected_text):
+        if self.is_read_only():
+            messagebox.showwarning(
+                'Read Only',
+                'MCP is busy. Debug is disabled until MCP finishes.',
+            )
+            return
+        self.application.event_queue.publish(
+            'SourceTextDebug', log_context={'code': selected_text}
+        )
+        try:
+            self.gemstone_session_record.run_code(selected_text)
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            messagebox.showerror('Debug Selection', str(domain_exception))
+            return
+        except GemstoneError as gemstone_exception:
+            if is_compile_error(gemstone_exception):
+                messagebox.showerror('Debug Selection', str(gemstone_exception))
+                return
+            self.application.open_debugger(gemstone_exception)
+
     def open_implementors_from_source(self):
         selector = self.selector_for_navigation()
         if selector is None:
@@ -934,7 +960,9 @@ class CodePanel(tk.Frame):
                 'Could not determine a selector at the current cursor position.',
             )
             return
-        self.application.event_queue.publish('ImplementorsOpened', log_context={'selector': selector})
+        self.application.event_queue.publish(
+            'ImplementorsOpened', log_context={'selector': selector}
+        )
         self.application.open_implementors_dialog(method_symbol=selector)
 
     def open_senders_from_source(self):
@@ -945,7 +973,9 @@ class CodePanel(tk.Frame):
                 'Could not determine a selector at the current cursor position.',
             )
             return
-        self.application.event_queue.publish('SendersOpened', log_context={'selector': selector})
+        self.application.event_queue.publish(
+            'SendersOpened', log_context={'selector': selector}
+        )
         self.application.open_senders_dialog(
             method_symbol=selector,
         )
