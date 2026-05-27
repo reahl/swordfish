@@ -20,7 +20,6 @@ from reahl.swordfish.ui_support import (
     is_compile_error,
 )
 
-
 # AI: Maps Smalltalk token kinds to the Tk text tags that colour them. Kinds absent here are left uncoloured.
 SYNTAX_TOKEN_TAGS = {
     SmalltalkTokenKind.pseudo_variable: 'smalltalk_keyword',
