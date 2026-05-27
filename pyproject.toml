@@ -66,6 +66,8 @@ python_files = "test_*.py"
 line-length = 88
 target-version = ["py36"]
 include = '\.pyi?$'
+# AI: Keep single-quoted strings — the codebase convention is ' for strings.
+skip-string-normalization = true
 
 [tool.isort]
 profile = "black"
