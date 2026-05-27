@@ -17,7 +17,11 @@ from reahl.swordfish.text_editing import (
     configure_widget_if_alive,
 )
 from reahl.swordfish.ui_context import UiContext
-from reahl.swordfish.ui_support import add_close_command_to_popup_menu
+from reahl.swordfish.ui_support import (
+    add_close_command_to_popup_menu,
+    add_source_code_commands,
+    is_compile_error,
+)
 
 
 class RunTab(ttk.Frame):
@@ -34,7 +38,7 @@ class RunTab(ttk.Frame):
 
         self.button_frame = ttk.Frame(self)
         self.button_frame.grid(row=0, column=0, sticky='ew', padx=10, pady=(10, 5))
-        self.button_frame.columnconfigure(2, weight=1)
+        self.button_frame.columnconfigure(3, weight=1)
 
         self.run_button = ttk.Button(
             self.button_frame,
@@ -43,19 +47,26 @@ class RunTab(ttk.Frame):
         )
         self.run_button.grid(row=0, column=0, padx=(0, 5))
 
+        self.inspect_button = ttk.Button(
+            self.button_frame,
+            text='Inspect',
+            command=self.inspect_code_from_editor,
+        )
+        self.inspect_button.grid(row=0, column=1, sticky='w', padx=(0, 5))
+
         self.debug_button = ttk.Button(
             self.button_frame,
             text='Debug',
             command=self.open_debugger,
         )
-        self.debug_button.grid(row=0, column=1, sticky='w', padx=(0, 5))
+        self.debug_button.grid(row=0, column=2, sticky='w', padx=(0, 5))
 
         self.close_button = ttk.Button(
             self.button_frame,
             text='Close',
             command=self.close_tab,
         )
-        self.close_button.grid(row=0, column=3, sticky='e')
+        self.close_button.grid(row=0, column=4, sticky='e')
 
         self.source_label = ttk.Label(self, text='Source Code:')
         self.source_label.grid(row=1, column=0, sticky='w', padx=10, pady=(5, 0))
@@ -238,11 +249,10 @@ class RunTab(ttk.Frame):
             return self.editable_result
         return EditableText(text_widget, self)
 
-    def run_selected_source_text(self):
+    def run_selected_source(self, selected_text):
         if self.is_read_only():
             self.status_label.config(text='MCP is busy. Run is disabled.')
             return
-        selected_text = self.selected_source_text()
         if not selected_text.strip():
             self.status_label.config(text='Select source text to run')
             return
@@ -275,11 +285,10 @@ class RunTab(ttk.Frame):
         finally:
             self.application.end_foreground_activity()
 
-    def inspect_selected_source_text(self):
+    def inspect_selected_source(self, selected_text):
         if self.is_read_only():
             self.status_label.config(text='MCP is busy. Inspect is disabled.')
             return
-        selected_text = self.selected_source_text()
         if not selected_text.strip():
             self.status_label.config(text='Select source text to inspect')
             return
@@ -313,13 +322,12 @@ class RunTab(ttk.Frame):
         finally:
             self.application.end_foreground_activity()
 
-    def show_selected_source_text_in_object_diagram(self):
+    def show_selected_source_in_object_diagram(self, selected_text):
         if self.is_read_only():
             self.status_label.config(
                 text='MCP is busy. Object diagram is disabled.'
             )
             return
-        selected_text = self.selected_source_text()
         if not selected_text.strip():
             self.status_label.config(
                 text='Select source text to show in Object Diagram'
@@ -397,25 +405,13 @@ class RunTab(ttk.Frame):
                 state=undo_command_state,
             )
         if include_run_actions:
-            has_selection = bool(self.selected_source_text().strip())
-            run_command_state = tk.NORMAL if has_selection else tk.DISABLED
-            if self.is_read_only():
-                run_command_state = tk.DISABLED
+            selected_text = self.selected_source_text()
             self.current_text_menu.add_separator()
-            self.current_text_menu.add_command(
-                label='Run',
-                command=self.run_selected_source_text,
-                state=run_command_state,
-            )
-            self.current_text_menu.add_command(
-                label='Inspect',
-                command=self.inspect_selected_source_text,
-                state=run_command_state,
-            )
-            self.current_text_menu.add_command(
-                label='Show in Object Diagram',
-                command=self.show_selected_source_text_in_object_diagram,
-                state=run_command_state,
+            add_source_code_commands(
+                self.current_text_menu,
+                self,
+                selected_text,
+                enabled=not self.is_read_only(),
             )
         add_close_command_to_popup_menu(self.current_text_menu)
         self.current_text_menu.bind(
@@ -474,6 +470,41 @@ class RunTab(ttk.Frame):
             except GemstoneError as gemstone_exception:
                 self.on_run_error(gemstone_exception)
                 self.application.event_queue.publish('RunTabCodeFailed', log_context={
+                    'code': code_to_run,
+                    'error': str(gemstone_exception),
+                })
+        finally:
+            self.application.end_foreground_activity()
+
+    def inspect_code_from_editor(self):
+        if self.is_read_only():
+            self.status_label.config(text='MCP is busy. Inspect is disabled.')
+            return
+        code_to_run = self.source_text.get('1.0', 'end-1c')
+        self.application.event_queue.publish('RunTabCodeInspect', log_context={'code': code_to_run})
+        self.status_label.config(text='Inspecting...')
+        self.last_exception = None
+        self.clear_source_error_highlight()
+        self.application.begin_foreground_activity('Inspecting source...')
+        try:
+            try:
+                result = self.gemstone_session_record.run_code(code_to_run)
+                self.on_run_complete(result)
+                self.application.open_inspector_for_object(result)
+                self.application.event_queue.publish('RunTabCodeInspectSucceeded', log_context={
+                    'code': code_to_run,
+                    'result': result.asString().to_py,
+                })
+            except (DomainException, GemstoneDomainException) as domain_exception:
+                self.status_label.config(text=str(domain_exception))
+                self.show_error_in_result_panel(str(domain_exception), None, None)
+                self.application.event_queue.publish('RunTabCodeInspectFailed', log_context={
+                    'code': code_to_run,
+                    'error': str(domain_exception),
+                })
+            except GemstoneError as gemstone_exception:
+                self.on_run_error(gemstone_exception)
+                self.application.event_queue.publish('RunTabCodeInspectFailed', log_context={
                     'code': code_to_run,
                     'error': str(gemstone_exception),
                 })
@@ -726,26 +757,29 @@ class RunTab(ttk.Frame):
         return line_number, column_number
 
     def open_debugger(self):
+        code_to_run = self.source_text.get('1.0', 'end-1c')
+        self.debug_selected_source(code_to_run)
+
+    def debug_selected_source(self, selected_text):
         if self.is_read_only():
             self.status_label.config(text='MCP is busy. Debug is disabled.')
             return
-        code_to_run = self.source_text.get('1.0', 'end-1c')
-        if not code_to_run.strip():
+        if not selected_text.strip():
             self.status_label.config(text='No source to debug')
             return
-        self.application.event_queue.publish('RunTabDebugRun', log_context={'code': code_to_run})
+        self.application.event_queue.publish('RunTabDebugRun', log_context={'code': selected_text})
         self.last_exception = None
         self.clear_source_error_highlight()
         self.application.begin_foreground_activity('Debugging source...')
         try:
             try:
-                result = self.gemstone_session_record.run_code(code_to_run)
+                result = self.gemstone_session_record.run_code(selected_text)
                 self.on_run_complete(result)
                 self.status_label.config(
                     text='Completed successfully; no debugger context',
                 )
                 self.application.event_queue.publish('RunTabDebugSucceeded', log_context={
-                    'code': code_to_run,
+                    'code': selected_text,
                     'result': result.asString().to_py,
                 })
                 return
@@ -753,15 +787,15 @@ class RunTab(ttk.Frame):
                 self.status_label.config(text=str(domain_exception))
                 self.show_error_in_result_panel(str(domain_exception), None, None)
                 self.application.event_queue.publish('RunTabDebugFailed', log_context={
-                    'code': code_to_run,
+                    'code': selected_text,
                     'error': str(domain_exception),
                 })
                 return
             except GemstoneError as gemstone_exception:
                 self.on_run_error(gemstone_exception)
-                if self.is_compile_error(gemstone_exception):
+                if is_compile_error(gemstone_exception):
                     self.application.event_queue.publish('RunTabDebugFailed', log_context={
-                        'code': code_to_run,
+                        'code': selected_text,
                         'error': str(gemstone_exception),
                     })
                     return
@@ -769,17 +803,6 @@ class RunTab(ttk.Frame):
         finally:
             self.application.end_foreground_activity()
 
-    def is_compile_error(self, exception):
-        error_number = None
-        try:
-            error_number = exception.number
-        except (AttributeError, GemstoneError, TypeError):
-            pass
-        if error_number == 1001:
-            return True
-
-        error_text = str(exception).lower()
-        return 'compileerror' in error_text or 'compile error' in error_text
 
     def close_tab(self):
         self.ui_context.invalidate()

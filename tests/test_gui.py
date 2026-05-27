@@ -1041,6 +1041,71 @@ def test_graph_inspect_command_from_method_source_context_menu_opens_graph_for_s
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_text_context_menu_includes_debug_for_selected_text_in_open_tab(
+    fixture,
+):
+    """AI: Inspect, Run and Debug travel together, so selecting method source must also expose Debug."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+    tab.code_panel.text_editor.delete("1.0", "end")
+    tab.code_panel.text_editor.insert("1.0", "3 + 4\n5 + 6")
+    tab.code_panel.text_editor.tag_add(tk.SEL, "1.0", "1.5")
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    command_labels = menu_command_labels(menu)
+
+    assert "Debug" in command_labels
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_debug_command_from_method_source_context_menu_opens_debugger_for_runtime_error(
+    fixture,
+):
+    """AI: Debug from method source evaluates the selection and opens the Debugger when it raises a runtime error."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+    tab.code_panel.text_editor.delete("1.0", "end")
+    tab.code_panel.text_editor.insert("1.0", "1/0")
+    tab.code_panel.text_editor.tag_add(tk.SEL, "1.0", "1.3")
+    runtime_error = FakeGemstoneError()
+    fixture.mock_browser.run_code.side_effect = runtime_error
+    tab.code_panel.application.open_debugger = Mock()
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    fixture.invoke_menu_command(menu, "Debug")
+
+    fixture.mock_browser.run_code.assert_called_with("1/0")
+    tab.code_panel.application.open_debugger.assert_called_once_with(runtime_error)
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_debug_command_from_method_source_context_menu_ignores_compile_error(
+    fixture,
+):
+    """AI: A compile error in the selection is a coding mistake, not a runtime stop, so Debug must not open the Debugger."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+    tab.code_panel.text_editor.delete("1.0", "end")
+    tab.code_panel.text_editor.insert("1.0", "3 +")
+    tab.code_panel.text_editor.tag_add(tk.SEL, "1.0", "1.3")
+    fixture.mock_browser.run_code.side_effect = FakeCompileGemstoneError("3 +", 3)
+    tab.code_panel.application.open_debugger = Mock()
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    with patch("reahl.swordfish.text_editing.messagebox") as mock_messagebox:
+        fixture.invoke_menu_command(menu, "Debug")
+
+    tab.code_panel.application.open_debugger.assert_not_called()
+    mock_messagebox.showerror.assert_called_once()
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_save_command_from_text_context_menu_compiles_to_gemstone(fixture):
     """AI: Choosing Save from text context menu compiles the current editor contents."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
@@ -3212,6 +3277,102 @@ def test_run_context_menu_graph_inspect_opens_graph_for_selected_result(fixture)
     selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
     assert selected_tab_text == "Object Diagram"
     assert fixture.app.object_diagram_tab.graph_canvas.registry.contains_object(inspected_result)
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_source_context_menu_includes_debug_for_selected_text(fixture):
+    """AI: The Run source context menu must offer Debug wherever it already offers Run and Inspect."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete("1.0", "end")
+    run_tab.source_text.insert("1.0", "3 + 4\n5 + 6")
+    run_tab.source_text.tag_add(tk.SEL, "1.0", "1.5")
+
+    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    labels = menu_command_labels(run_tab.current_text_menu)
+    assert "Debug" in labels
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_context_menu_debug_opens_debugger_for_selected_text_only(fixture):
+    """AI: Debug in the Run source context menu debugs only the selected fragment and opens the Debugger on a runtime error."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete("1.0", "end")
+    run_tab.source_text.insert("1.0", "1/0\nthisWillNotRun")
+    run_tab.source_text.tag_add(tk.SEL, "1.0", "1.3")
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+
+    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    invoke_menu_command_by_label(run_tab.current_text_menu, "Debug")
+    fixture.app.update()
+
+    fixture.mock_browser.run_code.assert_called_with("1/0")
+    tab_labels = [
+        fixture.app.notebook.tab(t, "text") for t in fixture.app.notebook.tabs()
+    ]
+    assert "Debugger" in tab_labels
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_dialog_shows_inspect_button(fixture):
+    """AI: The Run tab button row should offer Run, Inspect and Debug together, all enabled."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+
+    assert hasattr(run_tab, "inspect_button")
+    assert run_tab.inspect_button.winfo_exists()
+    assert run_tab.inspect_button.cget("text") == "Inspect"
+    for button in (run_tab.run_button, run_tab.inspect_button, run_tab.debug_button):
+        assert not button.instate(["disabled"])
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_inspect_button_opens_inspector_for_full_source(fixture):
+    """AI: Like Run and Debug, the Inspect button acts on the whole buffer, opening the Inspector on the result."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete("1.0", "end")
+    run_tab.source_text.insert("1.0", "3 + 4")
+    inspected_result = make_mock_gemstone_object("Integer", "7")
+    fixture.mock_browser.run_code.return_value = inspected_result
+
+    run_tab.inspect_button.invoke()
+    fixture.app.update()
+
+    fixture.mock_browser.run_code.assert_called_with("3 + 4")
+    assert fixture.app.inspector_tab is not None
+    assert isinstance(fixture.app.inspector_tab, InspectorTab)
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugger_source_panel_context_menu_includes_run_inspect_debug(fixture):
+    """AI: The debugger frame source panel is a live code editor, so it too offers Run, Inspect and Debug."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    code_panel = fixture.app.debugger_tab.code_panel
+    code_panel.refresh("3 + 4")
+    code_panel.text_editor.tag_add(tk.SEL, "1.0", "1.5")
+
+    code_panel.open_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    labels = menu_command_labels(code_panel.current_context_menu)
+    assert "Run" in labels
+    assert "Inspect" in labels
+    assert "Debug" in labels
 
 
 @with_fixtures(SwordfishAppFixture)
