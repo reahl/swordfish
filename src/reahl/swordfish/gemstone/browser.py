@@ -510,9 +510,13 @@ class GemstoneBrowserSession:
             selectors = class_to_query.selectors().asSortedCollection()
         else:
             try:
-                selectors = class_to_query.selectorsIn(method_category).asSortedCollection()
+                selectors = class_to_query.selectorsIn(
+                    method_category
+                ).asSortedCollection()
             except GemstoneError:
-                return []  # AI: category exists in categoryNames() but selectorsIn: cannot query it (e.g. *bootstrap-caching)
+                return (
+                    []
+                )  # AI: category exists in categoryNames() but selectorsIn: cannot query it (e.g. *bootstrap-caching)
         return [gemstone_selector.to_py for gemstone_selector in selectors]
 
     def get_compiled_method(self, class_name, method_selector, show_instance_side):
@@ -2609,7 +2613,9 @@ class GemstoneBrowserSession:
             alias_send,
         )
 
-    def tracer_target_implementation_wrapper_source(self, target_selector, alias_selector):
+    def tracer_target_implementation_wrapper_source(
+        self, target_selector, alias_selector
+    ):
         target_selector_literal = self.selector_reference_expression(target_selector)
         if ':' in target_selector:
             method_tokens = self.selector_keyword_tokens(target_selector)
@@ -3000,7 +3006,8 @@ class GemstoneBrowserSession:
                 'class_name': class_name,
                 'show_instance_side': show_instance_side,
                 'instrumented': False,
-                'reason': '%s does not define %s directly (only inherits it).' % (class_name, method_name),
+                'reason': '%s does not define %s directly (only inherits it).'
+                % (class_name, method_name),
             }
         alias_already_exists = alias_selector in selectors
         if alias_already_exists:
@@ -3011,16 +3018,24 @@ class GemstoneBrowserSession:
                 'instrumented': False,
                 'reason': 'Alias selector already exists.',
             }
-        method_source = self.get_method_source(class_name, method_name, show_instance_side)
-        method_category = self.get_method_category(class_name, method_name, show_instance_side)
+        method_source = self.get_method_source(
+            class_name, method_name, show_instance_side
+        )
+        method_category = self.get_method_category(
+            class_name, method_name, show_instance_side
+        )
         alias_method_source = self.source_with_rewritten_method_header(
             method_source, method_name, alias_selector
         )
-        self.compile_method(class_name, show_instance_side, alias_method_source, method_category)
+        self.compile_method(
+            class_name, show_instance_side, alias_method_source, method_category
+        )
         wrapper_source = self.tracer_target_implementation_wrapper_source(
             method_name, alias_selector
         )
-        self.compile_method(class_name, show_instance_side, wrapper_source, method_category)
+        self.compile_method(
+            class_name, show_instance_side, wrapper_source, method_category
+        )
         self.run_code(
             (
                 'SwordfishMcpTracer '
@@ -3029,7 +3044,8 @@ class GemstoneBrowserSession:
                 'callerMethodSelector: %s '
                 'callerShowInstanceSide: %s '
                 'aliasSelector: %s'
-            ) % (
+            )
+            % (
                 self.selector_reference_expression(method_name),
                 self.smalltalk_string_literal(class_name),
                 self.selector_reference_expression(method_name),
@@ -6175,10 +6191,9 @@ class GemstoneBrowserSession:
                 )
             except (GemstoneError, GemstoneApiError, KeyError):
                 method_category = None
-            method_category_is_extension = (
-                isinstance(method_category, str)
-                and method_category.startswith("*")
-            )
+            method_category_is_extension = isinstance(
+                method_category, str
+            ) and method_category.startswith("*")
             extension_category_name = None
             if method_category_is_extension:
                 extension_category_name = method_category[1:].strip() or None

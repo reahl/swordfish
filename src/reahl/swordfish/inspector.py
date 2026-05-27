@@ -450,7 +450,9 @@ class ObjectInspector(ttk.Frame):
             return
 
         if self.event_queue is not None:
-            self.event_queue.publish('ObjectInspected', log_context={'label': self.tab_label_for(value)})
+            self.event_queue.publish(
+                'ObjectInspected', log_context={'label': self.tab_label_for(value)}
+            )
 
         if hasattr(self.master, 'open_or_select_object'):
             self.master.open_or_select_object(value)

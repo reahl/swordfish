@@ -437,7 +437,9 @@ class GemstoneSessionRecord:
 
     def jump_to_class(self, class_name, show_instance_side):
         selected_gemstone_class = self.gemstone_session.resolve_symbol(class_name)
-        selected_category = self.class_category_containing_class(class_name, selected_gemstone_class)
+        selected_category = self.class_category_containing_class(
+            class_name, selected_gemstone_class
+        )
         self.select_class_category(selected_category)
         self.select_instance_side(show_instance_side)
         self.select_class(class_name)
@@ -1003,6 +1005,7 @@ class GemstoneSessionRecord:
         self.require_write_access("clear_all_breakpoints")
         return self.gemstone_browser_session.clear_all_breakpoints()
 
+
 # except GemstoneError as e:
 #     try:
 #         e.context.gciStepOverFromLevel(1)
@@ -1098,6 +1101,7 @@ class ActionGate:
     def read_only_for(self, action_name, is_busy=False):
         return not self.allows(action_name, is_busy=is_busy)
 
+
 class ActivityLog:
     """AI: Records IDE events and MCP tool calls with stack traces to a JSONL file."""
 
@@ -1108,14 +1112,16 @@ class ActivityLog:
 
     def log_ide_event(self, event_name, args, kwargs):
         stack = traceback.extract_stack()[:-2]
-        self.write_entry({
-            'ts': datetime.now().isoformat(),
-            'source': 'ide',
-            'action': event_name,
-            'args': self.repr_for_log(args),
-            'kwargs': self.repr_for_log(kwargs),
-            'stack': [str(frame) for frame in stack],
-        })
+        self.write_entry(
+            {
+                'ts': datetime.now().isoformat(),
+                'source': 'ide',
+                'action': event_name,
+                'args': self.repr_for_log(args),
+                'kwargs': self.repr_for_log(kwargs),
+                'stack': [str(frame) for frame in stack],
+            }
+        )
 
     def wrap_mcp_tool(self, fn):
         log = self
@@ -1123,13 +1129,15 @@ class ActivityLog:
         @functools.wraps(fn)
         def logged(**kwargs):
             stack = traceback.extract_stack()[:-1]
-            log.write_entry({
-                'ts': datetime.now().isoformat(),
-                'source': 'mcp',
-                'action': fn.__name__,
-                'args': log.repr_for_log(kwargs),
-                'stack': [str(frame) for frame in stack],
-            })
+            log.write_entry(
+                {
+                    'ts': datetime.now().isoformat(),
+                    'source': 'mcp',
+                    'action': fn.__name__,
+                    'args': log.repr_for_log(kwargs),
+                    'stack': [str(frame) for frame in stack],
+                }
+            )
             return fn(**kwargs)
 
         return logged
@@ -1366,9 +1374,7 @@ class EventQueue:
 MCP_RUNTIME_CONFIG_SCHEMA_VERSION = 2
 SWORDFISH_CONFIG_FILE_NAME = "swordfish.json"
 MCP_PERMISSION_POLICY_CONFIG_NAME = "mcp_permission_policy"
-MCP_PERMISSION_POLICY_SOURCE_NAME = (
-    "allow_session_permission_changes_condition_source"
-)
+MCP_PERMISSION_POLICY_SOURCE_NAME = "allow_session_permission_changes_condition_source"
 LOGIN_CONFIG_NAME = "login"
 LOGIN_GEMSTONE_SCRIPT_SOURCE_NAME = "gemstone_script_source"
 GEMSTONE_EXE_CONF_CONFIG_NAME = "gemstone_exe_conf"
@@ -1415,9 +1421,9 @@ def apply_gemstone_exe_conf(gemstone_exe_conf):
 
 class McpPermissionPolicy:
     def __init__(self, allow_session_permission_changes_condition_source=""):
-        self.allow_session_permission_changes_condition_source = (
-            str(allow_session_permission_changes_condition_source).strip()
-        )
+        self.allow_session_permission_changes_condition_source = str(
+            allow_session_permission_changes_condition_source
+        ).strip()
 
     def copy(self):
         return McpPermissionPolicy(
@@ -1536,9 +1542,7 @@ class McpConfigurationStore:
             raise ValueError("login must be an object.")
         if LOGIN_GEMSTONE_SCRIPT_SOURCE_NAME in config_payload:
             config_payload = dict(config_payload)
-            script_source = str(
-                config_payload[LOGIN_GEMSTONE_SCRIPT_SOURCE_NAME]
-            )
+            script_source = str(config_payload[LOGIN_GEMSTONE_SCRIPT_SOURCE_NAME])
             if not script_source.strip():
                 script_source = ""
             config_payload[LOGIN_GEMSTONE_SCRIPT_SOURCE_NAME] = script_source
@@ -1591,12 +1595,8 @@ class McpConfigurationStore:
         if payload is None:
             return ""
         try:
-            validated_payload = self.validate_login_dict(
-                payload.get(LOGIN_CONFIG_NAME)
-            )
-            return str(
-                validated_payload.get(LOGIN_GEMSTONE_SCRIPT_SOURCE_NAME, "")
-            )
+            validated_payload = self.validate_login_dict(payload.get(LOGIN_CONFIG_NAME))
+            return str(validated_payload.get(LOGIN_GEMSTONE_SCRIPT_SOURCE_NAME, ""))
         except (ValueError, TypeError):
             return ""
 
@@ -1644,9 +1644,7 @@ class McpConfigurationStore:
             payload[MCP_PERMISSION_POLICY_CONFIG_NAME] = permission_policy_payload
         if str(login_gemstone_script_source):
             payload[LOGIN_CONFIG_NAME] = {
-                LOGIN_GEMSTONE_SCRIPT_SOURCE_NAME: str(
-                    login_gemstone_script_source
-                )
+                LOGIN_GEMSTONE_SCRIPT_SOURCE_NAME: str(login_gemstone_script_source)
             }
         config_file_path = self.config_file_path()
         config_directory = os.path.dirname(config_file_path)
@@ -2031,15 +2029,12 @@ class McpServerController:
             if old_val != new_val:
                 state = 'enabled' if new_val else 'disabled'
                 action = 'can now' if new_val else 'can no longer'
-                changes.append(
-                    '- %s: %s — you %s %s' % (flag, state, action, label)
-                )
+                changes.append('- %s: %s — you %s %s' % (flag, state, action, label))
         if not changes:
             return None
         return (
             '[MCP Config Update] Permissions were updated while the server was running '
-            'and took effect immediately:\n'
-            + '\n'.join(changes)
+            'and took effect immediately:\n' + '\n'.join(changes)
         )
 
     def save_configuration(
@@ -2462,13 +2457,17 @@ class McpConfigurationDialog(tk.Toplevel):
                 'Code: AI can write, compile, execute, and permanently install code changes.'
             )
         elif source_write and eval_arbitrary:
-            lines.append('Code: AI can write, compile, and execute Smalltalk code freely.')
+            lines.append(
+                'Code: AI can write, compile, and execute Smalltalk code freely.'
+            )
         elif eval_arbitrary:
             lines.append('Code: AI can execute arbitrary Smalltalk code.')
         elif source_write and commit:
             lines.append('Code: AI can compile and permanently install method changes.')
         elif source_write:
-            lines.append('Code: AI can compile method changes (lost on abort without commit).')
+            lines.append(
+                'Code: AI can compile method changes (lost on abort without commit).'
+            )
         if eval_arbitrary and commit:
             lines.append('Data: AI can read and permanently modify client data.')
         elif eval_arbitrary:
@@ -2631,6 +2630,7 @@ class MainMenu(tk.Menu):
             self.session_menu.add_command(
                 label="Login", command=self.parent.show_login_screen
             )
+
     def update_mcp_menu(self):
         self.mcp_menu.delete(0, tk.END)
         mcp_state = self.parent.embedded_mcp_server_status()
@@ -2676,7 +2676,9 @@ class MainMenu(tk.Menu):
         self.file_menu.delete(0, tk.END)
         if self.parent.is_logged_in:
             is_busy = self.parent.integrated_session_state.is_mcp_busy()
-            run_command_state = self.parent.action_gate.state_for('run', is_busy=is_busy)
+            run_command_state = self.parent.action_gate.state_for(
+                'run', is_busy=is_busy
+            )
             breakpoints_state = self.parent.action_gate.state_for(
                 'breakpoints',
                 is_busy=is_busy,
@@ -2734,6 +2736,7 @@ class MainMenu(tk.Menu):
     def configure_mcp_server(self):
         self.event_queue.publish('MenuCommandInvoked', command='Configure MCP Server')
         self.parent.configure_mcp_server_from_menu()
+
 
 class FindDialog(tk.Toplevel):
     def __init__(
@@ -2999,7 +3002,6 @@ class FindDialog(tk.Toplevel):
             )
             self.narrow_button.grid(row=0, column=2, padx=5)
 
-
         self.cancel_button = ttk.Button(
             self.button_frame,
             text="Cancel",
@@ -3022,20 +3024,32 @@ class FindDialog(tk.Toplevel):
             row=0, column=0, padx=(0, 4), pady=(0, 4), sticky="w"
         )
         self.class_regex_entry = ttk.Entry(self.filter_frame)
-        self.class_regex_entry.grid(row=0, column=1, padx=(0, 12), pady=(0, 4), sticky="ew")
-        self.class_regex_entry.bind('<KeyRelease>', lambda *_: self.apply_filter_from_entries())
+        self.class_regex_entry.grid(
+            row=0, column=1, padx=(0, 12), pady=(0, 4), sticky="ew"
+        )
+        self.class_regex_entry.bind(
+            '<KeyRelease>', lambda *_: self.apply_filter_from_entries()
+        )
         ttk.Label(self.filter_frame, text="Class category (regex):").grid(
             row=0, column=2, padx=(0, 4), pady=(0, 4), sticky="w"
         )
         self.class_category_regex_entry = ttk.Entry(self.filter_frame)
-        self.class_category_regex_entry.grid(row=0, column=3, padx=(0, 0), pady=(0, 4), sticky="ew")
-        self.class_category_regex_entry.bind('<KeyRelease>', lambda *_: self.apply_filter_from_entries())
+        self.class_category_regex_entry.grid(
+            row=0, column=3, padx=(0, 0), pady=(0, 4), sticky="ew"
+        )
+        self.class_category_regex_entry.bind(
+            '<KeyRelease>', lambda *_: self.apply_filter_from_entries()
+        )
         ttk.Label(self.filter_frame, text="Method category (regex):").grid(
             row=1, column=0, padx=(0, 4), sticky="w"
         )
         self.method_category_regex_entry = ttk.Entry(self.filter_frame)
-        self.method_category_regex_entry.grid(row=1, column=1, padx=(0, 12), sticky="ew")
-        self.method_category_regex_entry.bind('<KeyRelease>', lambda *_: self.apply_filter_from_entries())
+        self.method_category_regex_entry.grid(
+            row=1, column=1, padx=(0, 12), sticky="ew"
+        )
+        self.method_category_regex_entry.bind(
+            '<KeyRelease>', lambda *_: self.apply_filter_from_entries()
+        )
         self.apply_regex_filter_button = ttk.Button(
             self.filter_frame,
             text="Apply Filter",
@@ -3380,7 +3394,10 @@ class FindDialog(tk.Toplevel):
         if reference_target == 'class':
             return 'References to class "%s" (exact).' % normalized_search_query
         if self.sender_source_class_name is not None:
-            return 'Senders of %s>>%s.' % (self.sender_source_class_name, normalized_search_query)
+            return 'Senders of %s>>%s.' % (
+                self.sender_source_class_name,
+                normalized_search_query,
+            )
         return 'Senders of "%s" (all implementors).' % normalized_search_query
 
     def result_action_text(self, search_type, match_mode, reference_target):
@@ -3530,9 +3547,7 @@ class FindDialog(tk.Toplevel):
                 isinstance(extension_category_name, str)
                 and extension_category_name.strip()
             ):
-                category_candidates.append(
-                    extension_category_name.strip().lower()
-                )
+                category_candidates.append(extension_category_name.strip().lower())
         if not category_candidates:
             return False
         return any(
@@ -3582,7 +3597,10 @@ class FindDialog(tk.Toplevel):
         include_extension_method_category_for_class_category=True,
         reasoning_note='',
     ):
-        if self.search_type.get() != 'reference' or self.reference_target.get() != 'method':
+        if (
+            self.search_type.get() != 'reference'
+            or self.reference_target.get() != 'method'
+        ):
             return {
                 'ok': False,
                 'error': {
@@ -3679,17 +3697,26 @@ class FindDialog(tk.Toplevel):
         if not result.get('ok'):
             messagebox.showerror('Apply Filter', result['error']['message'])
 
-    def apply_regex_sender_filters(self, class_regex='', class_category_regex='', method_category_regex=''):
-        if self.search_type.get() != 'reference' or self.reference_target.get() != 'method':
+    def apply_regex_sender_filters(
+        self, class_regex='', class_category_regex='', method_category_regex=''
+    ):
+        if (
+            self.search_type.get() != 'reference'
+            or self.reference_target.get() != 'method'
+        ):
             return {
                 'ok': False,
-                'error': {'message': 'Sender filtering requires Find in method-reference mode.'},
+                'error': {
+                    'message': 'Sender filtering requires Find in method-reference mode.'
+                },
             }
         baseline_sender_results = list(self.static_sender_results)
         filtered_sender_results = []
         for sender_result in baseline_sender_results:
             sender_entry = self.sender_entry_for_result(sender_result)
-            if not self.sender_entry_matches_regex_filters(sender_entry, class_regex, class_category_regex, method_category_regex):
+            if not self.sender_entry_matches_regex_filters(
+                sender_entry, class_regex, class_category_regex, method_category_regex
+            ):
                 continue
             filtered_sender_results.append(sender_result)
         self.populate_navigation_results(filtered_sender_results)
@@ -3702,7 +3729,8 @@ class FindDialog(tk.Toplevel):
             parts.append('method-category~/%s/' % method_category_regex)
         filter_desc = ', '.join(parts) if parts else '(none)'
         self.status_var.set(
-            'Filtered senders: %s of %s displayed. Filter: %s' % (
+            'Filtered senders: %s of %s displayed. Filter: %s'
+            % (
                 len(filtered_sender_results),
                 len(baseline_sender_results),
                 filter_desc,
@@ -3711,10 +3739,13 @@ class FindDialog(tk.Toplevel):
         return {
             'ok': True,
             'displayed_sender_count': len(filtered_sender_results),
-            'filtered_out_sender_count': len(baseline_sender_results) - len(filtered_sender_results),
+            'filtered_out_sender_count': len(baseline_sender_results)
+            - len(filtered_sender_results),
         }
 
-    def sender_entry_matches_regex_filters(self, sender_entry, class_regex, class_category_regex, method_category_regex):
+    def sender_entry_matches_regex_filters(
+        self, sender_entry, class_regex, class_category_regex, method_category_regex
+    ):
         if class_regex:
             class_name = sender_entry.get('class_name') or ''
             try:
@@ -4857,7 +4888,9 @@ class Swordfish(tk.Tk):
         apply_gemstone_exe_conf(
             read_gemstone_exe_conf(configuration_store.config_file_path())
         )
-        activity_log = ActivityLog(arguments.activity_log) if arguments.activity_log else None
+        activity_log = (
+            ActivityLog(arguments.activity_log) if arguments.activity_log else None
+        )
         run_headless_mcp = arguments.headless_mcp
         if arguments.mode == 'mcp-headless':
             run_headless_mcp = True
@@ -5019,7 +5052,9 @@ class Swordfish(tk.Tk):
         return self.mcp_server_controller.status()
 
     def mcp_configuration_access(self):
-        can_write_config = self.mcp_server_controller.configuration_store.can_write_config()
+        can_write_config = (
+            self.mcp_server_controller.configuration_store.can_write_config()
+        )
         if can_write_config:
             return McpConfigurationAccess()
         if not self.is_logged_in:
@@ -5164,21 +5199,27 @@ class Swordfish(tk.Tk):
     def commit(self):
         self.gemstone_session_record.commit()
         self.integrated_session_state.mark_ide_transaction_inactive()
-        self.event_queue.publish("Committed", log_context={
-            'package': self.gemstone_session_record.selected_package,
-            'class_name': self.gemstone_session_record.selected_class,
-            'method': self.gemstone_session_record.selected_method_symbol,
-        })
+        self.event_queue.publish(
+            "Committed",
+            log_context={
+                'package': self.gemstone_session_record.selected_package,
+                'class_name': self.gemstone_session_record.selected_class,
+                'method': self.gemstone_session_record.selected_method_symbol,
+            },
+        )
         self.publish_model_change_events("transaction")
 
     def abort(self):
         self.gemstone_session_record.abort()
         self.integrated_session_state.mark_ide_transaction_inactive()
-        self.event_queue.publish("Aborted", log_context={
-            'package': self.gemstone_session_record.selected_package,
-            'class_name': self.gemstone_session_record.selected_class,
-            'method': self.gemstone_session_record.selected_method_symbol,
-        })
+        self.event_queue.publish(
+            "Aborted",
+            log_context={
+                'package': self.gemstone_session_record.selected_package,
+                'class_name': self.gemstone_session_record.selected_class,
+                'method': self.gemstone_session_record.selected_method_symbol,
+            },
+        )
         self.publish_model_change_events("transaction")
 
     def logout(self):
@@ -5199,10 +5240,13 @@ class Swordfish(tk.Tk):
         self.gemstone_session_record.log_out()
         self.gemstone_session_record = None
         self.integrated_session_state.detach_ide_session()
-        self.event_queue.publish("LoggedOut", log_context={
-            'user': logged_out_user,
-            'stone': logged_out_stone,
-        })
+        self.event_queue.publish(
+            "LoggedOut",
+            log_context={
+                'user': logged_out_user,
+                'stone': logged_out_stone,
+            },
+        )
 
     def clear_widgets(self):
         for widget in self.winfo_children():
@@ -5529,7 +5573,9 @@ class Swordfish(tk.Tk):
     def ensure_current_browser_place_in_global_history(self):
         if self.notebook is None or not self.notebook.winfo_exists():
             return
-        browser_is_open = self.browser_tab is not None and self.browser_tab.winfo_exists()
+        browser_is_open = (
+            self.browser_tab is not None and self.browser_tab.winfo_exists()
+        )
         if not browser_is_open:
             return
         try:
@@ -5561,7 +5607,10 @@ class Swordfish(tk.Tk):
                     'run_session',
                     'Run',
                     {'session_key': self.run_tab.global_navigation_session_key},
-                    place_key=('run_session', self.run_tab.global_navigation_session_key),
+                    place_key=(
+                        'run_session',
+                        self.run_tab.global_navigation_session_key,
+                    ),
                 )
             )
             return
@@ -5578,7 +5627,9 @@ class Swordfish(tk.Tk):
                 )
             )
             return
-        if self.inspector_tab is not None and selected_tab_id == str(self.inspector_tab):
+        if self.inspector_tab is not None and selected_tab_id == str(
+            self.inspector_tab
+        ):
             self.record_global_navigation_entry(
                 GlobalNavigationEntry(
                     'inspector_session',
@@ -5591,23 +5642,37 @@ class Swordfish(tk.Tk):
                 )
             )
             return
-        if self.object_diagram_tab is not None and selected_tab_id == str(self.object_diagram_tab):
+        if self.object_diagram_tab is not None and selected_tab_id == str(
+            self.object_diagram_tab
+        ):
             self.record_global_navigation_entry(
                 GlobalNavigationEntry(
                     'object_diagram_session',
                     'Object Diagram',
-                    {'session_key': self.object_diagram_tab.global_navigation_session_key},
-                    place_key=('object_diagram_session', self.object_diagram_tab.global_navigation_session_key),
+                    {
+                        'session_key': self.object_diagram_tab.global_navigation_session_key
+                    },
+                    place_key=(
+                        'object_diagram_session',
+                        self.object_diagram_tab.global_navigation_session_key,
+                    ),
                 )
             )
             return
-        if self.class_diagram_tab is not None and selected_tab_id == str(self.class_diagram_tab):
+        if self.class_diagram_tab is not None and selected_tab_id == str(
+            self.class_diagram_tab
+        ):
             self.record_global_navigation_entry(
                 GlobalNavigationEntry(
                     'class_diagram_session',
                     'Class Diagram',
-                    {'session_key': self.class_diagram_tab.global_navigation_session_key},
-                    place_key=('class_diagram_session', self.class_diagram_tab.global_navigation_session_key),
+                    {
+                        'session_key': self.class_diagram_tab.global_navigation_session_key
+                    },
+                    place_key=(
+                        'class_diagram_session',
+                        self.class_diagram_tab.global_navigation_session_key,
+                    ),
                 )
             )
             return
@@ -5621,7 +5686,10 @@ class Swordfish(tk.Tk):
         return label
 
     def refresh_global_navigation_controls(self):
-        if self.global_back_button is not None and self.global_back_button.winfo_exists():
+        if (
+            self.global_back_button is not None
+            and self.global_back_button.winfo_exists()
+        ):
             back_button_state = (
                 tk.NORMAL
                 if self.global_navigation_history.can_go_back()
@@ -5696,7 +5764,9 @@ class Swordfish(tk.Tk):
             self.gemstone_session_record.selected_dictionary = browser_state[
                 'selected_dictionary'
             ]
-            self.gemstone_session_record.selected_class = browser_state['selected_class']
+            self.gemstone_session_record.selected_class = browser_state[
+                'selected_class'
+            ]
             self.gemstone_session_record.selected_method_category = browser_state[
                 'selected_method_category'
             ]
@@ -5722,7 +5792,9 @@ class Swordfish(tk.Tk):
         return True
 
     def navigate_global_history(self, direction):
-        event_name = 'GlobalNavigationBack' if direction == 'back' else 'GlobalNavigationForward'
+        event_name = (
+            'GlobalNavigationBack' if direction == 'back' else 'GlobalNavigationForward'
+        )
         self.event_queue.publish(event_name)
         history_entry = None
         if direction == 'back':
@@ -6044,7 +6116,10 @@ class Swordfish(tk.Tk):
                 "unresolved_oops": [],
             }
         if clear_existing:
-            tab_exists = self.object_diagram_tab is not None and self.object_diagram_tab.winfo_exists()
+            tab_exists = (
+                self.object_diagram_tab is not None
+                and self.object_diagram_tab.winfo_exists()
+            )
             if tab_exists:
                 self.object_diagram_tab.clear_diagram()
         opened_oops = []
@@ -6249,9 +6324,13 @@ class Swordfish(tk.Tk):
             active_tab_kind = 'debugger'
         if self.inspector_tab is not None and active_tab_id == str(self.inspector_tab):
             active_tab_kind = 'inspect'
-        if self.object_diagram_tab is not None and active_tab_id == str(self.object_diagram_tab):
+        if self.object_diagram_tab is not None and active_tab_id == str(
+            self.object_diagram_tab
+        ):
             active_tab_kind = 'object_diagram'
-        if self.class_diagram_tab is not None and active_tab_id == str(self.class_diagram_tab):
+        if self.class_diagram_tab is not None and active_tab_id == str(
+            self.class_diagram_tab
+        ):
             active_tab_kind = 'class_diagram'
         if active_tab_kind == 'none' and active_tab_label:
             active_tab_kind = active_tab_label.lower()
@@ -6344,11 +6423,15 @@ class Swordfish(tk.Tk):
         if filter_values is None:
             return []
         if not isinstance(filter_values, list):
-            raise DomainException('%s must be a list of strings or None.' % argument_name)
+            raise DomainException(
+                '%s must be a list of strings or None.' % argument_name
+            )
         validated_values = []
         for index, filter_value in enumerate(filter_values):
             if not isinstance(filter_value, str):
-                raise DomainException('%s[%s] must be a string.' % (argument_name, index))
+                raise DomainException(
+                    '%s[%s] must be a string.' % (argument_name, index)
+                )
             normalized_filter_value = filter_value.strip()
             if normalized_filter_value:
                 validated_values.append(normalized_filter_value)
@@ -6583,7 +6666,10 @@ class Swordfish(tk.Tk):
                     'ok': False,
                     'error': {'message': 'class_name cannot be empty.'},
                 }
-            if self.class_diagram_tab is None or not self.class_diagram_tab.winfo_exists():
+            if (
+                self.class_diagram_tab is None
+                or not self.class_diagram_tab.winfo_exists()
+            ):
                 return {
                     'ok': False,
                     'error': {'message': 'No open class diagram in the IDE.'},
@@ -6742,7 +6828,10 @@ class Swordfish(tk.Tk):
                     'ok': False,
                     'error': {'message': 'target_class_name cannot be empty.'},
                 }
-            if self.class_diagram_tab is None or not self.class_diagram_tab.winfo_exists():
+            if (
+                self.class_diagram_tab is None
+                or not self.class_diagram_tab.winfo_exists()
+            ):
                 return {
                     'ok': False,
                     'error': {'message': 'No open class diagram in the IDE.'},
@@ -6769,7 +6858,10 @@ class Swordfish(tk.Tk):
                 'class_diagram_state': self.class_diagram_state_for_mcp(),
             }
         if action_name == 'clear_class_diagram':
-            if self.class_diagram_tab is None or not self.class_diagram_tab.winfo_exists():
+            if (
+                self.class_diagram_tab is None
+                or not self.class_diagram_tab.winfo_exists()
+            ):
                 return {
                     'ok': False,
                     'error': {'message': 'No open class diagram in the IDE.'},
@@ -6781,7 +6873,10 @@ class Swordfish(tk.Tk):
                 'class_diagram_state': self.class_diagram_state_for_mcp(),
             }
         if action_name == 'undo_class_diagram':
-            if self.class_diagram_tab is None or not self.class_diagram_tab.winfo_exists():
+            if (
+                self.class_diagram_tab is None
+                or not self.class_diagram_tab.winfo_exists()
+            ):
                 return {
                     'ok': False,
                     'error': {'message': 'No open class diagram in the IDE.'},
@@ -6974,7 +7069,9 @@ class Swordfish(tk.Tk):
 
         self.add_debugger_tab(exception)
         self.select_debugger_tab()
-        self.event_queue.publish('DebuggerOpened', log_context={'error': str(exception)})
+        self.event_queue.publish(
+            'DebuggerOpened', log_context={'error': str(exception)}
+        )
         return True
 
     def open_debugger_for_mcp_exception(
@@ -7045,9 +7142,13 @@ class Swordfish(tk.Tk):
             show_instance_side,
             method_symbol,
         )
-        self.event_queue.publish('SelectedClassChanged', log_context={'class_name': class_name})
+        self.event_queue.publish(
+            'SelectedClassChanged', log_context={'class_name': class_name}
+        )
         self.event_queue.publish('SelectedCategoryChanged')
-        self.event_queue.publish('MethodSelected', log_context={'method': method_symbol})
+        self.event_queue.publish(
+            'MethodSelected', log_context={'method': method_symbol}
+        )
 
     def open_run_tab(self):
         self.ensure_current_browser_place_in_global_history()
@@ -7082,7 +7183,10 @@ class Swordfish(tk.Tk):
 
     def open_object_diagram_for_object(self, inspected_object):
         self.ensure_current_browser_place_in_global_history()
-        tab_is_missing = self.object_diagram_tab is None or not self.object_diagram_tab.winfo_exists()
+        tab_is_missing = (
+            self.object_diagram_tab is None
+            or not self.object_diagram_tab.winfo_exists()
+        )
         if tab_is_missing:
             self.object_diagram_tab = UmlObjectDiagramTab(self.notebook, self)
             self.object_diagram_tab.global_navigation_session_key = (
@@ -7130,7 +7234,9 @@ class Swordfish(tk.Tk):
         self.ensure_class_diagram_tab()
         self.class_diagram_tab.add_class(class_name)
 
-    def pin_method_in_class_diagram(self, class_name, show_instance_side, method_selector):
+    def pin_method_in_class_diagram(
+        self, class_name, show_instance_side, method_selector
+    ):
         if not class_name or not method_selector:
             return
         self.ensure_class_diagram_tab()
@@ -7141,7 +7247,9 @@ class Swordfish(tk.Tk):
         )
 
     def ensure_class_diagram_tab(self):
-        tab_is_missing = self.class_diagram_tab is None or not self.class_diagram_tab.winfo_exists()
+        tab_is_missing = (
+            self.class_diagram_tab is None or not self.class_diagram_tab.winfo_exists()
+        )
         if tab_is_missing:
             self.class_diagram_tab = UmlClassDiagramTab(self.notebook, self)
             self.class_diagram_tab.global_navigation_session_key = (
@@ -7152,7 +7260,9 @@ class Swordfish(tk.Tk):
         return self.class_diagram_tab
 
     def class_diagram_state_for_mcp(self):
-        tab_is_open = self.class_diagram_tab is not None and self.class_diagram_tab.winfo_exists()
+        tab_is_open = (
+            self.class_diagram_tab is not None and self.class_diagram_tab.winfo_exists()
+        )
         if not tab_is_open:
             return {
                 'is_open': False,
@@ -7198,7 +7308,10 @@ class Swordfish(tk.Tk):
         self.inspector_tab = None
 
     def close_object_diagram_tab(self):
-        tab_exists = self.object_diagram_tab is not None and self.object_diagram_tab.winfo_exists()
+        tab_exists = (
+            self.object_diagram_tab is not None
+            and self.object_diagram_tab.winfo_exists()
+        )
         if not tab_exists:
             self.object_diagram_tab = None
             return
@@ -7219,7 +7332,9 @@ class Swordfish(tk.Tk):
         self.object_diagram_tab = None
 
     def close_class_diagram_tab(self):
-        tab_exists = self.class_diagram_tab is not None and self.class_diagram_tab.winfo_exists()
+        tab_exists = (
+            self.class_diagram_tab is not None and self.class_diagram_tab.winfo_exists()
+        )
         if not tab_exists:
             self.class_diagram_tab = None
             return

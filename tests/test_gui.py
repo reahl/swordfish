@@ -94,7 +94,9 @@ class FakeApplication:
     def open_class_diagram_for_class(self, class_name):
         pass
 
-    def pin_method_in_class_diagram(self, class_name, show_instance_side, method_selector):
+    def pin_method_in_class_diagram(
+        self, class_name, show_instance_side, method_selector
+    ):
         pass
 
 
@@ -1529,6 +1531,7 @@ def test_method_inheritance_hierarchy_refreshes_on_method_selection_change(fixtu
 @with_fixtures(SwordfishGuiFixture)
 def test_method_list_can_show_inherited_methods_in_grey(fixture):
     """AI: Enabling inherited methods should add inherited selectors to the current class method list and render them in grey."""
+
     def list_methods(class_name, method_category, show_instance_side):
         if not show_instance_side or method_category != "accessing":
             return []
@@ -1556,6 +1559,7 @@ def test_method_list_can_show_inherited_methods_in_grey(fixture):
 @with_fixtures(SwordfishGuiFixture)
 def test_selecting_inherited_method_from_method_list_selects_owner_class(fixture):
     """AI: Selecting an inherited method from the method list should switch the browser to the class that defines that selector."""
+
     def list_methods(class_name, method_category, show_instance_side):
         if not show_instance_side or method_category != "accessing":
             return []
@@ -1580,7 +1584,11 @@ def test_selecting_inherited_method_from_method_list_selects_owner_class(fixture
     assert fixture.session_record.selected_class == "Order"
     assert fixture.session_record.selected_method_category == "accessing"
     assert fixture.session_record.selected_method_symbol == "total"
-    assert ("Order", True, "total") in fixture.browser_window.editor_area_widget.open_tabs
+    assert (
+        "Order",
+        True,
+        "total",
+    ) in fixture.browser_window.editor_area_widget.open_tabs
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -2165,8 +2173,7 @@ def test_save_mcp_runtime_config_preserves_permission_policy_source():
             config_file_path = configuration_store.config_file_path()
             os.makedirs(os.path.dirname(config_file_path), exist_ok=True)
             with open(config_file_path, "w", encoding="utf-8") as config_file:
-                config_file.write(
-                    """
+                config_file.write("""
 {
   "schema_version": 2,
   "mcp_permission_policy": {
@@ -2176,9 +2183,7 @@ def test_save_mcp_runtime_config_preserves_permission_policy_source():
     "allow_source_read": true
   }
 }
-""".strip()
-                    + "\n"
-                )
+""".strip() + "\n")
 
             configuration_store.save(
                 McpRuntimeConfig(
@@ -2208,8 +2213,7 @@ def test_load_login_gemstone_script_source_from_config():
             config_file_path = configuration_store.config_file_path()
             os.makedirs(os.path.dirname(config_file_path), exist_ok=True)
             with open(config_file_path, "w", encoding="utf-8") as config_file:
-                config_file.write(
-                    """
+                config_file.write("""
 {
   "login": {
     "gemstone_script_source": "System stoneName"
@@ -2219,9 +2223,7 @@ def test_load_login_gemstone_script_source_from_config():
     "allow_source_read": true
   }
 }
-""".strip()
-                    + "\n"
-                )
+""".strip() + "\n")
 
             assert configuration_store.load_login_gemstone_script_source() == (
                 "System stoneName"
@@ -2236,8 +2238,7 @@ def test_save_mcp_runtime_config_preserves_login_gemstone_script_source():
             config_file_path = configuration_store.config_file_path()
             os.makedirs(os.path.dirname(config_file_path), exist_ok=True)
             with open(config_file_path, "w", encoding="utf-8") as config_file:
-                config_file.write(
-                    """
+                config_file.write("""
 {
   "login": {
     "gemstone_script_source": "System stoneName"
@@ -2247,9 +2248,7 @@ def test_save_mcp_runtime_config_preserves_login_gemstone_script_source():
     "allow_source_read": true
   }
 }
-""".strip()
-                    + "\n"
-                )
+""".strip() + "\n")
 
             configuration_store.save(
                 McpRuntimeConfig(
@@ -2275,7 +2274,9 @@ def test_read_only_config_in_prod_locks_permission_toggles(fixture):
     fixture.app.mcp_permission_policy = McpPermissionPolicy(
         allow_session_permission_changes_condition_source="System stoneName = 'prod'"
     )
-    fixture.session_record.run_code = Mock(return_value=types.SimpleNamespace(to_py=False))
+    fixture.session_record.run_code = Mock(
+        return_value=types.SimpleNamespace(to_py=False)
+    )
     with patch.object(
         fixture.app.mcp_server_controller.configuration_store,
         "can_write_config",
@@ -2314,7 +2315,9 @@ def test_read_only_config_non_prod_allows_session_only_permission_changes(
     fixture.app.mcp_permission_policy = McpPermissionPolicy(
         allow_session_permission_changes_condition_source="System stoneName ~= 'prod'"
     )
-    fixture.session_record.run_code = Mock(return_value=types.SimpleNamespace(to_py=True))
+    fixture.session_record.run_code = Mock(
+        return_value=types.SimpleNamespace(to_py=True)
+    )
     updated_runtime_config = McpRuntimeConfig(
         allow_source_read=True,
         allow_eval_arbitrary=True,
@@ -2342,7 +2345,10 @@ def test_read_only_config_non_prod_allows_session_only_permission_changes(
                     fixture.app.mcp_configuration_access(),
                 )
                 fixture.app.update()
-                assert str(dialog.allow_eval_arbitrary_checkbutton.cget("state")) == tk.NORMAL
+                assert (
+                    str(dialog.allow_eval_arbitrary_checkbutton.cget("state"))
+                    == tk.NORMAL
+                )
                 assert "session" in dialog.permission_note_variable.get().lower()
                 dialog.destroy()
                 fixture.app.update()
@@ -2361,7 +2367,10 @@ def test_read_only_config_non_prod_allows_session_only_permission_changes(
     wait_window.assert_called_once_with(fake_dialog)
     save_configuration.assert_not_called()
     assert fixture.app.mcp_runtime_config.to_dict() == updated_runtime_config.to_dict()
-    assert fixture.app.base_mcp_runtime_config.to_dict() != updated_runtime_config.to_dict()
+    assert (
+        fixture.app.base_mcp_runtime_config.to_dict()
+        != updated_runtime_config.to_dict()
+    )
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -2370,7 +2379,9 @@ def test_logout_resets_session_only_mcp_configuration(fixture):
     fixture.app.mcp_permission_policy = McpPermissionPolicy(
         allow_session_permission_changes_condition_source="System stoneName ~= 'prod'"
     )
-    fixture.session_record.run_code = Mock(return_value=types.SimpleNamespace(to_py=True))
+    fixture.session_record.run_code = Mock(
+        return_value=types.SimpleNamespace(to_py=True)
+    )
     updated_runtime_config = McpRuntimeConfig(
         allow_source_read=True,
         allow_eval_arbitrary=True,
@@ -2413,7 +2424,9 @@ def test_logout_stops_mcp_when_session_only_config_is_active(fixture):
     fixture.app.mcp_permission_policy = McpPermissionPolicy(
         allow_session_permission_changes_condition_source="System stoneName ~= 'prod'"
     )
-    fixture.session_record.run_code = Mock(return_value=types.SimpleNamespace(to_py=True))
+    fixture.session_record.run_code = Mock(
+        return_value=types.SimpleNamespace(to_py=True)
+    )
     updated_runtime_config = McpRuntimeConfig(
         allow_source_read=True,
         allow_eval_arbitrary=True,
@@ -3276,7 +3289,9 @@ def test_run_context_menu_graph_inspect_opens_graph_for_selected_result(fixture)
     assert fixture.app.object_diagram_tab is not None
     selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
     assert selected_tab_text == "Object Diagram"
-    assert fixture.app.object_diagram_tab.graph_canvas.registry.contains_object(inspected_result)
+    assert fixture.app.object_diagram_tab.graph_canvas.registry.contains_object(
+        inspected_result
+    )
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -3434,7 +3449,9 @@ def test_uml_tab_shows_inheritance_for_added_classes(fixture):
     fixture.app.open_class_diagram_for_class("OrderLine")
     fixture.app.update()
 
-    relationships = fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()
+    relationships = (
+        fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()
+    )
     inheritance_relationships = [
         relationship
         for relationship in relationships
@@ -3456,7 +3473,9 @@ def test_uml_tab_shows_inferred_inheritance_for_transitive_ancestors(fixture):
     fixture.app.open_class_diagram_for_class("OrderLine")
     fixture.app.update()
 
-    relationships = fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()
+    relationships = (
+        fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()
+    )
     inheritance_relationships = [
         relationship
         for relationship in relationships
@@ -3501,7 +3520,9 @@ def test_uml_grouped_inheritance_adds_horizontal_join_after_child_is_moved(fixtu
     fixture.app.open_class_diagram_for_class("OrderLine")
     fixture.app.update()
 
-    inheritance_relationship = fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()[0]
+    inheritance_relationship = (
+        fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()[0]
+    )
     parent_node = inheritance_relationship.target_node
     child_node = inheritance_relationship.source_node
     child_node.x = parent_node.x + 140
@@ -3769,6 +3790,7 @@ def test_uml_browse_method_selects_browser_method(fixture):
 def test_uml_method_chooser_lists_and_filters_methods_before_pinning(fixture):
     """AI: UML method selection should offer browser-style category and method filtering before pinning an existing method."""
     fixture.simulate_login()
+
     def list_method_categories(class_name, show_instance_side):
         if show_instance_side:
             return ["all", "accessing", "testing"]
@@ -3791,9 +3813,7 @@ def test_uml_method_chooser_lists_and_filters_methods_before_pinning(fixture):
     )
     fixture.app.update()
 
-    category_entries = list(
-        dialog.category_selection.selection_listbox.get(0, "end")
-    )
+    category_entries = list(dialog.category_selection.selection_listbox.get(0, "end"))
     method_entries = list(dialog.method_selection.selection_listbox.get(0, "end"))
 
     assert category_entries == ["all", "accessing", "testing"]
@@ -3802,7 +3822,9 @@ def test_uml_method_chooser_lists_and_filters_methods_before_pinning(fixture):
     dialog.method_selection.filter_var.set("tot")
     fixture.app.update()
 
-    filtered_method_entries = list(dialog.method_selection.selection_listbox.get(0, "end"))
+    filtered_method_entries = list(
+        dialog.method_selection.selection_listbox.get(0, "end")
+    )
     assert filtered_method_entries == ["total"]
 
     dialog.side_var.set("class")
@@ -3859,7 +3881,9 @@ def test_uml_association_prompt_adds_target_class_and_relationship(fixture):
     fixture.simulate_login()
     fixture.app.open_class_diagram_for_class("Order")
     fixture.app.update()
-    source_node = fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("Order")
+    source_node = fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for(
+        "Order"
+    )
 
     with patch(
         "reahl.swordfish.main.simpledialog.askstring",
@@ -3868,8 +3892,12 @@ def test_uml_association_prompt_adds_target_class_and_relationship(fixture):
         fixture.app.class_diagram_tab.prompt_add_association(source_node, "lines")
         fixture.app.update()
 
-    target_node = fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("OrderLine")
-    relationships = fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()
+    target_node = fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for(
+        "OrderLine"
+    )
+    relationships = (
+        fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()
+    )
     association_relationships = [
         relationship
         for relationship in relationships
@@ -3912,7 +3940,9 @@ def test_uml_undo_reverts_association_addition_in_one_step(fixture):
     fixture.simulate_login()
     fixture.app.open_class_diagram_for_class("Order")
     fixture.app.update()
-    source_node = fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("Order")
+    source_node = fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for(
+        "Order"
+    )
 
     with patch(
         "reahl.swordfish.main.simpledialog.askstring",
@@ -4005,7 +4035,10 @@ def test_mcp_ide_navigation_action_queries_uml_diagram_state(fixture):
     assert response["ok"], response
     assert response["class_diagram_state"]["is_open"]
     assert response["class_diagram_state"]["is_selected"]
-    assert response["class_diagram_state"]["diagram"]["nodes"][0]["class_name"] == "OrderLine"
+    assert (
+        response["class_diagram_state"]["diagram"]["nodes"][0]["class_name"]
+        == "OrderLine"
+    )
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -4023,7 +4056,10 @@ def test_mcp_ide_navigation_action_adds_class_to_uml(fixture):
 
     assert response["ok"], response
     assert fixture.app.class_diagram_tab is not None
-    assert response["class_diagram_state"]["diagram"]["nodes"][0]["class_name"] == "OrderLine"
+    assert (
+        response["class_diagram_state"]["diagram"]["nodes"][0]["class_name"]
+        == "OrderLine"
+    )
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -4041,7 +4077,9 @@ def test_mcp_ide_navigation_action_adds_association_to_uml(fixture):
     )
     fixture.app.update()
 
-    relationships = fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()
+    relationships = (
+        fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()
+    )
     association_relationships = [
         relationship
         for relationship in relationships
@@ -4074,7 +4112,9 @@ def test_mcp_ide_navigation_action_adds_inheritance_details_to_uml(fixture):
     )
     fixture.app.update()
 
-    relationships = fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()
+    relationships = (
+        fixture.app.class_diagram_tab.uml_canvas.registry.all_relationships()
+    )
     inferred_relationships = [
         relationship
         for relationship in relationships
@@ -4084,7 +4124,10 @@ def test_mcp_ide_navigation_action_adds_inheritance_details_to_uml(fixture):
 
     assert response["ok"], response
     assert response["added_class_names"] == ["Order"]
-    assert fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("Order") is not None
+    assert (
+        fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("Order")
+        is not None
+    )
     assert inferred_relationships == []
 
 
@@ -4107,7 +4150,10 @@ def test_mcp_ide_navigation_action_clears_and_undoes_uml_diagram(fixture):
     assert clear_response["class_diagram_state"]["diagram"]["nodes"] == []
     assert undo_response["ok"], undo_response
     assert undo_response["diagram_changed"] is True
-    assert undo_response["class_diagram_state"]["diagram"]["nodes"][0]["class_name"] == "OrderLine"
+    assert (
+        undo_response["class_diagram_state"]["diagram"]["nodes"][0]["class_name"]
+        == "OrderLine"
+    )
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -4658,7 +4704,10 @@ def test_global_forward_revisits_live_graph_session(fixture):
     fixture.app.open_object_diagram_for_object(graphed_object)
     fixture.app.update()
 
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Object Diagram'
+    assert (
+        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+        == 'Object Diagram'
+    )
 
     fixture.app.global_back_button.invoke()
     fixture.app.update()
@@ -4669,7 +4718,10 @@ def test_global_forward_revisits_live_graph_session(fixture):
     fixture.app.global_forward_button.invoke()
     fixture.app.update()
 
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Object Diagram'
+    assert (
+        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+        == 'Object Diagram'
+    )
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -4720,7 +4772,9 @@ def test_object_diagram_node_menu_browse_class_routes_graphed_object(fixture):
     fixture.app.open_object_diagram_for_object(graphed_object)
     fixture.app.update()
 
-    graph_node = fixture.app.object_diagram_tab.graph_canvas.registry.node_for(graphed_object)
+    graph_node = fixture.app.object_diagram_tab.graph_canvas.registry.node_for(
+        graphed_object
+    )
     fixture.app.object_diagram_tab.graph_canvas.on_canvas_right_click(
         types.SimpleNamespace(
             x=int(graph_node.x),
@@ -4753,7 +4807,9 @@ def test_object_diagram_detail_dialog_uses_object_title(fixture):
     fixture.app.open_object_diagram_for_object(graphed_object)
     fixture.app.update()
 
-    graph_node = fixture.app.object_diagram_tab.graph_canvas.registry.node_for(graphed_object)
+    graph_node = fixture.app.object_diagram_tab.graph_canvas.registry.node_for(
+        graphed_object
+    )
     dialog = UmlObjectDiagramNodeDetailDialog(
         fixture.app.object_diagram_tab,
         graphed_object,
@@ -4778,7 +4834,9 @@ def test_object_diagram_detail_browse_class_closes_dialog(fixture):
     fixture.app.browse_object_class = browse_class_action
     fixture.app.update()
 
-    graph_node = fixture.app.object_diagram_tab.graph_canvas.registry.node_for(graphed_object)
+    graph_node = fixture.app.object_diagram_tab.graph_canvas.registry.node_for(
+        graphed_object
+    )
     dialog = UmlObjectDiagramNodeDetailDialog(
         fixture.app.object_diagram_tab,
         graphed_object,
@@ -4802,7 +4860,10 @@ def test_global_forward_revisits_live_uml_session(fixture):
     fixture.app.open_class_diagram_for_class('OrderLine')
     fixture.app.update()
 
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Class Diagram'
+    assert (
+        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+        == 'Class Diagram'
+    )
 
     fixture.app.global_back_button.invoke()
     fixture.app.update()
@@ -4813,7 +4874,10 @@ def test_global_forward_revisits_live_uml_session(fixture):
     fixture.app.global_forward_button.invoke()
     fixture.app.update()
 
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Class Diagram'
+    assert (
+        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+        == 'Class Diagram'
+    )
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -4824,7 +4888,10 @@ def test_global_back_restores_browser_class_selection_without_open_method(fixtur
     fixture.app.open_class_diagram_for_class('OrderLine')
     fixture.app.update()
 
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Class Diagram'
+    assert (
+        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+        == 'Class Diagram'
+    )
 
     fixture.app.global_back_button.invoke()
     fixture.app.update()
@@ -4854,7 +4921,10 @@ def test_browsing_more_in_browser_after_global_back_keeps_forward_history(fixtur
 
     fixture.app.global_forward_button.invoke()
     fixture.app.update()
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Class Diagram'
+    assert (
+        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+        == 'Class Diagram'
+    )
 
     fixture.app.global_forward_button.invoke()
     fixture.app.update()
@@ -4881,7 +4951,10 @@ def test_global_history_dropdown_jumps_to_selected_place(fixture):
     fixture.app.global_history_combobox.event_generate('<<ComboboxSelected>>')
     fixture.app.update()
 
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Class Diagram'
+    assert (
+        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+        == 'Class Diagram'
+    )
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -7155,7 +7228,9 @@ def test_object_inspector_row_menu_graph_inspect_routes_selected_value(fixture):
     command_labels = menu_command_labels(inspector.current_object_menu)
     assert "Show in Object Diagram" in command_labels
 
-    invoke_menu_command_by_label(inspector.current_object_menu, "Show in Object Diagram")
+    invoke_menu_command_by_label(
+        inspector.current_object_menu, "Show in Object Diagram"
+    )
     fixture.root.update()
 
     graph_inspect_action.assert_called_once_with(fixture.mock_self)
@@ -7287,7 +7362,9 @@ def test_method_context_menu_show_in_uml_routes_selected_method(fixture):
 
     assert "Show in Class Diagram" in command_labels
 
-    invoke_menu_command_by_label(methods_widget.current_context_menu, "Show in Class Diagram")
+    invoke_menu_command_by_label(
+        methods_widget.current_context_menu, "Show in Class Diagram"
+    )
 
     methods_widget.browser_window.application.pin_method_in_class_diagram.assert_called_once_with(
         "OrderLine",
@@ -7361,7 +7438,9 @@ def test_method_context_menu_preview_add_parameter_calls_browser_preview(fixture
         "reahl.swordfish.text_editing.simpledialog.askstring",
         side_effect=["with:", "extraValue", "nil"],
     ):
-        with patch("reahl.swordfish.text_editing.JsonResultDialog") as mock_result_dialog:
+        with patch(
+            "reahl.swordfish.text_editing.JsonResultDialog"
+        ) as mock_result_dialog:
             tab.code_panel.preview_method_add_parameter()
 
     fixture.mock_browser.method_add_parameter_preview.assert_called_once_with(
@@ -7399,9 +7478,12 @@ def test_method_context_menu_preview_extract_calls_browser_preview(fixture):
     tab.code_panel.text_editor.tag_add(tk.SEL, "2.0", "2.end")
 
     with patch(
-        "reahl.swordfish.text_editing.simpledialog.askstring", return_value="extractedPart"
+        "reahl.swordfish.text_editing.simpledialog.askstring",
+        return_value="extractedPart",
     ):
-        with patch("reahl.swordfish.text_editing.JsonResultDialog") as mock_result_dialog:
+        with patch(
+            "reahl.swordfish.text_editing.JsonResultDialog"
+        ) as mock_result_dialog:
             tab.code_panel.preview_method_extract()
 
     fixture.mock_browser.method_ast.assert_called_once_with(
@@ -7459,7 +7541,9 @@ def test_method_context_menu_preview_extract_partial_return_selection_reports_se
     tab.code_panel.text_editor.tag_add(tk.SEL, "2.14", "2.end")
 
     with patch("reahl.swordfish.text_editing.messagebox") as mock_msgbox:
-        with patch("reahl.swordfish.text_editing.simpledialog.askstring") as mock_askstring:
+        with patch(
+            "reahl.swordfish.text_editing.simpledialog.askstring"
+        ) as mock_askstring:
             tab.code_panel.preview_method_extract()
 
     mock_askstring.assert_not_called()
@@ -7507,7 +7591,8 @@ def test_method_context_menu_preview_extract_suggests_keyword_selector_when_argu
         return None
 
     with patch(
-        "reahl.swordfish.text_editing.simpledialog.askstring", side_effect=fake_askstring
+        "reahl.swordfish.text_editing.simpledialog.askstring",
+        side_effect=fake_askstring,
     ):
         tab.code_panel.preview_method_extract()
 
@@ -7551,7 +7636,9 @@ def test_method_context_menu_preview_inline_shows_error_for_browser_domain_excep
         ("OrderLine", True, "total")
     ]
 
-    with patch("reahl.swordfish.text_editing.simpledialog.askstring", return_value="ifTrue:"):
+    with patch(
+        "reahl.swordfish.text_editing.simpledialog.askstring", return_value="ifTrue:"
+    ):
         with patch("reahl.swordfish.text_editing.messagebox") as mock_msgbox:
             tab.code_panel.preview_method_inline()
 
@@ -7890,7 +7977,9 @@ def test_class_organizer_warm_up_runs_when_supported():
     """AI: When cachedOrganizer is available in the image, initialize_class_organizer should call it to pre-warm the cache."""
     session_record = GemstoneSessionRecord.__new__(GemstoneSessionRecord)
     session_record.gemstone_session = Mock()
-    session_record.gemstone_session.ClassOrganizer.respondsTo.return_value = Mock(to_py=True)
+    session_record.gemstone_session.ClassOrganizer.respondsTo.return_value = Mock(
+        to_py=True
+    )
     session_record.initialize_class_organizer()
     session_record.gemstone_session.ClassOrganizer.cachedOrganizer().updateClassInfo.assert_called()
 
@@ -7899,7 +7988,9 @@ def test_class_organizer_warm_up_skipped_when_not_supported():
     """AI: If the image does not have cachedOrganizer loaded, initialize_class_organizer should skip the warm-up without error."""
     session_record = GemstoneSessionRecord.__new__(GemstoneSessionRecord)
     session_record.gemstone_session = Mock()
-    session_record.gemstone_session.ClassOrganizer.respondsTo.return_value = Mock(to_py=False)
+    session_record.gemstone_session.ClassOrganizer.respondsTo.return_value = Mock(
+        to_py=False
+    )
     with expected(NoException):
         session_record.initialize_class_organizer()
     session_record.gemstone_session.ClassOrganizer.cachedOrganizer.assert_not_called()
@@ -7957,7 +8048,8 @@ def test_apply_gemstone_exe_conf_warns_when_overriding_env_var(caplog):
         assert os.environ.get('GEMSTONE_EXE_CONF') == '/config/override.conf'
 
     assert any(
-        '/env/existing.conf' in record.message and '/config/override.conf' in record.message
+        '/env/existing.conf' in record.message
+        and '/config/override.conf' in record.message
         for record in caplog.records
     )
 
@@ -7986,4 +8078,6 @@ def test_save_preserves_unrecognised_top_level_keys():
             with open(config_file_path, 'r', encoding='utf-8') as config_file:
                 saved_payload = json.load(config_file)
 
-            assert saved_payload[GEMSTONE_EXE_CONF_CONFIG_NAME] == '/home/wonka/gem.conf'
+            assert (
+                saved_payload[GEMSTONE_EXE_CONF_CONFIG_NAME] == '/home/wonka/gem.conf'
+            )

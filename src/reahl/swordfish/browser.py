@@ -688,7 +688,11 @@ class PackageSelection(FramedWidget):
 
     def select_group(self, selected_group):
         self.gemstone_session_record.select_class_category(selected_group)
-        self.event_queue.publish('SelectedPackageChanged', origin=self, log_context={'package': selected_group})
+        self.event_queue.publish(
+            'SelectedPackageChanged',
+            origin=self,
+            log_context={'package': selected_group},
+        )
 
     def get_all_groups(self):
         return list(self.browser_window.gemstone_session_record.class_categories)
@@ -1069,7 +1073,11 @@ class ClassSelection(FramedWidget):
         if selection_source == 'hierarchy':
             self.gemstone_session_record.select_method_category('all')
         self.refresh_class_definition()
-        self.event_queue.publish('SelectedClassChanged', origin=self, log_context={'class_name': selected_class})
+        self.event_queue.publish(
+            'SelectedClassChanged',
+            origin=self,
+            log_context={'class_name': selected_class},
+        )
 
     def show_context_menu(self, event):
         listbox = self.selection_list.selection_listbox
@@ -1437,7 +1445,11 @@ class CategorySelection(FramedWidget):
 
     def select_category(self, selected_category):
         self.gemstone_session_record.select_method_category(selected_category)
-        self.event_queue.publish('SelectedCategoryChanged', origin=self, log_context={'category': selected_category})
+        self.event_queue.publish(
+            'SelectedCategoryChanged',
+            origin=self,
+            log_context={'category': selected_category},
+        )
 
     def show_context_menu(self, event):
         listbox = self.selection_list.selection_listbox
@@ -1661,9 +1673,9 @@ class MethodSelection(FramedWidget):
                 if method_selector in seen_selectors:
                     continue
                 self.inherited_method_selectors.add(method_selector)
-                self.inherited_method_owner_by_selector[
-                    method_selector
-                ] = current_class_name
+                self.inherited_method_owner_by_selector[method_selector] = (
+                    current_class_name
+                )
                 seen_selectors.add(method_selector)
                 method_selectors.append(method_selector)
             try:
@@ -1692,7 +1704,9 @@ class MethodSelection(FramedWidget):
         self.gemstone_session_record.select_method_symbol(selected_method)
         if self.show_method_hierarchy_var.get():
             self.refresh_method_hierarchy()
-        self.event_queue.publish('MethodSelected', origin=self, log_context={'method': selected_method})
+        self.event_queue.publish(
+            'MethodSelected', origin=self, log_context={'method': selected_method}
+        )
 
     def select_inherited_method(self, selected_method, owner_class_name):
         show_instance_side = self.gemstone_session_record.show_instance_side
@@ -2086,10 +2100,13 @@ class MethodSelection(FramedWidget):
             return
         class_name = self.gemstone_session_record.selected_class
         method_selector = listbox.get(selection[0])
-        self.browser_window.application.event_queue.publish('DebugTestStarted', log_context={
-            'class_name': class_name,
-            'method': method_selector,
-        })
+        self.browser_window.application.event_queue.publish(
+            'DebugTestStarted',
+            log_context={
+                'class_name': class_name,
+                'method': method_selector,
+            },
+        )
         self.browser_window.application.begin_foreground_activity(
             'Debugging test %s>>%s...' % (class_name, method_selector)
         )
@@ -2281,7 +2298,9 @@ class MethodEditor(FramedWidget):
         self.jump_to_method_context(method_context)
 
     def go_to_next_method(self):
-        self.browser_window.application.event_queue.publish('MethodEditorNavigatedForward')
+        self.browser_window.application.event_queue.publish(
+            'MethodEditorNavigatedForward'
+        )
         method_context = self.method_navigation_history.go_forward()
         self.jump_to_method_context(method_context)
 
@@ -2364,9 +2383,7 @@ class MethodEditor(FramedWidget):
 
 class BrowserWindow(ttk.PanedWindow):
     def __init__(self, parent, application):
-        super().__init__(
-            parent, orient=tk.VERTICAL
-        )
+        super().__init__(parent, orient=tk.VERTICAL)
 
         self.application = application
 

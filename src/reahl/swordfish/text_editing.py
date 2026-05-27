@@ -863,7 +863,9 @@ class CodePanel(tk.Frame):
                 'MCP is busy. Run is disabled until MCP finishes.',
             )
             return
-        self.application.event_queue.publish('SourceTextRun', log_context={'code': selected_text})
+        self.application.event_queue.publish(
+            'SourceTextRun', log_context={'code': selected_text}
+        )
         self.application.run_code(selected_text)
 
     def inspect_selected_source(self, selected_text):
@@ -877,22 +879,30 @@ class CodePanel(tk.Frame):
             debugger_tab = self.application.debugger_tab
             debugger_tab.inspect_selected_source_expression(selected_text)
             return
-        self.application.event_queue.publish('SourceTextInspected', log_context={'code': selected_text})
+        self.application.event_queue.publish(
+            'SourceTextInspected', log_context={'code': selected_text}
+        )
         try:
             inspected_object = self.gemstone_session_record.run_code(selected_text)
         except (DomainException, GemstoneDomainException) as domain_exception:
             messagebox.showerror('Inspect Selection', str(domain_exception))
-            self.application.event_queue.publish('SourceTextInspectFailed', log_context={
-                'code': selected_text,
-                'error': str(domain_exception),
-            })
+            self.application.event_queue.publish(
+                'SourceTextInspectFailed',
+                log_context={
+                    'code': selected_text,
+                    'error': str(domain_exception),
+                },
+            )
             return
         except GemstoneError as gemstone_exception:
             messagebox.showerror('Inspect Selection', str(gemstone_exception))
-            self.application.event_queue.publish('SourceTextInspectFailed', log_context={
-                'code': selected_text,
-                'error': str(gemstone_exception),
-            })
+            self.application.event_queue.publish(
+                'SourceTextInspectFailed',
+                log_context={
+                    'code': selected_text,
+                    'error': str(gemstone_exception),
+                },
+            )
             return
         if hasattr(self.application, 'open_inspector_for_object'):
             self.application.open_inspector_for_object(inspected_object)
@@ -906,7 +916,9 @@ class CodePanel(tk.Frame):
             return
         if self.is_debugger_source_panel():
             debugger_tab = self.application.debugger_tab
-            debugger_tab.show_selected_source_expression_in_object_diagram(selected_text)
+            debugger_tab.show_selected_source_expression_in_object_diagram(
+                selected_text
+            )
             return
         try:
             inspected_object = self.gemstone_session_record.run_code(selected_text)
@@ -926,7 +938,9 @@ class CodePanel(tk.Frame):
                 'MCP is busy. Debug is disabled until MCP finishes.',
             )
             return
-        self.application.event_queue.publish('SourceTextDebug', log_context={'code': selected_text})
+        self.application.event_queue.publish(
+            'SourceTextDebug', log_context={'code': selected_text}
+        )
         try:
             self.gemstone_session_record.run_code(selected_text)
         except (DomainException, GemstoneDomainException) as domain_exception:
@@ -946,7 +960,9 @@ class CodePanel(tk.Frame):
                 'Could not determine a selector at the current cursor position.',
             )
             return
-        self.application.event_queue.publish('ImplementorsOpened', log_context={'selector': selector})
+        self.application.event_queue.publish(
+            'ImplementorsOpened', log_context={'selector': selector}
+        )
         self.application.open_implementors_dialog(method_symbol=selector)
 
     def open_senders_from_source(self):
@@ -957,7 +973,9 @@ class CodePanel(tk.Frame):
                 'Could not determine a selector at the current cursor position.',
             )
             return
-        self.application.event_queue.publish('SendersOpened', log_context={'selector': selector})
+        self.application.event_queue.publish(
+            'SendersOpened', log_context={'selector': selector}
+        )
         self.application.open_senders_dialog(
             method_symbol=selector,
         )

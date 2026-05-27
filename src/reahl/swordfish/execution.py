@@ -256,7 +256,9 @@ class RunTab(ttk.Frame):
         if not selected_text.strip():
             self.status_label.config(text='Select source text to run')
             return
-        self.application.event_queue.publish('RunSelectionRun', log_context={'code': selected_text})
+        self.application.event_queue.publish(
+            'RunSelectionRun', log_context={'code': selected_text}
+        )
         self.status_label.config(text='Running selection...')
         self.last_exception = None
         self.clear_source_error_highlight()
@@ -265,23 +267,32 @@ class RunTab(ttk.Frame):
             try:
                 result = self.gemstone_session_record.run_code(selected_text)
                 self.on_run_complete(result)
-                self.application.event_queue.publish('RunSelectionSucceeded', log_context={
-                    'code': selected_text,
-                    'result': result.asString().to_py,
-                })
+                self.application.event_queue.publish(
+                    'RunSelectionSucceeded',
+                    log_context={
+                        'code': selected_text,
+                        'result': result.asString().to_py,
+                    },
+                )
             except (DomainException, GemstoneDomainException) as domain_exception:
                 self.status_label.config(text=str(domain_exception))
                 self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish('RunSelectionFailed', log_context={
-                    'code': selected_text,
-                    'error': str(domain_exception),
-                })
+                self.application.event_queue.publish(
+                    'RunSelectionFailed',
+                    log_context={
+                        'code': selected_text,
+                        'error': str(domain_exception),
+                    },
+                )
             except GemstoneError as gemstone_exception:
                 self.on_run_error(gemstone_exception)
-                self.application.event_queue.publish('RunSelectionFailed', log_context={
-                    'code': selected_text,
-                    'error': str(gemstone_exception),
-                })
+                self.application.event_queue.publish(
+                    'RunSelectionFailed',
+                    log_context={
+                        'code': selected_text,
+                        'error': str(gemstone_exception),
+                    },
+                )
         finally:
             self.application.end_foreground_activity()
 
@@ -292,7 +303,9 @@ class RunTab(ttk.Frame):
         if not selected_text.strip():
             self.status_label.config(text='Select source text to inspect')
             return
-        self.application.event_queue.publish('InspectSelectionRun', log_context={'code': selected_text})
+        self.application.event_queue.publish(
+            'InspectSelectionRun', log_context={'code': selected_text}
+        )
         self.status_label.config(text='Inspecting selection...')
         self.last_exception = None
         self.clear_source_error_highlight()
@@ -302,38 +315,47 @@ class RunTab(ttk.Frame):
                 result = self.gemstone_session_record.run_code(selected_text)
                 self.on_run_complete(result)
                 self.application.open_inspector_for_object(result)
-                self.application.event_queue.publish('InspectSelectionSucceeded', log_context={
-                    'code': selected_text,
-                    'result': result.asString().to_py,
-                })
+                self.application.event_queue.publish(
+                    'InspectSelectionSucceeded',
+                    log_context={
+                        'code': selected_text,
+                        'result': result.asString().to_py,
+                    },
+                )
             except (DomainException, GemstoneDomainException) as domain_exception:
                 self.status_label.config(text=str(domain_exception))
                 self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish('InspectSelectionFailed', log_context={
-                    'code': selected_text,
-                    'error': str(domain_exception),
-                })
+                self.application.event_queue.publish(
+                    'InspectSelectionFailed',
+                    log_context={
+                        'code': selected_text,
+                        'error': str(domain_exception),
+                    },
+                )
             except GemstoneError as gemstone_exception:
                 self.on_run_error(gemstone_exception)
-                self.application.event_queue.publish('InspectSelectionFailed', log_context={
-                    'code': selected_text,
-                    'error': str(gemstone_exception),
-                })
+                self.application.event_queue.publish(
+                    'InspectSelectionFailed',
+                    log_context={
+                        'code': selected_text,
+                        'error': str(gemstone_exception),
+                    },
+                )
         finally:
             self.application.end_foreground_activity()
 
     def show_selected_source_in_object_diagram(self, selected_text):
         if self.is_read_only():
-            self.status_label.config(
-                text='MCP is busy. Object diagram is disabled.'
-            )
+            self.status_label.config(text='MCP is busy. Object diagram is disabled.')
             return
         if not selected_text.strip():
             self.status_label.config(
                 text='Select source text to show in Object Diagram'
             )
             return
-        self.application.event_queue.publish('DiagramSelectionRun', log_context={'code': selected_text})
+        self.application.event_queue.publish(
+            'DiagramSelectionRun', log_context={'code': selected_text}
+        )
         self.status_label.config(text='Showing selection in Object Diagram...')
         self.last_exception = None
         self.clear_source_error_highlight()
@@ -345,23 +367,32 @@ class RunTab(ttk.Frame):
                 result = self.gemstone_session_record.run_code(selected_text)
                 self.on_run_complete(result)
                 self.application.open_object_diagram_for_object(result)
-                self.application.event_queue.publish('DiagramSelectionSucceeded', log_context={
-                    'code': selected_text,
-                    'result': result.asString().to_py,
-                })
+                self.application.event_queue.publish(
+                    'DiagramSelectionSucceeded',
+                    log_context={
+                        'code': selected_text,
+                        'result': result.asString().to_py,
+                    },
+                )
             except (DomainException, GemstoneDomainException) as domain_exception:
                 self.status_label.config(text=str(domain_exception))
                 self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish('DiagramSelectionFailed', log_context={
-                    'code': selected_text,
-                    'error': str(domain_exception),
-                })
+                self.application.event_queue.publish(
+                    'DiagramSelectionFailed',
+                    log_context={
+                        'code': selected_text,
+                        'error': str(domain_exception),
+                    },
+                )
             except GemstoneError as gemstone_exception:
                 self.on_run_error(gemstone_exception)
-                self.application.event_queue.publish('DiagramSelectionFailed', log_context={
-                    'code': selected_text,
-                    'error': str(gemstone_exception),
-                })
+                self.application.event_queue.publish(
+                    'DiagramSelectionFailed',
+                    log_context={
+                        'code': selected_text,
+                        'error': str(gemstone_exception),
+                    },
+                )
         finally:
             self.application.end_foreground_activity()
 
@@ -447,7 +478,9 @@ class RunTab(ttk.Frame):
             self.status_label.config(text='MCP is busy. Run is disabled.')
             return
         code_to_run = self.source_text.get('1.0', 'end-1c')
-        self.application.event_queue.publish('RunTabCodeRun', log_context={'code': code_to_run})
+        self.application.event_queue.publish(
+            'RunTabCodeRun', log_context={'code': code_to_run}
+        )
         self.status_label.config(text='Running...')
         self.last_exception = None
         self.clear_source_error_highlight()
@@ -456,23 +489,32 @@ class RunTab(ttk.Frame):
             try:
                 result = self.gemstone_session_record.run_code(code_to_run)
                 self.on_run_complete(result)
-                self.application.event_queue.publish('RunTabCodeSucceeded', log_context={
-                    'code': code_to_run,
-                    'result': result.asString().to_py,
-                })
+                self.application.event_queue.publish(
+                    'RunTabCodeSucceeded',
+                    log_context={
+                        'code': code_to_run,
+                        'result': result.asString().to_py,
+                    },
+                )
             except (DomainException, GemstoneDomainException) as domain_exception:
                 self.status_label.config(text=str(domain_exception))
                 self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish('RunTabCodeFailed', log_context={
-                    'code': code_to_run,
-                    'error': str(domain_exception),
-                })
+                self.application.event_queue.publish(
+                    'RunTabCodeFailed',
+                    log_context={
+                        'code': code_to_run,
+                        'error': str(domain_exception),
+                    },
+                )
             except GemstoneError as gemstone_exception:
                 self.on_run_error(gemstone_exception)
-                self.application.event_queue.publish('RunTabCodeFailed', log_context={
-                    'code': code_to_run,
-                    'error': str(gemstone_exception),
-                })
+                self.application.event_queue.publish(
+                    'RunTabCodeFailed',
+                    log_context={
+                        'code': code_to_run,
+                        'error': str(gemstone_exception),
+                    },
+                )
         finally:
             self.application.end_foreground_activity()
 
@@ -481,7 +523,9 @@ class RunTab(ttk.Frame):
             self.status_label.config(text='MCP is busy. Inspect is disabled.')
             return
         code_to_run = self.source_text.get('1.0', 'end-1c')
-        self.application.event_queue.publish('RunTabCodeInspect', log_context={'code': code_to_run})
+        self.application.event_queue.publish(
+            'RunTabCodeInspect', log_context={'code': code_to_run}
+        )
         self.status_label.config(text='Inspecting...')
         self.last_exception = None
         self.clear_source_error_highlight()
@@ -491,23 +535,32 @@ class RunTab(ttk.Frame):
                 result = self.gemstone_session_record.run_code(code_to_run)
                 self.on_run_complete(result)
                 self.application.open_inspector_for_object(result)
-                self.application.event_queue.publish('RunTabCodeInspectSucceeded', log_context={
-                    'code': code_to_run,
-                    'result': result.asString().to_py,
-                })
+                self.application.event_queue.publish(
+                    'RunTabCodeInspectSucceeded',
+                    log_context={
+                        'code': code_to_run,
+                        'result': result.asString().to_py,
+                    },
+                )
             except (DomainException, GemstoneDomainException) as domain_exception:
                 self.status_label.config(text=str(domain_exception))
                 self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish('RunTabCodeInspectFailed', log_context={
-                    'code': code_to_run,
-                    'error': str(domain_exception),
-                })
+                self.application.event_queue.publish(
+                    'RunTabCodeInspectFailed',
+                    log_context={
+                        'code': code_to_run,
+                        'error': str(domain_exception),
+                    },
+                )
             except GemstoneError as gemstone_exception:
                 self.on_run_error(gemstone_exception)
-                self.application.event_queue.publish('RunTabCodeInspectFailed', log_context={
-                    'code': code_to_run,
-                    'error': str(gemstone_exception),
-                })
+                self.application.event_queue.publish(
+                    'RunTabCodeInspectFailed',
+                    log_context={
+                        'code': code_to_run,
+                        'error': str(gemstone_exception),
+                    },
+                )
         finally:
             self.application.end_foreground_activity()
 
@@ -767,7 +820,9 @@ class RunTab(ttk.Frame):
         if not selected_text.strip():
             self.status_label.config(text='No source to debug')
             return
-        self.application.event_queue.publish('RunTabDebugRun', log_context={'code': selected_text})
+        self.application.event_queue.publish(
+            'RunTabDebugRun', log_context={'code': selected_text}
+        )
         self.last_exception = None
         self.clear_source_error_highlight()
         self.application.begin_foreground_activity('Debugging source...')
@@ -778,31 +833,39 @@ class RunTab(ttk.Frame):
                 self.status_label.config(
                     text='Completed successfully; no debugger context',
                 )
-                self.application.event_queue.publish('RunTabDebugSucceeded', log_context={
-                    'code': selected_text,
-                    'result': result.asString().to_py,
-                })
+                self.application.event_queue.publish(
+                    'RunTabDebugSucceeded',
+                    log_context={
+                        'code': selected_text,
+                        'result': result.asString().to_py,
+                    },
+                )
                 return
             except (DomainException, GemstoneDomainException) as domain_exception:
                 self.status_label.config(text=str(domain_exception))
                 self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish('RunTabDebugFailed', log_context={
-                    'code': selected_text,
-                    'error': str(domain_exception),
-                })
+                self.application.event_queue.publish(
+                    'RunTabDebugFailed',
+                    log_context={
+                        'code': selected_text,
+                        'error': str(domain_exception),
+                    },
+                )
                 return
             except GemstoneError as gemstone_exception:
                 self.on_run_error(gemstone_exception)
                 if is_compile_error(gemstone_exception):
-                    self.application.event_queue.publish('RunTabDebugFailed', log_context={
-                        'code': selected_text,
-                        'error': str(gemstone_exception),
-                    })
+                    self.application.event_queue.publish(
+                        'RunTabDebugFailed',
+                        log_context={
+                            'code': selected_text,
+                            'error': str(gemstone_exception),
+                        },
+                    )
                     return
                 self.application.open_debugger(gemstone_exception)
         finally:
             self.application.end_foreground_activity()
-
 
     def close_tab(self):
         self.ui_context.invalidate()
@@ -829,9 +892,7 @@ class DebuggerWindow(ttk.PanedWindow):
     def __init__(
         self, parent, application, gemstone_session_record, event_queue, exception
     ):
-        super().__init__(
-            parent, orient=tk.VERTICAL
-        )
+        super().__init__(parent, orient=tk.VERTICAL)
 
         self.application = application
         self.exception = exception
@@ -933,7 +994,10 @@ class DebuggerWindow(ttk.PanedWindow):
     def on_listbox_select(self, event):
         frame = self.get_selected_stack_frame()
         if frame:
-            self.event_queue.publish('DebuggerFrameSelected', log_context={'frame_level': self.selected_frame_level()})
+            self.event_queue.publish(
+                'DebuggerFrameSelected',
+                log_context={'frame_level': self.selected_frame_level()},
+            )
             self.code_panel.refresh(frame.method_source, mark=frame.step_point_offset)
             self.refresh_explorer(frame)
 

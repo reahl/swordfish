@@ -87,7 +87,9 @@ class UmlObjectDiagramRegistry:
             )
             if is_same:
                 return None
-        self.edges.append(UmlObjectRelationship(source_node, target_node, instvar_label))
+        self.edges.append(
+            UmlObjectRelationship(source_node, target_node, instvar_label)
+        )
         return self.edges[-1]
 
     def all_nodes(self):
