@@ -13,6 +13,10 @@ from reahl.swordfish.gemstone.breakpoint_registry import (
     remove_breakpoint_for_session,
 )
 from reahl.swordfish.gemstone.session import DomainException, render_result
+from reahl.swordfish.gemstone.smalltalk_source_scanner import (
+    SmalltalkSourceScanner,
+    SmalltalkTokenKind,
+)
 from reahl.swordfish.mcp.ast_assets import (
     AST_SUPPORT_VERSION,
     ast_support_source,
@@ -5800,34 +5804,18 @@ class GemstoneBrowserSession:
         return is_code
 
     def source_code_character_map(self, source):
+        # AI: Delegates to the shared scanner so there is a single Smalltalk state machine.
+        # AI: Only comment and string-literal spans are non-code; character literals ($x) stay code,
+        # AI: which matches the historical behaviour for ordinary source while fixing the old $'/$" bug.
         code_character_map = [True for _ in source]
-        index = 0
-        state = "code"
-        while index < len(source):
-            character = source[index]
-            if state == "code":
-                if character == "'":
-                    code_character_map[index] = False
-                    state = "string"
-                elif character == '"':
-                    code_character_map[index] = False
-                    state = "comment"
-            elif state == "string":
-                code_character_map[index] = False
-                if character == "'":
-                    has_escaped_quote = (
-                        index + 1 < len(source) and source[index + 1] == "'"
-                    )
-                    if has_escaped_quote:
-                        code_character_map[index + 1] = False
-                        index = index + 1
-                    else:
-                        state = "code"
-            elif state == "comment":
-                code_character_map[index] = False
-                if character == '"':
-                    state = "code"
-            index = index + 1
+        non_code_kinds = (
+            SmalltalkTokenKind.comment,
+            SmalltalkTokenKind.string_literal,
+        )
+        for token in SmalltalkSourceScanner().scan_tokens(source):
+            if token.kind in non_code_kinds:
+                for offset in range(token.start_offset, token.end_offset):
+                    code_character_map[offset] = False
         return code_character_map
 
     def replacement_plan_for_selector_tokens(

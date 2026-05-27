@@ -9,12 +9,28 @@ from reahl.ptongue import GemstoneError
 
 from reahl.swordfish.exceptions import DomainException
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
+from reahl.swordfish.gemstone.smalltalk_source_scanner import (
+    SmalltalkSourceScanner,
+    SmalltalkTokenKind,
+)
 from reahl.swordfish.ui_support import (
     add_close_command_to_popup_menu,
     add_source_code_commands,
     close_popup_menu,
     is_compile_error,
 )
+
+# AI: Maps Smalltalk token kinds to the Tk text tags that colour them. Kinds absent here are left uncoloured.
+SYNTAX_TOKEN_TAGS = {
+    SmalltalkTokenKind.pseudo_variable: 'smalltalk_keyword',
+    SmalltalkTokenKind.comment: 'smalltalk_comment',
+    SmalltalkTokenKind.string_literal: 'smalltalk_string',
+    SmalltalkTokenKind.symbol_literal: 'smalltalk_symbol',
+    SmalltalkTokenKind.number_literal: 'smalltalk_number',
+    SmalltalkTokenKind.character_literal: 'smalltalk_character',
+    SmalltalkTokenKind.keyword_message_part: 'smalltalk_selector',
+    SmalltalkTokenKind.binary_selector: 'smalltalk_selector',
+}
 
 
 class EditableText:
@@ -345,9 +361,14 @@ class CodePanel(tk.Frame):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
 
+        self.source_scanner = SmalltalkSourceScanner()
         self.text_editor.tag_configure('smalltalk_keyword', foreground='blue')
         self.text_editor.tag_configure('smalltalk_comment', foreground='green')
         self.text_editor.tag_configure('smalltalk_string', foreground='orange')
+        self.text_editor.tag_configure('smalltalk_symbol', foreground='#008b8b')
+        self.text_editor.tag_configure('smalltalk_number', foreground='#800080')
+        self.text_editor.tag_configure('smalltalk_selector', foreground='#008080')
+        self.text_editor.tag_configure('smalltalk_character', foreground='#8b4513')
         self.text_editor.tag_configure('highlight', background='darkgrey')
         self.text_editor.tag_configure(
             'breakpoint_marker',
@@ -1793,23 +1814,23 @@ class CodePanel(tk.Frame):
         self.run_method_inline(apply_change=True)
 
     def apply_syntax_highlighting(self, text):
-        for match in re.finditer(r'\b(class|self|super|true|false|nil)\b', text):
-            start, end = match.span()
-            self.text_editor.tag_add(
-                'smalltalk_keyword', f'1.0 + {start} chars', f'1.0 + {end} chars'
-            )
+        # AI: Clear previous syntax tags first so stale colouring (e.g. a now-closed string) does not linger.
+        for tag_name in self.syntax_tag_names():
+            self.text_editor.tag_remove(tag_name, '1.0', tk.END)
+        for token in self.source_scanner.scan_tokens(text):
+            tag_name = self.token_tag_for_kind(token.kind)
+            if tag_name is not None:
+                self.text_editor.tag_add(
+                    tag_name,
+                    f'1.0 + {token.start_offset} chars',
+                    f'1.0 + {token.end_offset} chars',
+                )
 
-        for match in re.finditer(r'".*?"', text):
-            start, end = match.span()
-            self.text_editor.tag_add(
-                'smalltalk_comment', f'1.0 + {start} chars', f'1.0 + {end} chars'
-            )
+    def token_tag_for_kind(self, kind):
+        return SYNTAX_TOKEN_TAGS.get(kind)
 
-        for match in re.finditer(r"\'.*?\'", text):
-            start, end = match.span()
-            self.text_editor.tag_add(
-                'smalltalk_string', f'1.0 + {start} chars', f'1.0 + {end} chars'
-            )
+    def syntax_tag_names(self):
+        return set(SYNTAX_TOKEN_TAGS.values())
 
     def on_key_release(self, event):
         text = self.text_editor.get('1.0', tk.END)
