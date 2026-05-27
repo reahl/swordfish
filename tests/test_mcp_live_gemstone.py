@@ -75,13 +75,15 @@ class RunningStoneFixture(Fixture):
                 Stone().stop()
 
     def is_stone_running(self):
+        # AI: gslist exits non-zero (printing "No GemStone servers.") when nothing is running,
+        # AI: which is the very case this predicate must report as False so the stone gets started.
+        # AI: So we read its stdout listing rather than asserting on the exit code.
         command_result = subprocess.run(
             ["bash", "-lc", "gslist"],
             capture_output=True,
             text=True,
             check=False,
         )
-        assert command_result.returncode == 0, command_result.stderr
         return "Stone       gs64stone" in command_result.stdout
 
 
