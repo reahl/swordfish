@@ -61,6 +61,9 @@ version = {attr = "reahl.swordfish.__version__"}
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
+markers = [
+    "gemstone: test requires a running GemStone stone (excluded from CI)",
+]
 
 [tool.black]
 line-length = 88

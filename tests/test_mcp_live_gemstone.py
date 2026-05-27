@@ -3,6 +3,8 @@ import subprocess
 import sys
 import uuid
 
+import pytest
+
 from reahl.ptongue import GemstoneError
 from reahl.ptongue.gemstonecontrol import Stone
 from reahl.tofu import (
@@ -31,6 +33,9 @@ from reahl.swordfish.mcp.session_registry import (
     has_connection,
 )
 from reahl.swordfish.mcp.tools import register_tools
+
+# AI: This whole module drives a real GemStone stone, so CI (which has none) deselects it via 'not gemstone'.
+pytestmark = pytest.mark.gemstone
 
 
 class McpToolRegistrar:
