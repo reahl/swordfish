@@ -13,6 +13,11 @@ from reahl.swordfish.gemstone.breakpoint_registry import (
     remove_breakpoint_for_session,
 )
 from reahl.swordfish.gemstone.session import DomainException, render_result
+from reahl.swordfish.gemstone.smalltalk_method_parser import (
+    SmalltalkMethodParser,
+    SmalltalkSyntaxError,
+    index_nodes_by_path,
+)
 from reahl.swordfish.gemstone.smalltalk_source_scanner import (
     SmalltalkSourceScanner,
     SmalltalkTokenKind,
@@ -865,6 +870,78 @@ class GemstoneBrowserSession:
             ),
         ] + source_ast["analysis_limitations"]
         return source_ast
+
+
+    def method_outline(
+        self,
+        class_name,
+        method_selector,
+        show_instance_side,
+        node_path=None,
+        include_source=False,
+    ):
+        source = self.get_method_source(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        try:
+            method_node = SmalltalkMethodParser().parse_method(source)
+        except SmalltalkSyntaxError:
+            method_node = None
+        if method_node is not None:
+            return self.method_outline_payload(
+                source,
+                method_node,
+                method_selector,
+                node_path,
+                include_source,
+            )
+        return self.source_method_ast(source, method_selector)
+
+    def method_outline_payload(
+        self,
+        source,
+        method_node,
+        method_selector,
+        node_path,
+        include_source,
+    ):
+        indexed_nodes = index_nodes_by_path(method_node)
+        scope_node_path = node_path if node_path else 'method'
+        if scope_node_path not in indexed_nodes:
+            raise DomainException(
+                f'Unknown node_path: {scope_node_path!r} is not a node in this method.'
+            )
+        outline = [
+            self.outline_entry(source, path, node, include_source)
+            for path, node in indexed_nodes.items()
+            if path == scope_node_path or path.startswith(scope_node_path + '/')
+        ]
+        return {
+            'schema_version': 2,
+            'node_type': 'method',
+            'selector': method_selector,
+            'node_offsets_origin': 'zero_based',
+            'analysis_backend': 'swordfish_recursive_descent',
+            'scope_node_path': scope_node_path,
+            'argument_names': list(method_node.argument_names),
+            'temporaries': list(method_node.temporaries),
+            'node_count': len(outline),
+            'nodes': outline,
+        }
+
+    def outline_entry(self, source, node_path, node, include_source):
+        entry = {
+            'node_path': node_path,
+            'kind': node.node_kind,
+            'summary': node.describe(),
+            'start': node.start_offset,
+            'end': node.end_offset,
+        }
+        if include_source:
+            entry['source'] = source[node.start_offset : node.end_offset]
+        return entry
 
     def source_method_sends(self, source):
         code_character_map = self.source_code_character_map(source)

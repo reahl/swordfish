@@ -1579,7 +1579,7 @@ def test_live_gs_query_methods_by_ast_pattern_sorts_and_uses_extended_predicates
 def test_live_gs_method_ast_reports_temporaries_statements_and_sends(
     live_connection,
 ):
-    """AI: Method AST should expose temporaries, statement nodes, and detected sends for AI navigation."""
+    """AI: gs_method_ast returns the recursive-descent outline - temporaries, addressable nodes, and detected sends as summaries - for AI navigation."""
     class_name = "McpMethodAstClass%s" % uuid.uuid4().hex[:8]
     analyzed_selector = "astMethod%s" % uuid.uuid4().hex[:8]
     begin_result = live_connection.gs_begin(live_connection.connection_id)
@@ -1616,19 +1616,21 @@ def test_live_gs_method_ast_reports_temporaries_statements_and_sends(
     )
     assert ast_result["ok"], ast_result
     ast_payload = ast_result["ast"]
-    assert ast_payload["schema_version"] == 1
+    assert ast_payload["schema_version"] == 2
     assert ast_payload["node_type"] == "method"
     assert ast_payload["selector"] == analyzed_selector
+    assert ast_payload["analysis_backend"] == "swordfish_recursive_descent"
+    assert ast_payload["node_offsets_origin"] == "zero_based"
     assert ast_payload["temporaries"] == ["value", "total"]
-    assert ast_payload["statement_count"] == len(ast_payload["statements"])
-    assert ast_payload["statement_count"] >= 3
-    statement_kinds = [
-        statement["statement_kind"] for statement in ast_payload["statements"]
+    node_kinds = [node["kind"] for node in ast_payload["nodes"]]
+    assert "assignment" in node_kinds
+    assert "return" in node_kinds
+    send_summaries = [
+        node["summary"]
+        for node in ast_payload["nodes"]
+        if node["kind"] == "message_send"
     ]
-    assert "assignment" in statement_kinds
-    assert "return" in statement_kinds
-    selectors = [send_entry["selector"] for send_entry in ast_payload["sends"]]
-    assert "default" in selectors
+    assert "default" in send_summaries
 
 
 @with_fixtures(LiveMcpConnectionFixture)

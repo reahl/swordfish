@@ -3427,6 +3427,8 @@ def register_tools(
         class_name,
         method_selector,
         show_instance_side=True,
+        node_path=None,
+        include_source=False,
     ):
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
@@ -3441,11 +3443,19 @@ def register_tools(
                 show_instance_side,
                 "show_instance_side",
             )
+            if node_path is not None:
+                node_path = validated_non_empty_string(node_path, 'node_path')
+            include_source = validated_boolean_like(
+                include_source,
+                'include_source',
+            )
             started_at = time.perf_counter()
-            method_ast = browser_session.method_ast(
+            method_ast = browser_session.method_outline(
                 class_name,
                 method_selector,
                 show_instance_side,
+                node_path,
+                include_source,
             )
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             return {
