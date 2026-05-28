@@ -3001,6 +3001,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_create_package(connection_id, package_name):
+        """Create and install a new empty Rowan package. Requires --allow-source-write
+        and an active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -3052,6 +3054,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_create_dictionary(connection_id, dictionary_name):
+        """Create a new symbol dictionary on the current user's symbol list.
+        Requires --allow-source-write and an active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -3102,6 +3106,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_install_package(connection_id, package_name):
+        """Install (load) an existing Rowan package definition on this stone.
+        Requires --allow-source-write and an active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -4552,6 +4558,10 @@ def register_tools(
         method_category="as yet unclassified",
         in_dictionary=None,
     ):
+        """Compile a method into a class. Requires --allow-source-write and an
+        active transaction. method_category defaults to 'as yet unclassified';
+        in_dictionary, when given, scopes the recompile to a specific
+        dictionary."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -4635,6 +4645,9 @@ def register_tools(
         pool_dictionary_names=None,
         in_dictionary="UserGlobals",
     ):
+        """Create a new class via the classic Smalltalk class-definition pathway.
+        Requires --allow-source-write and an active transaction. For Rowan-aware
+        creation use gs_create_class_in_package."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -4727,6 +4740,9 @@ def register_tools(
         pool_dictionary_names=None,
         in_dictionary="UserGlobals",
     ):
+        """Create a new class and assign it to a Rowan package in one step.
+        Requires --allow-source-write and an active transaction. Use this
+        instead of gs_create_class when the target lives in a Rowan package."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -4823,6 +4839,9 @@ def register_tools(
         in_dictionary="UserGlobals",
         package_name="",
     ):
+        """Create a TestCase subclass. Prefer this over gs_eval for test scaffolding.
+        Pass package_name to also assign the class to a Rowan package. Requires
+        --allow-source-write and an active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -4920,6 +4939,8 @@ def register_tools(
         class_name,
         in_dictionary="UserGlobals",
     ):
+        """Delete a class from its dictionary. Requires --allow-source-write and
+        an active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -4977,6 +4998,8 @@ def register_tools(
         method_selector,
         show_instance_side=True,
     ):
+        """Delete a method from a class. Requires --allow-source-write and an
+        active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -5041,6 +5064,8 @@ def register_tools(
         method_category,
         show_instance_side=True,
     ):
+        """Move a method to a different method_category (protocol). Requires
+        --allow-source-write and an active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -5145,6 +5170,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_run_tests_in_package(connection_id, package_name):
+        """Run all tests in a Rowan package and return aggregate results. Requires
+        --allow-test-execution."""
         test_exec_error = require_test_execution_enabled(
             connection_id, 'gs_run_tests_in_package'
         )
@@ -5191,6 +5218,9 @@ def register_tools(
         test_case_class_name,
         test_method_selector,
     ):
+        """Run a single test_method on a TestCase subclass. Requires
+        --allow-test-execution. On a test error returns ok=True, completed=False
+        with a debug_id usable by the gs_debug_* tools."""
         test_exec_error = require_test_execution_enabled(
             connection_id, 'gs_run_test_method'
         )
@@ -5252,6 +5282,8 @@ def register_tools(
         test_case_class_name,
         test_method_selector,
     ):
+        """Like gs_run_test_method but pauses on first error and returns a debug_id
+        you can step through with gs_debug_step_*. Requires --allow-test-execution."""
         test_exec_error = require_test_execution_enabled(
             connection_id, 'gs_debug_test_method'
         )
@@ -6365,6 +6397,9 @@ def register_tools(
         literal_value,
         in_dictionary="UserGlobals",
     ):
+        """Set or replace a global symbol's value to a literal (Number, String,
+        Boolean, Symbol, nil). Requires --allow-source-write and an active
+        transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -6430,6 +6465,8 @@ def register_tools(
         symbol_name,
         in_dictionary="UserGlobals",
     ):
+        """Remove a global symbol from a dictionary. Requires --allow-source-write
+        and an active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -6490,6 +6527,7 @@ def register_tools(
         symbol_name,
         in_dictionary="UserGlobals",
     ):
+        """Report whether a symbol exists in the given dictionary."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -6530,6 +6568,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_run_gemstone_tests(connection_id, test_case_class_name):
+        """Run all tests on a TestCase class (instance- and class-side). Requires
+        --allow-test-execution."""
         test_exec_error = require_test_execution_enabled(
             connection_id, 'gs_run_gemstone_tests'
         )
@@ -6570,6 +6610,11 @@ def register_tools(
         open_ide_debugger_on_error=False,
         ask_before_open_ide_debugger=True,
     ):
+        """Evaluate Smalltalk source and open a debug session on error rather than
+        returning a plain error. Requires --allow-eval-arbitrary, approved_by_user
+        and a non-empty approval_note/reason. Prefer structured tools for
+        routine work. Pass open_ide_debugger_on_error=True to also open the
+        IDE debugger."""
         eval_arbitrary_error_response = require_eval_arbitrary_enabled(
             connection_id,
             "gs_debug_eval",
@@ -6666,6 +6711,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_debug_stack(connection_id, debug_id):
+        """Return the stack frames for a paused debug_id. Use after a test or
+        eval returned completed=False with a debug_id."""
         debug_session, error_response = get_active_debug_session(
             connection_id,
             debug_id,
@@ -6683,6 +6730,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_debug_continue(connection_id, debug_id):
+        """Resume the paused debug session until completion or the next break."""
         debug_session, error_response = get_active_debug_session(
             connection_id,
             debug_id,
@@ -6699,6 +6747,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_debug_step_over(connection_id, debug_id, level=1):
+        """Step over level frames in the debug session. level defaults to 1."""
         debug_session, error_response = get_active_debug_session(
             connection_id,
             debug_id,
@@ -6715,6 +6764,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_debug_step_into(connection_id, debug_id, level=1):
+        """Step into the message send at the current frame, level times."""
         debug_session, error_response = get_active_debug_session(
             connection_id,
             debug_id,
@@ -6731,6 +6781,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_debug_step_through(connection_id, debug_id, level=1):
+        """Step through the current frame (step over while staying in the same
+        method), level times."""
         debug_session, error_response = get_active_debug_session(
             connection_id,
             debug_id,
@@ -6747,6 +6799,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_debug_restart_frame(connection_id, debug_id, level=1):
+        """Restart the current (or level-th) frame from its start."""
         debug_session, error_response = get_active_debug_session(
             connection_id,
             debug_id,
@@ -6763,6 +6816,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_debug_stop(connection_id, debug_id):
+        """Stop the debug session and discard it."""
         debug_session, error_response = get_active_debug_session(
             connection_id,
             debug_id,
@@ -6794,6 +6848,9 @@ def register_tools(
         source_offset: int,
         show_instance_side=True,
     ):
+        """Set a breakpoint at source_offset bytes into a method. Requires
+        --allow-ide-write. Subsequent runs that hit the breakpoint pause and
+        yield a debug_id usable by the gs_debug_* tools."""
         ide_write_error = require_ide_write_enabled(
             connection_id,
             "gs_breakpoint_set",
@@ -6850,6 +6907,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_breakpoint_list(connection_id):
+        """List all active breakpoints set via gs_breakpoint_set."""
         ide_read_error = require_ide_read_enabled(
             connection_id,
             "gs_breakpoint_list",
@@ -6867,6 +6925,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_breakpoint_clear(connection_id, breakpoint_id):
+        """Clear a single breakpoint by its breakpoint_id. Requires --allow-ide-write."""
         ide_write_error = require_ide_write_enabled(
             connection_id,
             "gs_breakpoint_clear",
@@ -6911,6 +6970,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_breakpoint_clear_all(connection_id):
+        """Clear every active breakpoint. Requires --allow-ide-write."""
         ide_write_error = require_ide_write_enabled(
             connection_id,
             "gs_breakpoint_clear_all",
@@ -6949,6 +7009,11 @@ def register_tools(
         approved_by_user=False,
         approval_note="",
     ):
+        """Evaluate arbitrary Smalltalk source. Powerful and exceptional - prefer
+        structured tools for routine work. Requires --allow-eval-arbitrary,
+        unsafe=True, approved_by_user with a non-empty approval_note (or
+        reason). For interactive debugging of failed evals, use gs_debug_eval
+        instead."""
         eval_arbitrary_error_response = require_eval_arbitrary_enabled(
             connection_id,
             "gs_eval",
