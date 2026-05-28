@@ -5377,6 +5377,9 @@ def register_tools(
         new_selector,
         show_instance_side=True,
     ):
+        """Preview renaming a single method on one class (no senders rewritten).
+        Inspect the preview, then call gs_apply_rename_method. For project-wide
+        selector renames use gs_preview_selector_rename / gs_apply_selector_rename."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -5432,6 +5435,8 @@ def register_tools(
         new_selector,
         show_instance_side=True,
     ):
+        """Apply the rename previewed by gs_preview_rename_method. Requires
+        --allow-source-write and an active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -5500,6 +5505,8 @@ def register_tools(
         source_show_instance_side=True,
         target_show_instance_side=True,
     ):
+        """Preview moving a method from source_class to target_class. Inspect the
+        preview, then call gs_apply_move_method."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -5571,6 +5578,10 @@ def register_tools(
         overwrite_target_method=False,
         delete_source_method=True,
     ):
+        """Apply the move previewed by gs_preview_move_method. delete_source_method
+        defaults to True; pass overwrite_target_method=True to replace an
+        existing same-selector method on the target. Requires --allow-source-write
+        and an active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -5665,6 +5676,9 @@ def register_tools(
         default_argument_source,
         show_instance_side=True,
     ):
+        """Preview adding a keyword parameter to a keyword selector method, with a
+        default_argument_source spliced into existing call sites. Inspect the
+        preview, then call gs_apply_add_parameter."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -5743,6 +5757,8 @@ def register_tools(
         default_argument_source,
         show_instance_side=True,
     ):
+        """Apply the parameter addition previewed by gs_preview_add_parameter.
+        Requires --allow-source-write and an active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -5832,6 +5848,10 @@ def register_tools(
         show_instance_side=True,
         rewrite_source_senders=False,
     ):
+        """Preview removing a keyword from a keyword selector. By default leaves
+        callers on a compatibility wrapper; pass rewrite_source_senders=True to
+        rewrite same-class call sites to the new selector. Inspect the preview,
+        then call gs_apply_remove_parameter."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -5904,6 +5924,9 @@ def register_tools(
         overwrite_new_method=False,
         rewrite_source_senders=False,
     ):
+        """Apply the removal previewed by gs_preview_remove_parameter.
+        rewrite_source_senders mirrors the preview's flag. Requires
+        --allow-source-write and an active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -5993,6 +6016,8 @@ def register_tools(
         statement_indexes,
         show_instance_side=True,
     ):
+        """Preview extracting a contiguous statement_indexes range into a new
+        unary selector. Inspect the preview, then call gs_apply_extract_method."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -6065,6 +6090,9 @@ def register_tools(
         show_instance_side=True,
         overwrite_new_method=False,
     ):
+        """Apply the extraction previewed by gs_preview_extract_method. Pass
+        overwrite_new_method=True to replace an existing same-selector method.
+        Requires --allow-source-write and an active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -6153,6 +6181,8 @@ def register_tools(
         inline_selector,
         show_instance_side=True,
     ):
+        """Preview inlining inline_selector into caller_selector. inline_selector
+        must be unary. Inspect the preview, then call gs_apply_inline_method."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -6218,6 +6248,9 @@ def register_tools(
         show_instance_side=True,
         delete_inlined_method=False,
     ):
+        """Apply the inline previewed by gs_preview_inline_method. Pass
+        delete_inlined_method=True to remove the now-unused inlined method.
+        Requires --allow-source-write and an active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -6298,6 +6331,9 @@ def register_tools(
         old_selector,
         new_selector,
     ):
+        """Preview renaming a selector image-wide (every implementor AND every
+        sender). Cheaper than per-method renames when the rename is global.
+        Inspect the preview, then call gs_apply_selector_rename."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -6345,6 +6381,10 @@ def register_tools(
         evidence_run_id=None,
         evidence_max_age_seconds=3600,
     ):
+        """Apply the image-wide selector rename previewed by gs_preview_selector_rename.
+        Pass require_observed_sender_evidence=True with an evidence_run_id from
+        gs_collect_sender_evidence to gate the rename on runtime evidence.
+        Requires --allow-source-write and an active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
