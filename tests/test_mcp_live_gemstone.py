@@ -2638,14 +2638,14 @@ def test_live_gs_preview_extract_method_reports_selected_statements(
         class_name,
         method_selector,
         "extractedFirstStep",
-        [1],
+        ["method/statements[0]"],
         True,
     )
     assert preview_result["ok"], preview_result
     preview = preview_result["preview"]
     assert preview["method_selector"] == method_selector
     assert preview["new_selector"] == "extractedFirstStep"
-    assert preview["statement_indexes"] == [1]
+    assert preview["node_paths"] == ["method/statements[0]"]
     assert preview["extracted_statement_count"] == 1
 
 
@@ -2675,7 +2675,7 @@ def test_live_gs_apply_extract_method_adds_new_method_and_updates_caller(
         class_name,
         method_selector,
         new_selector,
-        [1],
+        ["method/statements[0]"],
         True,
         False,
     )

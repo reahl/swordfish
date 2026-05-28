@@ -4287,16 +4287,16 @@ class GemstoneBrowserSession:
         show_instance_side,
         method_selector,
         new_selector,
-        statement_indexes,
+        node_paths,
     ):
-        self.ensure_refactoring_uses_real_ast("extract method preview")
+        self.ensure_refactoring_uses_real_ast('extract method preview')
         show_instance_side = self.validated_show_instance_side(show_instance_side)
         extract_plan = self.method_extract_plan(
             class_name,
             show_instance_side,
             method_selector,
             new_selector,
-            statement_indexes,
+            node_paths,
         )
         return self.method_extract_summary(extract_plan)
 
@@ -4306,50 +4306,87 @@ class GemstoneBrowserSession:
         show_instance_side,
         method_selector,
         new_selector,
-        statement_indexes,
+        node_paths,
         overwrite_new_method=False,
     ):
-        self.ensure_refactoring_uses_real_ast("extract method apply")
+        self.ensure_refactoring_uses_real_ast('extract method apply')
         show_instance_side = self.validated_show_instance_side(show_instance_side)
         overwrite_new_method = self.validated_boolean_flag(
             overwrite_new_method,
-            "overwrite_new_method",
+            'overwrite_new_method',
         )
         extract_plan = self.method_extract_plan(
             class_name,
             show_instance_side,
             method_selector,
             new_selector,
-            statement_indexes,
+            node_paths,
         )
-        if extract_plan["new_selector_exists"] and not overwrite_new_method:
+        if extract_plan['new_selector_exists'] and not overwrite_new_method:
             raise DomainException(
                 (
-                    "%s already exists on %s (%s side). "
-                    "Pass overwrite_new_method=true to replace it."
+                    '%s already exists on %s (%s side). '
+                    'Pass overwrite_new_method=true to replace it.'
                 )
                 % (
                     new_selector,
                     class_name,
-                    "instance" if show_instance_side else "class",
+                    'instance' if show_instance_side else 'class',
                 )
             )
-        self.compile_method(
+        # AI: route both recompiles through compile_method_with_edits so extract
+        # shares the apply primitive with every other refactoring; the engine still
+        # builds the rewritten sources internally for now.
+        self.compile_method_with_edits(
             class_name=class_name,
             show_instance_side=show_instance_side,
-            source=extract_plan["new_method_source"],
-            method_category=extract_plan["method_category"],
+            original_source=extract_plan['new_method_source'],
+            source_edits=[],
+            method_category=extract_plan['method_category'],
         )
-        self.compile_method(
+        self.compile_method_with_edits(
             class_name=class_name,
             show_instance_side=show_instance_side,
-            source=extract_plan["updated_method_source"],
-            method_category=extract_plan["method_category"],
+            original_source=extract_plan['updated_method_source'],
+            source_edits=[],
+            method_category=extract_plan['method_category'],
         )
         summary = self.method_extract_summary(extract_plan)
-        summary["applied"] = True
-        summary["overwrite_new_method"] = overwrite_new_method
+        summary['applied'] = True
+        summary['overwrite_new_method'] = overwrite_new_method
         return summary
+
+    def statement_indexes_from_node_paths(self, source, node_paths):
+        """AI: Resolve each node_path against the parsed method to its top-level
+        statement position, returned as a 1-indexed list (the shape the existing
+        extract engine consumes). Raises DomainException for an unknown path or a
+        path that addresses anything other than a direct child of the method.
+        Block-level extraction (statements inside a BlockNode) is not yet
+        supported - the engine will need a deeper rewrite for that, but the
+        API now expresses the intent structurally."""
+        parsed_method = SmalltalkMethodParser().parse_method(source)
+        indexed_nodes = index_nodes_by_path(parsed_method)
+        statement_indexes = []
+        for node_path in node_paths:
+            if node_path not in indexed_nodes:
+                raise DomainException(
+                    'node_path %r is not present in the method AST.' % node_path
+                )
+            node = indexed_nodes[node_path]
+            statement_index_zero_based = None
+            for index, statement_node in enumerate(parsed_method.statements):
+                if statement_node is node:
+                    statement_index_zero_based = index
+            if statement_index_zero_based is None:
+                raise DomainException(
+                    (
+                        'node_path %r does not address a top-level method '
+                        'statement; block-level extraction is not yet supported.'
+                    )
+                    % node_path
+                )
+            statement_indexes.append(statement_index_zero_based + 1)
+        return sorted(set(statement_indexes))
 
     def method_extract_plan(
         self,
@@ -4357,13 +4394,13 @@ class GemstoneBrowserSession:
         show_instance_side,
         method_selector,
         new_selector,
-        statement_indexes,
+        node_paths,
     ):
         selector_tokens = self.selector_keyword_tokens(new_selector)
         is_keyword_selector = bool(selector_tokens)
         is_unary_selector = self.is_unary_selector(new_selector)
         if not is_keyword_selector and not is_unary_selector:
-            raise DomainException("new_selector must be unary or keyword.")
+            raise DomainException('new_selector must be unary or keyword.')
         source_method_source = self.get_method_source(
             class_name,
             method_selector,
@@ -4374,17 +4411,20 @@ class GemstoneBrowserSession:
             method_selector,
             show_instance_side,
         )
+        statement_indexes = self.statement_indexes_from_node_paths(
+            source_method_source, node_paths
+        )
         source_method_ast = self.method_ast(
             class_name,
             method_selector,
             show_instance_side,
         )
         selected_statement_entries = self.selected_statement_entries(
-            source_method_ast["statements"],
+            source_method_ast['statements'],
             statement_indexes,
         )
         selected_statement_indexes = [
-            statement_entry["statement_index"]
+            statement_entry['statement_index']
             for statement_entry in selected_statement_entries
         ]
         expected_statement_indexes = list(
@@ -4394,16 +4434,16 @@ class GemstoneBrowserSession:
             )
         )
         if selected_statement_indexes != expected_statement_indexes:
-            raise DomainException("statement_indexes must be contiguous.")
+            raise DomainException('node_paths must be contiguous siblings.')
         return_statement_entries = [
             statement_entry
             for statement_entry in selected_statement_entries
-            if statement_entry["statement_kind"] == "return"
+            if statement_entry['statement_kind'] == 'return'
         ]
         if return_statement_entries:
-            raise DomainException("Extract cannot include return statements.")
-        extraction_start_offset = selected_statement_entries[0]["start_offset"]
-        extraction_end_offset = selected_statement_entries[-1]["end_offset"]
+            raise DomainException('Extract cannot include return statements.')
+        extraction_start_offset = selected_statement_entries[0]['start_offset']
+        extraction_end_offset = selected_statement_entries[-1]['end_offset']
         extracted_body = self.extracted_method_body_from_statement_entries(
             selected_statement_entries
         )
@@ -4416,7 +4456,7 @@ class GemstoneBrowserSession:
             source_method_source,
             selected_statement_entries,
             source_method_argument_names,
-            source_method_ast["temporaries"],
+            source_method_ast['temporaries'],
         )
         extracted_argument_count = len(extracted_argument_names)
         if is_keyword_selector:
@@ -4424,17 +4464,17 @@ class GemstoneBrowserSession:
             if expected_argument_count != extracted_argument_count:
                 raise DomainException(
                     (
-                        "%s has %s keyword arguments but extracted statements "
-                        "require %s arguments (%s)."
+                        '%s has %s keyword arguments but extracted statements '
+                        'require %s arguments (%s).'
                     )
                     % (
                         new_selector,
                         expected_argument_count,
                         extracted_argument_count,
                         (
-                            ", ".join(extracted_argument_names)
+                            ', '.join(extracted_argument_names)
                             if extracted_argument_names
-                            else "none"
+                            else 'none'
                         ),
                     )
                 )
@@ -4445,27 +4485,27 @@ class GemstoneBrowserSession:
             call_segments = []
             for argument_index in range(len(selector_tokens)):
                 call_segments.append(
-                    "%s %s"
+                    '%s %s'
                     % (
                         selector_tokens[argument_index],
                         extracted_argument_names[argument_index],
                     )
                 )
-            call_source = "self %s" % " ".join(call_segments)
+            call_source = 'self %s' % ' '.join(call_segments)
         else:
             if extracted_argument_names:
                 raise DomainException(
                     (
-                        "Extracted statements reference caller variables (%s). "
-                        "Use a keyword selector with %s arguments."
+                        'Extracted statements reference caller variables (%s). '
+                        'Use a keyword selector with %s arguments.'
                     )
                     % (
-                        ", ".join(extracted_argument_names),
+                        ', '.join(extracted_argument_names),
                         extracted_argument_count,
                     )
                 )
             new_method_header = new_selector
-            call_source = "self %s" % new_selector
+            call_source = 'self %s' % new_selector
         new_method_source = self.method_source_from_header_and_body(
             new_method_header,
             extracted_body,
@@ -4481,50 +4521,54 @@ class GemstoneBrowserSession:
             new_selector,
             show_instance_side,
         )
+        canonical_node_paths = [
+            'method/statements[%d]' % (statement_index - 1)
+            for statement_index in selected_statement_indexes
+        ]
         return {
-            "class_name": class_name,
-            "show_instance_side": show_instance_side,
-            "method_selector": method_selector,
-            "new_selector": new_selector,
-            "statement_indexes": selected_statement_indexes,
-            "method_category": method_category,
-            "new_selector_exists": new_selector_exists,
-            "new_method_source": new_method_source,
-            "updated_method_source": updated_method_source,
-            "extracted_statement_count": len(selected_statement_entries),
-            "extracted_argument_count": extracted_argument_count,
-            "extracted_argument_names": extracted_argument_names,
-            "extracted_source_character_count": (
+            'class_name': class_name,
+            'show_instance_side': show_instance_side,
+            'method_selector': method_selector,
+            'new_selector': new_selector,
+            'node_paths': canonical_node_paths,
+            'method_category': method_category,
+            'new_selector_exists': new_selector_exists,
+            'new_method_source': new_method_source,
+            'updated_method_source': updated_method_source,
+            'extracted_statement_count': len(selected_statement_entries),
+            'extracted_argument_count': extracted_argument_count,
+            'extracted_argument_names': extracted_argument_names,
+            'extracted_source_character_count': (
                 extraction_end_offset - extraction_start_offset
             ),
         }
 
     def method_extract_summary(self, extract_plan):
         warnings = []
-        if extract_plan["new_selector_exists"]:
+        if extract_plan['new_selector_exists']:
             warnings.append(
-                ("%s already exists on %s (%s side) and will be replaced.")
+                ('%s already exists on %s (%s side) and will be replaced.')
                 % (
-                    extract_plan["new_selector"],
-                    extract_plan["class_name"],
-                    "instance" if extract_plan["show_instance_side"] else "class",
+                    extract_plan['new_selector'],
+                    extract_plan['class_name'],
+                    'instance' if extract_plan['show_instance_side'] else 'class',
                 )
             )
         return {
-            "class_name": extract_plan["class_name"],
-            "show_instance_side": extract_plan["show_instance_side"],
-            "method_selector": extract_plan["method_selector"],
-            "new_selector": extract_plan["new_selector"],
-            "statement_indexes": extract_plan["statement_indexes"],
-            "method_category": extract_plan["method_category"],
-            "new_selector_exists": extract_plan["new_selector_exists"],
-            "extracted_statement_count": extract_plan["extracted_statement_count"],
-            "extracted_argument_count": extract_plan["extracted_argument_count"],
-            "extracted_argument_names": extract_plan["extracted_argument_names"],
-            "extracted_source_character_count": extract_plan[
-                "extracted_source_character_count"
+            'class_name': extract_plan['class_name'],
+            'show_instance_side': extract_plan['show_instance_side'],
+            'method_selector': extract_plan['method_selector'],
+            'new_selector': extract_plan['new_selector'],
+            'node_paths': extract_plan['node_paths'],
+            'method_category': extract_plan['method_category'],
+            'new_selector_exists': extract_plan['new_selector_exists'],
+            'extracted_statement_count': extract_plan['extracted_statement_count'],
+            'extracted_argument_count': extract_plan['extracted_argument_count'],
+            'extracted_argument_names': extract_plan['extracted_argument_names'],
+            'extracted_source_character_count': extract_plan[
+                'extracted_source_character_count'
             ],
-            "warnings": warnings,
+            'warnings': warnings,
         }
 
     def is_unary_selector(self, selector):

@@ -830,14 +830,14 @@ class GemstoneSessionRecord:
         show_instance_side,
         method_selector,
         new_selector,
-        statement_indexes,
+        node_paths,
     ):
         return self.gemstone_browser_session.method_extract_preview(
             class_name,
             show_instance_side,
             method_selector,
             new_selector,
-            statement_indexes,
+            node_paths,
         )
 
     def apply_method_extract(
@@ -846,7 +846,7 @@ class GemstoneSessionRecord:
         show_instance_side,
         method_selector,
         new_selector,
-        statement_indexes,
+        node_paths,
         overwrite_new_method=False,
     ):
         self.require_write_access("apply_method_extract")
@@ -855,7 +855,7 @@ class GemstoneSessionRecord:
             show_instance_side,
             method_selector,
             new_selector,
-            statement_indexes,
+            node_paths,
             overwrite_new_method=overwrite_new_method,
         )
         self.publish_model_change("methods")

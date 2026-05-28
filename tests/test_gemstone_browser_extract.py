@@ -56,20 +56,21 @@ def test_extract_plan_keyword_selector_infers_argument_names_and_rewrites_call(
 ):
     """AI: Keyword extract should infer caller-scoped argument names and build matching keyword call/send headers."""
     extract_planning_fixture.set_method_source(
-        "buildFrom: input\n" "    | tmp |\n" "    tmp := input + 1.\n" "    ^tmp"
+        'buildFrom: input\n    | tmp |\n    tmp := input + 1.\n    ^tmp'
     )
 
     extract_plan = extract_planning_fixture.browser_session.method_extract_plan(
-        "OrderLine",
+        'OrderLine',
         True,
-        "buildFrom:",
-        "extractedComputeTmp:",
-        [1],
+        'buildFrom:',
+        'extractedComputeTmp:',
+        ['method/statements[0]'],
     )
 
-    assert extract_plan["extracted_argument_names"] == ["input"]
-    assert extract_plan["new_method_source"].startswith("extractedComputeTmp: input\n")
-    assert "self extractedComputeTmp: input" in extract_plan["updated_method_source"]
+    assert extract_plan['extracted_argument_names'] == ['input']
+    assert extract_plan['new_method_source'].startswith('extractedComputeTmp: input\n')
+    assert 'self extractedComputeTmp: input' in extract_plan['updated_method_source']
+    assert extract_plan['node_paths'] == ['method/statements[0]']
 
 
 @with_fixtures(ExtractPlanningFixture)
@@ -78,16 +79,16 @@ def test_extract_plan_unary_selector_rejected_when_caller_variables_are_needed(
 ):
     """AI: Extract should fail fast when a unary selector is chosen but selected statements depend on caller variables."""
     extract_planning_fixture.set_method_source(
-        "buildFrom: input\n" "    | tmp |\n" "    tmp := input + 1.\n" "    ^tmp"
+        'buildFrom: input\n    | tmp |\n    tmp := input + 1.\n    ^tmp'
     )
 
     with expected(DomainException):
         extract_planning_fixture.browser_session.method_extract_plan(
-            "OrderLine",
+            'OrderLine',
             True,
-            "buildFrom:",
-            "extractedComputeTmp",
-            [1],
+            'buildFrom:',
+            'extractedComputeTmp',
+            ['method/statements[0]'],
         )
 
 
@@ -97,20 +98,39 @@ def test_extract_plan_unary_selector_still_works_when_no_arguments_are_needed(
 ):
     """AI: Unary extract remains valid for statement selections that do not capture caller-scoped variables."""
     extract_planning_fixture.set_method_source(
-        "exampleMethod\n" "    self yourself.\n" "    self class.\n" "    ^7"
+        'exampleMethod\n    self yourself.\n    self class.\n    ^7'
     )
 
     extract_plan = extract_planning_fixture.browser_session.method_extract_plan(
-        "OrderLine",
+        'OrderLine',
         True,
-        "exampleMethod",
-        "extractedFirstStep",
-        [1],
+        'exampleMethod',
+        'extractedFirstStep',
+        ['method/statements[0]'],
     )
 
-    assert extract_plan["extracted_argument_names"] == []
-    assert extract_plan["new_method_source"].startswith("extractedFirstStep\n")
-    assert "self extractedFirstStep" in extract_plan["updated_method_source"]
+    assert extract_plan['extracted_argument_names'] == []
+    assert extract_plan['new_method_source'].startswith('extractedFirstStep\n')
+    assert 'self extractedFirstStep' in extract_plan['updated_method_source']
+
+
+@with_fixtures(ExtractPlanningFixture)
+def test_extract_plan_rejects_node_path_that_is_not_a_top_level_statement(
+    extract_planning_fixture,
+):
+    """AI: node_paths must address top-level method statements; an inner expression path like method/statements[0]/value is not yet supported because the existing engine extracts whole top-level statements only - surface this as a clear DomainException rather than silently mis-extracting."""
+    extract_planning_fixture.set_method_source(
+        'exampleMethod\n    self yourself.\n    ^7'
+    )
+
+    with expected(DomainException):
+        extract_planning_fixture.browser_session.method_extract_plan(
+            'OrderLine',
+            True,
+            'exampleMethod',
+            'extractedDeepNode',
+            ['method/statements[0]/receiver'],
+        )
 
 
 def test_get_class_definition_treats_class_as_root_when_superclass_proxy_unavailable():

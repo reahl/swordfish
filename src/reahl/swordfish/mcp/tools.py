@@ -1429,20 +1429,21 @@ def register_tools(
             )
         return input_value
 
-    def validated_statement_indexes(input_value, argument_name):
+    def validated_node_paths(input_value, argument_name):
         if not isinstance(input_value, list) or not input_value:
             raise DomainException(
-                "%s must be a non-empty list of integers." % argument_name
+                '%s must be a non-empty list of node_path strings.' % argument_name
             )
-        validated_indexes = []
-        for index_value in input_value:
-            if not isinstance(index_value, int) or index_value <= 0:
+        validated_paths = []
+        for path_value in input_value:
+            if not isinstance(path_value, str) or not path_value:
                 raise DomainException(
-                    "%s must contain positive integers only." % argument_name
+                    '%s must contain non-empty node_path strings only.'
+                    % argument_name
                 )
-            if index_value not in validated_indexes:
-                validated_indexes.append(index_value)
-        return sorted(validated_indexes)
+            if path_value not in validated_paths:
+                validated_paths.append(path_value)
+        return validated_paths
 
     def validated_ast_pattern(input_value, argument_name):
         if not isinstance(input_value, dict):
@@ -5776,53 +5777,55 @@ def register_tools(
         class_name,
         method_selector,
         new_selector,
-        statement_indexes,
+        node_paths,
         show_instance_side=True,
     ):
-        """Preview extracting a contiguous statement_indexes range into a new
-        unary selector. Inspect the preview, then call gs_apply_extract_method."""
+        """Preview extracting a contiguous range of method statements (addressed
+        by their parser-AST node_paths, eg. ['method/statements[0]',
+        'method/statements[1]']) into a new unary or keyword selector. Inspect
+        the preview, then call gs_apply_extract_method. node_paths is the
+        structural address that survives sibling edits; in an IDE it derives
+        from a code selection by walking the AST."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
         try:
             class_name = validated_identifier(
                 class_name,
-                "class_name",
+                'class_name',
             )
             method_selector = validated_selector(
                 method_selector,
-                "method_selector",
+                'method_selector',
             )
             new_selector = validated_selector(
                 new_selector,
-                "new_selector",
+                'new_selector',
             )
-            if ":" in new_selector:
-                raise DomainException("new_selector must be a unary selector.")
-            statement_indexes = validated_statement_indexes(
-                statement_indexes,
-                "statement_indexes",
+            node_paths = validated_node_paths(
+                node_paths,
+                'node_paths',
             )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                "show_instance_side",
+                'show_instance_side',
             )
             preview = browser_session.method_extract_preview(
                 class_name,
                 show_instance_side,
                 method_selector,
                 new_selector,
-                statement_indexes,
+                node_paths,
             )
             return {
-                "ok": True,
-                "connection_id": connection_id,
-                "class_name": class_name,
-                "show_instance_side": show_instance_side,
-                "method_selector": method_selector,
-                "new_selector": new_selector,
-                "statement_indexes": statement_indexes,
-                "preview": preview,
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'show_instance_side': show_instance_side,
+                'method_selector': method_selector,
+                'new_selector': new_selector,
+                'node_paths': node_paths,
+                'preview': preview,
             }
         except GemstoneError as error:
             return {
@@ -5849,19 +5852,21 @@ def register_tools(
         class_name,
         method_selector,
         new_selector,
-        statement_indexes,
+        node_paths,
         show_instance_side=True,
         overwrite_new_method=False,
     ):
-        """Apply the extraction previewed by gs_preview_extract_method. Pass
+        """Apply the extraction previewed by gs_preview_extract_method. node_paths
+        addresses the statements to extract structurally (eg.
+        ['method/statements[0]', 'method/statements[1]']). Pass
         overwrite_new_method=True to replace an existing same-selector method.
         Requires --allow-source-write and an active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
                 (
-                    "gs_apply_extract_method is disabled. "
-                    "Start swordfish --headless-mcp with --allow-source-write to enable."
+                    'gs_apply_extract_method is disabled. '
+                    'Start swordfish --headless-mcp with --allow-source-write to enable.'
                 ),
             )
         gemstone_session, error_response = get_active_session(connection_id)
@@ -5874,48 +5879,46 @@ def register_tools(
         try:
             class_name = validated_identifier(
                 class_name,
-                "class_name",
+                'class_name',
             )
             method_selector = validated_selector(
                 method_selector,
-                "method_selector",
+                'method_selector',
             )
             new_selector = validated_selector(
                 new_selector,
-                "new_selector",
+                'new_selector',
             )
-            if ":" in new_selector:
-                raise DomainException("new_selector must be a unary selector.")
-            statement_indexes = validated_statement_indexes(
-                statement_indexes,
-                "statement_indexes",
+            node_paths = validated_node_paths(
+                node_paths,
+                'node_paths',
             )
             show_instance_side = validated_boolean_like(
                 show_instance_side,
-                "show_instance_side",
+                'show_instance_side',
             )
             overwrite_new_method = validated_boolean_like(
                 overwrite_new_method,
-                "overwrite_new_method",
+                'overwrite_new_method',
             )
             result = browser_session.apply_method_extract(
                 class_name,
                 show_instance_side,
                 method_selector,
                 new_selector,
-                statement_indexes,
+                node_paths,
                 overwrite_new_method=overwrite_new_method,
             )
             return {
-                "ok": True,
-                "connection_id": connection_id,
-                "class_name": class_name,
-                "show_instance_side": show_instance_side,
-                "method_selector": method_selector,
-                "new_selector": new_selector,
-                "statement_indexes": statement_indexes,
-                "overwrite_new_method": overwrite_new_method,
-                "result": result,
+                'ok': True,
+                'connection_id': connection_id,
+                'class_name': class_name,
+                'show_instance_side': show_instance_side,
+                'method_selector': method_selector,
+                'new_selector': new_selector,
+                'node_paths': node_paths,
+                'overwrite_new_method': overwrite_new_method,
+                'result': result,
             }
         except GemstoneError as error:
             return {

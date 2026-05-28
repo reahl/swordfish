@@ -7496,7 +7496,7 @@ def test_method_context_menu_preview_extract_calls_browser_preview(fixture):
         True,
         "total",
         "extractedPart",
-        [1],
+        ["method/statements[0]"],
     )
     mock_result_dialog.assert_called_once()
 

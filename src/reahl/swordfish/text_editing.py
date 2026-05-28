@@ -1653,8 +1653,12 @@ class CodePanel(tk.Frame):
                 method_ast_payload,
                 selection_offsets,
             )
-            statement_indexes = [
-                statement_entry['statement_index']
+            # AI: convert heuristic-AST 1-indexed statement positions to parser
+            # AST node_paths - the engine and MCP tool now address by structural
+            # path, but the IDE selection still finds statements by offset
+            # overlap, which yields 1-indexed positions.
+            node_paths = [
+                'method/statements[%d]' % (statement_entry['statement_index'] - 1)
                 for statement_entry in selected_statement_entries
             ]
             inferred_argument_names = self.inferred_extract_argument_names(
@@ -1691,12 +1695,12 @@ class CodePanel(tk.Frame):
             should_apply = messagebox.askyesno(
                 'Confirm Extract Method',
                 (
-                    'Apply extract-method on %s>>%s to %s using statements %s?'
+                    'Apply extract-method on %s>>%s to %s using nodes %s?'
                     % (
                         class_name,
                         method_selector,
                         new_selector,
-                        statement_indexes,
+                        node_paths,
                     )
                 ),
             )
@@ -1709,7 +1713,7 @@ class CodePanel(tk.Frame):
                     show_instance_side,
                     method_selector,
                     new_selector,
-                    statement_indexes,
+                    node_paths,
                     overwrite_new_method=overwrite_new_method,
                 )
             else:
@@ -1718,7 +1722,7 @@ class CodePanel(tk.Frame):
                     show_instance_side,
                     method_selector,
                     new_selector,
-                    statement_indexes,
+                    node_paths,
                 )
         except (DomainException, GemstoneDomainException) as domain_exception:
             messagebox.showerror('Operation Failed', str(domain_exception))

@@ -1419,7 +1419,7 @@ def test_gs_apply_extract_method_is_disabled_by_default(tools_fixture):
         "ExampleClass",
         "exampleMethod",
         "extractedLogic",
-        [1],
+        ["method/statements[0]"],
     )
     assert not extract_result["ok"]
     assert extract_result["error"]["message"] == (
@@ -1581,7 +1581,7 @@ def test_strict_ast_mode_blocks_heuristic_extract_preview(tools_fixture):
         "SomeClass",
         "someMethod",
         "newMethod",
-        [1],
+        ["method/statements[0]"],
         True,
     )
     assert not preview_result["ok"]
@@ -2737,21 +2737,9 @@ def test_gs_apply_remove_parameter_validates_boolean_flags(tools_fixture):
 
 
 @with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
-def test_gs_preview_extract_method_validates_statement_indexes_and_selector(
+def test_gs_preview_extract_method_validates_node_paths_and_selector(
     tools_fixture,
 ):
-    preview_result = tools_fixture.gs_preview_extract_method(
-        tools_fixture.connection_id,
-        "ExampleClass",
-        "exampleMethod",
-        "newSelector:",
-        [1],
-        True,
-    )
-    assert not preview_result["ok"]
-    assert preview_result["error"]["message"] == (
-        "new_selector must be a unary selector."
-    )
     preview_result = tools_fixture.gs_preview_extract_method(
         tools_fixture.connection_id,
         "ExampleClass",
@@ -2762,26 +2750,26 @@ def test_gs_preview_extract_method_validates_statement_indexes_and_selector(
     )
     assert not preview_result["ok"]
     assert preview_result["error"]["message"] == (
-        "statement_indexes must be a non-empty list of integers."
+        "node_paths must be a non-empty list of node_path strings."
     )
     preview_result = tools_fixture.gs_preview_extract_method(
         tools_fixture.connection_id,
         "ExampleClass",
         "exampleMethod",
         "newSelector",
-        [0],
+        [""],
         True,
     )
     assert not preview_result["ok"]
     assert preview_result["error"]["message"] == (
-        "statement_indexes must contain positive integers only."
+        "node_paths must contain non-empty node_path strings only."
     )
     preview_result = tools_fixture.gs_preview_extract_method(
         tools_fixture.connection_id,
         "ExampleClass",
         "exampleMethod",
         "newSelector",
-        [1],
+        ["method/statements[0]"],
         "neither",
     )
     assert not preview_result["ok"]
@@ -2827,7 +2815,7 @@ def test_gs_apply_extract_and_inline_validate_boolean_flags(
         "ExampleClass",
         "exampleMethod",
         "extractedLogic",
-        [1],
+        ["method/statements[0]"],
         True,
         "neither",
     )
