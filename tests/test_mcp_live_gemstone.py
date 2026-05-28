@@ -2915,12 +2915,10 @@ def test_live_guided_refactor_workflow_runs_end_to_end(live_connection):
     assert capabilities_result["ok"], capabilities_result
     assert capabilities_result["policy"]["allow_source_write"]
     guidance_result = live_connection.gs_guidance(
-        "refactor",
         selector=old_selector,
-        change_kind="rename_selector",
     )
     assert guidance_result["ok"], guidance_result
-    assert guidance_result["guidance"]["intent"] == "refactor"
+    assert "policy" in guidance_result
     begin_result = live_connection.gs_begin(live_connection.connection_id)
     assert begin_result["ok"], begin_result
     create_test_case_result = live_connection.gs_create_test_case_class(
@@ -2999,9 +2997,7 @@ def test_live_evidence_guarded_selector_rename_workflow_runs_end_to_end(
     assert capabilities_result["ok"], capabilities_result
     assert capabilities_result["policy"]["allow_tracing"]
     guidance_result = live_connection.gs_guidance(
-        "sender_analysis",
         selector=old_selector,
-        change_kind="rename_selector",
     )
     assert guidance_result["ok"], guidance_result
     begin_result = live_connection.gs_begin(live_connection.connection_id)

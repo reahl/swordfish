@@ -833,6 +833,88 @@ def register_tools(
             "runtime_evidence",
         ]
 
+    def selector_is_common_hotspot(selector):
+        return selector in {
+            'ifTrue:',
+            'ifFalse:',
+            'ifTrue:ifFalse:',
+            'value',
+            'default',
+            'yourself',
+        }
+
+    def state_dependent_cautions(selector):
+        cautions = []
+        if get_permissions()['allow_eval_arbitrary']:
+            cautions.append(
+                'gs_eval and gs_debug_eval require approved_by_user=true '
+                'with a non-empty approval_note and reason. '
+                'Prefer structured tools for routine work.'
+            )
+        if commit_allowed_for_current_mode():
+            cautions.append(
+                'gs_commit requires explicit confirmation: '
+                'approved_by_user=true and non-empty approval_note.'
+            )
+        if selector_is_common_hotspot(selector):
+            cautions.append(
+                'Selector %s is often high-fanout. '
+                'Static senders may contain many unrelated call sites.'
+                % selector
+            )
+        if (
+            selector_is_common_hotspot(selector)
+            and not get_permissions()['allow_tracing']
+        ):
+            cautions.append(
+                'Runtime evidence tools are disabled. '
+                'Start swordfish --headless-mcp with --allow-tracing '
+                'for observed caller evidence.'
+            )
+        if get_permissions()['require_gemstone_ast']:
+            cautions.append(
+                'Strict AST mode is active. Install AST support with '
+                'gs_ast_install and verify with gs_ast_status.'
+            )
+        return cautions
+
+    def state_dependent_decision_rules(selector):
+        decision_rules = []
+        if get_permissions()['allow_eval_arbitrary']:
+            decision_rules.append(
+                {
+                    'when': 'You are using gs_eval or gs_debug_eval.',
+                    'prefer_tools': [
+                        'human-approved eval bypass for motivated cases only'
+                    ],
+                    'avoid_tools': ['routine writes via gs_eval'],
+                    'reason': (
+                        'Eval is powerful and should be exceptional. '
+                        'Use structured tools first; use eval bypass only when '
+                        'a human explicitly approves and the reason is clear.'
+                    ),
+                }
+            )
+        if (
+            selector_is_common_hotspot(selector)
+            and get_permissions()['allow_tracing']
+        ):
+            decision_rules.append(
+                {
+                    'when': 'Selector fanout is high or ambiguous.',
+                    'prefer_tools': [
+                        'gs_plan_evidence_tests',
+                        'gs_collect_sender_evidence',
+                    ],
+                    'avoid_tools': ['static sender list as sole proof'],
+                    'reason': (
+                        'Observed sender evidence narrows the static superset '
+                        'to callers actually exercised by tests.'
+                    ),
+                }
+            )
+        return decision_rules
+
     def guidance_for_intent(intent, selector, change_kind=None):
         selector_is_common_hotspot = selector in {
             "ifTrue:",
@@ -2721,31 +2803,26 @@ def register_tools(
         }
 
     @mcp_server.tool()
-    def gs_guidance(intent="general", selector=None, change_kind=None):
+    def gs_guidance(selector=None):
+        """Return state-dependent advice: cautions and decision rules that
+        depend on the current permission flags (allow_eval_arbitrary,
+        allow_commit, allow_tracing, require_gemstone_ast) and on whether the
+        named selector is a common high-fanout hotspot. The static tool
+        catalog and server instructions cover the rest - call this only when
+        you need to know what is allowed right now, e.g. before attempting an
+        eval, commit, or tracer install. Pass selector to surface
+        hotspot-specific cautions."""
         try:
-            intent = validated_non_empty_string(intent, "intent").strip().lower()
-            if intent not in guidance_intents():
-                raise DomainException(
-                    "intent must be one of: %s." % ", ".join(guidance_intents())
-                )
             if selector is not None:
                 selector = validated_non_empty_string(
                     selector,
                     "selector",
                 ).strip()
-            if change_kind is not None:
-                change_kind = validated_non_empty_string(
-                    change_kind,
-                    "change_kind",
-                ).strip()
-            guidance = guidance_for_intent(intent, selector, change_kind)
             return {
                 "ok": True,
                 "policy": policy_flags(),
-                "intent": intent,
-                "selector": selector,
-                "change_kind": change_kind,
-                "guidance": guidance,
+                "cautions": state_dependent_cautions(selector),
+                "decision_rules": state_dependent_decision_rules(selector),
             }
         except DomainException as error:
             return {
