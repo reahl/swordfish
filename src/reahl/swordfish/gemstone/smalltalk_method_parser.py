@@ -79,6 +79,7 @@ class MethodNode(SyntaxNode):
         line=None,
         column=None,
         pragmas=None,
+        selector_token_ranges=None,
     ):
         super().__init__(start_offset, end_offset, line, column)
         self.selector = selector
@@ -86,6 +87,11 @@ class MethodNode(SyntaxNode):
         self.temporaries = temporaries
         self.statements = statements
         self.pragmas = pragmas if pragmas is not None else []
+        # AI: each (start, end) is the source span of one keyword/binary/unary
+        # token of the selector; a selector rename rewrites these spans.
+        self.selector_token_ranges = (
+            list(selector_token_ranges) if selector_token_ranges is not None else []
+        )
 
     def labelled_child_nodes(self):
         return [
@@ -110,12 +116,20 @@ class MessageSendNode(SyntaxNode):
         end_offset,
         line=None,
         column=None,
+        selector_token_ranges=None,
     ):
         super().__init__(start_offset, end_offset, line, column)
         self.receiver = receiver
         self.selector = selector
         self.arguments = arguments
         self.send_kind = send_kind
+        # AI: each (start, end) is the source span of one selector token in this
+        # send - one per keyword piece for keyword sends, exactly one for binary
+        # or unary sends. The selector itself is not its own AST node, so a
+        # rename edits these spans.
+        self.selector_token_ranges = (
+            list(selector_token_ranges) if selector_token_ranges is not None else []
+        )
 
     def labelled_child_nodes(self):
         return [('receiver', self.receiver)] + [
@@ -319,7 +333,7 @@ class SmalltalkMethodParser:
         return self.advance()
 
     def read_method(self):
-        selector, argument_names = self.read_method_header()
+        selector, argument_names, selector_token_ranges = self.read_method_header()
         temporaries = []
         pragmas = []
         temporaries_seen = False
@@ -346,6 +360,7 @@ class SmalltalkMethodParser:
             1,
             1,
             pragmas,
+            selector_token_ranges,
         )
 
     def current_is_pragma_start(self):
@@ -382,21 +397,35 @@ class SmalltalkMethodParser:
         if kind == SmalltalkTokenKind.keyword_message_part:
             selector_parts = []
             argument_names = []
+            selector_token_ranges = []
             while self.current_kind() == SmalltalkTokenKind.keyword_message_part:
-                selector_parts.append(self.advance().text)
+                keyword_token = self.advance()
+                selector_parts.append(keyword_token.text)
+                selector_token_ranges.append(
+                    (keyword_token.start_offset, keyword_token.end_offset)
+                )
                 argument_names.append(
                     self.consume_kind(SmalltalkTokenKind.unary_or_identifier).text
                 )
-            return (''.join(selector_parts), argument_names)
+            return (''.join(selector_parts), argument_names, selector_token_ranges)
         if kind in (
             SmalltalkTokenKind.binary_selector,
             SmalltalkTokenKind.vertical_bar,
         ):
             operator = self.advance()
             argument = self.consume_kind(SmalltalkTokenKind.unary_or_identifier)
-            return (operator.text, [argument.text])
+            return (
+                operator.text,
+                [argument.text],
+                [(operator.start_offset, operator.end_offset)],
+            )
         if kind == SmalltalkTokenKind.unary_or_identifier:
-            return (self.advance().text, [])
+            selector_token = self.advance()
+            return (
+                selector_token.text,
+                [],
+                [(selector_token.start_offset, selector_token.end_offset)],
+            )
         raise SmalltalkSyntaxError('method header does not begin with a selector')
 
     def read_temporaries(self):
@@ -484,8 +513,13 @@ class SmalltalkMethodParser:
             return receiver
         selector_parts = []
         arguments = []
+        selector_token_ranges = []
         while self.current_kind() == SmalltalkTokenKind.keyword_message_part:
-            selector_parts.append(self.advance().text)
+            keyword_token = self.advance()
+            selector_parts.append(keyword_token.text)
+            selector_token_ranges.append(
+                (keyword_token.start_offset, keyword_token.end_offset)
+            )
             arguments.append(self.read_binary_send())
         return MessageSendNode(
             receiver,
@@ -496,6 +530,7 @@ class SmalltalkMethodParser:
             arguments[-1].end_offset,
             receiver.line,
             receiver.column,
+            selector_token_ranges,
         )
 
     def read_binary_send(self):
@@ -515,6 +550,7 @@ class SmalltalkMethodParser:
                 right.end_offset,
                 receiver.line,
                 receiver.column,
+                [(operator.start_offset, operator.end_offset)],
             )
         return receiver
 
@@ -533,6 +569,7 @@ class SmalltalkMethodParser:
                 selector.end_offset,
                 receiver.line,
                 receiver.column,
+                [(selector.start_offset, selector.end_offset)],
             )
         return receiver
 

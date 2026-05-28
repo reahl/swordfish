@@ -17,6 +17,7 @@ from reahl.swordfish.gemstone.smalltalk_method_parser import (
     OverlappingSourceEditsError,
     SmalltalkMethodParser,
     SmalltalkSyntaxError,
+    SourceEdit,
     apply_source_edits,
     block_nesting_depths,
     index_nodes_by_path,
@@ -5118,39 +5119,40 @@ class GemstoneBrowserSession:
         }
 
     def apply_selector_rename(self, old_selector, new_selector):
-        self.ensure_refactoring_uses_real_ast("selector rename apply")
+        self.ensure_refactoring_uses_real_ast('selector rename apply')
         planned_changes = self.selector_rename_plan(
             old_selector,
             new_selector,
         )
         for planned_change in planned_changes:
-            self.compile_method(
-                class_name=planned_change["class_name"],
-                show_instance_side=planned_change["show_instance_side"],
-                source=planned_change["updated_source"],
-                method_category=planned_change["method_category"],
+            self.compile_method_with_edits(
+                class_name=planned_change['class_name'],
+                show_instance_side=planned_change['show_instance_side'],
+                original_source=planned_change['original_source'],
+                source_edits=planned_change['source_edits'],
+                method_category=planned_change['method_category'],
             )
         if old_selector != new_selector:
             deleted_implementors = set()
             for planned_change in planned_changes:
-                is_implementor_change = planned_change["change_type"] == "implementor"
+                is_implementor_change = planned_change['change_type'] == 'implementor'
                 implementor_key = (
-                    planned_change["class_name"],
-                    planned_change["show_instance_side"],
+                    planned_change['class_name'],
+                    planned_change['show_instance_side'],
                 )
                 has_not_deleted_implementor = (
                     implementor_key not in deleted_implementors
                 )
                 if is_implementor_change and has_not_deleted_implementor:
                     self.delete_method(
-                        class_name=planned_change["class_name"],
+                        class_name=planned_change['class_name'],
                         method_selector=old_selector,
-                        show_instance_side=planned_change["show_instance_side"],
+                        show_instance_side=planned_change['show_instance_side'],
                     )
                     deleted_implementors.add(implementor_key)
         preview = self.selector_rename_preview(old_selector, new_selector)
-        preview["applied_change_count"] = len(planned_changes)
-        preview["old_selector_removed"] = old_selector != new_selector
+        preview['applied_change_count'] = len(planned_changes)
+        preview['old_selector_removed'] = old_selector != new_selector
         return preview
 
     def method_rename_preview(
@@ -5183,7 +5185,7 @@ class GemstoneBrowserSession:
         old_selector,
         new_selector,
     ):
-        self.ensure_refactoring_uses_real_ast("method rename apply")
+        self.ensure_refactoring_uses_real_ast('method rename apply')
         show_instance_side = self.validated_show_instance_side(show_instance_side)
         planned_changes = self.method_rename_plan(
             class_name,
@@ -5192,14 +5194,15 @@ class GemstoneBrowserSession:
             new_selector,
         )
         for planned_change in planned_changes:
-            self.compile_method(
-                class_name=planned_change["class_name"],
-                show_instance_side=planned_change["show_instance_side"],
-                source=planned_change["updated_source"],
-                method_category=planned_change["method_category"],
+            self.compile_method_with_edits(
+                class_name=planned_change['class_name'],
+                show_instance_side=planned_change['show_instance_side'],
+                original_source=planned_change['original_source'],
+                source_edits=planned_change['source_edits'],
+                method_category=planned_change['method_category'],
             )
         has_implementor_change = any(
-            planned_change["change_type"] == "implementor"
+            planned_change['change_type'] == 'implementor'
             for planned_change in planned_changes
         )
         should_remove_old_selector = (
@@ -5218,8 +5221,8 @@ class GemstoneBrowserSession:
             new_selector,
             planned_changes,
         )
-        preview["applied_change_count"] = len(planned_changes)
-        preview["old_selector_removed"] = should_remove_old_selector
+        preview['applied_change_count'] = len(planned_changes)
+        preview['old_selector_removed'] = should_remove_old_selector
         return preview
 
     def method_rename_summary(
@@ -5422,20 +5425,19 @@ class GemstoneBrowserSession:
         change_type,
     ):
         source = compiled_method.sourceString().to_py
-        updated_source = self.renamed_selector_source(
-            source,
-            old_selector,
-            new_selector,
+        source_edits = self.selector_rename_source_edits(
+            source, old_selector, new_selector
         )
-        if source == updated_source:
+        if not source_edits:
             return None
+        updated_source = apply_source_edits(source, source_edits)
         selector = compiled_method.selector().to_py
         in_class = compiled_method.inClass()
         show_instance_side = not in_class.isMeta().to_py
         in_class_name = in_class.name().to_py
         class_name = (
             in_class_name[:-6]
-            if not show_instance_side and in_class_name.endswith(" class")
+            if not show_instance_side and in_class_name.endswith(' class')
             else in_class_name
         )
         method_category = self.get_method_category(
@@ -5444,39 +5446,58 @@ class GemstoneBrowserSession:
             show_instance_side,
         )
         return {
-            "class_name": class_name,
-            "show_instance_side": show_instance_side,
-            "method_selector": selector,
-            "method_category": method_category,
-            "change_type": change_type,
-            "updated_source": updated_source,
+            'class_name': class_name,
+            'show_instance_side': show_instance_side,
+            'method_selector': selector,
+            'method_category': method_category,
+            'change_type': change_type,
+            'original_source': source,
+            'source_edits': source_edits,
+            'updated_source': updated_source,
         }
 
-    def renamed_selector_source(self, source, old_selector, new_selector):
-        old_tokens = (
-            self.selector_keyword_tokens(old_selector)
-            if ":" in old_selector
-            else [old_selector]
-        )
+    def selector_rename_source_edits(self, source, old_selector, new_selector):
+        """AI: AST-backed engine that computes SourceEdits to rename old_selector to
+        new_selector in a single method's source. Walks the parsed method, collects
+        every MessageSendNode and the MethodNode header whose selector equals
+        old_selector, and emits one SourceEdit per keyword/binary/unary token of those
+        selectors. Raises DomainException on a keyword-count mismatch and propagates
+        SmalltalkSyntaxError on unparseable source - silent fallback would let
+        occurrences inside string literals or comments be rewritten, which is the
+        correctness gap this engine closes."""
+        old_keyword_count = old_selector.count(':') if ':' in old_selector else 0
+        new_keyword_count = new_selector.count(':') if ':' in new_selector else 0
+        if old_keyword_count != new_keyword_count:
+            raise DomainException(
+                'cannot rename %s to %s: keyword token count differs'
+                % (old_selector, new_selector)
+            )
         new_tokens = (
             self.selector_keyword_tokens(new_selector)
-            if ":" in new_selector
+            if ':' in new_selector
             else [new_selector]
         )
-        if len(old_tokens) != len(new_tokens):
-            return source
-        selector_token_ranges = self.selector_token_ranges_in_source(
-            source,
-            old_tokens,
+        method_node = SmalltalkMethodParser().parse_method(source)
+        edits = []
+        for node in index_nodes_by_path(method_node).values():
+            renames_this_node = (
+                node.node_kind in ('method', 'message_send')
+                and node.selector == old_selector
+            )
+            if renames_this_node:
+                for token_index in range(len(node.selector_token_ranges)):
+                    start, end = node.selector_token_ranges[token_index]
+                    edits.append(SourceEdit(start, end, new_tokens[token_index]))
+        return edits
+
+    def renamed_selector_source(self, source, old_selector, new_selector):
+        """AI: Thin wrapper that runs the AST-backed engine and applies its edits to
+        produce the rewritten source string. Kept for callers (and the IDE preview
+        surface) that still want a final source rather than the edit list."""
+        source_edits = self.selector_rename_source_edits(
+            source, old_selector, new_selector
         )
-        replacement_plan = self.replacement_plan_for_selector_tokens(
-            selector_token_ranges,
-            new_tokens,
-        )
-        return self.source_with_replaced_selector_tokens(
-            source,
-            replacement_plan,
-        )
+        return apply_source_edits(source, source_edits)
 
     def selector_token_ranges_in_source(self, source, selector_tokens):
         if not selector_tokens:

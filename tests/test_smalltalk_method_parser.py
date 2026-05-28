@@ -258,3 +258,53 @@ def test_a_node_path_edit_leaves_a_matching_text_inside_a_string_literal_untouch
     edit = numeric_literal.as_source_edit('99')
 
     assert apply_source_edits(source, [edit]) == "m\n    ^Array with: 99 with: '42'"
+
+
+
+@with_fixtures(ParserFixture)
+def test_method_header_keyword_selector_records_one_source_range_per_keyword_token(
+    parser_fixture,
+):
+    """AI: the AST remembers exactly where each keyword token sits in the source - the fact a selector rename needs so it can replace 'at:' and 'put:' independently without re-tokenising the header by hand."""
+    source = 'at: anIndex put: aValue\n    ^aValue'
+    method = parser_fixture.parse(source)
+
+    ranges = method.selector_token_ranges
+    sliced_tokens = [source[start:end] for start, end in ranges]
+
+    assert sliced_tokens == ['at:', 'put:']
+
+
+@with_fixtures(ParserFixture)
+def test_keyword_message_send_records_a_source_range_per_keyword_token(
+    parser_fixture,
+):
+    """AI: a keyword send's selector_token_ranges locate each keyword piece of the call - the receiver and the arguments live elsewhere in the AST and are not part of the selector ranges, which is what lets a rename touch only the selector pieces of a sender."""
+    source = 'm\n    ^dict at: aKey put: aValue'
+    method = parser_fixture.parse(source)
+    keyword_send = method.statements[0].expression
+
+    ranges = keyword_send.selector_token_ranges
+    sliced_tokens = [source[start:end] for start, end in ranges]
+
+    assert sliced_tokens == ['at:', 'put:']
+
+
+@with_fixtures(ParserFixture)
+def test_selector_text_inside_a_string_literal_is_not_a_send_selector_range(
+    parser_fixture,
+):
+    """AI: the keyword piece 'at:' inside the string '#at:' appears in the source but is not a selector token of any send - the LiteralNode owns it. Only the MessageSendNode using at:put: carries the selector_token_ranges, which is the correctness regex-based rename cannot give."""
+    source = "m\n    ^dict at: 'at:' put: aValue"
+    method = parser_fixture.parse(source)
+    keyword_send = method.statements[0].expression
+
+    ranges = keyword_send.selector_token_ranges
+    sliced_tokens = [source[start:end] for start, end in ranges]
+
+    assert sliced_tokens == ['at:', 'put:']
+    string_offset = source.index("'at:'")
+    string_end = string_offset + len("'at:'")
+    assert all(
+        end <= string_offset or start >= string_end for start, end in ranges
+    )
