@@ -1450,7 +1450,7 @@ def test_live_gs_method_control_flow_summary_reports_branch_and_loop_signals(
 def test_live_gs_query_methods_by_ast_pattern_filters_by_required_selector(
     live_connection,
 ):
-    """AI: AST-pattern query should find methods that send a required selector within a class scope."""
+    """AI: AST-pattern query locates each send of a selector as a node match, reporting which method contains the call and that the matched node is a send of that selector."""
     class_name = "McpQueryPatternClass%s" % uuid.uuid4().hex[:8]
     begin_result = live_connection.gs_begin(live_connection.connection_id)
     assert begin_result["ok"], begin_result
@@ -1479,7 +1479,7 @@ def test_live_gs_query_methods_by_ast_pattern_filters_by_required_selector(
     assert compile_no_sender_result["ok"], compile_no_sender_result
     query_result = live_connection.gs_query_methods_by_ast_pattern(
         live_connection.connection_id,
-        {"required_selectors": ["default"], "min_send_count": 1},
+        {"node_kind": "message_send", "selector": "default"},
         class_name=class_name,
         show_instance_side=True,
         max_results=10,
@@ -1488,13 +1488,22 @@ def test_live_gs_query_methods_by_ast_pattern_filters_by_required_selector(
     matched_selectors = [match["method_selector"] for match in query_result["matches"]]
     assert "usesDefault" in matched_selectors
     assert "noSend" not in matched_selectors
+    assert "default" not in matched_selectors
+    sender_match = [
+        match
+        for match in query_result["matches"]
+        if match["method_selector"] == "usesDefault"
+    ][0]
+    assert sender_match["kind"] == "message_send"
+    assert sender_match["summary"] == "default"
+    assert sender_match["node_path"].startswith("method/")
 
 
 @with_fixtures(LiveMcpConnectionFixture)
 def test_live_gs_query_methods_by_ast_pattern_filters_by_branch_count(
     live_connection,
 ):
-    """AI: AST-pattern query should use control-flow predicates for branch-heavy methods."""
+    """AI: AST-pattern query locates a specific keyword send (the ifTrue:ifFalse: branch), matching the branching method and not the simple one."""
     class_name = "McpQueryBranchClass%s" % uuid.uuid4().hex[:8]
     begin_result = live_connection.gs_begin(live_connection.connection_id)
     assert begin_result["ok"], begin_result
@@ -1517,7 +1526,7 @@ def test_live_gs_query_methods_by_ast_pattern_filters_by_branch_count(
     assert compile_simple_result["ok"], compile_simple_result
     query_result = live_connection.gs_query_methods_by_ast_pattern(
         live_connection.connection_id,
-        {"min_branch_selector_count": 1},
+        {"node_kind": "message_send", "selector": "ifTrue:ifFalse:"},
         class_name=class_name,
         show_instance_side=True,
     )
@@ -1528,11 +1537,11 @@ def test_live_gs_query_methods_by_ast_pattern_filters_by_branch_count(
 
 
 @with_fixtures(LiveMcpConnectionFixture)
-def test_live_gs_query_methods_by_ast_pattern_sorts_and_uses_extended_predicates(
+def test_live_gs_query_methods_by_ast_pattern_locates_blocks_by_nesting_depth(
     live_connection,
 ):
-    """AI: AST-pattern query should support extended predicates and ranked result ordering."""
-    class_name = "McpQuerySortClass%s" % uuid.uuid4().hex[:8]
+    """AI: AST-pattern query locates nodes by structural position - a block nested inside another block - returning the inner block's node_path, which the old aggregate-count DSL could not address."""
+    class_name = "McpQueryNestingClass%s" % uuid.uuid4().hex[:8]
     begin_result = live_connection.gs_begin(live_connection.connection_id)
     assert begin_result["ok"], begin_result
     create_class_result = live_connection.gs_create_class(
@@ -1540,43 +1549,35 @@ def test_live_gs_query_methods_by_ast_pattern_sorts_and_uses_extended_predicates
         class_name,
     )
     assert create_class_result["ok"], create_class_result
-    compile_first_result = live_connection.gs_compile_method(
+    compile_nested_result = live_connection.gs_compile_method(
         live_connection.connection_id,
         class_name,
-        ("alphaMethod\n" "    self yourself.\n" "    self class.\n" "    ^self"),
+        ("nestedMethod\n" "    ^[ [ :each | each ] ] value"),
     )
-    assert compile_first_result["ok"], compile_first_result
-    compile_second_result = live_connection.gs_compile_method(
+    assert compile_nested_result["ok"], compile_nested_result
+    compile_flat_result = live_connection.gs_compile_method(
         live_connection.connection_id,
         class_name,
-        (
-            "betaMethod\n"
-            "    | value |\n"
-            "    value := self yourself.\n"
-            "    value class.\n"
-            "    ^value"
-        ),
+        ("flatMethod\n" "    ^[ :each | each ] value"),
     )
-    assert compile_second_result["ok"], compile_second_result
+    assert compile_flat_result["ok"], compile_flat_result
     query_result = live_connection.gs_query_methods_by_ast_pattern(
         live_connection.connection_id,
-        {
-            "required_send_types": ["unary"],
-            "required_receiver_hints": ["self"],
-            "method_selector_regex": "Method$",
-            "min_assignment_count": 1,
-        },
+        {"node_kind": "block", "min_nesting_depth": 1},
         class_name=class_name,
         show_instance_side=True,
-        sort_by="statement_count",
-        sort_descending=True,
     )
     assert query_result["ok"], query_result
-    assert query_result["result_sort_by"] == "statement_count"
-    assert query_result["result_sort_descending"]
     matched_selectors = [match["method_selector"] for match in query_result["matches"]]
-    assert matched_selectors[0] == "betaMethod"
-    assert "alphaMethod" not in matched_selectors
+    assert "nestedMethod" in matched_selectors
+    assert "flatMethod" not in matched_selectors
+    nested_match = [
+        match
+        for match in query_result["matches"]
+        if match["method_selector"] == "nestedMethod"
+    ][0]
+    assert nested_match["kind"] == "block"
+    assert nested_match["summary"] == "[:each |]"
 
 
 @with_fixtures(LiveMcpConnectionFixture)

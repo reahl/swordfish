@@ -16,6 +16,7 @@ from reahl.swordfish.gemstone.session import DomainException, render_result
 from reahl.swordfish.gemstone.smalltalk_method_parser import (
     SmalltalkMethodParser,
     SmalltalkSyntaxError,
+    block_nesting_depths,
     index_nodes_by_path,
 )
 from reahl.swordfish.gemstone.smalltalk_source_scanner import (
@@ -599,17 +600,10 @@ class GemstoneBrowserSession:
         package_name=None,
         class_name=None,
         show_instance_side=True,
-        method_category="all",
+        method_category='all',
         max_results=None,
-        sort_by="scan_order",
-        sort_descending=False,
     ):
         show_instance_side = self.validated_show_instance_side(show_instance_side)
-        sort_by = self.validated_ast_query_sort_by(sort_by)
-        sort_descending = self.validated_boolean_flag(
-            sort_descending,
-            "sort_descending",
-        )
         class_names = self.query_scope_class_names(
             package_name,
             class_name,
@@ -629,94 +623,93 @@ class GemstoneBrowserSession:
                     selector_name,
                     show_instance_side,
                 )
-                pattern_evaluation = self.pattern_evaluation_for_method(
+                node_matches = self.ast_pattern_matches_in_method(
                     method_source,
-                    selector_name,
                     ast_pattern,
-                    sort_by,
                 )
-                if pattern_evaluation["matches"]:
-                    structure_summary = pattern_evaluation["structure_summary"]
-                    control_flow_summary = pattern_evaluation["control_flow_summary"]
-                    matches.append(
-                        {
-                            "class_name": scoped_class_name,
-                            "show_instance_side": show_instance_side,
-                            "method_selector": selector_name,
-                            "method_category": self.get_method_category(
-                                scoped_class_name,
-                                selector_name,
-                                show_instance_side,
-                            ),
-                            "send_count": structure_summary["send_count"],
-                            "keyword_send_count": structure_summary[
-                                "keyword_send_count"
-                            ],
-                            "unary_send_count": structure_summary["unary_send_count"],
-                            "binary_send_count": structure_summary["binary_send_count"],
-                            "block_count": structure_summary["block_open_count"],
-                            "return_count": structure_summary["return_count"],
-                            "cascade_count": structure_summary["cascade_count"],
-                            "assignment_count": structure_summary["assignment_count"],
-                            "statement_terminator_count": structure_summary[
-                                "statement_terminator_count"
-                            ],
-                            "explicit_self_send_count": structure_summary[
-                                "explicit_self_send_count"
-                            ],
-                            "explicit_super_send_count": structure_summary[
-                                "explicit_super_send_count"
-                            ],
-                            "body_line_count": structure_summary["body_line_count"],
-                            "statement_count": pattern_evaluation["statement_count"],
-                            "temporary_count": pattern_evaluation["temporary_count"],
-                            "branch_selector_count": (
-                                control_flow_summary["branch_selector_count"]
-                                if control_flow_summary is not None
-                                else 0
-                            ),
-                            "loop_selector_count": (
-                                control_flow_summary["loop_selector_count"]
-                                if control_flow_summary is not None
-                                else 0
-                            ),
-                            "max_block_nesting_depth": (
-                                control_flow_summary["max_block_nesting_depth"]
-                                if control_flow_summary is not None
-                                else 0
-                            ),
-                        }
+                if node_matches:
+                    method_category_name = self.get_method_category(
+                        scoped_class_name,
+                        selector_name,
+                        show_instance_side,
                     )
-                    if (
-                        sort_by == "scan_order"
-                        and max_results is not None
-                        and len(matches) >= max_results
-                    ):
-                        return {
-                            "matches": matches,
-                            "match_count": len(matches),
-                            "scanned_method_count": scanned_method_count,
-                            "truncated": True,
-                            "sort_by": sort_by,
-                            "sort_descending": sort_descending,
+                    matches = matches + [
+                        {
+                            'class_name': scoped_class_name,
+                            'show_instance_side': show_instance_side,
+                            'method_selector': selector_name,
+                            'method_category': method_category_name,
+                            'node_path': node_match['node_path'],
+                            'kind': node_match['kind'],
+                            'summary': node_match['summary'],
+                            'start': node_match['start'],
+                            'end': node_match['end'],
                         }
-        if sort_by != "scan_order":
-            matches = sorted(
-                matches,
-                key=lambda entry: self.ast_query_sort_key(entry, sort_by),
-                reverse=sort_descending,
-            )
+                        for node_match in node_matches
+                    ]
         truncated = max_results is not None and len(matches) > max_results
         if max_results is not None:
             matches = matches[:max_results]
         return {
-            "matches": matches,
-            "match_count": len(matches),
-            "scanned_method_count": scanned_method_count,
-            "truncated": truncated,
-            "sort_by": sort_by,
-            "sort_descending": sort_descending,
+            'matches': matches,
+            'match_count': len(matches),
+            'scanned_method_count': scanned_method_count,
+            'truncated': truncated,
         }
+
+    def ast_pattern_matches_in_method(self, method_source, ast_pattern):
+        try:
+            method_node = SmalltalkMethodParser().parse_method(method_source)
+        except SmalltalkSyntaxError:
+            return []
+        indexed_nodes = index_nodes_by_path(method_node)
+        nesting_depths = block_nesting_depths(method_node)
+        return [
+            {
+                'node_path': node_path,
+                'kind': node.node_kind,
+                'summary': node.describe(),
+                'start': node.start_offset,
+                'end': node.end_offset,
+            }
+            for node_path, node in indexed_nodes.items()
+            if self.node_matches_ast_pattern(
+                node,
+                nesting_depths[id(node)],
+                ast_pattern,
+            )
+        ]
+
+    def node_matches_ast_pattern(self, node, nesting_depth, ast_pattern):
+        if 'node_kind' in ast_pattern and node.node_kind != ast_pattern['node_kind']:
+            return False
+        if 'send_kind' in ast_pattern:
+            if getattr(node, 'send_kind', None) != ast_pattern['send_kind']:
+                return False
+        if 'selector' in ast_pattern:
+            if getattr(node, 'selector', None) != ast_pattern['selector']:
+                return False
+        selector_regex = ast_pattern.get('selector_regex')
+        if selector_regex is not None:
+            node_selector = getattr(node, 'selector', None)
+            if node_selector is None:
+                return False
+            if re.search(selector_regex, node_selector) is None:
+                return False
+        if 'min_nesting_depth' in ast_pattern:
+            if nesting_depth < ast_pattern['min_nesting_depth']:
+                return False
+        if 'max_nesting_depth' in ast_pattern:
+            if nesting_depth > ast_pattern['max_nesting_depth']:
+                return False
+        message_count = len(node.messages) if node.node_kind == 'cascade' else None
+        if 'min_message_count' in ast_pattern:
+            if message_count is None or message_count < ast_pattern['min_message_count']:
+                return False
+        if 'max_message_count' in ast_pattern:
+            if message_count is None or message_count > ast_pattern['max_message_count']:
+                return False
+        return True
 
     def supported_ast_query_sort_fields(self):
         return [
@@ -742,23 +735,9 @@ class GemstoneBrowserSession:
             "max_block_nesting_depth",
         ]
 
-    def validated_ast_query_sort_by(self, sort_by):
-        if not isinstance(sort_by, str) or not sort_by:
-            raise DomainException("sort_by must be a non-empty string.")
-        supported_fields = self.supported_ast_query_sort_fields()
-        if sort_by not in supported_fields:
-            raise DomainException(
-                ("sort_by must be one of: %s.") % ", ".join(supported_fields)
-            )
-        return sort_by
+    
 
-    def ast_query_sort_key(self, match_entry, sort_by):
-        if sort_by == "scan_order":
-            return 0
-        value = match_entry.get(sort_by)
-        if value is None:
-            return -1
-        return value
+    
 
     def compiled_method_argument_and_temporary_names(
         self,
@@ -1182,234 +1161,9 @@ class GemstoneBrowserSession:
         selectors = class_to_query.selectorsIn(method_category).asSortedCollection()
         return [selector.to_py for selector in selectors]
 
-    def pattern_evaluation_for_method(
-        self,
-        method_source,
-        method_selector,
-        ast_pattern,
-        sort_by="scan_order",
-    ):
-        structure_summary = self.source_method_structure_summary(method_source)
-        sends_payload = self.source_method_sends(method_source)
-        send_selector_names = [
-            send_entry["selector"] for send_entry in sends_payload["sends"]
-        ]
-        send_type_names = sorted(
-            {send_entry["send_type"] for send_entry in sends_payload["sends"]}
-        )
-        receiver_hint_names = sorted(
-            {send_entry["receiver_hint"] for send_entry in sends_payload["sends"]}
-        )
-        statement_count = None
-        temporary_count = None
-        statement_count_requested = (
-            "min_statement_count" in ast_pattern
-            or "max_statement_count" in ast_pattern
-            or sort_by == "statement_count"
-        )
-        temporary_count_requested = (
-            "min_temporary_count" in ast_pattern
-            or "max_temporary_count" in ast_pattern
-            or sort_by == "temporary_count"
-        )
-        if statement_count_requested or temporary_count_requested:
-            method_ast = self.source_method_ast(
-                method_source,
-                method_selector,
-            )
-            statement_count = method_ast["statement_count"]
-            temporary_count = len(method_ast["temporaries"])
-        else:
-            statement_count = structure_summary["statement_terminator_count"]
-            temporary_count = 0
-        control_flow_summary = None
-        control_flow_requested = (
-            "min_branch_selector_count" in ast_pattern
-            or "max_branch_selector_count" in ast_pattern
-            or "min_loop_selector_count" in ast_pattern
-            or "max_loop_selector_count" in ast_pattern
-            or "min_max_block_nesting_depth" in ast_pattern
-            or "max_max_block_nesting_depth" in ast_pattern
-            or sort_by
-            in (
-                "branch_selector_count",
-                "loop_selector_count",
-                "max_block_nesting_depth",
-            )
-        )
-        if control_flow_requested:
-            control_flow_summary = self.source_method_control_flow_summary(
-                method_source
-            )
-        matches = self.method_matches_ast_pattern(
-            ast_pattern,
-            method_selector,
-            structure_summary,
-            send_selector_names,
-            send_type_names,
-            receiver_hint_names,
-            statement_count,
-            temporary_count,
-            control_flow_summary,
-        )
-        return {
-            "matches": matches,
-            "structure_summary": structure_summary,
-            "statement_count": statement_count,
-            "temporary_count": temporary_count,
-            "control_flow_summary": control_flow_summary,
-        }
+    
 
-    def method_matches_ast_pattern(
-        self,
-        ast_pattern,
-        method_selector,
-        structure_summary,
-        send_selector_names,
-        send_type_names,
-        receiver_hint_names,
-        statement_count,
-        temporary_count,
-        control_flow_summary,
-    ):
-        range_checks = [
-            (
-                "min_send_count",
-                "max_send_count",
-                structure_summary["send_count"],
-            ),
-            (
-                "min_keyword_send_count",
-                "max_keyword_send_count",
-                structure_summary["keyword_send_count"],
-            ),
-            (
-                "min_unary_send_count",
-                "max_unary_send_count",
-                structure_summary["unary_send_count"],
-            ),
-            (
-                "min_binary_send_count",
-                "max_binary_send_count",
-                structure_summary["binary_send_count"],
-            ),
-            (
-                "min_block_count",
-                "max_block_count",
-                structure_summary["block_open_count"],
-            ),
-            (
-                "min_return_count",
-                "max_return_count",
-                structure_summary["return_count"],
-            ),
-            (
-                "min_cascade_count",
-                "max_cascade_count",
-                structure_summary["cascade_count"],
-            ),
-            (
-                "min_assignment_count",
-                "max_assignment_count",
-                structure_summary["assignment_count"],
-            ),
-            (
-                "min_statement_terminator_count",
-                "max_statement_terminator_count",
-                structure_summary["statement_terminator_count"],
-            ),
-            (
-                "min_explicit_self_send_count",
-                "max_explicit_self_send_count",
-                structure_summary["explicit_self_send_count"],
-            ),
-            (
-                "min_explicit_super_send_count",
-                "max_explicit_super_send_count",
-                structure_summary["explicit_super_send_count"],
-            ),
-            (
-                "min_body_line_count",
-                "max_body_line_count",
-                structure_summary["body_line_count"],
-            ),
-            (
-                "min_statement_count",
-                "max_statement_count",
-                statement_count,
-            ),
-            (
-                "min_temporary_count",
-                "max_temporary_count",
-                temporary_count,
-            ),
-        ]
-        if control_flow_summary is not None:
-            range_checks = range_checks + [
-                (
-                    "min_branch_selector_count",
-                    "max_branch_selector_count",
-                    control_flow_summary["branch_selector_count"],
-                ),
-                (
-                    "min_loop_selector_count",
-                    "max_loop_selector_count",
-                    control_flow_summary["loop_selector_count"],
-                ),
-                (
-                    "min_max_block_nesting_depth",
-                    "max_max_block_nesting_depth",
-                    control_flow_summary["max_block_nesting_depth"],
-                ),
-            ]
-        for min_key, max_key, value in range_checks:
-            if min_key in ast_pattern and value is not None:
-                if value < ast_pattern[min_key]:
-                    return False
-            if max_key in ast_pattern and value is not None:
-                if value > ast_pattern[max_key]:
-                    return False
-        required_selectors = ast_pattern.get("required_selectors", [])
-        for required_selector in required_selectors:
-            if required_selector not in send_selector_names:
-                return False
-        any_required_selectors = ast_pattern.get("any_required_selectors", [])
-        if any_required_selectors and not any(
-            selector_name in send_selector_names
-            for selector_name in any_required_selectors
-        ):
-            return False
-        excluded_selectors = ast_pattern.get("excluded_selectors", [])
-        for excluded_selector in excluded_selectors:
-            if excluded_selector in send_selector_names:
-                return False
-        required_send_types = ast_pattern.get("required_send_types", [])
-        for required_send_type in required_send_types:
-            if required_send_type not in send_type_names:
-                return False
-        excluded_send_types = ast_pattern.get("excluded_send_types", [])
-        for excluded_send_type in excluded_send_types:
-            if excluded_send_type in send_type_names:
-                return False
-        required_receiver_hints = ast_pattern.get(
-            "required_receiver_hints",
-            [],
-        )
-        for required_receiver_hint in required_receiver_hints:
-            if required_receiver_hint not in receiver_hint_names:
-                return False
-        excluded_receiver_hints = ast_pattern.get(
-            "excluded_receiver_hints",
-            [],
-        )
-        for excluded_receiver_hint in excluded_receiver_hints:
-            if excluded_receiver_hint in receiver_hint_names:
-                return False
-        method_selector_regex = ast_pattern.get("method_selector_regex")
-        if method_selector_regex is not None:
-            if re.search(method_selector_regex, method_selector) is None:
-                return False
-        return True
+    
 
     def source_method_ast(self, source, method_selector=None):
         code_character_map = self.source_code_character_map(source)

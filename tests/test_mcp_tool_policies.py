@@ -2081,7 +2081,7 @@ def test_gs_method_control_flow_summary_checks_connection(tools_fixture):
 def test_gs_query_methods_by_ast_pattern_checks_connection(tools_fixture):
     query_result = tools_fixture.gs_query_methods_by_ast_pattern(
         "missing-connection-id",
-        {"min_send_count": 1},
+        {"node_kind": "message_send"},
     )
     assert not query_result["ok"]
     assert query_result["error"]["message"] == "Unknown connection_id."
@@ -2463,57 +2463,50 @@ def test_gs_query_methods_by_ast_pattern_validates_pattern_and_filters(
     )
     query_result = tools_fixture.gs_query_methods_by_ast_pattern(
         tools_fixture.connection_id,
-        {"min_send_count": 2, "max_send_count": 1},
+        {"min_nesting_depth": 2, "max_nesting_depth": 1},
     )
     assert not query_result["ok"]
     assert query_result["error"]["message"] == (
-        "ast_pattern.min_send_count cannot be greater than "
-        "ast_pattern.max_send_count."
+        "ast_pattern.min_nesting_depth cannot be greater than "
+        "ast_pattern.max_nesting_depth."
     )
     query_result = tools_fixture.gs_query_methods_by_ast_pattern(
         tools_fixture.connection_id,
-        {"min_send_count": 1},
+        {"node_kind": "frobnicate"},
+    )
+    assert not query_result["ok"]
+    assert query_result["error"]["message"].startswith(
+        "ast_pattern.node_kind must be one of:"
+    )
+    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
+        tools_fixture.connection_id,
+        {"send_kind": "ternary"},
+    )
+    assert not query_result["ok"]
+    assert query_result["error"]["message"].startswith(
+        "ast_pattern.send_kind must be one of:"
+    )
+    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
+        tools_fixture.connection_id,
+        {"node_kind": "block"},
         show_instance_side="neither",
     )
     assert not query_result["ok"]
     assert query_result["error"]["message"] == ("show_instance_side must be a boolean.")
     query_result = tools_fixture.gs_query_methods_by_ast_pattern(
         tools_fixture.connection_id,
-        {"min_send_count": 1},
+        {"node_kind": "block"},
         max_results=-1,
     )
     assert not query_result["ok"]
     assert query_result["error"]["message"] == ("max_results cannot be negative.")
     query_result = tools_fixture.gs_query_methods_by_ast_pattern(
         tools_fixture.connection_id,
-        {"min_send_count": 1},
-        sort_by="not_supported",
-    )
-    assert not query_result["ok"]
-    assert query_result["error"]["message"].startswith("sort_by must be one of:")
-    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
-        tools_fixture.connection_id,
-        {"min_send_count": 1},
-        sort_descending="neither",
-    )
-    assert not query_result["ok"]
-    assert query_result["error"]["message"] == ("sort_descending must be a boolean.")
-    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
-        tools_fixture.connection_id,
-        {"required_send_types": ["ternary"]},
-    )
-    assert not query_result["ok"]
-    assert query_result["error"]["message"] == (
-        "ast_pattern.required_send_types entries must be one of: "
-        "binary, keyword, unary."
-    )
-    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
-        tools_fixture.connection_id,
-        {"method_selector_regex": "["},
+        {"selector_regex": "["},
     )
     assert not query_result["ok"]
     assert query_result["error"]["message"].startswith(
-        "ast_pattern.method_selector_regex is not valid regex:"
+        "ast_pattern.selector_regex is not valid regex:"
     )
 
 

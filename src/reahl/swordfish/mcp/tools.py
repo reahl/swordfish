@@ -1675,233 +1675,92 @@ def register_tools(
                 validated_indexes.append(index_value)
         return sorted(validated_indexes)
 
-    def supported_ast_query_sort_fields():
-        return [
-            "scan_order",
-            "class_name",
-            "method_selector",
-            "send_count",
-            "keyword_send_count",
-            "unary_send_count",
-            "binary_send_count",
-            "block_count",
-            "return_count",
-            "cascade_count",
-            "assignment_count",
-            "statement_terminator_count",
-            "explicit_self_send_count",
-            "explicit_super_send_count",
-            "body_line_count",
-            "statement_count",
-            "temporary_count",
-            "branch_selector_count",
-            "loop_selector_count",
-            "max_block_nesting_depth",
-        ]
-
-    def validated_ast_query_sort_by(input_value, argument_name):
-        input_value = validated_non_empty_string(input_value, argument_name)
-        supported_fields = supported_ast_query_sort_fields()
-        if input_value not in supported_fields:
-            raise DomainException(
-                "%s must be one of: %s."
-                % (
-                    argument_name,
-                    ", ".join(supported_fields),
-                )
-            )
-        return input_value
-
     def validated_ast_pattern(input_value, argument_name):
         if not isinstance(input_value, dict):
-            raise DomainException("%s must be a dictionary." % argument_name)
+            raise DomainException('%s must be a dictionary.' % argument_name)
+        supported_node_kinds = {
+            'method',
+            'message_send',
+            'cascade',
+            'assignment',
+            'return',
+            'block',
+            'dynamic_array',
+            'literal',
+            'variable',
+        }
+        supported_send_kinds = {'unary', 'binary', 'keyword'}
         supported_integer_fields = [
-            "min_send_count",
-            "max_send_count",
-            "min_keyword_send_count",
-            "max_keyword_send_count",
-            "min_unary_send_count",
-            "max_unary_send_count",
-            "min_binary_send_count",
-            "max_binary_send_count",
-            "min_block_count",
-            "max_block_count",
-            "min_return_count",
-            "max_return_count",
-            "min_cascade_count",
-            "max_cascade_count",
-            "min_assignment_count",
-            "max_assignment_count",
-            "min_statement_terminator_count",
-            "max_statement_terminator_count",
-            "min_explicit_self_send_count",
-            "max_explicit_self_send_count",
-            "min_explicit_super_send_count",
-            "max_explicit_super_send_count",
-            "min_body_line_count",
-            "max_body_line_count",
-            "min_statement_count",
-            "max_statement_count",
-            "min_temporary_count",
-            "max_temporary_count",
-            "min_branch_selector_count",
-            "max_branch_selector_count",
-            "min_loop_selector_count",
-            "max_loop_selector_count",
-            "min_max_block_nesting_depth",
-            "max_max_block_nesting_depth",
-        ]
-        supported_list_fields = [
-            "required_selectors",
-            "any_required_selectors",
-            "excluded_selectors",
-            "required_send_types",
-            "excluded_send_types",
-            "required_receiver_hints",
-            "excluded_receiver_hints",
+            'min_nesting_depth',
+            'max_nesting_depth',
+            'min_message_count',
+            'max_message_count',
         ]
         supported_string_fields = [
-            "method_selector_regex",
+            'node_kind',
+            'selector',
+            'selector_regex',
+            'send_kind',
         ]
-        supported_fields = set(
-            supported_integer_fields + supported_list_fields + supported_string_fields
-        )
+        supported_fields = set(supported_integer_fields + supported_string_fields)
         for pattern_key in input_value.keys():
             if pattern_key not in supported_fields:
                 raise DomainException(
-                    "Unsupported ast_pattern field: %s." % pattern_key
+                    'Unsupported ast_pattern field: %s.' % pattern_key
                 )
         validated_pattern = {}
-        selector_list_fields = {
-            "required_selectors",
-            "any_required_selectors",
-            "excluded_selectors",
-        }
-        send_type_list_fields = {
-            "required_send_types",
-            "excluded_send_types",
-        }
-        receiver_hint_list_fields = {
-            "required_receiver_hints",
-            "excluded_receiver_hints",
-        }
-        supported_send_types = {"keyword", "unary", "binary"}
-        supported_receiver_hints = {"self", "super", "unknown"}
         for field_name in supported_integer_fields:
             if field_name in input_value:
                 field_value = input_value[field_name]
                 if not isinstance(field_value, int) or field_value < 0:
                     raise DomainException(
-                        "%s.%s must be a non-negative integer."
-                        % (
-                            argument_name,
-                            field_name,
-                        )
+                        '%s.%s must be a non-negative integer.'
+                        % (argument_name, field_name)
                     )
                 validated_pattern[field_name] = field_value
-        for field_name in supported_list_fields:
-            if field_name in input_value:
-                field_values = input_value[field_name]
-                if not isinstance(field_values, list):
-                    raise DomainException(
-                        "%s.%s must be a list."
-                        % (
-                            argument_name,
-                            field_name,
-                        )
-                    )
-                if field_name in selector_list_fields:
-                    validated_pattern[field_name] = [
-                        validated_selector(
-                            field_value,
-                            "%s.%s" % (argument_name, field_name),
-                        )
-                        for field_value in field_values
-                    ]
-                if field_name in send_type_list_fields:
-                    validated_values = []
-                    for field_value in field_values:
-                        field_value = validated_non_empty_string(
-                            field_value,
-                            "%s.%s" % (argument_name, field_name),
-                        )
-                        if field_value not in supported_send_types:
-                            raise DomainException(
-                                ("%s.%s entries must be one of: %s.")
-                                % (
-                                    argument_name,
-                                    field_name,
-                                    ", ".join(sorted(supported_send_types)),
-                                )
-                            )
-                        if field_value not in validated_values:
-                            validated_values.append(field_value)
-                    validated_pattern[field_name] = validated_values
-                if field_name in receiver_hint_list_fields:
-                    validated_values = []
-                    for field_value in field_values:
-                        field_value = validated_non_empty_string(
-                            field_value,
-                            "%s.%s" % (argument_name, field_name),
-                        )
-                        if field_value not in supported_receiver_hints:
-                            raise DomainException(
-                                ("%s.%s entries must be one of: %s.")
-                                % (
-                                    argument_name,
-                                    field_name,
-                                    ", ".join(sorted(supported_receiver_hints)),
-                                )
-                            )
-                        if field_value not in validated_values:
-                            validated_values.append(field_value)
-                    validated_pattern[field_name] = validated_values
-        if "method_selector_regex" in input_value:
-            method_selector_regex = validated_non_empty_string(
-                input_value["method_selector_regex"],
-                "%s.method_selector_regex" % argument_name,
+        if 'node_kind' in input_value:
+            node_kind = validated_non_empty_string(
+                input_value['node_kind'],
+                '%s.node_kind' % argument_name,
+            )
+            if node_kind not in supported_node_kinds:
+                raise DomainException(
+                    '%s.node_kind must be one of: %s.'
+                    % (argument_name, ', '.join(sorted(supported_node_kinds)))
+                )
+            validated_pattern['node_kind'] = node_kind
+        if 'send_kind' in input_value:
+            send_kind = validated_non_empty_string(
+                input_value['send_kind'],
+                '%s.send_kind' % argument_name,
+            )
+            if send_kind not in supported_send_kinds:
+                raise DomainException(
+                    '%s.send_kind must be one of: %s.'
+                    % (argument_name, ', '.join(sorted(supported_send_kinds)))
+                )
+            validated_pattern['send_kind'] = send_kind
+        if 'selector' in input_value:
+            validated_pattern['selector'] = validated_non_empty_string(
+                input_value['selector'],
+                '%s.selector' % argument_name,
+            )
+        if 'selector_regex' in input_value:
+            selector_regex = validated_non_empty_string(
+                input_value['selector_regex'],
+                '%s.selector_regex' % argument_name,
             )
             try:
-                re.compile(method_selector_regex)
+                re.compile(selector_regex)
             except re.error as error:
                 raise DomainException(
-                    "%s.method_selector_regex is not valid regex: %s."
-                    % (
-                        argument_name,
-                        error,
-                    )
+                    '%s.selector_regex is not valid regex: %s.'
+                    % (argument_name, error)
                 )
-            validated_pattern["method_selector_regex"] = method_selector_regex
+            validated_pattern['selector_regex'] = selector_regex
         range_field_pairs = [
-            ("min_send_count", "max_send_count"),
-            ("min_keyword_send_count", "max_keyword_send_count"),
-            ("min_unary_send_count", "max_unary_send_count"),
-            ("min_binary_send_count", "max_binary_send_count"),
-            ("min_block_count", "max_block_count"),
-            ("min_return_count", "max_return_count"),
-            ("min_cascade_count", "max_cascade_count"),
-            ("min_assignment_count", "max_assignment_count"),
-            (
-                "min_statement_terminator_count",
-                "max_statement_terminator_count",
-            ),
-            (
-                "min_explicit_self_send_count",
-                "max_explicit_self_send_count",
-            ),
-            (
-                "min_explicit_super_send_count",
-                "max_explicit_super_send_count",
-            ),
-            ("min_body_line_count", "max_body_line_count"),
-            ("min_statement_count", "max_statement_count"),
-            ("min_temporary_count", "max_temporary_count"),
-            ("min_branch_selector_count", "max_branch_selector_count"),
-            ("min_loop_selector_count", "max_loop_selector_count"),
-            (
-                "min_max_block_nesting_depth",
-                "max_max_block_nesting_depth",
-            ),
+            ('min_nesting_depth', 'max_nesting_depth'),
+            ('min_message_count', 'max_message_count'),
         ]
         for min_field_name, max_field_name in range_field_pairs:
             has_range = (
@@ -1909,11 +1768,12 @@ def register_tools(
                 and max_field_name in validated_pattern
             )
             if has_range:
-                min_field_value = validated_pattern[min_field_name]
-                max_field_value = validated_pattern[max_field_name]
-                if min_field_value > max_field_value:
+                if (
+                    validated_pattern[min_field_name]
+                    > validated_pattern[max_field_name]
+                ):
                     raise DomainException(
-                        ("%s.%s cannot be greater than %s.%s.")
+                        '%s.%s cannot be greater than %s.%s.'
                         % (
                             argument_name,
                             min_field_name,
@@ -3612,8 +3472,6 @@ def register_tools(
         show_instance_side=True,
         method_category="all",
         max_results=None,
-        sort_by="scan_order",
-        sort_descending=False,
     ):
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
@@ -3645,14 +3503,6 @@ def register_tools(
                 max_results,
                 "max_results",
             )
-            sort_by = validated_ast_query_sort_by(
-                sort_by,
-                "sort_by",
-            )
-            sort_descending = validated_boolean_like(
-                sort_descending,
-                "sort_descending",
-            )
             started_at = time.perf_counter()
             query_result = browser_session.query_methods_by_ast_pattern(
                 ast_pattern,
@@ -3661,8 +3511,6 @@ def register_tools(
                 show_instance_side=show_instance_side,
                 method_category=method_category,
                 max_results=max_results,
-                sort_by=sort_by,
-                sort_descending=sort_descending,
             )
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             return {
@@ -3674,14 +3522,10 @@ def register_tools(
                 "show_instance_side": show_instance_side,
                 "method_category": method_category,
                 "max_results": max_results,
-                "sort_by": sort_by,
-                "sort_descending": sort_descending,
                 "elapsed_ms": elapsed_ms,
                 "match_count": query_result["match_count"],
                 "scanned_method_count": query_result["scanned_method_count"],
                 "truncated": query_result["truncated"],
-                "result_sort_by": query_result["sort_by"],
-                "result_sort_descending": query_result["sort_descending"],
                 "matches": query_result["matches"],
             }
         except GemstoneError as error:
