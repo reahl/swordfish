@@ -3860,6 +3860,8 @@ def register_tools(
 
     @experimental_tool()
     def gs_tracer_status(connection_id):
+        """Report whether the tracer (runtime sender observation) is installed,
+        enabled and manifest-current. Requires --allow-tracing to be useful."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -3886,6 +3888,9 @@ def register_tools(
 
     @experimental_tool()
     def gs_tracer_install(connection_id):
+        """Install the tracer support classes in the image. Requires --allow-tracing,
+        --allow-source-write and an active transaction. Pair with
+        gs_tracer_enable to start observing."""
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_tracer_install",
@@ -3921,6 +3926,9 @@ def register_tools(
 
     @experimental_tool()
     def gs_tracer_enable(connection_id, force=False):
+        """Enable tracing in the current image. Requires --allow-tracing and an
+        active transaction. Pass force=True to enable even if the installed
+        manifest does not match the expected version."""
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_tracer_enable",
@@ -3966,6 +3974,8 @@ def register_tools(
 
     @experimental_tool()
     def gs_tracer_disable(connection_id):
+        """Disable tracing without uninstalling the support classes. Requires
+        --allow-tracing."""
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_tracer_disable",
@@ -4001,6 +4011,8 @@ def register_tools(
 
     @experimental_tool()
     def gs_tracer_uninstall(connection_id):
+        """Uninstall the tracer support classes. Requires --allow-tracing,
+        --allow-source-write and an active transaction."""
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_tracer_uninstall",
@@ -4040,6 +4052,9 @@ def register_tools(
         method_name,
         max_results=None,
     ):
+        """Begin tracing a selector: subsequent sends are recorded as observed
+        senders. Requires --allow-tracing and an active transaction. Read
+        results with gs_tracer_find_observed_senders."""
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_tracer_trace_selector",
@@ -4096,6 +4111,8 @@ def register_tools(
         connection_id,
         method_name,
     ):
+        """Stop tracing a selector and restore the original method. Requires
+        --allow-tracing and an active transaction."""
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_tracer_untrace_selector",
@@ -4141,6 +4158,8 @@ def register_tools(
 
     @experimental_tool()
     def gs_tracer_clear_observed_senders(connection_id, method_name=None):
+        """Clear recorded observed-sender data. With method_name=None clears all;
+        with a selector clears only that selector. Requires --allow-tracing."""
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_tracer_clear_observed_senders",
@@ -4190,6 +4209,9 @@ def register_tools(
         max_results=None,
         count_only=False,
     ):
+        """Return the runtime senders that were observed for a selector while
+        tracing was active. The strict counterpart to gs_find_senders (static).
+        Requires --allow-tracing."""
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_tracer_find_observed_senders",
@@ -4254,6 +4276,9 @@ def register_tools(
         max_senders_per_selector=200,
         max_test_methods=200,
     ):
+        """Plan a set of test_method candidates that exercise senders of a
+        selector, returning a test_plan_id. Feed that id into
+        gs_collect_sender_evidence. Requires --allow-tracing."""
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_plan_evidence_tests",
@@ -4341,6 +4366,12 @@ def register_tools(
         clear_observed=True,
         untrace_after=True,
     ):
+        """Run the planned (or explicit) tests with the tracer enabled and
+        return observed senders. Use test_plan_id from gs_plan_evidence_tests,
+        or pass explicit test_case_class_name/test_method_selector/package_name.
+        Produces an evidence_run_id consumable by
+        gs_apply_selector_rename(require_observed_sender_evidence=True).
+        Requires --allow-tracing and an active transaction."""
         tracing_error_response = require_tracing_enabled(
             connection_id,
             "gs_collect_sender_evidence",
