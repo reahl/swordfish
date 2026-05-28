@@ -19,6 +19,27 @@ def import_fast_mcp():
     return FastMCP
 
 
+SWORDFISH_MCP_INSTRUCTIONS = """\
+Swordfish is a Smalltalk IDE MCP server for GemStone. Tools default to
+token-economical shapes: gs_method_ast returns a bodyless outline of the
+recursive-descent AST (drill with node_path / include_source);
+gs_find_senders returns sliced send-sites (set granularity='method' for
+whole-method results); gs_query_methods_by_ast_pattern returns node
+addresses, not method bodies.
+
+All code changes are explicit-transaction: call gs_begin first, then either
+the preview/apply pair pattern for refactorings (gs_preview_* before
+gs_apply_*) or direct gs_compile_method, then gs_commit (requires
+approval) or gs_abort. gs_eval is powerful and should be exceptional -
+prefer structured tools for routine work.
+
+The Smalltalk parser is always available - no install step is required for
+AST tools. Call gs_capabilities for the stable list of policy switches and
+permissions, and gs_guidance for advice that depends on current state
+(e.g., what is and is not allowed when commit, eval, or tracing are off).
+"""
+
+
 def create_server(
     allow_source_read=True,
     allow_source_write=False,
@@ -64,6 +85,7 @@ def create_server(
         constructor_signature and "version" in constructor_signature.parameters
     ):
         server_arguments["version"] = __version__
+    add_server_argument("instructions", SWORDFISH_MCP_INSTRUCTIONS)
     add_server_argument("host", mcp_host)
     add_server_argument("port", mcp_port)
     add_server_argument(

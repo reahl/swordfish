@@ -257,3 +257,45 @@ def test_create_server_passes_streamable_http_network_configuration():
     assert captured["host"] == "127.0.0.1"
     assert captured["port"] == 9177
     assert captured["streamable_http_path"] == "/running-ide"
+
+
+
+def test_create_server_passes_orientation_instructions_to_fast_mcp():
+    """AI: A fresh model arriving at the server needs to know the conventions
+    that the tool catalog alone does not convey - token-economical defaults, the
+    preview/apply pattern for refactoring, that the parser is always available.
+    The MCP spec provides server-level instructions for exactly this passive,
+    always-in-context surface, and create_server must pass them through."""
+
+    class FakeServer:
+        pass
+
+    captured = {}
+
+    def fake_fast_mcp(name, version, instructions=None):
+        captured["instructions"] = instructions
+        return FakeServer()
+
+    def fake_register_tools(mcp_server, **kwargs):
+        pass
+
+    with patch(
+        "reahl.swordfish.mcp.server.import_fast_mcp",
+        return_value=fake_fast_mcp,
+    ):
+        with patch(
+            "reahl.swordfish.mcp.server.import_tool_registration",
+            return_value=fake_register_tools,
+        ):
+            create_server(
+                allow_eval_arbitrary=False,
+                allow_source_write=False,
+                allow_commit=False,
+                allow_tracing=False,
+                require_gemstone_ast=False,
+            )
+
+    assert captured["instructions"] is not None
+    assert 'token-economical' in captured["instructions"]
+    assert 'gs_method_ast' in captured["instructions"]
+    assert 'preview/apply' in captured["instructions"]

@@ -1837,6 +1837,10 @@ def register_tools(
         rpc_hostname="localhost",
         netldi_name="gemnetobject",
     ):
+        """Open a GemStone session. When the IDE GUI is logged in this attaches to
+        the shared IDE session and returns the IDE connection_id; otherwise
+        creates a linked or rpc session based on connection_mode. Returns the
+        connection_id needed by every other tool."""
         if integrated_session_state.has_ide_session():
             gemstone_session = integrated_session_state.ide_session_for_mcp()
             if gemstone_session is None:
@@ -1920,6 +1924,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_disconnect(connection_id):
+        """Close a session and remove its connection_id. Disabled while the IDE
+        owns the active session - the IDE manages its own connection lifetime."""
         if (
             gui_session_is_active()
             and has_connection(connection_id)
@@ -1963,6 +1969,9 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_begin(connection_id):
+        """Start an explicit GemStone transaction on this connection. All write
+        tools require an active transaction; pair with gs_commit (requires
+        approval) or gs_abort. Requires --allow-source-write."""
         source_write_error_response = require_source_write_enabled(
             connection_id,
             "gs_begin",
@@ -1998,6 +2007,9 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_begin_if_needed(connection_id):
+        """Idempotent variant of gs_begin: only starts a transaction if none is
+        active. Returns began_transaction=False when one was already running.
+        Requires --allow-source-write."""
         source_write_error_response = require_source_write_enabled(
             connection_id,
             "gs_begin_if_needed",
@@ -2051,6 +2063,9 @@ def register_tools(
         approved_by_user=False,
         approval_note="",
     ):
+        """Commit the active transaction. Requires --allow-commit and explicit
+        confirmation: approved_by_user=True with a non-empty approval_note.
+        Pair with gs_begin / gs_abort."""
         if not commit_allowed_for_current_mode():
             return disabled_tool_response(
                 connection_id,
@@ -2097,6 +2112,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_transaction_status(connection_id):
+        """Report whether a transaction is active for the connection and what
+        connection_mode it was opened with."""
         _, error_response = get_active_session(connection_id)
         if error_response:
             return error_response
@@ -2533,6 +2550,10 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_capabilities():
+        """Stable catalog of policy flags, tool groups and AST backend status.
+        Call once on startup to learn what is enabled (writes, eval, tracing,
+        IDE, commit) and which tools belong to which workflow group. For
+        runtime-dependent advice use gs_guidance."""
         ast_backend = browser_session_for_policy(None).ast_backend_status()
         gui_active = gui_session_is_active()
         shared_connection_id = None
@@ -2705,6 +2726,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_abort(connection_id):
+        """Abort the active transaction and discard uncommitted work. Counterpart
+        to gs_commit; requires --allow-source-write."""
         source_write_error_response = require_source_write_enabled(
             connection_id,
             "gs_abort",
@@ -2740,6 +2763,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_list_categories(connection_id):
+        """List all class categories (Smalltalk class organization) on the stone."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -2758,6 +2782,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_list_dictionaries(connection_id):
+        """List all symbol dictionaries on the current user's symbol list."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -2776,6 +2801,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_rowan_installed(connection_id):
+        """Report whether Rowan (package manager) is installed on this stone.
+        Use this before calling gs_list_rowan_packages."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -2794,6 +2821,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_list_rowan_packages(connection_id):
+        """List all Rowan packages installed on this stone. Errors with a domain
+        message if Rowan itself is not installed."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -2820,6 +2849,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_list_classes_in_category(connection_id, category_name):
+        """List the classes in the named class category."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -2849,6 +2879,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_list_classes_in_dictionary(connection_id, dictionary_name):
+        """List the classes defined in the named symbol dictionary."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -2878,6 +2909,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_list_classes_in_rowan_package(connection_id, package_name):
+        """List the classes that belong to the named Rowan package. Errors if
+        Rowan is not installed."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -2909,6 +2942,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_package_exists(connection_id, package_name):
+        """Report whether a Rowan package with the given name is installed."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -3090,6 +3124,8 @@ def register_tools(
         class_name,
         show_instance_side=True,
     ):
+        """List the method categories (protocols) defined on a class, on the
+        instance side or the class side."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -3127,6 +3163,9 @@ def register_tools(
         method_category="all",
         show_instance_side=True,
     ):
+        """List method selectors on a class, scoped to a side and optionally a
+        single method_category. Pass method_category='all' (the default) for
+        every selector, or a specific category to scope."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -3167,6 +3206,9 @@ def register_tools(
         method_selector,
         show_instance_side=True,
     ):
+        """Return the source code of a method. For structure-only navigation
+        prefer gs_method_ast (bodyless outline) or gs_method_structure_summary
+        - they are cheaper."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -3208,6 +3250,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_find_classes(connection_id, search_input):
+        """Search class names by case-insensitive substring or pattern. Use for
+        a first-pass shortlist before listing methods."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -3238,6 +3282,9 @@ def register_tools(
         method_selector,
         show_instance_side=True,
     ):
+        """List the message sends performed by a method, with location and
+        receiver information. Token-cheaper than the full source when you only
+        need the call graph of one method."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -3297,6 +3344,12 @@ def register_tools(
         node_path=None,
         include_source=False,
     ):
+        """Return the recursive-descent AST of a method. Defaults to a bodyless
+        outline - one entry per node with node_path, kind, summary, start/end -
+        so a caller can navigate structure without paying tokens for source.
+        Pass node_path to scope the outline to one subtree (the find_symbol
+        analog), or include_source=True to attach each node's exact source
+        slice. Falls back to a source heuristic on SmalltalkSyntaxError."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -3360,6 +3413,9 @@ def register_tools(
         method_selector,
         show_instance_side=True,
     ):
+        """Return a compact structural summary of a method (statement count,
+        nesting, sends-per-statement, etc.) without source. Cheaper than
+        gs_method_ast when you only need scalar metrics."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -3415,6 +3471,8 @@ def register_tools(
         method_selector,
         show_instance_side=True,
     ):
+        """Return a control-flow summary of a method (branches, loops, returns,
+        nesting depth) without source."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -3473,6 +3531,13 @@ def register_tools(
         method_category="all",
         max_results=None,
     ):
+        """Structural search across method ASTs. The ast_pattern is a node-level
+        filter (node_kind, selector, selector_regex, send_kind,
+        min/max_nesting_depth, min/max_message_count); matches return as
+        addresses (class, selector, node_path, kind, summary, start, end)
+        rather than method bodies, so a fan-out search stays token-cheap.
+        Scope with package_name / class_name / show_instance_side /
+        method_category."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -3549,6 +3614,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_find_selectors(connection_id, search_input):
+        """Search method selectors by substring or pattern across the image.
+        Pair with gs_find_implementors / gs_find_senders to narrow."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -3573,6 +3640,9 @@ def register_tools(
         max_results=None,
         count_only=False,
     ):
+        """Find classes that implement a given selector. By default returns the
+        full list with class/side context; pass count_only to skip the result
+        list, or max_results to cap."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -3628,6 +3698,12 @@ def register_tools(
         count_only=False,
         granularity='send_site',
     ):
+        """Find static senders of a selector. By default returns sliced
+        send-sites - one entry per call site with class, method_selector and
+        send location - which is token-cheaper than fetching whole sender
+        methods. Pass granularity='method' for whole-method results, or
+        granularity='identifier' for identifier-level locations only.
+        count_only skips the result list and returns counts only."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -3680,6 +3756,9 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_ast_status(connection_id):
+        """Report whether the GemStone-side AST support class is installed and
+        whether its manifest matches the expected version. Also reports the
+        require_gemstone_ast policy flag."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -3706,6 +3785,9 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_ast_install(connection_id):
+        """Install or upgrade the GemStone-side AST support class. Requires
+        --allow-source-write and an active transaction. The Python parser is
+        always available; this only matters when require_gemstone_ast is set."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -4772,6 +4854,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_get_class_definition(connection_id, class_name):
+        """Return the printable class definition string for a class."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -4993,6 +5076,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_list_test_case_classes(connection_id, package_name=None):
+        """List TestCase subclasses on the stone, optionally scoped to a Rowan
+        package_name."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
