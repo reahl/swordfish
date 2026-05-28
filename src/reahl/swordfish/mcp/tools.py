@@ -2133,6 +2133,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_ide_navigation_status(connection_id):
+        """Report whether IDE navigation actions are available for the connection
+        (requires the GUI to be running and the shared IDE connection_id)."""
         ide_read_error_response = require_ide_read_enabled(
             connection_id,
             "gs_ide_navigation_status",
@@ -2159,6 +2161,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_ide_current_view(connection_id):
+        """Return the IDE's current view (selected class, method, browser pane).
+        Cheap snapshot for the model to orient before navigating."""
         return perform_ide_navigation_action(
             connection_id,
             "query_current_view",
@@ -2172,6 +2176,8 @@ def register_tools(
         oops,
         clear_existing=False,
     ):
+        """Open an object inspector graph in the IDE for the given oop list.
+        Pass clear_existing=True to drop currently graphed oops first."""
         try:
             oop_labels = validated_oop_labels(oops, "oops")
             clear_existing = validated_boolean_like(
@@ -2199,6 +2205,8 @@ def register_tools(
         class_name,
         show_instance_side=True,
     ):
+        """Select a class in the IDE browser so subsequent IDE actions act on it.
+        show_instance_side toggles the instance-side / class-side switch."""
         try:
             class_name = validated_non_empty_string_stripped(
                 class_name,
@@ -2231,6 +2239,7 @@ def register_tools(
         method_selector,
         show_instance_side=True,
     ):
+        """Open a method in the IDE browser, selecting its class and side."""
         try:
             class_name = validated_non_empty_string_stripped(
                 class_name,
@@ -2263,6 +2272,8 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_ide_query_uml_diagram(connection_id):
+        """Return the IDE's current UML diagram contents (classes, associations,
+        inheritance edges)."""
         return perform_ide_navigation_action(
             connection_id,
             'query_uml_diagram',
@@ -2272,6 +2283,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_ide_add_class_to_uml(connection_id, class_name):
+        """Add a class to the IDE's UML diagram."""
         try:
             class_name = validated_non_empty_string_stripped(
                 class_name,
@@ -2294,6 +2306,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_ide_remove_class_from_uml(connection_id, class_name):
+        """Remove a class from the IDE's UML diagram."""
         try:
             class_name = validated_non_empty_string_stripped(
                 class_name,
@@ -2320,6 +2333,8 @@ def register_tools(
         method_selector,
         show_instance_side=True,
     ):
+        """Pin a specific method to its class box in the UML diagram so it stays
+        visible when the diagram is reflowed."""
         try:
             class_name = validated_non_empty_string_stripped(
                 class_name,
@@ -2357,6 +2372,8 @@ def register_tools(
         inst_var_name,
         target_class_name,
     ):
+        """Add an association arrow from source_class_name.inst_var_name to
+        target_class_name in the UML diagram."""
         try:
             source_class_name = validated_non_empty_string_stripped(
                 source_class_name,
@@ -2393,6 +2410,8 @@ def register_tools(
         source_class_name,
         target_class_name,
     ):
+        """Add the inheritance edge between source_class_name and target_class_name
+        to the UML diagram."""
         try:
             source_class_name = validated_non_empty_string_stripped(
                 source_class_name,
@@ -2420,6 +2439,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_ide_clear_uml_diagram(connection_id):
+        """Clear the IDE's UML diagram."""
         return perform_ide_navigation_action(
             connection_id,
             'clear_uml_diagram',
@@ -2428,6 +2448,7 @@ def register_tools(
 
     @mcp_server.tool()
     def gs_ide_undo_uml_diagram(connection_id):
+        """Undo the last UML diagram edit."""
         return perform_ide_navigation_action(
             connection_id,
             'undo_uml_diagram',
@@ -2444,6 +2465,9 @@ def register_tools(
         include_extension_method_category_for_class_category=True,
         reasoning_note="",
     ):
+        """Apply class/category/selector filters to the IDE's find-senders dialog.
+        Pass None for any filter to leave it unchanged. reasoning_note is
+        attached to the action for audit/replay."""
         try:
             class_category_filters = validated_string_list_or_none(
                 class_category_filters,
@@ -2504,6 +2528,8 @@ def register_tools(
         connection_id,
         source="",
     ):
+        """Open the IDE's run/workspace window, optionally seeding it with source
+        text."""
         return perform_ide_navigation_action(
             connection_id,
             "open_run_window",
@@ -2516,6 +2542,9 @@ def register_tools(
         debug_id,
         ask_before_open=True,
     ):
+        """Open the IDE debugger on a paused debug_id from gs_debug_test_method,
+        gs_run_test_method or gs_debug_eval. ask_before_open=False suppresses
+        the confirmation prompt in the IDE."""
         try:
             debug_id = validated_non_empty_string_stripped(
                 debug_id,
