@@ -1210,11 +1210,15 @@ def test_live_gs_find_implementors_and_senders_support_limits_and_counts(
     assert senders_result["total_count"] >= 1
     assert senders_result["returned_count"] == len(senders_result["senders"])
     assert senders_result["elapsed_ms"] >= 0
-    assert {
-        "class_name": class_name,
-        "show_instance_side": True,
-        "method_selector": sender_selector,
-    } in senders_result["senders"]
+    matching_senders = [
+        sender
+        for sender in senders_result["senders"]
+        if sender["class_name"] == class_name
+        and sender["show_instance_side"] is True
+        and sender["method_selector"] == sender_selector
+    ]
+    assert len(matching_senders) == 1, senders_result
+    assert matching_senders[0]["send_sites"], matching_senders[0]
     limited_senders_result = live_connection.gs_find_senders(
         live_connection.connection_id,
         target_selector,

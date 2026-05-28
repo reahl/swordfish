@@ -6035,6 +6035,7 @@ class GemstoneBrowserSession:
         max_results=None,
         count_only=False,
         include_category_details=False,
+        granularity='identifier',
     ):
         method_summaries = self.selector_occurrence_summaries(
             method_name,
@@ -6045,11 +6046,45 @@ class GemstoneBrowserSession:
         limited_senders = (
             [] if count_only else self.limited_entries(method_summaries, max_results)
         )
+        detailed_senders = [
+            self.sender_with_call_detail(sender, method_name, granularity)
+            for sender in limited_senders
+        ]
         return {
-            "senders": limited_senders,
+            "senders": detailed_senders,
             "total_count": total_count,
-            "returned_count": len(limited_senders),
+            "returned_count": len(detailed_senders),
         }
+
+    def sender_with_call_detail(self, sender, method_name, granularity):
+        if granularity == 'identifier':
+            return sender
+        source = self.get_method_source(
+            sender["class_name"],
+            sender["method_selector"],
+            sender["show_instance_side"],
+        )
+        if granularity == 'method':
+            return {**sender, 'method_source': source}
+        return {**sender, **self.send_sites_in_source(source, method_name)}
+
+    def send_sites_in_source(self, source, method_name):
+        try:
+            method_node = SmalltalkMethodParser().parse_method(source)
+        except SmalltalkSyntaxError:
+            return {'send_sites_unavailable': 'parse_error', 'method_source': source}
+        indexed_nodes = index_nodes_by_path(method_node)
+        send_sites = [
+            {
+                'node_path': path,
+                'start': node.start_offset,
+                'end': node.end_offset,
+                'source': source[node.start_offset : node.end_offset],
+            }
+            for path, node in indexed_nodes.items()
+            if node.node_kind == 'message_send' and node.selector == method_name
+        ]
+        return {'send_sites': send_sites}
 
     def find_class_references(
         self,

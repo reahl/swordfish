@@ -565,6 +565,13 @@ def register_tools(
                 return False
         raise DomainException("%s must be a boolean." % argument_name)
 
+    def validated_sender_granularity(input_value):
+        if input_value in ('identifier', 'send_site', 'method'):
+            return input_value
+        raise DomainException(
+            "granularity must be one of 'identifier', 'send_site' or 'method'."
+        )
+
     def current_eval_mode():
         if not get_permissions()['allow_eval_arbitrary']:
             return "disabled"
@@ -3775,6 +3782,7 @@ def register_tools(
         method_name,
         max_results=None,
         count_only=False,
+        granularity='send_site',
     ):
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
@@ -3786,11 +3794,13 @@ def register_tools(
                 "max_results",
             )
             count_only = validated_boolean(count_only, "count_only")
+            granularity = validated_sender_granularity(granularity)
             started_at = time.perf_counter()
             search_result = browser_session.find_senders(
                 method_name,
                 max_results=max_results,
                 count_only=count_only,
+                granularity=granularity,
             )
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             return {
@@ -3799,6 +3809,7 @@ def register_tools(
                 "method_name": method_name,
                 "max_results": max_results,
                 "count_only": count_only,
+                "granularity": granularity,
                 "total_count": search_result["total_count"],
                 "returned_count": search_result["returned_count"],
                 "elapsed_ms": elapsed_ms,
