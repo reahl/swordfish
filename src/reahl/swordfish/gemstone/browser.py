@@ -3425,7 +3425,7 @@ class GemstoneBrowserSession:
         overwrite_target_method=False,
         delete_source_method=True,
     ):
-        self.ensure_refactoring_uses_real_ast("method move apply")
+        self.ensure_refactoring_uses_real_ast('method move apply')
         source_show_instance_side = self.validated_show_instance_side(
             source_show_instance_side
         )
@@ -3434,11 +3434,11 @@ class GemstoneBrowserSession:
         )
         overwrite_target_method = self.validated_boolean_flag(
             overwrite_target_method,
-            "overwrite_target_method",
+            'overwrite_target_method',
         )
         delete_source_method = self.validated_boolean_flag(
             delete_source_method,
-            "delete_source_method",
+            'delete_source_method',
         )
         move_plan = self.method_move_plan(
             source_class_name,
@@ -3447,23 +3447,29 @@ class GemstoneBrowserSession:
             target_show_instance_side,
             method_selector,
         )
-        if move_plan["target_has_method"] and not overwrite_target_method:
+        if move_plan['target_has_method'] and not overwrite_target_method:
             raise DomainException(
                 (
-                    "Target %s (%s side) already defines %s. "
-                    "Pass overwrite_target_method=true to replace it."
+                    'Target %s (%s side) already defines %s. '
+                    'Pass overwrite_target_method=true to replace it.'
                 )
                 % (
                     target_class_name,
-                    "instance" if target_show_instance_side else "class",
+                    'instance' if target_show_instance_side else 'class',
                     method_selector,
                 )
             )
-        self.compile_method(
+        # AI: route through compile_method_with_edits with an empty edit list -
+        # method move currently copies the source verbatim onto the target class,
+        # but the slot is now in place for future move-time source edits (eg.
+        # adjusting self-sends whose selector is not on the target class) without
+        # bypassing the node-path-addressed apply path every other refactoring uses.
+        self.compile_method_with_edits(
             class_name=target_class_name,
             show_instance_side=target_show_instance_side,
-            source=move_plan["source_method_source"],
-            method_category=move_plan["source_method_category"],
+            original_source=move_plan['source_method_source'],
+            source_edits=[],
+            method_category=move_plan['source_method_category'],
         )
         source_deleted = False
         if delete_source_method:
@@ -3474,10 +3480,10 @@ class GemstoneBrowserSession:
             )
             source_deleted = True
         summary = self.method_move_summary(move_plan)
-        summary["applied"] = True
-        summary["overwrite_target_method"] = overwrite_target_method
-        summary["delete_source_method"] = delete_source_method
-        summary["source_deleted"] = source_deleted
+        summary['applied'] = True
+        summary['overwrite_target_method'] = overwrite_target_method
+        summary['delete_source_method'] = delete_source_method
+        summary['source_deleted'] = source_deleted
         return summary
 
     def method_move_plan(
