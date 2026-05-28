@@ -713,34 +713,6 @@ class GemstoneBrowserSession:
                 return False
         return True
 
-    def supported_ast_query_sort_fields(self):
-        return [
-            "scan_order",
-            "class_name",
-            "method_selector",
-            "send_count",
-            "keyword_send_count",
-            "unary_send_count",
-            "binary_send_count",
-            "block_count",
-            "return_count",
-            "cascade_count",
-            "assignment_count",
-            "statement_terminator_count",
-            "explicit_self_send_count",
-            "explicit_super_send_count",
-            "body_line_count",
-            "statement_count",
-            "temporary_count",
-            "branch_selector_count",
-            "loop_selector_count",
-            "max_block_nesting_depth",
-        ]
-
-    
-
-    
-
     def compiled_method_argument_and_temporary_names(
         self,
         class_name,
