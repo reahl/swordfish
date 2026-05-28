@@ -4706,11 +4706,11 @@ class GemstoneBrowserSession:
         inline_selector,
         delete_inlined_method=False,
     ):
-        self.ensure_refactoring_uses_real_ast("inline method apply")
+        self.ensure_refactoring_uses_real_ast('inline method apply')
         show_instance_side = self.validated_show_instance_side(show_instance_side)
         delete_inlined_method = self.validated_boolean_flag(
             delete_inlined_method,
-            "delete_inlined_method",
+            'delete_inlined_method',
         )
         inline_plan = self.method_inline_plan(
             class_name,
@@ -4718,11 +4718,15 @@ class GemstoneBrowserSession:
             caller_selector,
             inline_selector,
         )
-        self.compile_method(
+        # AI: route the caller recompile through compile_method_with_edits so
+        # inline shares the apply primitive with every other refactoring; the
+        # plan still builds the rewritten caller source internally for now.
+        self.compile_method_with_edits(
             class_name=class_name,
             show_instance_side=show_instance_side,
-            source=inline_plan["updated_caller_source"],
-            method_category=inline_plan["caller_method_category"],
+            original_source=inline_plan['updated_caller_source'],
+            source_edits=[],
+            method_category=inline_plan['caller_method_category'],
         )
         if delete_inlined_method:
             self.delete_method(
@@ -4731,8 +4735,8 @@ class GemstoneBrowserSession:
                 show_instance_side=show_instance_side,
             )
         summary = self.method_inline_summary(inline_plan)
-        summary["applied"] = True
-        summary["delete_inlined_method"] = delete_inlined_method
+        summary['applied'] = True
+        summary['delete_inlined_method'] = delete_inlined_method
         return summary
 
     def method_inline_plan(
