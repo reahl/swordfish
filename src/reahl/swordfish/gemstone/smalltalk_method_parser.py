@@ -21,20 +21,31 @@ class SmalltalkSyntaxError(Exception):
 class SyntaxNode:
     """A node in the method's abstract syntax tree, located by its source span."""
 
+    node_kind = 'node'
+
     def __init__(self, start_offset, end_offset, line=None, column=None):
         self.start_offset = start_offset
         self.end_offset = end_offset
         self.line = line
         self.column = column
+        self.node_path = None
+
+    def labelled_child_nodes(self):
+        return []
 
     def child_nodes(self):
-        return []
+        return [child for role_segment, child in self.labelled_child_nodes()]
+
+    def describe(self):
+        return self.node_kind
 
     def accept(self, visitor):
         return visitor.visit(self)
 
 
 class MethodNode(SyntaxNode):
+    node_kind = 'method'
+
     def __init__(
         self,
         selector,
@@ -54,11 +65,19 @@ class MethodNode(SyntaxNode):
         self.statements = statements
         self.pragmas = pragmas if pragmas is not None else []
 
-    def child_nodes(self):
-        return list(self.statements)
+    def labelled_child_nodes(self):
+        return [
+            (f'statements[{index}]', statement)
+            for index, statement in enumerate(self.statements)
+        ]
+
+    def describe(self):
+        return self.selector
 
 
 class MessageSendNode(SyntaxNode):
+    node_kind = 'message_send'
+
     def __init__(
         self,
         receiver,
@@ -76,11 +95,19 @@ class MessageSendNode(SyntaxNode):
         self.arguments = arguments
         self.send_kind = send_kind
 
-    def child_nodes(self):
-        return [self.receiver] + list(self.arguments)
+    def labelled_child_nodes(self):
+        return [('receiver', self.receiver)] + [
+            (f'arguments[{index}]', argument)
+            for index, argument in enumerate(self.arguments)
+        ]
+
+    def describe(self):
+        return self.selector
 
 
 class CascadeNode(SyntaxNode):
+    node_kind = 'cascade'
+
     def __init__(
         self, receiver, messages, start_offset, end_offset, line=None, column=None
     ):
@@ -88,11 +115,19 @@ class CascadeNode(SyntaxNode):
         self.receiver = receiver
         self.messages = messages
 
-    def child_nodes(self):
-        return [self.receiver] + list(self.messages)
+    def labelled_child_nodes(self):
+        return [('receiver', self.receiver)] + [
+            (f'messages[{index}]', message)
+            for index, message in enumerate(self.messages)
+        ]
+
+    def describe(self):
+        return ';'.join(message.selector for message in self.messages)
 
 
 class AssignmentNode(SyntaxNode):
+    node_kind = 'assignment'
+
     def __init__(
         self, variable_name, value, start_offset, end_offset, line=None, column=None
     ):
@@ -100,20 +135,30 @@ class AssignmentNode(SyntaxNode):
         self.variable_name = variable_name
         self.value = value
 
-    def child_nodes(self):
-        return [self.value]
+    def labelled_child_nodes(self):
+        return [('value', self.value)]
+
+    def describe(self):
+        return f'{self.variable_name} :='
 
 
 class ReturnNode(SyntaxNode):
+    node_kind = 'return'
+
     def __init__(self, expression, start_offset, end_offset, line=None, column=None):
         super().__init__(start_offset, end_offset, line, column)
         self.expression = expression
 
-    def child_nodes(self):
-        return [self.expression]
+    def labelled_child_nodes(self):
+        return [('expression', self.expression)]
+
+    def describe(self):
+        return '^'
 
 
 class BlockNode(SyntaxNode):
+    node_kind = 'block'
+
     def __init__(
         self,
         argument_names,
@@ -129,20 +174,38 @@ class BlockNode(SyntaxNode):
         self.temporaries = temporaries
         self.statements = statements
 
-    def child_nodes(self):
-        return list(self.statements)
+    def labelled_child_nodes(self):
+        return [
+            (f'statements[{index}]', statement)
+            for index, statement in enumerate(self.statements)
+        ]
+
+    def describe(self):
+        if self.argument_names:
+            return '[:' + ' :'.join(self.argument_names) + ' |]'
+        return '[]'
 
 
 class DynamicArrayNode(SyntaxNode):
+    node_kind = 'dynamic_array'
+
     def __init__(self, elements, start_offset, end_offset, line=None, column=None):
         super().__init__(start_offset, end_offset, line, column)
         self.elements = elements
 
-    def child_nodes(self):
-        return list(self.elements)
+    def labelled_child_nodes(self):
+        return [
+            (f'elements[{index}]', element)
+            for index, element in enumerate(self.elements)
+        ]
+
+    def describe(self):
+        return f'{{ {len(self.elements)} elements }}'
 
 
 class LiteralNode(SyntaxNode):
+    node_kind = 'literal'
+
     def __init__(
         self, literal_kind, text, start_offset, end_offset, line=None, column=None
     ):
@@ -150,14 +213,24 @@ class LiteralNode(SyntaxNode):
         self.literal_kind = literal_kind
         self.text = text
 
+    def describe(self):
+        if len(self.text) > 40:
+            return self.text[:37] + '...'
+        return self.text
+
 
 class VariableNode(SyntaxNode):
+    node_kind = 'variable'
+
     def __init__(
         self, name, start_offset, end_offset, line=None, column=None, is_pseudo=False
     ):
         super().__init__(start_offset, end_offset, line, column)
         self.name = name
         self.is_pseudo = is_pseudo
+
+    def describe(self):
+        return self.name
 
 
 class SmalltalkMethodParser:
@@ -622,3 +695,44 @@ class SmalltalkMethodParser:
             opening.line,
             opening.column,
         )
+
+
+def index_nodes_by_path(root_node):
+    """AI: Walk the method AST in pre-order, assigning each node its structural
+    node_path and returning an ordered {node_path: node} mapping. A node reached
+    by more than one route - such as the receiver a cascade shares across its
+    messages - is recorded once, at the first path that reaches it, so every node
+    has a single stable address."""
+    indexed = {}
+    already_seen = set()
+
+    def record(node, path):
+        if node is not None and id(node) not in already_seen:
+            already_seen.add(id(node))
+            node.node_path = path
+            indexed[path] = node
+            for role_segment, child in node.labelled_child_nodes():
+                record(child, f'{path}/{role_segment}')
+
+    record(root_node, 'method')
+    return indexed
+
+
+def block_nesting_depths(root_node):
+    """AI: Map id(node) -> the number of enclosing BlockNodes (its block-nesting
+    depth), so a structural query can select, for example, blocks nested two or
+    more deep. A node reached by more than one route is recorded once, matching
+    index_nodes_by_path."""
+    depths = {}
+    already_seen = set()
+
+    def record(node, depth):
+        if node is not None and id(node) not in already_seen:
+            already_seen.add(id(node))
+            depths[id(node)] = depth
+            child_depth = depth + 1 if node.node_kind == 'block' else depth
+            for role_segment, child in node.labelled_child_nodes():
+                record(child, child_depth)
+
+    record(root_node, 0)
+    return depths
