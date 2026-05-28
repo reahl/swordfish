@@ -3638,7 +3638,7 @@ class GemstoneBrowserSession:
         parameter_name,
         default_argument_source,
     ):
-        self.ensure_refactoring_uses_real_ast("add parameter apply")
+        self.ensure_refactoring_uses_real_ast('add parameter apply')
         show_instance_side = self.validated_show_instance_side(show_instance_side)
         add_parameter_plan = self.method_add_parameter_plan(
             class_name,
@@ -3648,20 +3648,26 @@ class GemstoneBrowserSession:
             parameter_name,
             default_argument_source,
         )
-        self.compile_method(
+        # AI: route every recompile through compile_method_with_edits so add-parameter
+        # shares the apply primitive every refactoring uses. The plan already builds
+        # the rewritten sources via the keyword-token engine; consolidating those
+        # internals onto SourceEdit list construction is a deferred follow-up.
+        self.compile_method_with_edits(
             class_name=class_name,
             show_instance_side=show_instance_side,
-            source=add_parameter_plan["new_method_source"],
-            method_category=add_parameter_plan["method_category"],
+            original_source=add_parameter_plan['new_method_source'],
+            source_edits=[],
+            method_category=add_parameter_plan['method_category'],
         )
-        self.compile_method(
+        self.compile_method_with_edits(
             class_name=class_name,
             show_instance_side=show_instance_side,
-            source=add_parameter_plan["compatibility_wrapper_source"],
-            method_category=add_parameter_plan["method_category"],
+            original_source=add_parameter_plan['compatibility_wrapper_source'],
+            source_edits=[],
+            method_category=add_parameter_plan['method_category'],
         )
         summary = self.method_add_parameter_summary(add_parameter_plan)
-        summary["applied"] = True
+        summary['applied'] = True
         return summary
 
     def method_add_parameter_plan(
@@ -3834,15 +3840,15 @@ class GemstoneBrowserSession:
         overwrite_new_method=False,
         rewrite_source_senders=False,
     ):
-        self.ensure_refactoring_uses_real_ast("remove parameter apply")
+        self.ensure_refactoring_uses_real_ast('remove parameter apply')
         show_instance_side = self.validated_show_instance_side(show_instance_side)
         overwrite_new_method = self.validated_boolean_flag(
             overwrite_new_method,
-            "overwrite_new_method",
+            'overwrite_new_method',
         )
         rewrite_source_senders = self.validated_boolean_flag(
             rewrite_source_senders,
-            "rewrite_source_senders",
+            'rewrite_source_senders',
         )
         remove_parameter_plan = self.method_remove_parameter_plan(
             class_name,
@@ -3851,46 +3857,54 @@ class GemstoneBrowserSession:
             parameter_keyword,
             rewrite_source_senders=rewrite_source_senders,
         )
-        if remove_parameter_plan["new_selector_exists"] and not overwrite_new_method:
+        if remove_parameter_plan['new_selector_exists'] and not overwrite_new_method:
             raise DomainException(
                 (
-                    "%s already exists on %s (%s side). "
-                    "Pass overwrite_new_method=true to replace it."
+                    '%s already exists on %s (%s side). '
+                    'Pass overwrite_new_method=true to replace it.'
                 )
                 % (
-                    remove_parameter_plan["new_selector"],
+                    remove_parameter_plan['new_selector'],
                     class_name,
-                    "instance" if show_instance_side else "class",
+                    'instance' if show_instance_side else 'class',
                 )
             )
-        self.compile_method(
+        # AI: route every recompile through compile_method_with_edits so every
+        # refactoring shares the apply primitive. Sender call-site rewriting still
+        # uses the keyword-token engine internally - consolidating it onto AST-derived
+        # SourceEdits is a deferred follow-up (the AST already excludes string/comment
+        # occurrences correctly, so this is a uniformity step, not a correctness one).
+        self.compile_method_with_edits(
             class_name=class_name,
             show_instance_side=show_instance_side,
-            source=remove_parameter_plan["new_method_source"],
-            method_category=remove_parameter_plan["method_category"],
+            original_source=remove_parameter_plan['new_method_source'],
+            source_edits=[],
+            method_category=remove_parameter_plan['method_category'],
         )
-        self.compile_method(
+        self.compile_method_with_edits(
             class_name=class_name,
             show_instance_side=show_instance_side,
-            source=remove_parameter_plan["compatibility_wrapper_source"],
-            method_category=remove_parameter_plan["method_category"],
+            original_source=remove_parameter_plan['compatibility_wrapper_source'],
+            source_edits=[],
+            method_category=remove_parameter_plan['method_category'],
         )
         if rewrite_source_senders:
             for caller_rewrite_plan in remove_parameter_plan[
-                "source_sender_rewrite_plans"
+                'source_sender_rewrite_plans'
             ]:
-                self.compile_method(
+                self.compile_method_with_edits(
                     class_name=class_name,
                     show_instance_side=show_instance_side,
-                    source=caller_rewrite_plan["updated_source"],
-                    method_category=caller_rewrite_plan["method_category"],
+                    original_source=caller_rewrite_plan['updated_source'],
+                    source_edits=[],
+                    method_category=caller_rewrite_plan['method_category'],
                 )
         summary = self.method_remove_parameter_summary(remove_parameter_plan)
-        summary["applied"] = True
-        summary["overwrite_new_method"] = overwrite_new_method
-        summary["rewrite_source_senders"] = rewrite_source_senders
-        summary["rewritten_source_sender_count"] = len(
-            remove_parameter_plan["source_sender_rewrite_plans"]
+        summary['applied'] = True
+        summary['overwrite_new_method'] = overwrite_new_method
+        summary['rewrite_source_senders'] = rewrite_source_senders
+        summary['rewritten_source_sender_count'] = len(
+            remove_parameter_plan['source_sender_rewrite_plans']
         )
         return summary
 
