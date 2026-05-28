@@ -26,6 +26,7 @@ from reahl.swordfish.gemstone import (
     close_session,
     create_linked_session,
 )
+from reahl.swordfish.gemstone.smalltalk_method_parser import SourceEdit
 from reahl.swordfish.mcp.debug_registry import clear_debug_sessions
 from reahl.swordfish.mcp.session_registry import (
     clear_connections,
@@ -3320,6 +3321,36 @@ def test_live_browser_compile_method_adds_selector_in_current_transaction(
         True,
     )
     assert selector in method_source
+
+
+@with_fixtures(LiveBrowserSessionFixture)
+def test_live_browser_compile_method_with_edits_lands_rewritten_source_in_image(
+    browser_fixture,
+):
+    """AI: A node-path-addressed rewrite must round-trip through real GemStone -
+    apply_source_edits rewrites the source in Python, compile_method_with_edits installs the
+    edited text via the normal compile path, and get_method_source serves it back unchanged,
+    so the parser-built SourceEdit really is the canonical way to refactor a method end-to-end."""
+    class_name = 'BrowserCompileEditsClass%s' % uuid.uuid4().hex[:8]
+    selector = 'browserCompileEdits%s' % uuid.uuid4().hex[:8]
+    original_source = '%s ^123' % selector
+    browser_fixture.browser_session.create_class(
+        class_name=class_name,
+        superclass_name='Object',
+    )
+    literal_start = original_source.index('123')
+    literal_end = literal_start + len('123')
+    rewrite_literal = SourceEdit(literal_start, literal_end, '987')
+
+    browser_fixture.browser_session.compile_method_with_edits(
+        class_name, True, original_source, [rewrite_literal]
+    )
+
+    installed_source = browser_fixture.browser_session.get_method_source(
+        class_name, selector, True,
+    )
+    assert '987' in installed_source
+    assert '123' not in installed_source
 
 
 @with_fixtures(LiveBrowserSessionFixture)

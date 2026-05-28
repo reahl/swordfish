@@ -14,8 +14,10 @@ from reahl.swordfish.gemstone.breakpoint_registry import (
 )
 from reahl.swordfish.gemstone.session import DomainException, render_result
 from reahl.swordfish.gemstone.smalltalk_method_parser import (
+    OverlappingSourceEditsError,
     SmalltalkMethodParser,
     SmalltalkSyntaxError,
+    apply_source_edits,
     block_nesting_depths,
     index_nodes_by_path,
 )
@@ -1885,6 +1887,27 @@ class GemstoneBrowserSession:
             symbol_list,
             method_category,
             0,
+        )
+
+    def compile_method_with_edits(
+        self,
+        class_name,
+        show_instance_side,
+        original_source,
+        source_edits,
+        method_category='as yet unclassified',
+    ):
+        """AI: Recompile a method by applying a sequence of node-path-addressed SourceEdits to
+        its known original source and routing the rewritten text through the normal
+        compile_method path. Overlapping edits have no canonical ordering, so they are
+        surfaced as a DomainException rather than silently dropping one - a caller whose view
+        of the source has diverged must rebase its edits and retry."""
+        try:
+            new_source = apply_source_edits(original_source, source_edits)
+        except OverlappingSourceEditsError as overlap_error:
+            raise DomainException(str(overlap_error))
+        return self.compile_method(
+            class_name, show_instance_side, new_source, method_category,
         )
 
     def compile_method_in_dictionary(

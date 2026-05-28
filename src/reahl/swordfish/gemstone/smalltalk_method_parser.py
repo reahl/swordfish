@@ -18,6 +18,25 @@ class SmalltalkSyntaxError(Exception):
     """Raised when source cannot be parsed into a well-formed method tree."""
 
 
+
+class OverlappingSourceEditsError(Exception):
+    """AI: Raised by apply_source_edits when two edits' source spans overlap. Overlapping
+    edits have no canonical ordering and would silently lose one or the other, so the apply
+    mechanism refuses them rather than producing an ambiguous result."""
+
+
+class SourceEdit:
+    """AI: A delta against a source string - replace text[start_offset:end_offset) with
+    replacement. Carries no AST identity of its own: SyntaxNode.as_source_edit builds one over
+    a node's exact span, while a caller can construct one directly for sub-node edits (e.g.
+    a selector token inside a MessageSendNode, where the selector is not its own AST node)."""
+
+    def __init__(self, start_offset, end_offset, replacement):
+        self.start_offset = start_offset
+        self.end_offset = end_offset
+        self.replacement = replacement
+
+
 class SyntaxNode:
     """A node in the method's abstract syntax tree, located by its source span."""
 
@@ -38,6 +57,9 @@ class SyntaxNode:
 
     def describe(self):
         return self.node_kind
+
+    def as_source_edit(self, replacement):
+        return SourceEdit(self.start_offset, self.end_offset, replacement)
 
     def accept(self, visitor):
         return visitor.visit(self)
@@ -736,3 +758,28 @@ def block_nesting_depths(root_node):
 
     record(root_node, 0)
     return depths
+
+
+
+def apply_source_edits(source, source_edits):
+    """AI: Apply a sequence of non-overlapping SourceEdits to source and return the new text.
+    Edits are validated for non-overlap, then applied in descending order of start_offset so
+    that the offsets of as-yet-unapplied edits stay valid as later spans are rewritten. The
+    caller may pass edits in any order; the relative position of two edits in the input does
+    not change the result. Overlapping edits raise OverlappingSourceEditsError."""
+    ordered_edits = sorted(source_edits, key=lambda edit: edit.start_offset)
+    for prior_edit, later_edit in zip(ordered_edits, ordered_edits[1:]):
+        if later_edit.start_offset < prior_edit.end_offset:
+            raise OverlappingSourceEditsError(
+                f'Source edits overlap: '
+                f'[{prior_edit.start_offset}, {prior_edit.end_offset}) and '
+                f'[{later_edit.start_offset}, {later_edit.end_offset}).'
+            )
+    edited_source = source
+    for edit in reversed(ordered_edits):
+        edited_source = (
+            edited_source[: edit.start_offset]
+            + edit.replacement
+            + edited_source[edit.end_offset :]
+        )
+    return edited_source

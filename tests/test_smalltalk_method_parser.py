@@ -6,9 +6,12 @@ from reahl.swordfish.gemstone.smalltalk_method_parser import (
     CascadeNode,
     MessageSendNode,
     MethodNode,
+    OverlappingSourceEditsError,
     ReturnNode,
     SmalltalkMethodParser,
     SmalltalkSyntaxError,
+    SourceEdit,
+    apply_source_edits,
     index_nodes_by_path,
 )
 
@@ -190,3 +193,68 @@ def test_a_cascade_shared_receiver_is_indexed_once_not_once_per_message(parser_f
     assert cascade.messages[0].receiver is cascade.receiver
     assert 'method/statements[0]/messages[0]/receiver' not in indexed
     assert cascade.receiver.node_path == 'method/statements[0]/receiver'
+
+
+@with_fixtures(ParserFixture)
+def test_apply_source_edits_replaces_a_single_targeted_span(parser_fixture):
+    """AI: A SourceEdit names a half-open [start,end) range and a replacement; apply_source_edits with a single edit substitutes exactly that span and leaves the rest of the source intact."""
+    source = 'oldName foo\n    ^self'
+    edit = SourceEdit(0, 7, 'newName')
+
+    assert apply_source_edits(source, [edit]) == 'newName foo\n    ^self'
+
+
+@with_fixtures(ParserFixture)
+def test_apply_source_edits_composes_multiple_non_overlapping_edits_regardless_of_order(
+    parser_fixture,
+):
+    """AI: non-overlapping edits compose unambiguously: apply_source_edits sorts them by start offset and applies right-to-left, so each unapplied edit's offsets remain valid no matter what order the caller passes them in."""
+    source = 'aaa bbb ccc'
+    first_edit = SourceEdit(0, 3, 'AAA')
+    last_edit = SourceEdit(8, 11, 'CCC')
+
+    assert (
+        apply_source_edits(source, [first_edit, last_edit])
+        == apply_source_edits(source, [last_edit, first_edit])
+        == 'AAA bbb CCC'
+    )
+
+
+@with_fixtures(ParserFixture)
+def test_overlapping_source_edits_raise_OverlappingSourceEditsError(parser_fixture):
+    """AI: two edits whose spans overlap have no canonical ordering, so apply_source_edits refuses them rather than producing one of several possible results - the invariant the apply mechanism rests on."""
+    overlapping_first = SourceEdit(0, 5, 'X')
+    overlapping_second = SourceEdit(3, 8, 'Y')
+
+    with expected(OverlappingSourceEditsError):
+        apply_source_edits('hello world', [overlapping_first, overlapping_second])
+
+
+@with_fixtures(ParserFixture)
+def test_as_source_edit_produces_an_edit_over_the_nodes_exact_span(parser_fixture):
+    """AI: A node turns itself into a SourceEdit over its own [start,end) span when given replacement text; the node_path → edit resolver in D2 is this method, called on the node looked up by index_nodes_by_path."""
+    source = 'm\n    ^x foo'
+    method = parser_fixture.parse(source)
+    indexed = index_nodes_by_path(method)
+    unary_send = indexed['method/statements[0]/expression']
+
+    edit = unary_send.as_source_edit('answer + 1')
+
+    assert edit.start_offset == unary_send.start_offset
+    assert edit.end_offset == unary_send.end_offset
+    assert apply_source_edits(source, [edit]) == 'm\n    ^answer + 1'
+
+
+@with_fixtures(ParserFixture)
+def test_a_node_path_edit_leaves_a_matching_text_inside_a_string_literal_untouched(
+    parser_fixture,
+):
+    """AI: a node-path edit targets exactly one node's source span; a string literal elsewhere whose characters happen to spell the same value is a separate LiteralNode and is left untouched - the correctness a regex replacement cannot give and the insight that makes AST-driven refactoring safe."""
+    source = "m\n    ^Array with: 42 with: '42'"
+    method = parser_fixture.parse(source)
+    indexed = index_nodes_by_path(method)
+    numeric_literal = indexed['method/statements[0]/expression/arguments[0]']
+
+    edit = numeric_literal.as_source_edit('99')
+
+    assert apply_source_edits(source, [edit]) == "m\n    ^Array with: 99 with: '42'"
