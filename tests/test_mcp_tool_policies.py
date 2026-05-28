@@ -878,130 +878,150 @@ def test_gs_capabilities_exposes_breakpoint_debugging_tools(tools_fixture):
 
 
 @with_fixtures(AllowedToolsFixture)
-def test_gs_guidance_validates_intent(tools_fixture):
-    guidance_result = tools_fixture.gs_guidance("unknown_intent")
+def test_gs_guidance_validates_selector(tools_fixture):
+    """AI: Empty string for selector is a domain error - validation should
+    catch it before any policy lookup happens."""
+    guidance_result = tools_fixture.gs_guidance(selector="")
     assert not guidance_result["ok"]
-    assert guidance_result["error"]["message"] == (
-        "intent must be one of: general, navigation, sender_analysis, "
-        "refactor, runtime_evidence."
-    )
+    assert guidance_result["error"]["message"] == "selector cannot be empty."
 
 
 @with_fixtures(AllowedToolsFixture)
-def test_gs_guidance_sender_analysis_recommends_evidence_workflow(
+def test_gs_guidance_reports_policy_flags(tools_fixture):
+    """AI: gs_guidance returns the current permission flags so a caller can
+    decide what to attempt without consulting gs_capabilities separately."""
+    guidance_result = tools_fixture.gs_guidance()
+    assert guidance_result["ok"], guidance_result
+    policy = guidance_result["policy"]
+    assert policy["allow_eval_arbitrary"] is True
+    assert policy["allow_commit"] is True
+    assert policy["allow_tracing"] is True
+    assert policy["require_gemstone_ast"] is False
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_guidance_warns_about_eval_approval_when_eval_enabled(tools_fixture):
+    """AI: When arbitrary eval is enabled, the model must be told that
+    approval and an approval_note are still required - the capability flag
+    alone does not convey this."""
+    guidance_result = tools_fixture.gs_guidance()
+    assert guidance_result["ok"], guidance_result
+    cautions_text = " ".join(guidance_result["cautions"])
+    assert "gs_eval and gs_debug_eval require approved_by_user=true" in cautions_text
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_guidance_warns_about_commit_approval_when_commit_enabled(
     tools_fixture,
 ):
-    guidance_result = tools_fixture.gs_guidance(
-        "sender_analysis",
-        selector="default",
-    )
+    """AI: When commit is enabled, the model must be told that approval
+    and a note are still required to commit."""
+    guidance_result = tools_fixture.gs_guidance()
     assert guidance_result["ok"], guidance_result
-    workflow = guidance_result["guidance"]["workflow"]
-    assert workflow[0]["tools"] == ["gs_find_senders"]
-    assert workflow[1]["tools"] == ["gs_plan_evidence_tests"]
-    assert workflow[2]["tools"] == ["gs_collect_sender_evidence"]
+    cautions_text = " ".join(guidance_result["cautions"])
+    assert "gs_commit requires explicit confirmation" in cautions_text
 
 
 @with_fixtures(AllowedToolsFixture)
-def test_gs_guidance_navigation_recommends_method_ast(tools_fixture):
-    guidance_result = tools_fixture.gs_guidance("navigation")
-    assert guidance_result["ok"], guidance_result
-    workflow = guidance_result["guidance"]["workflow"]
-    assert "gs_method_ast" in workflow[2]["tools"]
-    assert "gs_query_methods_by_ast_pattern" in workflow[2]["tools"]
-
-
-@with_fixtures(AllowedToolsFixture)
-def test_gs_guidance_runtime_evidence_includes_breakpoint_tools(tools_fixture):
-    guidance_result = tools_fixture.gs_guidance("runtime_evidence")
-    assert guidance_result["ok"], guidance_result
-    workflow = guidance_result["guidance"]["workflow"]
-    assert workflow[0]["tools"] == ["gs_breakpoint_set", "gs_breakpoint_list"]
-    assert "gs_breakpoint_clear or gs_breakpoint_clear_all" in workflow[3]["tools"]
-
-
-@with_fixtures(AllowedToolsFixture)
-def test_gs_guidance_refactor_rename_method_recommends_method_tools(
+def test_gs_guidance_recommends_eval_bypass_decision_rule_when_eval_enabled(
     tools_fixture,
 ):
-    guidance_result = tools_fixture.gs_guidance(
-        "refactor",
-        change_kind="rename_method",
-    )
+    """AI: When eval is enabled the model should still prefer explicit
+    tools - the decision rule captures that bias."""
+    guidance_result = tools_fixture.gs_guidance()
     assert guidance_result["ok"], guidance_result
-    workflow = guidance_result["guidance"]["workflow"]
-    assert workflow[0]["tools"] == ["gs_preview_rename_method"]
-    assert workflow[2]["tools"][0] == "gs_apply_rename_method"
+    eval_rule_present = any(
+        rule["when"] == "You are using gs_eval or gs_debug_eval."
+        for rule in guidance_result["decision_rules"]
+    )
+    assert eval_rule_present
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_guidance_omits_eval_caution_when_eval_disabled(tools_fixture):
+    """AI: Cautions about eval approval are noise when eval itself is off
+    - they should only appear when the dangerous capability is actually
+    available."""
+    guidance_result = tools_fixture.gs_guidance()
+    assert guidance_result["ok"], guidance_result
+    cautions_text = " ".join(guidance_result["cautions"])
+    assert "gs_eval" not in cautions_text
+
+
+@with_fixtures(RestrictedToolsFixture)
+def test_gs_guidance_omits_commit_caution_when_commit_disabled(tools_fixture):
+    """AI: Cautions about commit approval are noise when commit itself is
+    off."""
+    guidance_result = tools_fixture.gs_guidance()
+    assert guidance_result["ok"], guidance_result
+    cautions_text = " ".join(guidance_result["cautions"])
+    assert "gs_commit" not in cautions_text
 
 
 @with_fixtures(AllowedToolsFixture)
-def test_gs_guidance_refactor_move_method_recommends_move_tools(
-    tools_fixture,
-):
-    guidance_result = tools_fixture.gs_guidance(
-        "refactor",
-        change_kind="move_method",
-    )
+def test_gs_guidance_warns_about_hotspot_selector(tools_fixture):
+    """AI: Common selectors like ifTrue: are sender-heavy and most static
+    senders will be unrelated. The caller should be warned before treating
+    a static sender list as evidence."""
+    guidance_result = tools_fixture.gs_guidance(selector="ifTrue:")
     assert guidance_result["ok"], guidance_result
-    workflow = guidance_result["guidance"]["workflow"]
-    assert workflow[0]["tools"] == ["gs_preview_move_method"]
-    assert workflow[2]["tools"][0] == "gs_apply_move_method"
+    cautions_text = " ".join(guidance_result["cautions"])
+    assert "Selector ifTrue: is often high-fanout" in cautions_text
 
 
 @with_fixtures(AllowedToolsFixture)
-def test_gs_guidance_refactor_add_parameter_recommends_parameter_tools(
+def test_gs_guidance_skips_hotspot_caution_for_specific_selector(tools_fixture):
+    """AI: A specific selector that is not on the hotspot list should not
+    trigger the high-fanout caution - the warning is information, not
+    flooding."""
+    guidance_result = tools_fixture.gs_guidance(selector="specificCustomSelector:")
+    assert guidance_result["ok"], guidance_result
+    cautions_text = " ".join(guidance_result["cautions"])
+    assert "high-fanout" not in cautions_text
+
+
+@with_fixtures(AllowedToolsWithTracingDisabledFixture)
+def test_gs_guidance_points_at_tracing_when_hotspot_and_tracing_disabled(
     tools_fixture,
 ):
-    guidance_result = tools_fixture.gs_guidance(
-        "refactor",
-        change_kind="add_parameter",
-    )
+    """AI: When the caller is looking at a hotspot selector and tracing is
+    off, the missing capability is the bottleneck - tell the caller how to
+    turn it on."""
+    gs_guidance = tools_fixture.registered_mcp_tools["gs_guidance"]
+    guidance_result = gs_guidance(selector="ifTrue:")
     assert guidance_result["ok"], guidance_result
-    workflow = guidance_result["guidance"]["workflow"]
-    assert workflow[0]["tools"] == ["gs_preview_add_parameter"]
-    assert workflow[2]["tools"][0] == "gs_apply_add_parameter"
+    cautions_text = " ".join(guidance_result["cautions"])
+    assert "Runtime evidence tools are disabled" in cautions_text
 
 
 @with_fixtures(AllowedToolsFixture)
-def test_gs_guidance_refactor_remove_parameter_recommends_parameter_tools(
+def test_gs_guidance_recommends_evidence_for_hotspot_when_tracing_enabled(
     tools_fixture,
 ):
-    guidance_result = tools_fixture.gs_guidance(
-        "refactor",
-        change_kind="remove_parameter",
-    )
+    """AI: When tracing is available and the caller is looking at a hotspot,
+    the right move is to gather observed-sender evidence rather than rely on
+    static senders. The decision rule captures that."""
+    guidance_result = tools_fixture.gs_guidance(selector="ifTrue:")
     assert guidance_result["ok"], guidance_result
-    workflow = guidance_result["guidance"]["workflow"]
-    assert workflow[0]["tools"] == ["gs_preview_remove_parameter"]
-    assert workflow[2]["tools"][0] == "gs_apply_remove_parameter"
+    fanout_rule_present = any(
+        rule["when"] == "Selector fanout is high or ambiguous."
+        for rule in guidance_result["decision_rules"]
+    )
+    assert fanout_rule_present
 
 
-@with_fixtures(AllowedToolsFixture)
-def test_gs_guidance_refactor_extract_method_recommends_extract_tools(
+@with_fixtures(AllowedToolsWithNoActiveTransactionAndStrictAstFixture)
+def test_gs_guidance_reminds_about_ast_install_in_strict_ast_mode(
     tools_fixture,
 ):
-    guidance_result = tools_fixture.gs_guidance(
-        "refactor",
-        change_kind="extract_method",
-    )
+    """AI: In strict AST mode the Smalltalk-side support class is required
+    for many analyses - point the caller at the install tool when this
+    invariant is in force."""
+    gs_guidance = tools_fixture.registered_mcp_tools["gs_guidance"]
+    guidance_result = gs_guidance()
     assert guidance_result["ok"], guidance_result
-    workflow = guidance_result["guidance"]["workflow"]
-    assert workflow[0]["tools"] == ["gs_preview_extract_method"]
-    assert workflow[2]["tools"][0] == "gs_apply_extract_method"
-
-
-@with_fixtures(AllowedToolsFixture)
-def test_gs_guidance_refactor_inline_method_recommends_inline_tools(
-    tools_fixture,
-):
-    guidance_result = tools_fixture.gs_guidance(
-        "refactor",
-        change_kind="inline_method",
-    )
-    assert guidance_result["ok"], guidance_result
-    workflow = guidance_result["guidance"]["workflow"]
-    assert workflow[0]["tools"] == ["gs_preview_inline_method"]
-    assert workflow[2]["tools"][0] == "gs_apply_inline_method"
+    cautions_text = " ".join(guidance_result["cautions"])
+    assert "Strict AST mode is active" in cautions_text
 
 
 @with_fixtures(RestrictedToolsFixture)
@@ -2081,7 +2101,7 @@ def test_gs_method_control_flow_summary_checks_connection(tools_fixture):
 def test_gs_query_methods_by_ast_pattern_checks_connection(tools_fixture):
     query_result = tools_fixture.gs_query_methods_by_ast_pattern(
         "missing-connection-id",
-        {"min_send_count": 1},
+        {"node_kind": "message_send"},
     )
     assert not query_result["ok"]
     assert query_result["error"]["message"] == "Unknown connection_id."
@@ -2463,57 +2483,50 @@ def test_gs_query_methods_by_ast_pattern_validates_pattern_and_filters(
     )
     query_result = tools_fixture.gs_query_methods_by_ast_pattern(
         tools_fixture.connection_id,
-        {"min_send_count": 2, "max_send_count": 1},
+        {"min_nesting_depth": 2, "max_nesting_depth": 1},
     )
     assert not query_result["ok"]
     assert query_result["error"]["message"] == (
-        "ast_pattern.min_send_count cannot be greater than "
-        "ast_pattern.max_send_count."
+        "ast_pattern.min_nesting_depth cannot be greater than "
+        "ast_pattern.max_nesting_depth."
     )
     query_result = tools_fixture.gs_query_methods_by_ast_pattern(
         tools_fixture.connection_id,
-        {"min_send_count": 1},
+        {"node_kind": "frobnicate"},
+    )
+    assert not query_result["ok"]
+    assert query_result["error"]["message"].startswith(
+        "ast_pattern.node_kind must be one of:"
+    )
+    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
+        tools_fixture.connection_id,
+        {"send_kind": "ternary"},
+    )
+    assert not query_result["ok"]
+    assert query_result["error"]["message"].startswith(
+        "ast_pattern.send_kind must be one of:"
+    )
+    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
+        tools_fixture.connection_id,
+        {"node_kind": "block"},
         show_instance_side="neither",
     )
     assert not query_result["ok"]
     assert query_result["error"]["message"] == ("show_instance_side must be a boolean.")
     query_result = tools_fixture.gs_query_methods_by_ast_pattern(
         tools_fixture.connection_id,
-        {"min_send_count": 1},
+        {"node_kind": "block"},
         max_results=-1,
     )
     assert not query_result["ok"]
     assert query_result["error"]["message"] == ("max_results cannot be negative.")
     query_result = tools_fixture.gs_query_methods_by_ast_pattern(
         tools_fixture.connection_id,
-        {"min_send_count": 1},
-        sort_by="not_supported",
-    )
-    assert not query_result["ok"]
-    assert query_result["error"]["message"].startswith("sort_by must be one of:")
-    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
-        tools_fixture.connection_id,
-        {"min_send_count": 1},
-        sort_descending="neither",
-    )
-    assert not query_result["ok"]
-    assert query_result["error"]["message"] == ("sort_descending must be a boolean.")
-    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
-        tools_fixture.connection_id,
-        {"required_send_types": ["ternary"]},
-    )
-    assert not query_result["ok"]
-    assert query_result["error"]["message"] == (
-        "ast_pattern.required_send_types entries must be one of: "
-        "binary, keyword, unary."
-    )
-    query_result = tools_fixture.gs_query_methods_by_ast_pattern(
-        tools_fixture.connection_id,
-        {"method_selector_regex": "["},
+        {"selector_regex": "["},
     )
     assert not query_result["ok"]
     assert query_result["error"]["message"].startswith(
-        "ast_pattern.method_selector_regex is not valid regex:"
+        "ast_pattern.selector_regex is not valid regex:"
     )
 
 

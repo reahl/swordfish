@@ -26,6 +26,7 @@ from reahl.swordfish.gemstone import (
     close_session,
     create_linked_session,
 )
+from reahl.swordfish.gemstone.smalltalk_method_parser import SourceEdit
 from reahl.swordfish.mcp.debug_registry import clear_debug_sessions
 from reahl.swordfish.mcp.session_registry import (
     clear_connections,
@@ -1210,11 +1211,15 @@ def test_live_gs_find_implementors_and_senders_support_limits_and_counts(
     assert senders_result["total_count"] >= 1
     assert senders_result["returned_count"] == len(senders_result["senders"])
     assert senders_result["elapsed_ms"] >= 0
-    assert {
-        "class_name": class_name,
-        "show_instance_side": True,
-        "method_selector": sender_selector,
-    } in senders_result["senders"]
+    matching_senders = [
+        sender
+        for sender in senders_result["senders"]
+        if sender["class_name"] == class_name
+        and sender["show_instance_side"] is True
+        and sender["method_selector"] == sender_selector
+    ]
+    assert len(matching_senders) == 1, senders_result
+    assert matching_senders[0]["send_sites"], matching_senders[0]
     limited_senders_result = live_connection.gs_find_senders(
         live_connection.connection_id,
         target_selector,
@@ -1446,7 +1451,7 @@ def test_live_gs_method_control_flow_summary_reports_branch_and_loop_signals(
 def test_live_gs_query_methods_by_ast_pattern_filters_by_required_selector(
     live_connection,
 ):
-    """AI: AST-pattern query should find methods that send a required selector within a class scope."""
+    """AI: AST-pattern query locates each send of a selector as a node match, reporting which method contains the call and that the matched node is a send of that selector."""
     class_name = "McpQueryPatternClass%s" % uuid.uuid4().hex[:8]
     begin_result = live_connection.gs_begin(live_connection.connection_id)
     assert begin_result["ok"], begin_result
@@ -1475,7 +1480,7 @@ def test_live_gs_query_methods_by_ast_pattern_filters_by_required_selector(
     assert compile_no_sender_result["ok"], compile_no_sender_result
     query_result = live_connection.gs_query_methods_by_ast_pattern(
         live_connection.connection_id,
-        {"required_selectors": ["default"], "min_send_count": 1},
+        {"node_kind": "message_send", "selector": "default"},
         class_name=class_name,
         show_instance_side=True,
         max_results=10,
@@ -1484,13 +1489,22 @@ def test_live_gs_query_methods_by_ast_pattern_filters_by_required_selector(
     matched_selectors = [match["method_selector"] for match in query_result["matches"]]
     assert "usesDefault" in matched_selectors
     assert "noSend" not in matched_selectors
+    assert "default" not in matched_selectors
+    sender_match = [
+        match
+        for match in query_result["matches"]
+        if match["method_selector"] == "usesDefault"
+    ][0]
+    assert sender_match["kind"] == "message_send"
+    assert sender_match["summary"] == "default"
+    assert sender_match["node_path"].startswith("method/")
 
 
 @with_fixtures(LiveMcpConnectionFixture)
 def test_live_gs_query_methods_by_ast_pattern_filters_by_branch_count(
     live_connection,
 ):
-    """AI: AST-pattern query should use control-flow predicates for branch-heavy methods."""
+    """AI: AST-pattern query locates a specific keyword send (the ifTrue:ifFalse: branch), matching the branching method and not the simple one."""
     class_name = "McpQueryBranchClass%s" % uuid.uuid4().hex[:8]
     begin_result = live_connection.gs_begin(live_connection.connection_id)
     assert begin_result["ok"], begin_result
@@ -1513,7 +1527,7 @@ def test_live_gs_query_methods_by_ast_pattern_filters_by_branch_count(
     assert compile_simple_result["ok"], compile_simple_result
     query_result = live_connection.gs_query_methods_by_ast_pattern(
         live_connection.connection_id,
-        {"min_branch_selector_count": 1},
+        {"node_kind": "message_send", "selector": "ifTrue:ifFalse:"},
         class_name=class_name,
         show_instance_side=True,
     )
@@ -1524,11 +1538,11 @@ def test_live_gs_query_methods_by_ast_pattern_filters_by_branch_count(
 
 
 @with_fixtures(LiveMcpConnectionFixture)
-def test_live_gs_query_methods_by_ast_pattern_sorts_and_uses_extended_predicates(
+def test_live_gs_query_methods_by_ast_pattern_locates_blocks_by_nesting_depth(
     live_connection,
 ):
-    """AI: AST-pattern query should support extended predicates and ranked result ordering."""
-    class_name = "McpQuerySortClass%s" % uuid.uuid4().hex[:8]
+    """AI: AST-pattern query locates nodes by structural position - a block nested inside another block - returning the inner block's node_path, which the old aggregate-count DSL could not address."""
+    class_name = "McpQueryNestingClass%s" % uuid.uuid4().hex[:8]
     begin_result = live_connection.gs_begin(live_connection.connection_id)
     assert begin_result["ok"], begin_result
     create_class_result = live_connection.gs_create_class(
@@ -1536,50 +1550,42 @@ def test_live_gs_query_methods_by_ast_pattern_sorts_and_uses_extended_predicates
         class_name,
     )
     assert create_class_result["ok"], create_class_result
-    compile_first_result = live_connection.gs_compile_method(
+    compile_nested_result = live_connection.gs_compile_method(
         live_connection.connection_id,
         class_name,
-        ("alphaMethod\n" "    self yourself.\n" "    self class.\n" "    ^self"),
+        ("nestedMethod\n" "    ^[ [ :each | each ] ] value"),
     )
-    assert compile_first_result["ok"], compile_first_result
-    compile_second_result = live_connection.gs_compile_method(
+    assert compile_nested_result["ok"], compile_nested_result
+    compile_flat_result = live_connection.gs_compile_method(
         live_connection.connection_id,
         class_name,
-        (
-            "betaMethod\n"
-            "    | value |\n"
-            "    value := self yourself.\n"
-            "    value class.\n"
-            "    ^value"
-        ),
+        ("flatMethod\n" "    ^[ :each | each ] value"),
     )
-    assert compile_second_result["ok"], compile_second_result
+    assert compile_flat_result["ok"], compile_flat_result
     query_result = live_connection.gs_query_methods_by_ast_pattern(
         live_connection.connection_id,
-        {
-            "required_send_types": ["unary"],
-            "required_receiver_hints": ["self"],
-            "method_selector_regex": "Method$",
-            "min_assignment_count": 1,
-        },
+        {"node_kind": "block", "min_nesting_depth": 1},
         class_name=class_name,
         show_instance_side=True,
-        sort_by="statement_count",
-        sort_descending=True,
     )
     assert query_result["ok"], query_result
-    assert query_result["result_sort_by"] == "statement_count"
-    assert query_result["result_sort_descending"]
     matched_selectors = [match["method_selector"] for match in query_result["matches"]]
-    assert matched_selectors[0] == "betaMethod"
-    assert "alphaMethod" not in matched_selectors
+    assert "nestedMethod" in matched_selectors
+    assert "flatMethod" not in matched_selectors
+    nested_match = [
+        match
+        for match in query_result["matches"]
+        if match["method_selector"] == "nestedMethod"
+    ][0]
+    assert nested_match["kind"] == "block"
+    assert nested_match["summary"] == "[:each |]"
 
 
 @with_fixtures(LiveMcpConnectionFixture)
 def test_live_gs_method_ast_reports_temporaries_statements_and_sends(
     live_connection,
 ):
-    """AI: Method AST should expose temporaries, statement nodes, and detected sends for AI navigation."""
+    """AI: gs_method_ast returns the recursive-descent outline - temporaries, addressable nodes, and detected sends as summaries - for AI navigation."""
     class_name = "McpMethodAstClass%s" % uuid.uuid4().hex[:8]
     analyzed_selector = "astMethod%s" % uuid.uuid4().hex[:8]
     begin_result = live_connection.gs_begin(live_connection.connection_id)
@@ -1616,19 +1622,21 @@ def test_live_gs_method_ast_reports_temporaries_statements_and_sends(
     )
     assert ast_result["ok"], ast_result
     ast_payload = ast_result["ast"]
-    assert ast_payload["schema_version"] == 1
+    assert ast_payload["schema_version"] == 2
     assert ast_payload["node_type"] == "method"
     assert ast_payload["selector"] == analyzed_selector
+    assert ast_payload["analysis_backend"] == "swordfish_recursive_descent"
+    assert ast_payload["node_offsets_origin"] == "zero_based"
     assert ast_payload["temporaries"] == ["value", "total"]
-    assert ast_payload["statement_count"] == len(ast_payload["statements"])
-    assert ast_payload["statement_count"] >= 3
-    statement_kinds = [
-        statement["statement_kind"] for statement in ast_payload["statements"]
+    node_kinds = [node["kind"] for node in ast_payload["nodes"]]
+    assert "assignment" in node_kinds
+    assert "return" in node_kinds
+    send_summaries = [
+        node["summary"]
+        for node in ast_payload["nodes"]
+        if node["kind"] == "message_send"
     ]
-    assert "assignment" in statement_kinds
-    assert "return" in statement_kinds
-    selectors = [send_entry["selector"] for send_entry in ast_payload["sends"]]
-    assert "default" in selectors
+    assert "default" in send_summaries
 
 
 @with_fixtures(LiveMcpConnectionFixture)
@@ -2907,12 +2915,10 @@ def test_live_guided_refactor_workflow_runs_end_to_end(live_connection):
     assert capabilities_result["ok"], capabilities_result
     assert capabilities_result["policy"]["allow_source_write"]
     guidance_result = live_connection.gs_guidance(
-        "refactor",
         selector=old_selector,
-        change_kind="rename_selector",
     )
     assert guidance_result["ok"], guidance_result
-    assert guidance_result["guidance"]["intent"] == "refactor"
+    assert "policy" in guidance_result
     begin_result = live_connection.gs_begin(live_connection.connection_id)
     assert begin_result["ok"], begin_result
     create_test_case_result = live_connection.gs_create_test_case_class(
@@ -2991,9 +2997,7 @@ def test_live_evidence_guarded_selector_rename_workflow_runs_end_to_end(
     assert capabilities_result["ok"], capabilities_result
     assert capabilities_result["policy"]["allow_tracing"]
     guidance_result = live_connection.gs_guidance(
-        "sender_analysis",
         selector=old_selector,
-        change_kind="rename_selector",
     )
     assert guidance_result["ok"], guidance_result
     begin_result = live_connection.gs_begin(live_connection.connection_id)
@@ -3313,6 +3317,36 @@ def test_live_browser_compile_method_adds_selector_in_current_transaction(
         True,
     )
     assert selector in method_source
+
+
+@with_fixtures(LiveBrowserSessionFixture)
+def test_live_browser_compile_method_with_edits_lands_rewritten_source_in_image(
+    browser_fixture,
+):
+    """AI: A node-path-addressed rewrite must round-trip through real GemStone -
+    apply_source_edits rewrites the source in Python, compile_method_with_edits installs the
+    edited text via the normal compile path, and get_method_source serves it back unchanged,
+    so the parser-built SourceEdit really is the canonical way to refactor a method end-to-end."""
+    class_name = 'BrowserCompileEditsClass%s' % uuid.uuid4().hex[:8]
+    selector = 'browserCompileEdits%s' % uuid.uuid4().hex[:8]
+    original_source = '%s ^123' % selector
+    browser_fixture.browser_session.create_class(
+        class_name=class_name,
+        superclass_name='Object',
+    )
+    literal_start = original_source.index('123')
+    literal_end = literal_start + len('123')
+    rewrite_literal = SourceEdit(literal_start, literal_end, '987')
+
+    browser_fixture.browser_session.compile_method_with_edits(
+        class_name, True, original_source, [rewrite_literal]
+    )
+
+    installed_source = browser_fixture.browser_session.get_method_source(
+        class_name, selector, True,
+    )
+    assert '987' in installed_source
+    assert '123' not in installed_source
 
 
 @with_fixtures(LiveBrowserSessionFixture)
