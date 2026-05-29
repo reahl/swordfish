@@ -2332,6 +2332,7 @@ def register_tools(
                     "gs_method_structure_summary",
                     "gs_method_control_flow_summary",
                     "gs_query_methods_by_ast_pattern",
+                    "gs_preview_edit_node",
                     "gs_breakpoint_list",
                 ],
                 "debugging": [
@@ -2365,6 +2366,7 @@ def register_tools(
                     "gs_apply_remove_parameter",
                     "gs_apply_extract_method",
                     "gs_apply_inline_method",
+                    "gs_apply_edit_node",
                     "gs_commit",
                     "gs_abort",
                 ],
@@ -5787,6 +5789,149 @@ def register_tools(
                 "new_selector": new_selector,
                 "statement_indexes": statement_indexes,
                 "overwrite_new_method": overwrite_new_method,
+                "result": result,
+            }
+        except GemstoneError as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
+            }
+        except DomainException as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_preview_edit_node(
+        connection_id,
+        class_name,
+        method_selector,
+        node_path,
+        new_source,
+        show_instance_side: bool = True,
+    ):
+        """Preview replacing the source range of one AST node with
+        new_source. The parser is the single source of truth for where
+        the node sits, so a caller passes the node_path from gs_method_ast
+        and never does offset arithmetic. Returns the spliced new method
+        source plus a candidate-parse warning when the result does not
+        parse, so the caller can decide before commit. Read-only."""
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            class_name = validated_identifier(class_name, "class_name")
+            method_selector = validated_selector(
+                method_selector,
+                "method_selector",
+            )
+            node_path = validated_non_empty_string(node_path, "node_path")
+            if not isinstance(new_source, str):
+                raise DomainException("new_source must be a string.")
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                "show_instance_side",
+            )
+            plan = browser_session.edit_method_node_plan(
+                class_name,
+                show_instance_side,
+                method_selector,
+                node_path,
+                new_source,
+            )
+            return {
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "method_selector": method_selector,
+                "node_path": node_path,
+                "preview": plan,
+            }
+        except GemstoneError as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
+            }
+        except DomainException as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
+            }
+
+    @experimental_tool()
+    def gs_apply_edit_node(
+        connection_id,
+        class_name,
+        method_selector,
+        node_path,
+        new_source,
+        show_instance_side: bool = True,
+    ):
+        """Apply the edit previewed by gs_preview_edit_node. Splices
+        new_source into the byte range of the node addressed by
+        node_path and recompiles the method. Atomic: refuses to compile
+        a candidate that does not parse, so the method is unchanged on
+        failure. Requires --allow-source-write and an active transaction."""
+        if not get_permissions()['allow_source_write']:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    "gs_apply_edit_node is disabled. "
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = browser_session_for_policy(gemstone_session)
+        try:
+            class_name = validated_identifier(class_name, "class_name")
+            method_selector = validated_selector(
+                method_selector,
+                "method_selector",
+            )
+            node_path = validated_non_empty_string(node_path, "node_path")
+            if not isinstance(new_source, str):
+                raise DomainException("new_source must be a string.")
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                "show_instance_side",
+            )
+            result = browser_session.apply_edit_method_node(
+                class_name,
+                show_instance_side,
+                method_selector,
+                node_path,
+                new_source,
+            )
+            return {
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "method_selector": method_selector,
+                "node_path": node_path,
                 "result": result,
             }
         except GemstoneError as error:

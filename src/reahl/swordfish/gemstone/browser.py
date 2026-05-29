@@ -4739,6 +4739,98 @@ class GemstoneBrowserSession:
             )
         return None
 
+    def edit_method_node_plan(
+        self,
+        class_name,
+        show_instance_side,
+        method_selector,
+        node_path,
+        new_source,
+    ):
+        """AI: Plan an edit that replaces the source range of one AST
+        node with new_source. The parser is the single source of truth
+        for where the node sits, so a caller never does offset
+        arithmetic. Runs the Tier B candidate-parse check on the spliced
+        full method source and returns the warning rather than raising,
+        so the caller can decide what to do."""
+        method_source = self.get_method_source(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        try:
+            method_node = SmalltalkMethodParser().parse_method(method_source)
+        except SmalltalkSyntaxError as parse_error:
+            raise DomainException(
+                'Method source did not parse: %s' % str(parse_error)
+            )
+        indexed_nodes = index_nodes_by_path(method_node)
+        if node_path not in indexed_nodes:
+            raise DomainException(
+                'Unknown node_path: %r is not a node in this method.'
+                % node_path
+            )
+        target_node = indexed_nodes[node_path]
+        new_method_source = (
+            method_source[: target_node.start_offset]
+            + new_source
+            + method_source[target_node.end_offset :]
+        )
+        candidate_warning = self.candidate_source_compile_warning(
+            new_method_source,
+            method_selector,
+        )
+        return {
+            'class_name': class_name,
+            'show_instance_side': show_instance_side,
+            'method_selector': method_selector,
+            'node_path': node_path,
+            'original_node_kind': target_node.node_kind,
+            'original_start_offset': target_node.start_offset,
+            'original_end_offset': target_node.end_offset,
+            'replaced_source_character_count': (
+                target_node.end_offset - target_node.start_offset
+            ),
+            'new_source_character_count': len(new_source),
+            'new_method_source': new_method_source,
+            'new_method_compile_warning': candidate_warning,
+        }
+
+    def apply_edit_method_node(
+        self,
+        class_name,
+        show_instance_side,
+        method_selector,
+        node_path,
+        new_source,
+    ):
+        """AI: Plan + compile. Atomic: refuses to compile a candidate
+        that does not parse, returning the parser error verbatim.
+        Failure leaves the method unchanged."""
+        plan = self.edit_method_node_plan(
+            class_name,
+            show_instance_side,
+            method_selector,
+            node_path,
+            new_source,
+        )
+        if plan['new_method_compile_warning'] is not None:
+            raise DomainException(plan['new_method_compile_warning'])
+        method_category = self.get_method_category(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        self.compile_method(
+            class_name=class_name,
+            show_instance_side=show_instance_side,
+            source=plan['new_method_source'],
+            method_category=method_category,
+        )
+        result = dict(plan)
+        result['applied'] = True
+        return result
+
     def method_extract_summary(self, extract_plan):
         warnings = []
         if extract_plan["new_selector_exists"]:

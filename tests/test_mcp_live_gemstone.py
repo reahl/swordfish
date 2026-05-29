@@ -352,6 +352,12 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_apply_inline_method(self):
         return self.registered_mcp_tools["gs_apply_inline_method"]
 
+    def new_gs_preview_edit_node(self):
+        return self.registered_mcp_tools["gs_preview_edit_node"]
+
+    def new_gs_apply_edit_node(self):
+        return self.registered_mcp_tools["gs_apply_edit_node"]
+
     def new_gs_global_set(self):
         return self.registered_mcp_tools["gs_global_set"]
 
@@ -2671,6 +2677,104 @@ def test_live_gs_apply_extract_method_adds_new_method_and_updates_caller(
     )
     assert eval_result["ok"], eval_result
     assert eval_result["output"]["result"]["python_value"] == 7
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_apply_edit_node_splices_one_subtree_and_runtime_observes_the_change(
+    live_connection,
+):
+    """AI: The Tier E proposition — read by node_path, edit by node_path,
+    same cursor surface for both — driven through the live MCP. We compile
+    a small method, drill to one leaf literal, splice in a replacement,
+    recompile, and then evaluate the rewritten method to confirm the
+    runtime observed the surgical edit. The whole round-trip never asks
+    the caller to compute offsets or retype unrelated parts of the
+    method."""
+    class_name = "McpEditNodeApply%s" % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result["ok"], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result["ok"], create_class_result
+    compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        (
+            "classify: aNumber\n"
+            "    aNumber < 0 ifTrue: [ ^ #negative ].\n"
+            "    ^ #large"
+        ),
+        True,
+    )
+    assert compile_result["ok"], compile_result
+    apply_result = live_connection.gs_apply_edit_node(
+        live_connection.connection_id,
+        class_name,
+        "classify:",
+        "method/statements[0]/arguments[0]/statements[0]/expression",
+        "#tiny",
+    )
+    assert apply_result["ok"], apply_result
+    assert apply_result["result"]["applied"] is True
+    source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        class_name,
+        "classify:",
+        True,
+    )
+    assert source_result["ok"], source_result
+    assert "#tiny" in source_result["source"]
+    assert "#negative" not in source_result["source"]
+    eval_result = live_connection.gs_eval(
+        live_connection.connection_id,
+        "%s new classify: -1" % class_name,
+        unsafe=True,
+        reason="verify-edit-node-runtime-behaviour",
+    )
+    assert eval_result["ok"], eval_result
+    assert eval_result["output"]["result"]["python_value"] == "tiny"
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_gs_apply_edit_node_refuses_to_compile_unparseable_candidate(
+    live_connection,
+):
+    """AI: A replacement fragment that makes the spliced source
+    unparseable must fail loudly; the method must stay unchanged."""
+    class_name = "McpEditNodeReject%s" % uuid.uuid4().hex[:8]
+    begin_result = live_connection.gs_begin(live_connection.connection_id)
+    assert begin_result["ok"], begin_result
+    create_class_result = live_connection.gs_create_class(
+        live_connection.connection_id,
+        class_name,
+    )
+    assert create_class_result["ok"], create_class_result
+    compile_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        "describe\n    ^ #self",
+        True,
+    )
+    assert compile_result["ok"], compile_result
+    apply_result = live_connection.gs_apply_edit_node(
+        live_connection.connection_id,
+        class_name,
+        "describe",
+        "method/statements[0]/expression",
+        "#%%bogus%%",
+    )
+    assert not apply_result["ok"], apply_result
+    assert "did not parse" in apply_result["error"]["message"], apply_result
+    source_result = live_connection.gs_get_method_source(
+        live_connection.connection_id,
+        class_name,
+        "describe",
+        True,
+    )
+    assert source_result["ok"], source_result
+    assert "#self" in source_result["source"]
 
 
 @with_fixtures(LiveMcpConnectionFixture)
