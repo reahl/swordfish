@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import tkinter as tk
+import tkinter.messagebox as messagebox
 import types
 from tkinter import ttk
 from unittest.mock import ANY, Mock, call, patch
@@ -98,6 +99,27 @@ class FakeApplication:
         self, class_name, show_instance_side, method_selector
     ):
         pass
+
+    def browse_class(self, class_name, show_instance_side=True):
+        # AI: Mirrors Swordfish.browse_class — update the model and publish
+        # the event the browser UI listens to, with the same GemstoneError
+        # gate that turns a 'no such class' lookup into a friendly warning
+        # instead of bubbling to the generic error dialog. Skips the
+        # `notebook.select(browser_tab)` step because the fixture does not
+        # render the top-level Swordfish notebook.
+        if not class_name:
+            return
+        try:
+            self.gemstone_session_record.jump_to_class(
+                class_name, show_instance_side
+            )
+        except GemstoneError:
+            messagebox.showwarning(
+                'No Such Class',
+                f'There is no class named {class_name!r}.',
+            )
+            return
+        self.event_queue.publish("SelectedClassChanged")
 
 
 class SwordfishGuiFixture(Fixture):
@@ -257,6 +279,18 @@ class SwordfishGuiFixture(Fixture):
         tab.code_panel.open_text_menu(menu_event)
         self.root.update()
         return tab.code_panel.current_context_menu
+
+    def open_tab_context_menu_for_tab(self, tab):
+        """AI: Build the per-tab right-click menu (EditorTab.open_tab_menu)."""
+        menu_event = types.SimpleNamespace(
+            x=1,
+            y=1,
+            x_root=1,
+            y_root=1,
+        )
+        tab.open_tab_menu(menu_event)
+        self.root.update()
+        return tab.current_context_menu
 
     def invoke_menu_command(self, menu, label):
         entry_count = int(menu.index("end")) + 1
@@ -796,8 +830,10 @@ def test_saving_method_compiles_to_gemstone(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
-def test_text_context_menu_includes_save_and_close_for_open_tab(fixture):
-    """AI: Right-clicking in an editor text area exposes Save and Close actions for the current tab."""
+def test_text_context_menu_keeps_save_but_drops_tab_actions(fixture):
+    """AI: The text-area menu keeps actions about the *current source* (Save,
+    breakpoints, navigation by selector) but no longer carries actions about
+    the *tab as a whole* (Jump to Class and Close moved to the tab menu)."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
     tab = fixture.browser_window.editor_area_widget.open_tabs[
         ("OrderLine", True, "total")
@@ -806,19 +842,23 @@ def test_text_context_menu_includes_save_and_close_for_open_tab(fixture):
     menu = fixture.open_text_context_menu_for_tab(tab)
     command_labels = menu_command_labels(menu)
 
-    assert "Jump to Class" in command_labels
     assert "Save" in command_labels
-    assert "Close" in command_labels
+    assert "Cancel" in command_labels
     assert "Set Breakpoint Here" in command_labels
     assert "Clear Breakpoint Here" in command_labels
     assert "Implementors" in command_labels
     assert "Senders" in command_labels
-    assert "Find Implementors" not in command_labels
-    assert "Find Senders" not in command_labels
+    assert "Browse Class" in command_labels
     assert "Select All" in command_labels
     assert "Copy" in command_labels
     assert "Paste" in command_labels
     assert "Undo" in command_labels
+    # AI: Moved to EditorTab.open_tab_menu — must no longer be here.
+    assert "Jump to Class" not in command_labels
+    assert "Close" not in command_labels
+    # AI: Pre-existing exclusions kept as regression sentinels.
+    assert "Find Implementors" not in command_labels
+    assert "Find Senders" not in command_labels
     assert "Preview Rename Method" not in command_labels
     assert "Preview Move Method" not in command_labels
     assert "Preview Add Parameter" not in command_labels
@@ -829,6 +869,63 @@ def test_text_context_menu_includes_save_and_close_for_open_tab(fixture):
     assert "Method Structure" not in command_labels
     assert "Method Control Flow" not in command_labels
     assert "Method AST" not in command_labels
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_tab_context_menu_lists_expected_tab_actions(fixture):
+    """AI: Right-clicking a tab label offers the tab-scoped actions:
+    Jump to Class, Save, Cancel, Close, Close Others, Close All to the Right."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+
+    menu = fixture.open_tab_context_menu_for_tab(tab)
+    command_labels = menu_command_labels(menu)
+
+    assert "Jump to Class" in command_labels
+    assert "Save" in command_labels
+    assert "Cancel" in command_labels
+    assert "Close" in command_labels
+    assert "Close Others" in command_labels
+    assert "Close All to the Right" in command_labels
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_close_others_closes_only_other_tabs(fixture):
+    """AI: Invoking 'Close Others' from a tab keeps that one tab open and
+    closes every other tab in the editor notebook."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "description")
+    fixture.select_down_to_method("Kernel", "Order", "accessing", "total")
+
+    editor = fixture.browser_window.editor_area_widget
+    middle_tab = editor.open_tabs[("OrderLine", True, "description")]
+
+    menu = fixture.open_tab_context_menu_for_tab(middle_tab)
+    fixture.invoke_menu_command(menu, "Close Others")
+
+    assert list(editor.open_tabs.keys()) == [("OrderLine", True, "description")]
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_close_tabs_to_right_preserves_left_of_clicked_tab(fixture):
+    """AI: 'Close All to the Right' closes only the tabs positioned after the
+    clicked tab, leaving the clicked tab and everything left of it open."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "description")
+    fixture.select_down_to_method("Kernel", "Order", "accessing", "total")
+
+    editor = fixture.browser_window.editor_area_widget
+    middle_tab = editor.open_tabs[("OrderLine", True, "description")]
+
+    menu = fixture.open_tab_context_menu_for_tab(middle_tab)
+    fixture.invoke_menu_command(menu, "Close All to the Right")
+
+    assert list(editor.open_tabs.keys()) == [
+        ("OrderLine", True, "total"),
+        ("OrderLine", True, "description"),
+    ]
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -1126,14 +1223,145 @@ def test_save_command_from_text_context_menu_compiles_to_gemstone(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
-def test_close_command_from_text_context_menu_closes_the_tab(fixture):
-    """AI: Choosing Close from text context menu removes the current method tab."""
+def test_browse_class_from_source_jumps_to_class_under_cursor(fixture):
+    """AI: Browse Class reads the identifier under the insertion cursor,
+    updates the browser model AND publishes SelectedClassChanged so the
+    browser UI repaints. Without the publish, jump_to_class succeeds
+    silently and nothing visibly happens — the bug this test pins."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
     tab = fixture.browser_window.editor_area_widget.open_tabs[
         ("OrderLine", True, "total")
     ]
 
+    tab.code_panel.text_editor.delete("1.0", "end")
+    tab.code_panel.text_editor.insert("1.0", "total\n    ^OrderLine new")
+    tab.code_panel.text_editor.mark_set("insert", "2.7")
+    fixture.session_record.jump_to_class = Mock()
+
+    published_events = []
+    original_publish = fixture.application.event_queue.publish
+    def recording_publish(*args, **kwargs):
+        published_events.append(args[0])
+        return original_publish(*args, **kwargs)
+    fixture.application.event_queue.publish = recording_publish
+
+    tab.code_panel.browse_class_from_source()
+
+    fixture.session_record.jump_to_class.assert_called_once_with(
+        "OrderLine", True
+    )
+    assert "SelectedClassChanged" in published_events
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_browse_class_warns_when_identifier_is_not_capitalised(fixture):
+    """AI: A cursor on a lowercase identifier (a variable like `amount`)
+    earns a friendly 'Not a Class Name' warning rather than a generic
+    GemStone error from the server. The cheap local check prevents a
+    wasted server round-trip for the common variable-under-cursor case."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+    tab.code_panel.text_editor.delete("1.0", "end")
+    tab.code_panel.text_editor.insert("1.0", "total\n    ^amount * quantity")
+    tab.code_panel.text_editor.mark_set("insert", "2.6")
+    fixture.session_record.jump_to_class = Mock()
+
+    with patch("reahl.swordfish.text_editing.messagebox") as mock_messagebox:
+        tab.code_panel.browse_class_from_source()
+
+    mock_messagebox.showwarning.assert_called_once()
+    title, _message = mock_messagebox.showwarning.call_args.args
+    assert title == "Not a Class Name"
+    fixture.session_record.jump_to_class.assert_not_called()
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_browse_class_warns_when_no_such_class_exists(fixture):
+    """AI: When the identifier looks like a class but the server replies
+    with a GemstoneError (class not in the system), Browse Class shows a
+    specific 'No Such Class' warning rather than letting the error bubble
+    to the generic report_callback_exception dialog."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+    tab.code_panel.text_editor.delete("1.0", "end")
+    tab.code_panel.text_editor.insert("1.0", "total\n    ^Nonexistent new")
+    tab.code_panel.text_editor.mark_set("insert", "2.7")
+    fixture.session_record.jump_to_class = Mock(side_effect=FakeGemstoneError())
+
+    published_events = []
+    original_publish = fixture.application.event_queue.publish
+    def recording_publish(*args, **kwargs):
+        published_events.append(args[0])
+        return original_publish(*args, **kwargs)
+    fixture.application.event_queue.publish = recording_publish
+
+    with patch.object(messagebox, "showwarning") as mock_showwarning:
+        tab.code_panel.browse_class_from_source()
+
+    mock_showwarning.assert_called_once()
+    title, _message = mock_showwarning.call_args.args
+    assert title == "No Such Class"
+    assert "SelectedClassChanged" not in published_events
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_cancel_reverts_dirty_buffer_to_saved_source(fixture):
+    """AI: Invoking Cancel on a dirty editor tab discards the in-buffer edits
+    and reloads the saved source from GemStone, clearing the dirty flag."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+
+    tab.code_panel.text_editor.delete("1.0", "end")
+    tab.code_panel.text_editor.insert("1.0", "garbage\n    ^nil")
+    tab.mark_dirty()
+    assert tab.is_dirty
+
     menu = fixture.open_text_context_menu_for_tab(tab)
+    fixture.invoke_menu_command(menu, "Cancel")
+
+    assert (
+        tab.code_panel.text_editor.get("1.0", "end-1c")
+        == "total\n    ^amount * quantity"
+    )
+    assert tab.is_dirty is False
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_editor_notebook_uses_closable_style(fixture):
+    """AI: The method editor's notebook is wired with the close-button
+    style so every tab gets an 'x'."""
+    editor = fixture.browser_window.editor_area_widget
+    assert editor.editor_notebook.cget('style') == 'Closable.TNotebook'
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_close_editor_tab_at_index_removes_that_tab(fixture):
+    """AI: Closing a tab via the close-button dispatch removes that tab from
+    the editor's open_tabs registry (and only that one)."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "description")
+
+    editor = fixture.browser_window.editor_area_widget
+    editor.editor_notebook.close_tab_at_index(0)
+
+    assert list(editor.open_tabs.keys()) == [("OrderLine", True, "description")]
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_close_command_from_tab_menu_closes_the_tab(fixture):
+    """AI: Choosing Close from the tab's right-click menu removes that tab."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+
+    menu = fixture.open_tab_context_menu_for_tab(tab)
     fixture.invoke_menu_command(menu, "Close")
 
     assert (
@@ -1144,10 +1372,10 @@ def test_close_command_from_text_context_menu_closes_the_tab(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
-def test_jump_to_class_command_from_text_context_menu_syncs_browser_selection(
+def test_jump_to_class_command_from_tab_menu_syncs_browser_selection(
     fixture,
 ):
-    """AI: Choosing Jump to Class from a method tab synchronizes package/class/side/category/method browser selections to that method context."""
+    """AI: Choosing Jump to Class from the tab's right-click menu synchronizes package/class/side/category/method browser selections to that method context."""
     fixture.browser_window.packages_widget.browse_mode_var.set("categories")
     fixture.browser_window.packages_widget.change_browse_mode()
     fixture.root.update()
@@ -1160,7 +1388,7 @@ def test_jump_to_class_command_from_text_context_menu_syncs_browser_selection(
     fixture.root.update()
     assert fixture.browser_window.classes_widget.selection_var.get() == "class"
 
-    menu = fixture.open_text_context_menu_for_tab(tab)
+    menu = fixture.open_tab_context_menu_for_tab(tab)
     fixture.invoke_menu_command(menu, "Jump to Class")
 
     assert fixture.session_record.selected_package == "Kernel"
@@ -3058,6 +3286,29 @@ def test_indicator_is_hidden_when_mcp_server_is_running_but_idle(fixture):
     assert fixture.app.mcp_activity_indicator.winfo_manager() == ""
     assert fixture.app.collaboration_status_text.get().startswith(
         "IDE ready. MCP running at http://127.0.0.1:"
+    )
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_browse_class_from_run_tab_navigates_to_class_under_cursor(fixture):
+    """AI: Browse Class invoked from the Run tab's source editor delegates
+    to the same Swordfish.browse_class entry point as the editor-tab
+    version, so the user gets identical behaviour regardless of which
+    source window they came from."""
+    fixture.simulate_login()
+    fixture.app.run_code("")
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+
+    run_tab.source_text.delete("1.0", "end")
+    run_tab.source_text.insert("1.0", "^OrderLine new")
+    run_tab.source_text.mark_set("insert", "1.1")
+    fixture.session_record.jump_to_class = Mock()
+
+    run_tab.browse_class_from_source()
+
+    fixture.session_record.jump_to_class.assert_called_once_with(
+        "OrderLine", True
     )
 
 

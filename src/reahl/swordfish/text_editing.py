@@ -583,19 +583,18 @@ class CodePanel(tk.Frame):
         self.current_context_menu.add_separator()
         active_editor_tab = self.active_editor_tab()
         if active_editor_tab is not None:
-            self.current_context_menu.add_command(
-                label='Jump to Class',
-                command=self.jump_to_method_context,
-            )
-            self.current_context_menu.add_separator()
+            # AI: Jump to Class and Close moved to EditorTab.open_tab_menu
+            # (the per-tab right-click). Save stays here because saving is a
+            # common action while editing source.
             self.current_context_menu.add_command(
                 label='Save',
                 command=self.save_current_tab,
                 state=write_command_state,
             )
             self.current_context_menu.add_command(
-                label='Close',
-                command=self.close_current_tab,
+                label='Cancel',
+                command=self.cancel_current_tab,
+                state=write_command_state,
             )
             self.current_context_menu.add_command(
                 label='Set Breakpoint Here',
@@ -628,6 +627,10 @@ class CodePanel(tk.Frame):
         self.current_context_menu.add_command(
             label='References',
             command=self.find_references_from_source,
+        )
+        self.current_context_menu.add_command(
+            label='Browse Class',
+            command=self.browse_class_from_source,
         )
         if self.application.experimental_features_enabled:
             self.current_context_menu.add_separator()
@@ -691,6 +694,13 @@ class CodePanel(tk.Frame):
             return
         active_editor_tab.save()
         return 'break'
+
+    def cancel_current_tab(self, event=None):
+        # AI: Mirror of save_current_tab. Delegates to the active tab's cancel().
+        active_editor_tab = self.active_editor_tab()
+        if active_editor_tab is None:
+            return
+        active_editor_tab.cancel()
 
     def close_current_tab(self, event=None):
         active_editor_tab = self.active_editor_tab()
@@ -1021,6 +1031,31 @@ class CodePanel(tk.Frame):
             )
             return
         self.application.open_find_dialog_for_class(class_name)
+
+    def browse_class_from_source(self):
+        # AI: Resolve the identifier under the cursor (or the selection)
+        # then delegate to Swordfish.browse_class, which updates the model,
+        # publishes SelectedClassChanged AND brings the Browser tab to the
+        # front. The cheap uppercase-letter pre-check rejects obvious
+        # non-class identifiers (variables, message keywords) up front
+        # without a server round-trip; Swordfish.browse_class still has to
+        # cope with valid-looking names that turn out not to be classes.
+        class_name = self.class_name_for_reference_lookup()
+        if class_name is None:
+            messagebox.showwarning(
+                'No Class Name',
+                'Place the cursor on a class name or select one before '
+                'running this.',
+            )
+            return
+        if not class_name[0].isupper():
+            messagebox.showwarning(
+                'Not a Class Name',
+                f'{class_name!r} does not look like a class name. '
+                'Class names start with a capital letter.',
+            )
+            return
+        self.application.browse_class(class_name, show_instance_side=True)
 
     def run_method_analysis(self, analysis_function, title):
         method_context = self.method_context()
@@ -1930,6 +1965,9 @@ class EditorTab(tk.Frame):
         self.method_editor = method_editor
         self.tab_key = tab_key
         self.is_dirty = False
+        # AI: Populated lazily by open_tab_menu; kept as an attribute so tests
+        # and Escape-binding callbacks can reach the live menu instance.
+        self.current_context_menu = None
 
         self.code_panel = CodePanel(
             self,
@@ -1945,7 +1983,47 @@ class EditorTab(tk.Frame):
         self.repopulate()
 
     def open_tab_menu(self, event):
-        return None
+        # AI: Right-click menu on the tab label. Save/Cancel/Close act on this
+        # specific tab regardless of which tab the notebook currently shows.
+        # Stored as self.current_context_menu so tests can inspect it after
+        # construction (mirrors CodePanel.open_text_menu).
+        write_command_state = (
+            tk.DISABLED if self.code_panel.is_read_only() else tk.NORMAL
+        )
+        menu = self.current_context_menu = tk.Menu(self, tearoff=0)
+        menu.add_command(
+            label='Jump to Class',
+            command=self.code_panel.jump_to_method_context,
+        )
+        menu.add_command(
+            label='Save',
+            command=self.code_panel.save_current_tab,
+            state=write_command_state,
+        )
+        menu.add_command(
+            label='Cancel',
+            command=self.code_panel.cancel_current_tab,
+            state=write_command_state,
+        )
+        menu.add_separator()
+        menu.add_command(
+            label='Close',
+            command=lambda: self.method_editor.close_tab(self),
+        )
+        menu.add_command(
+            label='Close Others',
+            command=lambda: self.method_editor.close_other_tabs(self),
+        )
+        menu.add_command(
+            label='Close All to the Right',
+            command=lambda: self.method_editor.close_tabs_to_right(self),
+        )
+        add_close_command_to_popup_menu(menu)
+        menu.bind(
+            '<Escape>',
+            lambda popup_event: close_popup_menu(menu),
+        )
+        menu.post(event.x_root, event.y_root)
 
     def mark_dirty(self):
         if not self.is_dirty:
@@ -1970,6 +2048,12 @@ class EditorTab(tk.Frame):
         )
         self.browser_window.event_queue.publish('MethodSelected', origin=self)
         self.repopulate()
+
+    def cancel(self):
+        # AI: Discard in-buffer edits and reload the saved source from GemStone.
+        # repopulate() re-fetches sourceString() and clears is_dirty for us.
+        if self.is_dirty:
+            self.repopulate()
 
     def repopulate(self):
         gemstone_method = self.browser_window.gemstone_session_record.get_method(
