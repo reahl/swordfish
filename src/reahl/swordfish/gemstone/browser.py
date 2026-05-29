@@ -4596,6 +4596,33 @@ class GemstoneBrowserSession:
                 source_method_ast["temporaries"],
             )
         )
+        post_extraction_statement_entries = [
+            statement_entry
+            for statement_entry in source_method_ast["statements"]
+            if statement_entry["statement_index"]
+            > selected_statement_entries[-1]["statement_index"]
+        ]
+        names_read_after_extraction = (
+            self.identifier_names_referenced_in_statement_entries(
+                source_method_source,
+                post_extraction_statement_entries,
+            )
+        )
+        leaked_temporary_names = [
+            name
+            for name in extracted_local_temporary_names
+            if name in names_read_after_extraction
+        ]
+        if leaked_temporary_names:
+            raise DomainException(
+                (
+                    "Cannot extract: caller temporary %s is assigned inside "
+                    "the extracted range but read again in a later "
+                    "statement. Extracting would silently change the "
+                    "caller's return value or later reads."
+                )
+                % ", ".join(leaked_temporary_names)
+            )
         extracted_body = self.extracted_method_body_from_statement_entries(
             selected_statement_entries,
             extracted_local_temporary_names,
@@ -4816,6 +4843,35 @@ class GemstoneBrowserSession:
             if is_scoped and not is_assigned_name and not is_already_added:
                 argument_names.append(name)
         return argument_names
+
+    def identifier_names_referenced_in_statement_entries(
+        self,
+        source,
+        statement_entries,
+    ):
+        """AI: Distinct identifier names that appear anywhere in any of the
+        given statement entries — used by the extract-method safety check
+        that refuses to promote a caller temporary to a local of the new
+        method when the caller still reads it after the extracted range."""
+        if not statement_entries:
+            return []
+        selected_ranges = [
+            (
+                statement_entry["start_offset"],
+                statement_entry["end_offset"],
+            )
+            for statement_entry in statement_entries
+        ]
+        identifier_occurrences = self.identifier_occurrences_in_ranges(
+            source,
+            selected_ranges,
+        )
+        seen_names = []
+        for occurrence in identifier_occurrences:
+            occurrence_name = occurrence["name"]
+            if occurrence_name not in seen_names:
+                seen_names.append(occurrence_name)
+        return seen_names
 
     def identifier_occurrences_in_ranges(self, source, selected_ranges):
         code_character_map = self.source_code_character_map(source)

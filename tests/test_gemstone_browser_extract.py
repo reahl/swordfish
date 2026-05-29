@@ -46,9 +46,16 @@ class ExtractPlanningFixture(Fixture):
 def test_extract_plan_keyword_selector_infers_argument_names_and_rewrites_call(
     extract_planning_fixture,
 ):
-    """AI: Keyword extract should infer caller-scoped argument names and build matching keyword call/send headers."""
+    """AI: Keyword extract should infer caller-scoped argument names and
+    build matching keyword call/send headers. The caller temporary 'tmp'
+    is local to the extracted range (assigned in the range and never
+    read again afterward), so the new method declares it as its own
+    local."""
     extract_planning_fixture.set_method_source(
-        "buildFrom: input\n" "    | tmp |\n" "    tmp := input + 1.\n" "    ^tmp"
+        "buildFrom: input\n"
+        "    | tmp |\n"
+        "    tmp := input + 1.\n"
+        "    ^ input * 2"
     )
 
     extract_plan = extract_planning_fixture.browser_session.method_extract_plan(
@@ -119,7 +126,7 @@ def test_extract_plan_keeps_trailing_string_literals_in_extracted_statement_sour
         'processFor: aPrefix\n'
         '    | greeting |\n'
         "    greeting := aPrefix, ' world'.\n"
-        '    ^ greeting'
+        '    ^ aPrefix'
     )
 
     extract_plan = extract_planning_fixture.browser_session.method_extract_plan(
@@ -140,17 +147,17 @@ def test_extract_plan_declares_caller_temporaries_that_are_locally_assigned(
     extract_planning_fixture,
 ):
     """AI: When the extracted range both assigns and uses a caller-scoped
-    temporary, that name is local to the new method — it must therefore be
-    declared in a new temporaries clause. Without it the produced source
-    has an undeclared variable on the assignment LHS and refuses to compile
-    ('expected a primary expression'). This is the bug the cascade-extract
-    apply hit during the AST/MCP tryout."""
+    temporary, and the variable is NOT read in any statement after the
+    extracted range, that name is local to the new method — it must
+    therefore be declared in a new temporaries clause. Without it the
+    produced source has an undeclared variable on the assignment LHS and
+    refuses to compile ('expected a primary expression')."""
     extract_planning_fixture.set_method_source(
         'announceWith: aPrefix\n'
         '    | greeting |\n'
         "    greeting := aPrefix, ' world'.\n"
         "    Transcript show: greeting; cr.\n"
-        '    ^ greeting'
+        '    ^ aPrefix'
     )
 
     extract_plan = extract_planning_fixture.browser_session.method_extract_plan(
@@ -167,6 +174,35 @@ def test_extract_plan_declares_caller_temporaries_that_are_locally_assigned(
     # the new method has an undeclared greeting on its assignment LHS.
     new_method_source = extract_plan['new_method_source']
     assert '| greeting |' in new_method_source, new_method_source
+
+
+@with_fixtures(ExtractPlanningFixture)
+def test_extract_plan_rejects_when_caller_temporary_assigned_in_range_is_read_after(
+    extract_planning_fixture,
+):
+    """AI: If the extracted range assigns a caller temporary that the
+    caller still reads in a statement *after* the range, promoting that
+    temporary to the new method's local scope would silently change
+    semantics — the caller's later read would return nil instead of the
+    assigned value. Refuse the extract with a clear error rather than
+    produce code whose runtime meaning quietly changed. This is the
+    semantic gap that surfaced during the post-merge tryout verification."""
+    extract_planning_fixture.set_method_source(
+        'processFor: aPrefix\n'
+        '    | greeting |\n'
+        "    greeting := aPrefix, ' world'.\n"
+        "    Transcript show: greeting; cr.\n"
+        '    ^ greeting'
+    )
+
+    with expected(DomainException):
+        extract_planning_fixture.browser_session.method_extract_plan(
+            'OrderLine',
+            True,
+            'processFor:',
+            'announceWith:',
+            [1, 2],
+        )
 
 
 @with_fixtures(ExtractPlanningFixture)
