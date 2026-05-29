@@ -26,14 +26,6 @@ class ExtractPlanningFixture(Fixture):
         self.browser_session.get_method_source = (
             lambda class_name, method_selector, show_instance_side: self.method_source
         )
-        self.browser_session.method_ast = (
-            lambda class_name, method_selector, show_instance_side: (
-                self.browser_session.source_method_ast(
-                    self.method_source,
-                    method_selector,
-                )
-            )
-        )
         self.browser_session.method_argument_names_for_method = (
             lambda class_name, show_instance_side, method_selector: (
                 self.browser_session.method_argument_names(

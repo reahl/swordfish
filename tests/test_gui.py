@@ -7793,7 +7793,7 @@ def test_method_context_menu_preview_add_parameter_calls_browser_preview(fixture
 def test_method_context_menu_preview_extract_calls_browser_preview(fixture):
     """Preview Extract Method uses selected statements and calls browser extract preview with inferred statement indexes."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
-    fixture.mock_browser.method_ast.return_value = {
+    fixture.mock_browser.source_method_ast.return_value = {
         "statements": [
             {
                 "statement_index": 1,
@@ -7821,11 +7821,7 @@ def test_method_context_menu_preview_extract_calls_browser_preview(fixture):
         ) as mock_result_dialog:
             tab.code_panel.preview_method_extract()
 
-    fixture.mock_browser.method_ast.assert_called_once_with(
-        "OrderLine",
-        "total",
-        True,
-    )
+    fixture.mock_browser.source_method_ast.assert_called_once_with(ANY, "total")
     fixture.mock_browser.method_extract_preview.assert_called_once_with(
         "OrderLine",
         True,
@@ -7857,7 +7853,7 @@ def test_method_context_menu_preview_extract_partial_return_selection_reports_se
 ):
     """Partially selecting a return statement should report selection coverage guidance, not a return-extraction error."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
-    fixture.mock_browser.method_ast.return_value = {
+    fixture.mock_browser.source_method_ast.return_value = {
         "statements": [
             {
                 "statement_index": 1,
@@ -7901,7 +7897,7 @@ def test_method_context_menu_preview_extract_suggests_keyword_selector_when_argu
     )
     fixture.mock_browser.get_compiled_method.return_value = mock_method
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "buildFrom:")
-    fixture.mock_browser.method_ast.return_value = {
+    fixture.mock_browser.source_method_ast.return_value = {
         "statements": [
             {
                 "statement_index": 1,

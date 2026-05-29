@@ -632,37 +632,7 @@ class GemstoneBrowserSession:
             return []
         return list(method_node.argument_names)
 
-    def method_ast(
-        self,
-        class_name,
-        method_selector,
-        show_instance_side,
-    ):
-        # AI: Argument and temporary names come from the Python SmalltalkMethodParser,
-        # AI: which is always available and matches the in-image declaration verbatim;
-        # AI: the previous round-trip via compiled_method.argsAndTemps / numArgs only
-        # AI: existed because the parser had not been written yet. If parsing fails -
-        # AI: typically a half-typed method during refactoring - we fall back to the
-        # AI: source_method_ast shape as-is (argument_names empty) rather than fail.
-        source = self.get_method_source(
-            class_name,
-            method_selector,
-            show_instance_side,
-        )
-        source_ast = self.source_method_ast(source, method_selector)
-        try:
-            method_node = SmalltalkMethodParser().parse_method(source)
-        except SmalltalkSyntaxError:
-            return source_ast
-        source_ast["argument_names"] = list(method_node.argument_names)
-        source_ast["temporaries"] = list(method_node.temporaries)
-        source_ast["header_source"] = (
-            self.method_header_for_selector_and_argument_names(
-                method_selector,
-                list(method_node.argument_names),
-            )
-        )
-        return source_ast
+    
 
 
     def method_outline(
@@ -979,13 +949,20 @@ class GemstoneBrowserSession:
     
 
     def source_method_ast(self, source, method_selector=None):
+        # AI: Argument and temporary names come from the Python SmalltalkMethodParser
+        # AI: when the method parses; the scanner-derived temporaries fill in if the
+        # AI: source is half-typed. This is the single parser-backed primitive the IDE
+        # AI: and refactorings now share with method_outline / gs_method_ast - both
+        # AI: pipelines read the same MethodNode, just present different shapes.
         code_character_map = self.source_code_character_map(source)
         line_column_map = self.source_line_column_map(source)
         body_start_offset = self.body_start_offset_for_method_source(source)
-        temporaries, statements_start_offset = self.source_temporaries_after_body_start(
-            source,
-            code_character_map,
-            body_start_offset,
+        scanner_temporaries, statements_start_offset = (
+            self.source_temporaries_after_body_start(
+                source,
+                code_character_map,
+                body_start_offset,
+            )
         )
         method_sends = self.source_method_sends(source)
         structure_summary = self.source_method_structure_summary(source)
@@ -996,13 +973,28 @@ class GemstoneBrowserSession:
             statements_start_offset,
             method_sends["sends"],
         )
+        argument_names = []
+        temporaries = scanner_temporaries
+        header_source = source[:body_start_offset].rstrip("\n")
+        try:
+            method_node = SmalltalkMethodParser().parse_method(source)
+        except SmalltalkSyntaxError:
+            method_node = None
+        if method_node is not None:
+            argument_names = list(method_node.argument_names)
+            temporaries = list(method_node.temporaries)
+            if method_selector is not None:
+                header_source = self.method_header_for_selector_and_argument_names(
+                    method_selector,
+                    argument_names,
+                )
         return {
             "schema_version": 1,
             "node_type": "method",
             "selector": method_selector,
-            "header_source": source[:body_start_offset].rstrip("\n"),
+            "header_source": header_source,
             "body_start_offset": body_start_offset,
-            "argument_names": [],
+            "argument_names": argument_names,
             "temporaries": temporaries,
             "statement_count": len(statement_entries),
             "statements": statement_entries,
@@ -4187,10 +4179,9 @@ class GemstoneBrowserSession:
             method_selector,
             show_instance_side,
         )
-        source_method_ast = self.method_ast(
-            class_name,
+        source_method_ast = self.source_method_ast(
+            source_method_source,
             method_selector,
-            show_instance_side,
         )
         selected_statement_entries = self.selected_statement_entries(
             source_method_ast["statements"],
@@ -4516,10 +4507,9 @@ class GemstoneBrowserSession:
             inline_selector,
             show_instance_side,
         )
-        inline_method_ast = self.method_ast(
-            class_name,
+        inline_method_ast = self.source_method_ast(
+            inline_method_source,
             inline_selector,
-            show_instance_side,
         )
         inline_expression = self.method_inline_expression_from_callee(
             inline_method_source,
@@ -6151,17 +6141,4 @@ def query_methods_by_ast_pattern(
         max_results=max_results,
         sort_by=sort_by,
         sort_descending=sort_descending,
-    )
-
-
-def method_ast(
-    gemstone_session,
-    class_name,
-    method_selector,
-    show_instance_side,
-):
-    return GemstoneBrowserSession(gemstone_session).method_ast(
-        class_name,
-        method_selector,
-        show_instance_side,
     )

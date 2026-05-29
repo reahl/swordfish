@@ -671,10 +671,17 @@ class GemstoneSessionRecord:
         )
 
     def method_ast(self, class_name, method_selector, show_instance_side):
-        return self.gemstone_browser_session.method_ast(
+        # AI: Thin IDE wrapper around the parser-backed source_method_ast primitive -
+        # AI: fetch source once, then ask for the enriched AST payload. The browser
+        # AI: session no longer carries a duplicate method_ast.
+        source = self.gemstone_browser_session.get_method_source(
             class_name,
             method_selector,
             show_instance_side,
+        )
+        return self.gemstone_browser_session.source_method_ast(
+            source,
+            method_selector,
         )
 
     def preview_method_rename(
