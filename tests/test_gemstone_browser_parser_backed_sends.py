@@ -60,6 +60,35 @@ def test_method_sends_does_not_merge_pragma_into_following_send(fixture):
 
 
 @with_fixtures(ParsedSendsFixture)
+def test_method_sends_does_not_double_record_cascade_messages(fixture):
+    """AI: My first parser-backed walker recorded each cascade message
+    twice — once via CascadeNode's explicit messages iteration (with
+    receiver_hint='cascade'), and once via the recursive descent through
+    labelled_child_nodes(), where the same messages also appear. Each
+    cascade message is one send: descent through a CascadeNode must not
+    re-enumerate its messages."""
+    source = (
+        "multiCascade\n"
+        "    ^ Transcript show: 'a'; show: 'b'; show: 'c'"
+    )
+
+    sends_summary = fixture.browser_session.source_method_sends(source)
+    show_entries = [
+        send for send in sends_summary['sends'] if send['selector'] == 'show:'
+    ]
+
+    assert len(show_entries) == 3, sends_summary['sends']
+    # AI: All three records belong to the cascade so all carry the
+    # cascade receiver hint.
+    cascade_hint_count = sum(
+        1
+        for send in show_entries
+        if send['receiver_hint'] == 'cascade'
+    )
+    assert cascade_hint_count == 3, show_entries
+
+
+@with_fixtures(ParsedSendsFixture)
 def test_method_structure_summary_does_not_count_float_literal_dots_as_statement_terminators(
     fixture,
 ):

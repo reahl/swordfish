@@ -741,18 +741,20 @@ class GemstoneBrowserSession:
     def collect_send_entries(self, node, source, send_entries):
         """AI: Walk the parser AST and append one entry per static send.
         Cascades contribute one entry per message; the cascade receiver
-        is shared but each message is its own send. labelled_child_nodes
-        on each node type already enumerates the right structural
-        children (MethodNode.statements, DynamicArrayNode.elements,
-        CascadeNode.messages, MessageSendNode.arguments)."""
+        is shared but each message is its own send. CascadeNode exposes
+        its messages through labelled_child_nodes(), so we handle the
+        cascade case specially: we record each message ourselves and
+        descend only into each message's arguments — descending through
+        labelled_child_nodes() instead would record every cascade
+        message a second time as a plain MessageSendNode."""
         from reahl.swordfish.gemstone.smalltalk_method_parser import (
             CascadeNode,
             MessageSendNode,
         )
 
-        if isinstance(node, MessageSendNode):
-            send_entries.append(self.send_entry_for_message(node, source))
-        elif isinstance(node, CascadeNode):
+        if isinstance(node, CascadeNode):
+            if node.receiver is not None:
+                self.collect_send_entries(node.receiver, source, send_entries)
             for message in node.messages:
                 send_entries.append(
                     self.send_entry_for_message(
@@ -761,6 +763,14 @@ class GemstoneBrowserSession:
                         receiver_hint_override='cascade',
                     )
                 )
+                for argument in message.arguments:
+                    if argument is not None:
+                        self.collect_send_entries(
+                            argument, source, send_entries
+                        )
+            return
+        if isinstance(node, MessageSendNode):
+            send_entries.append(self.send_entry_for_message(node, source))
         for _, child_node in node.labelled_child_nodes():
             if child_node is None:
                 continue
