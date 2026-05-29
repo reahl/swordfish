@@ -1059,7 +1059,7 @@ class DebuggerWindow(ttk.PanedWindow):
         stack_frame_menu = tk.Menu(self, tearoff=0)
         stack_frame_menu.add_command(
             label='Browse Class',
-            command=lambda: self.application.browse_class_by_name(
+            command=lambda: self.application.browse_class(
                 class_name, show_instance_side
             ),
         )

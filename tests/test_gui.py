@@ -5863,12 +5863,12 @@ def test_debugger_stack_frame_menu_offers_browse_class_and_browse_method(fixture
 
         with patch.object(
             fixture.app,
-            'browse_class_by_name',
-        ) as browse_class_by_name:
+            'browse_class',
+        ) as browse_class:
             invoke_menu_command_by_label(
                 debugger_tab.current_stack_frame_menu, 'Browse Class'
             )
-        browse_class_by_name.assert_called_once_with('OrderLine', True)
+        browse_class.assert_called_once_with('OrderLine', True)
 
         with patch.object(
             fixture.app,
@@ -5910,13 +5910,13 @@ def test_debugger_stack_frame_menu_browse_class_respects_class_side_frames(fixtu
 
         with patch.object(
             fixture.app,
-            'browse_class_by_name',
-        ) as browse_class_by_name:
+            'browse_class',
+        ) as browse_class:
             invoke_menu_command_by_label(
                 debugger_tab.current_stack_frame_menu, 'Browse Class'
             )
 
-    browse_class_by_name.assert_called_once_with('OrderLine', False)
+    browse_class.assert_called_once_with('OrderLine', False)
 
 
 @with_fixtures(SwordfishAppFixture)

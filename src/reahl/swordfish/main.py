@@ -7267,18 +7267,9 @@ class Swordfish(tk.Tk):
         except (GemstoneError, AttributeError):
             class_name = ""
         class_name = " ".join(class_name.split()) if isinstance(class_name, str) else ""
-        self.browse_class_by_name(class_name, show_instance_side)
+        self.browse_class(class_name, show_instance_side)
 
-    def browse_class_by_name(self, class_name, show_instance_side):
-        # AI: Class-name entry point for any UI surface that already knows the
-        # class to browse (debugger stack-frame menu, future call-sites) and so
-        # doesn't need browse_object_class's gemstone_class() round-trip.
-        if not class_name:
-            return
-        if self.browser_tab is not None and self.browser_tab.winfo_exists():
-            self.notebook.select(self.browser_tab)
-        self.gemstone_session_record.jump_to_class(class_name, show_instance_side)
-        self.event_queue.publish("SelectedClassChanged")
+    
 
     def add_method_for_class(self, class_name, show_instance_side=True):
         if not class_name:
