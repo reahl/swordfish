@@ -7,7 +7,6 @@
 import tkinter as tk
 from tkinter import ttk
 
-
 # AI: PhotoImages must remain referenced for Tk to keep them alive. Keeping the
 # references at module scope avoids garbage collection while staying out of
 # the host notebook's own attribute namespace.
