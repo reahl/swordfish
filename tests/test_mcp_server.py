@@ -54,7 +54,6 @@ def test_create_server_passes_policy_flags_to_tool_registration():
                 allow_ide_write=True,
                 allow_commit=True,
                 allow_tracing=True,
-                require_gemstone_ast=True,
             )
 
     assert mcp_server is captured["mcp_server"]
@@ -66,7 +65,6 @@ def test_create_server_passes_policy_flags_to_tool_registration():
     assert captured["allow_commit"]
     assert captured["allow_tracing"]
     assert captured["integrated_session_state"] is not None
-    assert captured["require_gemstone_ast"]
 
 
 def test_create_server_supports_fast_mcp_without_version_argument():
@@ -98,7 +96,6 @@ def test_create_server_supports_fast_mcp_without_version_argument():
                 allow_source_write=False,
                 allow_commit=False,
                 allow_tracing=False,
-                require_gemstone_ast=False,
             )
 
     assert mcp_server is captured["mcp_server"]
@@ -107,7 +104,6 @@ def test_create_server_supports_fast_mcp_without_version_argument():
     assert captured["allow_ide_read"]
     assert not captured["allow_commit"]
     assert not captured["allow_tracing"]
-    assert not captured["require_gemstone_ast"]
 
 
 def test_create_server_allows_eval_without_extra_approval_configuration():
@@ -117,7 +113,6 @@ def test_create_server_allows_eval_without_extra_approval_configuration():
             allow_source_write=True,
             allow_commit=True,
             allow_tracing=False,
-            require_gemstone_ast=False,
         )
 
 
@@ -135,7 +130,6 @@ def test_create_server_allows_commit_enabled_without_extra_approval_configuratio
         allow_commit=False,
         allow_tracing=False,
         integrated_session_state=None,
-        require_gemstone_ast=False,
         **kwargs,
     ):
         pass
@@ -154,7 +148,6 @@ def test_create_server_allows_commit_enabled_without_extra_approval_configuratio
                     allow_source_write=True,
                     allow_commit=True,
                     allow_tracing=False,
-                    require_gemstone_ast=False,
                 )
 
 
@@ -174,7 +167,6 @@ def test_create_server_passes_commit_policy_flags_in_confirmation_mode():
         allow_commit=False,
         allow_tracing=False,
         integrated_session_state=None,
-        require_gemstone_ast=False,
         **kwargs,
     ):
         captured["allow_commit"] = allow_commit
@@ -194,7 +186,6 @@ def test_create_server_passes_commit_policy_flags_in_confirmation_mode():
                     allow_source_write=True,
                     allow_commit=True,
                     allow_tracing=False,
-                    require_gemstone_ast=False,
                 )
 
     assert captured["allow_commit"]
@@ -229,7 +220,6 @@ def test_create_server_passes_streamable_http_network_configuration():
         allow_commit=False,
         allow_tracing=False,
         integrated_session_state=None,
-        require_gemstone_ast=False,
         **kwargs,
     ):
         pass
@@ -250,7 +240,6 @@ def test_create_server_passes_streamable_http_network_configuration():
                 mcp_host="127.0.0.1",
                 mcp_port=9177,
                 mcp_streamable_http_path="/running-ide",
-                require_gemstone_ast=False,
             )
 
     assert captured["name"] == "SwordfishMCP"
@@ -292,7 +281,6 @@ def test_create_server_passes_orientation_instructions_to_fast_mcp():
                 allow_source_write=False,
                 allow_commit=False,
                 allow_tracing=False,
-                require_gemstone_ast=False,
             )
 
     assert captured["instructions"] is not None

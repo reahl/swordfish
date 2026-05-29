@@ -37,7 +37,6 @@ def test_method_ast_returns_a_bodyless_outline_from_the_real_parser_by_default(f
     ast = fixture.ast_for()
 
     assert ast['schema_version'] == 2
-    assert ast['analysis_backend'] == 'swordfish_recursive_descent'
     assert ast['node_offsets_origin'] == 'zero_based'
     assert ast['nodes'][0]['node_path'] == 'method'
     assert ast['nodes'][0]['kind'] == 'method'
@@ -77,7 +76,6 @@ def test_malformed_source_falls_back_to_the_heuristic_backend(fixture):
     fixture.given_method_source('compute\n    ^[ ')
     ast = fixture.ast_for()
 
-    assert ast['analysis_backend'] == 'source_heuristic'
     assert ast['schema_version'] == 1
     assert 'sends' in ast
 

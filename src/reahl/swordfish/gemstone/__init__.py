@@ -9,7 +9,6 @@ from reahl.swordfish.gemstone.browser import (
     list_classes_in_category,
     list_method_categories,
     list_methods,
-    method_ast,
     method_sends,
     method_structure_summary,
 )
@@ -56,7 +55,6 @@ __all__ = [
     "list_classes_in_category",
     "list_method_categories",
     "list_methods",
-    "method_ast",
     "method_sends",
     "method_structure_summary",
     "session_summary",

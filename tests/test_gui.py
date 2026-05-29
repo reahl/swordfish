@@ -2216,7 +2216,6 @@ def test_run_application_uses_saved_mcp_config_when_no_cli_runtime_overrides():
         allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
-        require_gemstone_ast=True,
         mcp_host="10.0.0.5",
         mcp_port=9177,
         mcp_http_path="/saved",
@@ -2238,7 +2237,6 @@ def test_run_application_uses_saved_mcp_config_when_no_cli_runtime_overrides():
     assert resolved_runtime_config.allow_ide_write
     assert resolved_runtime_config.allow_commit
     assert resolved_runtime_config.allow_tracing
-    assert resolved_runtime_config.require_gemstone_ast
     assert resolved_runtime_config.mcp_host == "10.0.0.5"
     assert resolved_runtime_config.mcp_port == 9177
     assert resolved_runtime_config.mcp_http_path == "/saved"
@@ -2254,7 +2252,6 @@ def test_run_application_cli_runtime_overrides_take_precedence_over_saved_mcp_co
         allow_ide_write=False,
         allow_commit=False,
         allow_tracing=True,
-        require_gemstone_ast=False,
         mcp_host="10.0.0.5",
         mcp_port=9177,
         mcp_http_path="/saved",
@@ -2297,7 +2294,6 @@ def test_run_application_cli_runtime_overrides_take_precedence_over_saved_mcp_co
     assert not resolved_runtime_config.allow_ide_write
     assert not resolved_runtime_config.allow_commit
     assert resolved_runtime_config.allow_tracing
-    assert not resolved_runtime_config.require_gemstone_ast
     assert resolved_runtime_config.mcp_host == "127.0.0.1"
     assert resolved_runtime_config.mcp_port == 8123
     assert resolved_runtime_config.mcp_http_path == "/saved"
@@ -2375,7 +2371,6 @@ def test_save_and_load_mcp_runtime_config_uses_xdg_home_location():
                 allow_ide_write=True,
                 allow_commit=True,
                 allow_tracing=True,
-                require_gemstone_ast=True,
                 mcp_host="127.0.0.1",
                 mcp_port=8123,
                 mcp_http_path="/saved",
@@ -2528,7 +2523,6 @@ def test_read_only_config_in_prod_locks_permission_toggles(fixture):
         assert str(dialog.allow_ide_write_checkbutton.cget("state")) == tk.DISABLED
         assert str(dialog.allow_commit_checkbutton.cget("state")) == tk.DISABLED
         assert str(dialog.allow_tracing_checkbutton.cget("state")) == tk.DISABLED
-        assert str(dialog.require_gemstone_ast_checkbutton.cget("state")) == tk.DISABLED
         assert "locked" in dialog.permission_note_variable.get().lower()
     finally:
         dialog.destroy()
@@ -2554,7 +2548,6 @@ def test_read_only_config_non_prod_allows_session_only_permission_changes(
         allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
-        require_gemstone_ast=True,
         mcp_host="127.0.0.1",
         mcp_port=9177,
         mcp_http_path="/updated",
@@ -2618,7 +2611,6 @@ def test_logout_resets_session_only_mcp_configuration(fixture):
         allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
-        require_gemstone_ast=True,
         mcp_host="127.0.0.1",
         mcp_port=9177,
         mcp_http_path="/updated",
@@ -2663,7 +2655,6 @@ def test_logout_stops_mcp_when_session_only_config_is_active(fixture):
         allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
-        require_gemstone_ast=True,
         mcp_host="127.0.0.1",
         mcp_port=9177,
         mcp_http_path="/updated",
@@ -2702,7 +2693,6 @@ def test_run_mcp_server_passes_streamable_http_options_to_create_server():
         allow_ide_write=False,
         allow_commit=False,
         allow_tracing=True,
-        require_gemstone_ast=False,
         mcp_host='127.0.0.1',
         mcp_port=9177,
         mcp_http_path='/running-ide',
@@ -2726,7 +2716,6 @@ def test_run_mcp_server_passes_streamable_http_options_to_create_server():
         'allow_ide_write': False,
         'allow_commit': False,
         'allow_tracing': True,
-        'require_gemstone_ast': False,
     }
     assert call_kwargs['mcp_host'] == '127.0.0.1'
     assert call_kwargs['mcp_port'] == 9177
@@ -2749,7 +2738,6 @@ def test_configure_mcp_server_updates_and_saves_config_without_forcing_restart(
         allow_ide_write=True,
         allow_commit=True,
         allow_tracing=True,
-        require_gemstone_ast=True,
         mcp_host="127.0.0.1",
         mcp_port=9177,
         mcp_http_path="/updated",
@@ -7805,7 +7793,7 @@ def test_method_context_menu_preview_add_parameter_calls_browser_preview(fixture
 def test_method_context_menu_preview_extract_calls_browser_preview(fixture):
     """Preview Extract Method uses selected statements and calls browser extract preview with inferred statement indexes."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
-    fixture.mock_browser.method_ast.return_value = {
+    fixture.mock_browser.source_method_ast.return_value = {
         "statements": [
             {
                 "statement_index": 1,
@@ -7833,11 +7821,7 @@ def test_method_context_menu_preview_extract_calls_browser_preview(fixture):
         ) as mock_result_dialog:
             tab.code_panel.preview_method_extract()
 
-    fixture.mock_browser.method_ast.assert_called_once_with(
-        "OrderLine",
-        "total",
-        True,
-    )
+    fixture.mock_browser.source_method_ast.assert_called_once_with(ANY, "total")
     fixture.mock_browser.method_extract_preview.assert_called_once_with(
         "OrderLine",
         True,
@@ -7869,7 +7853,7 @@ def test_method_context_menu_preview_extract_partial_return_selection_reports_se
 ):
     """Partially selecting a return statement should report selection coverage guidance, not a return-extraction error."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
-    fixture.mock_browser.method_ast.return_value = {
+    fixture.mock_browser.source_method_ast.return_value = {
         "statements": [
             {
                 "statement_index": 1,
@@ -7913,7 +7897,7 @@ def test_method_context_menu_preview_extract_suggests_keyword_selector_when_argu
     )
     fixture.mock_browser.get_compiled_method.return_value = mock_method
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "buildFrom:")
-    fixture.mock_browser.method_ast.return_value = {
+    fixture.mock_browser.source_method_ast.return_value = {
         "statements": [
             {
                 "statement_index": 1,

@@ -19,11 +19,6 @@ from reahl.swordfish.gemstone import (
     gemstone_error_payload,
     session_summary,
 )
-from reahl.swordfish.mcp.ast_assets import (
-    AST_SUPPORT_VERSION,
-    ast_support_source,
-    ast_support_source_hash,
-)
 from reahl.swordfish.mcp.debug_registry import (
     add_debug_session,
     get_debug_metadata,
@@ -58,7 +53,6 @@ def register_tools(
     allow_commit=False,
     allow_tracing=False,
     integrated_session_state=None,
-    require_gemstone_ast=False,
     experimental=False,
     get_permissions=None,
 ):
@@ -74,7 +68,6 @@ def register_tools(
             'allow_ide_write': allow_ide_write,
             'allow_commit': allow_commit,
             'allow_tracing': allow_tracing,
-            'require_gemstone_ast': require_gemstone_ast,
         }
         get_permissions = lambda: _static_permissions
 
@@ -100,7 +93,6 @@ def register_tools(
             "gs_delete_class",
             "gs_global_set",
             "gs_global_remove",
-            "gs_ast_install",
             "gs_tracer_install",
             "gs_tracer_uninstall",
             "gs_tracer_enable",
@@ -232,10 +224,7 @@ def register_tools(
         return browser_session_for_policy(gemstone_session), None
 
     def browser_session_for_policy(gemstone_session):
-        return GemstoneBrowserSession(
-            gemstone_session,
-            require_gemstone_ast=get_permissions()['require_gemstone_ast'],
-        )
+        return GemstoneBrowserSession(gemstone_session)
 
     def get_active_debug_session(connection_id, debug_id):
         if not has_debug_session(debug_id):
@@ -597,7 +586,6 @@ def register_tools(
             "allow_ide_write": perms['allow_ide_write'],
             "allow_commit": commit_allowed_for_current_mode(),
             "allow_tracing": perms['allow_tracing'],
-            "require_gemstone_ast": perms['require_gemstone_ast'],
             "gui_session_active": gui_active,
             "mcp_can_connect_sessions": not gui_active,
             "mcp_can_disconnect_sessions": not gui_active,
@@ -862,11 +850,6 @@ def register_tools(
                 'Start swordfish --headless-mcp with --allow-tracing '
                 'for observed caller evidence.'
             )
-        if get_permissions()['require_gemstone_ast']:
-            cautions.append(
-                'Strict AST mode is active. Install AST support with '
-                'gs_ast_install and verify with gs_ast_status.'
-            )
         return cautions
 
     def state_dependent_decision_rules(selector):
@@ -906,92 +889,11 @@ def register_tools(
             )
         return decision_rules
 
-    def ast_status_for_browser_session(browser_session):
-        expected_source_hash = ast_support_source_hash()
-        expected_version = AST_SUPPORT_VERSION
-        support_class_exists = browser_session.run_code(
-            (
-                "| swordfishDictionary |\n"
-                "swordfishDictionary := System myUserProfile symbolList "
-                "objectNamed: #'Reahl-Swordfish'.\n"
-                "swordfishDictionary notNil and: [\n"
-                "    swordfishDictionary includesKey: #SwordfishMcpAstSupport\n"
-                "]"
-            )
-        ).to_py
-        manifest_exists = browser_session.run_code(
-            "UserGlobals includesKey: #SwordfishMcpAstManifest"
-        ).to_py
-        installed_source_hash = ""
-        installed_version = ""
-        installed_at = ""
-        if manifest_exists:
-            installed_source_hash = browser_session.run_code(
-                (
-                    "(UserGlobals at: #SwordfishMcpAstManifest) "
-                    "at: #sourceHash ifAbsent: ['']"
-                )
-            ).to_py
-            installed_version = browser_session.run_code(
-                (
-                    "(UserGlobals at: #SwordfishMcpAstManifest) "
-                    "at: #version ifAbsent: ['']"
-                )
-            ).to_py
-            installed_at = browser_session.run_code(
-                (
-                    "(UserGlobals at: #SwordfishMcpAstManifest) "
-                    "at: #installedAt ifAbsent: ['']"
-                )
-            ).to_py
-        hashes_match = manifest_exists and (
-            installed_source_hash == expected_source_hash
-        )
-        versions_match = manifest_exists and (installed_version == expected_version)
-        manifest_matches = hashes_match and versions_match
-        return {
-            "ast_support_installed": support_class_exists,
-            "ast_manifest_installed": manifest_exists,
-            "expected_version": expected_version,
-            "installed_version": installed_version,
-            "versions_match": versions_match,
-            "expected_source_hash": expected_source_hash,
-            "installed_source_hash": installed_source_hash,
-            "hashes_match": hashes_match,
-            "manifest_matches": manifest_matches,
-            "installed_at": installed_at,
-        }
+    
 
-    def ast_manifest_install_script(browser_session):
-        expected_source_hash = ast_support_source_hash()
-        expected_version = AST_SUPPORT_VERSION
-        expected_version_literal = browser_session.smalltalk_string_literal(
-            expected_version
-        )
-        expected_hash_literal = browser_session.smalltalk_string_literal(
-            expected_source_hash
-        )
-        installed_by_literal = browser_session.smalltalk_string_literal("swordfish")
-        return (
-            "| manifest |\n"
-            "manifest := Dictionary new.\n"
-            "manifest at: #version put: %s.\n"
-            "manifest at: #sourceHash put: %s.\n"
-            "manifest at: #installedBy put: %s.\n"
-            "manifest at: #installedAt put: DateAndTime now printString.\n"
-            "UserGlobals at: #SwordfishMcpAstManifest put: manifest.\n"
-            "true"
-        ) % (
-            expected_version_literal,
-            expected_hash_literal,
-            installed_by_literal,
-        )
+    
 
-    def install_ast_support_in_browser_session(browser_session):
-        if not browser_session.installed_package_named("Reahl-Swordfish"):
-            browser_session.create_and_install_package("Reahl-Swordfish")
-        browser_session.run_code(ast_support_source())
-        browser_session.run_code(ast_manifest_install_script(browser_session))
+    
 
     def tracer_status_for_browser_session(browser_session):
         return browser_session.tracer_status()
@@ -2352,7 +2254,6 @@ def register_tools(
         Call once on startup to learn what is enabled (writes, eval, tracing,
         IDE, commit) and which tools belong to which workflow group. For
         runtime-dependent advice use gs_guidance."""
-        ast_backend = browser_session_for_policy(None).ast_backend_status()
         gui_active = gui_session_is_active()
         shared_connection_id = None
         ide_mcp_runtime = None
@@ -2372,15 +2273,6 @@ def register_tools(
             "policy": policy_flags(),
             "shared_ide_connection_id": shared_connection_id,
             "ide_mcp_runtime": ide_mcp_runtime,
-            "ast_backend": ast_backend,
-            "ast_support": {
-                "expected_version": AST_SUPPORT_VERSION,
-                "expected_source_hash": ast_support_source_hash(),
-                "tools": [
-                    "gs_ast_status",
-                    "gs_ast_install",
-                ],
-            },
             "recommended_bootstrap": [
                 "gs_capabilities",
                 "gs_guidance",
@@ -2417,7 +2309,6 @@ def register_tools(
                     "gs_find_selectors",
                     "gs_find_implementors",
                     "gs_find_senders",
-                    "gs_ast_status",
                     "gs_get_method_source",
                     "gs_method_ast",
                     "gs_method_sends",
@@ -2481,10 +2372,6 @@ def register_tools(
                     "gs_collect_sender_evidence",
                     "gs_tracer_*",
                 ],
-                "ast_support": [
-                    "gs_ast_status",
-                    "gs_ast_install",
-                ],
             },
         }
 
@@ -2492,7 +2379,7 @@ def register_tools(
     def gs_guidance(selector=None):
         """Return state-dependent advice: cautions and decision rules that
         depend on the current permission flags (allow_eval_arbitrary,
-        allow_commit, allow_tracing, require_gemstone_ast) and on whether the
+        allow_commit, allow_tracing) and on whether the
         named selector is a common high-fanout hotspot. The static tool
         catalog and server instructions cover the rest - call this only when
         you need to know what is allowed right now, e.g. before attempting an
@@ -3552,74 +3439,9 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
-    @mcp_server.tool()
-    def gs_ast_status(connection_id):
-        """Report whether the GemStone-side AST support class is installed and
-        whether its manifest matches the expected version. Also reports the
-        require_gemstone_ast policy flag."""
-        browser_session, error_response = get_browser_session(connection_id)
-        if error_response:
-            return error_response
-        try:
-            ast_status = ast_status_for_browser_session(browser_session)
-            return {
-                "ok": True,
-                "connection_id": connection_id,
-                "require_gemstone_ast": get_permissions()['require_gemstone_ast'],
-                **ast_status,
-            }
-        except GemstoneError as error:
-            return {
-                "ok": False,
-                "connection_id": connection_id,
-                "error": gemstone_error_payload(error),
-            }
-        except GemstoneApiError as error:
-            return {
-                "ok": False,
-                "connection_id": connection_id,
-                "error": {"message": str(error)},
-            }
+    
 
-    @mcp_server.tool()
-    def gs_ast_install(connection_id):
-        """Install or upgrade the GemStone-side AST support class. Requires
-        --allow-source-write and an active transaction. The Python parser is
-        always available; this only matters when require_gemstone_ast is set."""
-        if not get_permissions()['allow_source_write']:
-            return disabled_tool_response(
-                connection_id,
-                (
-                    "gs_ast_install is disabled. "
-                    "Start swordfish --headless-mcp with --allow-source-write to enable."
-                ),
-            )
-        gemstone_session, error_response = get_active_session(connection_id)
-        if error_response:
-            return error_response
-        transaction_error_response = require_active_transaction(connection_id)
-        if transaction_error_response:
-            return transaction_error_response
-        browser_session = browser_session_for_policy(gemstone_session)
-        try:
-            install_ast_support_in_browser_session(browser_session)
-            return {
-                "ok": True,
-                "connection_id": connection_id,
-                **ast_status_for_browser_session(browser_session),
-            }
-        except GemstoneError as error:
-            return {
-                "ok": False,
-                "connection_id": connection_id,
-                "error": gemstone_error_payload(error),
-            }
-        except GemstoneApiError as error:
-            return {
-                "ok": False,
-                "connection_id": connection_id,
-                "error": {"message": str(error)},
-            }
+    
 
     @experimental_tool()
     def gs_tracer_status(connection_id):
