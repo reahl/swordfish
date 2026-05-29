@@ -796,23 +796,28 @@ class GemstoneBrowserSession:
         method_selector,
         show_instance_side,
     ):
+        # AI: Argument and temporary names come from the Python SmalltalkMethodParser,
+        # AI: which is always available and matches the in-image declaration verbatim;
+        # AI: the previous round-trip via compiled_method.argsAndTemps / numArgs only
+        # AI: existed because the parser had not been written yet. If parsing fails -
+        # AI: typically a half-typed method during refactoring - we fall back to the
+        # AI: source_method_ast shape as-is (argument_names empty) rather than fail.
         source = self.get_method_source(
             class_name,
             method_selector,
             show_instance_side,
         )
         source_ast = self.source_method_ast(source, method_selector)
-        names = self.compiled_method_argument_and_temporary_names(
-            class_name,
-            method_selector,
-            show_instance_side,
-        )
-        source_ast["argument_names"] = names["argument_names"]
-        source_ast["temporaries"] = names["temporary_names"]
+        try:
+            method_node = SmalltalkMethodParser().parse_method(source)
+        except SmalltalkSyntaxError:
+            return source_ast
+        source_ast["argument_names"] = list(method_node.argument_names)
+        source_ast["temporaries"] = list(method_node.temporaries)
         source_ast["header_source"] = (
             self.method_header_for_selector_and_argument_names(
                 method_selector,
-                names["argument_names"],
+                list(method_node.argument_names),
             )
         )
         source_ast["analysis_backend"] = "gemstone_compiled_method_metadata"
