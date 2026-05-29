@@ -7373,6 +7373,54 @@ def test_method_context_menu_show_in_uml_routes_selected_method(fixture):
     )
 
 
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_list_context_menu_offers_refactorings_for_the_selected_method(fixture):
+    """AI: The method-list right-click menu surfaces refactorings that act on the selected row - rename, global selector rename, move, add parameter, remove parameter - so the user does not have to open the method in the code editor first. Extract and inline stay code-editor-only because they need a code selection or a specific call site."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    methods_widget = fixture.browser_window.methods_widget
+
+    methods_widget.show_context_menu(
+        types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1),
+    )
+    fixture.root.update()
+
+    command_labels = menu_command_labels(methods_widget.current_context_menu)
+
+    assert "Rename Method" in command_labels
+    assert "Rename Selector (Global)" in command_labels
+    assert "Move Method" in command_labels
+    assert "Add Parameter" in command_labels
+    assert "Remove Parameter" in command_labels
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_list_rename_method_dispatches_to_session_record_apply(fixture):
+    """AI: Picking Rename Method from the method-list menu prompts for the new selector, confirms, then calls apply_method_rename on the session record with the class/side/old/new triple inferred from the right-clicked row - no code-editor cursor required."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    fixture.mock_browser.apply_method_rename.return_value = {"applied_change_count": 1}
+    methods_widget = fixture.browser_window.methods_widget
+
+    with patch(
+        "reahl.swordfish.browser.simpledialog.askstring",
+        return_value="grandTotal",
+    ):
+        with patch(
+            "reahl.swordfish.browser.messagebox.askyesno",
+            return_value=True,
+        ):
+            with patch("reahl.swordfish.browser.JsonResultDialog") as mock_dialog:
+                methods_widget.apply_method_rename_from_list()
+
+    fixture.mock_browser.apply_method_rename.assert_called_once_with(
+        "OrderLine",
+        True,
+        "total",
+        "grandTotal",
+    )
+    mock_dialog.assert_called_once()
+
+
 @with_fixtures(SwordfishGuiFixture)
 def test_covering_tests_browse_dialog_navigates_to_selected_test_method(fixture):
     """AI: Double-clicking a discovered covering test should navigate browser selection to that test method."""

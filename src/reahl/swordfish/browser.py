@@ -16,6 +16,7 @@ from reahl.swordfish.tab_registry import DeduplicatedTabRegistry
 from reahl.swordfish.text_editing import (
     CodeLineNumberColumn,
     EditorTab,
+    JsonResultDialog,
     TextCursorPositionIndicator,
 )
 from reahl.swordfish.ui_context import UiContext
@@ -1978,6 +1979,255 @@ class MethodSelection(FramedWidget):
         self.event_queue.publish('SelectedCategoryChanged', origin=self)
         self.event_queue.publish('MethodSelected', origin=self)
 
+    def selected_method_for_refactoring(self, title):
+        """AI: Resolve the right-clicked row in the method list to a
+        (class, side, selector) triple, surfacing a user-facing error if no
+        method is selected or no class is active. Used by every method-list
+        refactoring entry to share the same precondition path."""
+        listbox = self.selection_list.selection_listbox
+        selection = listbox.curselection()
+        if not selection:
+            messagebox.showwarning(title, 'Select a method first.')
+            return None
+        class_name = self.gemstone_session_record.selected_class
+        if not class_name:
+            messagebox.showwarning(title, 'No class is active.')
+            return None
+        show_instance_side = self.gemstone_session_record.show_instance_side
+        method_selector = listbox.get(selection[0])
+        return (class_name, show_instance_side, method_selector)
+
+    def show_refactoring_result(self, title, result):
+        """AI: Render a refactoring result in the same JsonResultDialog the
+        code-editor menu uses, so the user sees one shape no matter which menu
+        kicked the refactoring off."""
+        JsonResultDialog(self.browser_window.application, title, result)
+        self.event_queue.publish('MethodSelected', origin=self)
+
+    def apply_method_rename_from_list(self):
+        """AI: Single-class method rename driven from the method list - the
+        method context is the right-clicked row, no code-editor cursor needed."""
+        context = self.selected_method_for_refactoring('Rename Method')
+        if context is None:
+            return
+        class_name, show_instance_side, old_selector = context
+        new_selector = simpledialog.askstring(
+            'Rename Method',
+            'New selector for %s>>%s:' % (class_name, old_selector),
+            initialvalue=old_selector,
+        )
+        if not new_selector:
+            return
+        new_selector = new_selector.strip()
+        if not new_selector:
+            return
+        should_apply = messagebox.askyesno(
+            'Confirm Rename Method',
+            (
+                'Rename %s>>%s to %s (%s side, this class only)?'
+                % (
+                    class_name,
+                    old_selector,
+                    new_selector,
+                    'instance' if show_instance_side else 'class',
+                )
+            ),
+        )
+        if not should_apply:
+            return
+        try:
+            rename_result = self.gemstone_session_record.apply_method_rename(
+                class_name,
+                show_instance_side,
+                old_selector,
+                new_selector,
+            )
+        except (DomainException, GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror('Rename Method', str(error))
+            return
+        self.show_refactoring_result('Method Rename Apply', rename_result)
+
+    def apply_selector_rename_from_list(self):
+        """AI: Global selector rename - rewrites every implementor and every
+        sender across the image. Distinct from apply_method_rename_from_list,
+        which only touches this class. The confirmation makes the scope
+        explicit since the user clicked from a single method row."""
+        context = self.selected_method_for_refactoring('Rename Selector (Global)')
+        if context is None:
+            return
+        _class_name, _show_instance_side, old_selector = context
+        new_selector = simpledialog.askstring(
+            'Rename Selector (Global)',
+            (
+                'Globally rename selector %s to:\n'
+                'This rewrites every implementor and sender in the image.'
+            )
+            % old_selector,
+            initialvalue=old_selector,
+        )
+        if not new_selector:
+            return
+        new_selector = new_selector.strip()
+        if not new_selector:
+            return
+        should_apply = messagebox.askyesno(
+            'Confirm Global Selector Rename',
+            (
+                'Rename selector %s to %s across every class in the image?'
+                % (old_selector, new_selector)
+            ),
+        )
+        if not should_apply:
+            return
+        try:
+            rename_result = self.gemstone_session_record.apply_selector_rename(
+                old_selector,
+                new_selector,
+            )
+        except (DomainException, GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror('Rename Selector (Global)', str(error))
+            return
+        self.show_refactoring_result('Selector Rename Apply', rename_result)
+
+    def apply_method_move_from_list(self):
+        """AI: Move the selected method to a different class (same side). The
+        target class is asked for as text - the proper class-picker dialog is
+        D3-8 scope; for D3-7 the typed name is enough to match the existing
+        code-editor flow."""
+        context = self.selected_method_for_refactoring('Move Method')
+        if context is None:
+            return
+        source_class_name, show_instance_side, method_selector = context
+        target_class_name = simpledialog.askstring(
+            'Move Method',
+            'Move %s>>%s to which class?' % (source_class_name, method_selector),
+        )
+        if not target_class_name:
+            return
+        target_class_name = target_class_name.strip()
+        if not target_class_name:
+            return
+        should_apply = messagebox.askyesno(
+            'Confirm Move Method',
+            (
+                'Move %s>>%s to %s (%s side)?'
+                % (
+                    source_class_name,
+                    method_selector,
+                    target_class_name,
+                    'instance' if show_instance_side else 'class',
+                )
+            ),
+        )
+        if not should_apply:
+            return
+        try:
+            move_result = self.gemstone_session_record.apply_method_move(
+                source_class_name,
+                show_instance_side,
+                target_class_name,
+                show_instance_side,
+                method_selector,
+            )
+        except (DomainException, GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror('Move Method', str(error))
+            return
+        self.show_refactoring_result('Method Move Apply', move_result)
+
+    def apply_method_add_parameter_from_list(self):
+        """AI: Add a keyword parameter to the selected method. Takes three
+        inputs from the user: the new keyword (eg. 'limit:'), the argument
+        name inside the method, and the Smalltalk source for the default
+        argument that existing senders will pass."""
+        context = self.selected_method_for_refactoring('Add Parameter')
+        if context is None:
+            return
+        class_name, show_instance_side, method_selector = context
+        parameter_keyword = simpledialog.askstring(
+            'Add Parameter',
+            'New keyword (must end with a colon, eg. limit:):',
+        )
+        if not parameter_keyword:
+            return
+        parameter_keyword = parameter_keyword.strip()
+        if not parameter_keyword:
+            return
+        parameter_name = simpledialog.askstring(
+            'Add Parameter',
+            'Argument name inside the method (eg. aLimit):',
+        )
+        if not parameter_name:
+            return
+        parameter_name = parameter_name.strip()
+        if not parameter_name:
+            return
+        default_argument_source = simpledialog.askstring(
+            'Add Parameter',
+            'Default-argument Smalltalk expression that existing senders pass:',
+            initialvalue='nil',
+        )
+        if not default_argument_source:
+            return
+        default_argument_source = default_argument_source.strip()
+        if not default_argument_source:
+            return
+        try:
+            result = self.gemstone_session_record.apply_method_add_parameter(
+                class_name,
+                show_instance_side,
+                method_selector,
+                parameter_keyword,
+                parameter_name,
+                default_argument_source,
+            )
+        except (DomainException, GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror('Add Parameter', str(error))
+            return
+        self.show_refactoring_result('Add Parameter Apply', result)
+
+    def apply_method_remove_parameter_from_list(self):
+        """AI: Remove a keyword parameter from the selected method. The user
+        picks which keyword token to drop - other keywords stay in the
+        rewritten selector. A compatibility wrapper for the old selector is
+        always installed; rewriting same-class senders is opt-in."""
+        context = self.selected_method_for_refactoring('Remove Parameter')
+        if context is None:
+            return
+        class_name, show_instance_side, method_selector = context
+        parameter_keyword = simpledialog.askstring(
+            'Remove Parameter',
+            (
+                'Keyword token to remove from %s (must end with a colon, eg. '
+                'limit:):'
+            )
+            % method_selector,
+        )
+        if not parameter_keyword:
+            return
+        parameter_keyword = parameter_keyword.strip()
+        if not parameter_keyword:
+            return
+        rewrite_source_senders = messagebox.askyesno(
+            'Remove Parameter',
+            (
+                'Rewrite same-class senders of %s to call the new selector? '
+                'No leaves a compatibility wrapper at %s in place.'
+            )
+            % (method_selector, method_selector),
+        )
+        try:
+            result = self.gemstone_session_record.apply_method_remove_parameter(
+                class_name,
+                show_instance_side,
+                method_selector,
+                parameter_keyword,
+                rewrite_source_senders=rewrite_source_senders,
+            )
+        except (DomainException, GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror('Remove Parameter', str(error))
+            return
+        self.show_refactoring_result('Remove Parameter Apply', result)
+
     def show_context_menu(self, event):
         listbox = self.selection_list.selection_listbox
         has_selection = listbox.size() > 0
@@ -2027,6 +2277,39 @@ class MethodSelection(FramedWidget):
             command=self.open_covering_tests,
             state=covering_tests_state,
         )
+        if self.browser_window.application.experimental_features_enabled:
+            # AI: Refactorings driven from the method list act on the
+            # right-clicked row, no open editor tab required. Each is gated
+            # off when the row has no selection or the session is busy.
+            refactoring_state = (
+                write_command_state if has_selection else tk.DISABLED
+            )
+            menu.add_separator()
+            menu.add_command(
+                label='Rename Method',
+                command=self.apply_method_rename_from_list,
+                state=refactoring_state,
+            )
+            menu.add_command(
+                label='Rename Selector (Global)',
+                command=self.apply_selector_rename_from_list,
+                state=refactoring_state,
+            )
+            menu.add_command(
+                label='Move Method',
+                command=self.apply_method_move_from_list,
+                state=refactoring_state,
+            )
+            menu.add_command(
+                label='Add Parameter',
+                command=self.apply_method_add_parameter_from_list,
+                state=refactoring_state,
+            )
+            menu.add_command(
+                label='Remove Parameter',
+                command=self.apply_method_remove_parameter_from_list,
+                state=refactoring_state,
+            )
         add_close_command_to_popup_menu(menu)
         popup_menu(menu, event)
 
