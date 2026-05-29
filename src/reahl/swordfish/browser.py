@@ -8,6 +8,7 @@ from tkinter import ttk
 
 from reahl.ptongue import GemstoneError
 
+from reahl.swordfish.closable_notebook import install_close_buttons
 from reahl.swordfish.exceptions import DomainException
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.navigation import NavigationHistory
@@ -2010,6 +2011,19 @@ class MethodSelection(FramedWidget):
             command=self.show_method_in_class_diagram,
             state=tk.NORMAL if has_selection else tk.DISABLED,
         )
+        # AI: Senders/Implementors lookups are read-only; gate only on selection.
+        selector_navigation_state = tk.NORMAL if has_selection else tk.DISABLED
+        menu.add_separator()
+        menu.add_command(
+            label='Senders',
+            command=self.open_senders_for_selection,
+            state=selector_navigation_state,
+        )
+        menu.add_command(
+            label='Implementors',
+            command=self.open_implementors_for_selection,
+            state=selector_navigation_state,
+        )
         menu.add_separator()
         menu.add_command(
             label='Run Test',
@@ -2134,6 +2148,26 @@ class MethodSelection(FramedWidget):
             method_selector,
         )
 
+    def open_senders_for_selection(self):
+        # AI: Method-list right-click -> Senders. Mirrors the source-window path
+        # by routing through the same Swordfish.open_senders_dialog entry point.
+        selector = self.get_selected_method()
+        if not selector:
+            return
+        self.browser_window.application.event_queue.publish(
+            'SendersOpened', log_context={'selector': selector}
+        )
+        self.browser_window.application.open_senders_dialog(method_symbol=selector)
+
+    def open_implementors_for_selection(self):
+        # AI: Method-list right-click -> Implementors.
+        selector = self.get_selected_method()
+        if not selector:
+            return
+        self.browser_window.application.open_implementors_dialog(
+            method_symbol=selector,
+        )
+
 
 class MethodEditor(FramedWidget):
     def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
@@ -2185,6 +2219,13 @@ class MethodEditor(FramedWidget):
 
         self.editor_notebook.bind('<Motion>', self.on_tab_motion)
         self.editor_notebook.bind('<Leave>', self.on_tab_leave)
+        # AI: Right-click on a tab label opens the per-tab context menu.
+        self.editor_notebook.bind('<Button-3>', self.open_tab_menu_handler)
+        # AI: Each tab gets an 'x' close affordance via the shared
+        # closable_notebook helper.
+        install_close_buttons(
+            self.editor_notebook, self.close_editor_tab_at_index
+        )
 
         self.open_tab_registry = DeduplicatedTabRegistry(self.editor_notebook)
         self.open_tabs = self.open_tab_registry.tabs_by_key
@@ -2216,13 +2257,44 @@ class MethodEditor(FramedWidget):
         return self.editor_notebook.nametowidget(tab_id)
 
     def open_tab_menu_handler(self, event):
-        return None
+        # AI: Resolve the tab the user right-clicked on. notebook.identify
+        # returns a string like '' or 'label' depending on whether the click
+        # landed in a tab label. We ignore non-label clicks (clicks inside the
+        # page content are already handled by CodePanel.open_text_menu).
+        element = self.editor_notebook.identify(event.x, event.y)
+        if 'label' not in element:
+            return
+        tab_index = self.editor_notebook.index(f'@{event.x},{event.y}')
+        tab_widget = self.editor_notebook.nametowidget(
+            self.editor_notebook.tabs()[tab_index]
+        )
+        tab_widget.open_tab_menu(event)
 
     def close_tab(self, tab):
         if tab.tab_key not in self.open_tabs:
             return
         self.editor_notebook.forget(self.open_tabs[tab.tab_key])
         self.open_tab_registry.remove_key(tab.tab_key)
+
+    def close_other_tabs(self, except_tab):
+        # AI: Iterate a snapshot of tab paths because close_tab mutates the set.
+        for tab_path in list(self.editor_notebook.tabs()):
+            tab_widget = self.editor_notebook.nametowidget(tab_path)
+            if tab_widget is not except_tab:
+                self.close_tab(tab_widget)
+
+    def close_tabs_to_right(self, after_tab):
+        tab_paths = list(self.editor_notebook.tabs())
+        after_index = self.editor_notebook.index(after_tab)
+        for tab_path in tab_paths[after_index + 1:]:
+            self.close_tab(self.editor_notebook.nametowidget(tab_path))
+
+    def close_editor_tab_at_index(self, notebook, tab_index):
+        # AI: Adapter that the closable_notebook helper calls when the user
+        # clicks the 'x' on a tab. Routes through the existing close_tab to
+        # keep the open-tab-registry bookkeeping in one place.
+        tab_widget = notebook.nametowidget(notebook.tabs()[tab_index])
+        self.close_tab(tab_widget)
 
     def current_method_context(self):
         selected_class = self.gemstone_session_record.selected_class

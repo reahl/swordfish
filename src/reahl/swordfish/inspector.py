@@ -4,6 +4,7 @@ from tkinter import ttk
 
 from reahl.ptongue import GemstoneError
 
+from reahl.swordfish.closable_notebook import install_close_buttons
 from reahl.swordfish.navigation import NavigationHistory
 from reahl.swordfish.tab_registry import DeduplicatedTabRegistry
 from reahl.swordfish.ui_support import add_close_command_to_popup_menu, popup_menu
@@ -576,6 +577,10 @@ class Explorer(ttk.Notebook):
     ):
         super().__init__(parent)
         self.tab_registry = DeduplicatedTabRegistry(self)
+        # AI: Each inspector tab gets an 'x' close affordance. Closing the
+        # root tab is allowed — the surrounding InspectorTab manages whether
+        # the Explorer continues to make sense.
+        install_close_buttons(self, self.close_explorer_tab_at_index)
         self.external_inspect_action = external_inspect_action
         self.graph_inspect_action = graph_inspect_action
         self.browse_class_action = browse_class_action
@@ -654,6 +659,13 @@ class Explorer(ttk.Notebook):
 
     def label_for_object_key(self, object_key):
         return self.tab_registry.label_for_key(object_key)
+
+    def close_explorer_tab_at_index(self, notebook, tab_index):
+        # AI: 'x' click on an explorer tab. Drop the registry entry first,
+        # then forget the tab widget so notebook.tabs() no longer lists it.
+        tab_widget = notebook.nametowidget(notebook.tabs()[tab_index])
+        self.tab_registry.remove_widget(tab_widget)
+        notebook.forget(tab_widget)
 
 
 class InspectorTab(ttk.Frame):

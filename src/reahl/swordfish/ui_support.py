@@ -1,3 +1,4 @@
+import re
 import tkinter as tk
 
 from reahl.ptongue import GemstoneError
@@ -79,3 +80,38 @@ def add_source_code_commands(menu, source_code_editor, selected_text, enabled):
         'Show in Object Diagram',
         source_code_editor.show_selected_source_in_object_diagram,
     )
+
+
+def word_under_text_cursor(text_widget):
+    # AI: The identifier or symbol fragment at the current insertion point
+    # of a tk.Text widget. Shared by every 'do something with the thing
+    # under the cursor' source-window command so the boundary rules stay
+    # consistent across CodePanel, RunTab, and any future code surface.
+    line, column = text_widget.index(tk.INSERT).split('.')
+    line_text = text_widget.get(f'{line}.0', f'{line}.end')
+    cursor_column = int(column)
+    token_matches = [
+        token_match
+        for token_match in re.finditer(
+            r'[-+*/\\~<>=@%,|&?!]+|[A-Za-z_]\w*:?',
+            line_text,
+        )
+        if token_match.start() <= cursor_column <= token_match.end()
+    ]
+    if not token_matches:
+        return ''
+    return token_matches[0].group(0)
+
+
+def class_name_at_widget_cursor(text_widget, selected_text):
+    # AI: Prefer the selection if there is one; otherwise fall back to the
+    # word under the cursor. Strip and extract the first identifier-like
+    # substring so callers get a clean class-name candidate (or None).
+    candidate = selected_text if selected_text else word_under_text_cursor(text_widget)
+    candidate = (candidate or '').strip()
+    if not candidate:
+        return None
+    class_name_match = re.search(r'[A-Za-z_]\w*', candidate)
+    if class_name_match is None:
+        return None
+    return class_name_match.group(0)
