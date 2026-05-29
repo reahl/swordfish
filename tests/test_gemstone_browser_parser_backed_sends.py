@@ -60,6 +60,44 @@ def test_method_sends_does_not_merge_pragma_into_following_send(fixture):
 
 
 @with_fixtures(ParsedSendsFixture)
+def test_method_structure_summary_does_not_count_float_literal_dots_as_statement_terminators(
+    fixture,
+):
+    """AI: The character-walking structure summary counted every '.' in
+    the method body, including the period inside a float literal like
+    '3.14'. A return of a single float-literal expression has zero
+    terminators between statements; the parser-backed walk reports the
+    real statement count and derives terminators from that."""
+    source = "describePi\n    ^ 3.14 printString"
+
+    summary = fixture.browser_session.source_method_structure_summary(source)
+
+    assert summary['statement_terminator_count'] == 0, summary
+    assert summary['return_count'] == 1
+
+
+@with_fixtures(ParsedSendsFixture)
+def test_method_structure_summary_counts_cascade_expressions_not_message_separators(
+    fixture,
+):
+    """AI: One cascade expression with three messages used to report
+    cascade_count = 2 (two ';' separators). The parser-backed walk
+    reports one cascade — the count of CascadeNode instances — which is
+    the conceptual unit a navigation heuristic actually wants."""
+    source = (
+        "summarize\n"
+        "    ^ self\n"
+        "        yourself;\n"
+        "        yourself;\n"
+        "        default"
+    )
+
+    summary = fixture.browser_session.source_method_structure_summary(source)
+
+    assert summary['cascade_count'] == 1, summary
+
+
+@with_fixtures(ParsedSendsFixture)
 def test_method_control_flow_summary_counts_branches_under_parenthesised_receivers(
     fixture,
 ):

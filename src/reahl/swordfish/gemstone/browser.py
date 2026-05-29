@@ -883,48 +883,45 @@ class GemstoneBrowserSession:
         }
 
     def source_method_structure_summary(self, source):
+        """AI: Parser-backed structure counts. The character-walking
+        heuristic counted the '.' inside a float literal as a statement
+        terminator and counted each ';' in a cascade as its own cascade.
+        The parser walk gives true statement, cascade, block, return and
+        assignment counts; the character walk is kept as a fallback so a
+        half-typed method still produces output."""
         code_character_map = self.source_code_character_map(source)
         body_start_offset = self.body_start_offset_for_method_source(source)
         if body_start_offset >= len(source):
             body_start_offset = 0
         body_source = source[body_start_offset:]
         method_sends = self.source_method_sends(source)
-        block_open_count = 0
-        block_close_count = 0
-        return_count = 0
-        cascade_count = 0
-        assignment_count = 0
-        statement_terminator_count = 0
         code_character_count = 0
         non_code_character_count = 0
-        index = body_start_offset
-        while index < len(source):
-            is_code_character = code_character_map[index]
-            character = source[index]
-            if is_code_character:
+        for index in range(body_start_offset, len(source)):
+            if code_character_map[index]:
                 code_character_count = code_character_count + 1
-                if character == "[":
-                    block_open_count = block_open_count + 1
-                if character == "]":
-                    block_close_count = block_close_count + 1
-                if character == "^":
-                    return_count = return_count + 1
-                if character == ";":
-                    cascade_count = cascade_count + 1
-                if character == ".":
-                    statement_terminator_count = statement_terminator_count + 1
-                has_next_character = index + 1 < len(source)
-                has_assignment = (
-                    character == ":"
-                    and has_next_character
-                    and source[index + 1] == "="
-                    and code_character_map[index + 1]
-                )
-                if has_assignment:
-                    assignment_count = assignment_count + 1
             else:
                 non_code_character_count = non_code_character_count + 1
-            index = index + 1
+        try:
+            method_node = SmalltalkMethodParser().parse_method(source)
+        except SmalltalkSyntaxError:
+            method_node = None
+        if method_node is not None:
+            structure_counts = self.parser_backed_structure_counts(method_node)
+        else:
+            structure_counts = self.heuristic_structure_counts(
+                source,
+                code_character_map,
+                body_start_offset,
+            )
+        block_open_count = structure_counts["block_open_count"]
+        block_close_count = structure_counts["block_close_count"]
+        return_count = structure_counts["return_count"]
+        cascade_count = structure_counts["cascade_count"]
+        assignment_count = structure_counts["assignment_count"]
+        statement_terminator_count = structure_counts[
+            "statement_terminator_count"
+        ]
         keyword_send_count = 0
         unary_send_count = 0
         binary_send_count = 0
@@ -961,6 +958,94 @@ class GemstoneBrowserSession:
             "explicit_self_send_count": explicit_self_send_count,
             "explicit_super_send_count": explicit_super_send_count,
             "analysis_limitations": method_sends["analysis_limitations"],
+        }
+
+    def parser_backed_structure_counts(self, method_node):
+        """AI: Walk the parser AST once and return true counts of blocks,
+        returns, cascade expressions, assignments, and inter-statement
+        terminators."""
+        from reahl.swordfish.gemstone.smalltalk_method_parser import (
+            AssignmentNode,
+            BlockNode,
+            CascadeNode,
+            ReturnNode,
+        )
+
+        counts = {
+            "block_open_count": 0,
+            "block_close_count": 0,
+            "return_count": 0,
+            "cascade_count": 0,
+            "assignment_count": 0,
+            "statement_terminator_count": max(
+                len(method_node.statements) - 1,
+                0,
+            ),
+        }
+
+        def walk(node):
+            if isinstance(node, BlockNode):
+                counts["block_open_count"] = counts["block_open_count"] + 1
+                counts["block_close_count"] = counts["block_close_count"] + 1
+            if isinstance(node, ReturnNode):
+                counts["return_count"] = counts["return_count"] + 1
+            if isinstance(node, CascadeNode):
+                counts["cascade_count"] = counts["cascade_count"] + 1
+            if isinstance(node, AssignmentNode):
+                counts["assignment_count"] = counts["assignment_count"] + 1
+            for _, child in node.labelled_child_nodes():
+                if child is not None:
+                    walk(child)
+
+        walk(method_node)
+        return counts
+
+    def heuristic_structure_counts(
+        self,
+        source,
+        code_character_map,
+        body_start_offset,
+    ):
+        """AI: Fallback character walk used when the source does not parse.
+        Same shape as parser_backed_structure_counts; carries the same
+        rough-edge caveats the old summary had (float-literal periods
+        counted as terminators, ';' counted as cascade expressions)."""
+        block_open_count = 0
+        block_close_count = 0
+        return_count = 0
+        cascade_count = 0
+        assignment_count = 0
+        statement_terminator_count = 0
+        for index in range(body_start_offset, len(source)):
+            if not code_character_map[index]:
+                continue
+            character = source[index]
+            if character == "[":
+                block_open_count = block_open_count + 1
+            if character == "]":
+                block_close_count = block_close_count + 1
+            if character == "^":
+                return_count = return_count + 1
+            if character == ";":
+                cascade_count = cascade_count + 1
+            if character == ".":
+                statement_terminator_count = statement_terminator_count + 1
+            has_next_character = index + 1 < len(source)
+            has_assignment = (
+                character == ":"
+                and has_next_character
+                and source[index + 1] == "="
+                and code_character_map[index + 1]
+            )
+            if has_assignment:
+                assignment_count = assignment_count + 1
+        return {
+            "block_open_count": block_open_count,
+            "block_close_count": block_close_count,
+            "return_count": return_count,
+            "cascade_count": cascade_count,
+            "assignment_count": assignment_count,
+            "statement_terminator_count": statement_terminator_count,
         }
 
     def source_method_control_flow_summary(self, source):
@@ -4819,6 +4904,12 @@ class GemstoneBrowserSession:
         caller_selector,
         inline_selector,
     ):
+        # AI: Unary-only is a real algorithmic constraint, not a stylistic
+        # one: inlining a keyword method would have to substitute each
+        # formal argument with its call-site expression at every send
+        # site, which the inline-expression splicer below does not do.
+        # Lifting this guard is a feature, not a fix; the MCP layer
+        # mirrors this guard so the rejection is local.
         if ":" in inline_selector:
             raise DomainException("inline_selector must be a unary selector.")
         inline_method_source = self.get_method_source(
