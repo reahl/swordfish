@@ -105,6 +105,88 @@ def test_extract_plan_unary_selector_still_works_when_no_arguments_are_needed(
     assert "self extractedFirstStep" in extract_plan["updated_method_source"]
 
 
+@with_fixtures(ExtractPlanningFixture)
+def test_extract_plan_declares_caller_temporaries_that_are_locally_assigned(
+    extract_planning_fixture,
+):
+    """AI: When the extracted range both assigns and uses a caller-scoped
+    temporary, that name is local to the new method — it must therefore be
+    declared in a new temporaries clause. Without it the produced source
+    has an undeclared variable on the assignment LHS and refuses to compile
+    ('expected a primary expression'). This is the bug the cascade-extract
+    apply hit during the AST/MCP tryout."""
+    extract_planning_fixture.set_method_source(
+        'announceWith: aPrefix\n'
+        '    | greeting |\n'
+        "    greeting := aPrefix, ' world'.\n"
+        "    Transcript show: greeting; cr.\n"
+        '    ^ greeting'
+    )
+
+    extract_plan = extract_planning_fixture.browser_session.method_extract_plan(
+        'OrderLine',
+        True,
+        'announceWith:',
+        'announceWith:',
+        [1, 2],
+    )
+
+    assert extract_plan['extracted_argument_names'] == ['aPrefix']
+    assert extract_plan['extracted_local_temporary_names'] == ['greeting']
+    # AI: The extracted body must declare greeting locally; without this
+    # the new method has an undeclared greeting on its assignment LHS.
+    new_method_source = extract_plan['new_method_source']
+    assert '| greeting |' in new_method_source, new_method_source
+
+
+@with_fixtures(ExtractPlanningFixture)
+def test_extract_preview_returns_compile_warning_for_malformed_candidate_source(
+    extract_planning_fixture,
+):
+    """AI: The preview used to return ok with zero warnings even when apply
+    later died with a CompileError. Now we parse the proposed new-method
+    source at preview time and surface a warning so callers can decide
+    before committing. We exercise the warning path by stubbing the source
+    parser to report a syntax error against any extracted candidate."""
+    extract_planning_fixture.set_method_source(
+        'exampleMethod\n    self yourself.\n    self class.\n    ^7'
+    )
+
+    def fake_parse(self, source, method_selector):
+        # AI: Simulate an upstream parser error on the proposed new source.
+        raise __import__(
+            'reahl.swordfish.gemstone.smalltalk_method_parser',
+            fromlist=['SmalltalkSyntaxError'],
+        ).SmalltalkSyntaxError(
+            'simulated syntax error in proposed source'
+        )
+
+    extract_planning_fixture.browser_session.source_method_ast_for_candidate = (
+        lambda source, method_selector: (_ for _ in ()).throw(
+            __import__(
+                'reahl.swordfish.gemstone.smalltalk_method_parser',
+                fromlist=['SmalltalkSyntaxError'],
+            ).SmalltalkSyntaxError(
+                'simulated syntax error in proposed source'
+            )
+        )
+    )
+
+    extract_plan = extract_planning_fixture.browser_session.method_extract_plan(
+        'OrderLine',
+        True,
+        'exampleMethod',
+        'extractedFirstStep',
+        [1],
+    )
+
+    assert extract_plan.get('new_method_compile_warning') is not None, (
+        extract_plan.get('new_method_compile_warning'),
+        extract_plan.keys(),
+    )
+    assert 'simulated syntax error' in extract_plan['new_method_compile_warning']
+
+
 def test_get_class_definition_treats_class_as_root_when_superclass_proxy_unavailable():
     """AI: When superclass() raises a GemstoneError (e.g. nil OID in a full image), get_class_definition should return superclass_name=None rather than crashing the hierarchy view."""
     browser_session = GemstoneBrowserSession(None)

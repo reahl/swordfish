@@ -4208,9 +4208,6 @@ class GemstoneBrowserSession:
             raise DomainException("Extract cannot include return statements.")
         extraction_start_offset = selected_statement_entries[0]["start_offset"]
         extraction_end_offset = selected_statement_entries[-1]["end_offset"]
-        extracted_body = self.extracted_method_body_from_statement_entries(
-            selected_statement_entries
-        )
         source_method_argument_names = self.method_argument_names_for_method(
             class_name,
             show_instance_side,
@@ -4223,6 +4220,17 @@ class GemstoneBrowserSession:
             source_method_ast["temporaries"],
         )
         extracted_argument_count = len(extracted_argument_names)
+        extracted_local_temporary_names = (
+            self.extraction_local_temporary_names(
+                selected_statement_entries,
+                source_method_argument_names,
+                source_method_ast["temporaries"],
+            )
+        )
+        extracted_body = self.extracted_method_body_from_statement_entries(
+            selected_statement_entries,
+            extracted_local_temporary_names,
+        )
         if is_keyword_selector:
             expected_argument_count = len(selector_tokens)
             if expected_argument_count != extracted_argument_count:
@@ -4285,6 +4293,14 @@ class GemstoneBrowserSession:
             new_selector,
             show_instance_side,
         )
+        # AI: Parse the proposed new-method source so that apply does not
+        # surface a CompileError that preview had already had a chance to
+        # see. Wraps both real parser failures and tests that stub the
+        # candidate-parse seam to inject a synthetic syntax error.
+        new_method_compile_warning = self.candidate_source_compile_warning(
+            new_method_source,
+            new_selector,
+        )
         return {
             "class_name": class_name,
             "show_instance_side": show_instance_side,
@@ -4298,10 +4314,34 @@ class GemstoneBrowserSession:
             "extracted_statement_count": len(selected_statement_entries),
             "extracted_argument_count": extracted_argument_count,
             "extracted_argument_names": extracted_argument_names,
+            "extracted_local_temporary_names": extracted_local_temporary_names,
             "extracted_source_character_count": (
                 extraction_end_offset - extraction_start_offset
             ),
+            "new_method_compile_warning": new_method_compile_warning,
         }
+
+    def candidate_source_compile_warning(self, source, method_selector):
+        """AI: Parse a proposed new-method source with the Smalltalk parser
+        and return a human-readable warning if it does not parse. Tests can
+        stub source_method_ast_for_candidate to inject a synthetic failure
+        without bringing the parser fully into the test."""
+        candidate_parse = getattr(
+            self,
+            'source_method_ast_for_candidate',
+            None,
+        )
+        try:
+            if candidate_parse is not None:
+                candidate_parse(source, method_selector)
+            else:
+                SmalltalkMethodParser().parse_method(source)
+        except SmalltalkSyntaxError as parse_error:
+            return (
+                'Proposed new-method source did not parse: %s'
+                % str(parse_error)
+            )
+        return None
 
     def method_extract_summary(self, extract_plan):
         warnings = []
@@ -4314,6 +4354,8 @@ class GemstoneBrowserSession:
                     "instance" if extract_plan["show_instance_side"] else "class",
                 )
             )
+        if extract_plan.get("new_method_compile_warning"):
+            warnings.append(extract_plan["new_method_compile_warning"])
         return {
             "class_name": extract_plan["class_name"],
             "show_instance_side": extract_plan["show_instance_side"],
@@ -4325,6 +4367,9 @@ class GemstoneBrowserSession:
             "extracted_statement_count": extract_plan["extracted_statement_count"],
             "extracted_argument_count": extract_plan["extracted_argument_count"],
             "extracted_argument_names": extract_plan["extracted_argument_names"],
+            "extracted_local_temporary_names": extract_plan.get(
+                "extracted_local_temporary_names", []
+            ),
             "extracted_source_character_count": extract_plan[
                 "extracted_source_character_count"
             ],
@@ -4797,11 +4842,45 @@ class GemstoneBrowserSession:
     def extracted_method_body_from_statement_entries(
         self,
         statement_entries,
+        local_temporary_names=None,
     ):
         statement_sources = [
             statement_entry["source"].strip() for statement_entry in statement_entries
         ]
-        return "    " + ".\n    ".join(statement_sources)
+        body_statements = "    " + ".\n    ".join(statement_sources)
+        if local_temporary_names:
+            temporaries_clause = "    | %s |\n" % " ".join(local_temporary_names)
+            return temporaries_clause + body_statements
+        return body_statements
+
+    def extraction_local_temporary_names(
+        self,
+        selected_statement_entries,
+        source_method_argument_names,
+        source_method_temporaries,
+    ):
+        """AI: A caller-scoped name that is both assigned in the extracted
+        range AND not a caller argument becomes a local temporary in the
+        new method. Without declaring it the produced source has an
+        undeclared variable on its assignment LHS and refuses to compile."""
+        assigned_names = []
+        for statement_entry in selected_statement_entries:
+            assignment_match = re.match(
+                r"\s*([A-Za-z][A-Za-z0-9_]*)\s*:=",
+                statement_entry["source"],
+            )
+            if assignment_match is not None:
+                assigned_name = assignment_match.group(1)
+                is_caller_temporary = (
+                    assigned_name in source_method_temporaries
+                    and assigned_name not in source_method_argument_names
+                )
+                if (
+                    is_caller_temporary
+                    and assigned_name not in assigned_names
+                ):
+                    assigned_names.append(assigned_name)
+        return assigned_names
 
     def sorted_unique_positive_indexes(self, input_indexes):
         if not isinstance(input_indexes, list) or not input_indexes:
