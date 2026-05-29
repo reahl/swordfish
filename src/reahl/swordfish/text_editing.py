@@ -1034,17 +1034,25 @@ class CodePanel(tk.Frame):
 
     def browse_class_from_source(self):
         # AI: Resolve the identifier under the cursor (or the selection)
-        # then delegate to Swordfish.browse_class, which updates the model
-        # AND publishes SelectedClassChanged AND brings the Browser tab to
-        # the front. Calling gemstone_session_record.jump_to_class directly
-        # is not enough because the browser UI listens to the event to
-        # repaint itself.
+        # then delegate to Swordfish.browse_class, which updates the model,
+        # publishes SelectedClassChanged AND brings the Browser tab to the
+        # front. The cheap uppercase-letter pre-check rejects obvious
+        # non-class identifiers (variables, message keywords) up front
+        # without a server round-trip; Swordfish.browse_class still has to
+        # cope with valid-looking names that turn out not to be classes.
         class_name = self.class_name_for_reference_lookup()
         if class_name is None:
             messagebox.showwarning(
                 'No Class Name',
                 'Place the cursor on a class name or select one before '
                 'running this.',
+            )
+            return
+        if not class_name[0].isupper():
+            messagebox.showwarning(
+                'Not a Class Name',
+                f'{class_name!r} does not look like a class name. '
+                'Class names start with a capital letter.',
             )
             return
         self.application.browse_class(class_name, show_instance_side=True)

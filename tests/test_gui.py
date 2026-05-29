@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import tkinter as tk
+import tkinter.messagebox as messagebox
 import types
 from tkinter import ttk
 from unittest.mock import ANY, Mock, call, patch
@@ -101,14 +102,23 @@ class FakeApplication:
 
     def browse_class(self, class_name, show_instance_side=True):
         # AI: Mirrors Swordfish.browse_class — update the model and publish
-        # the event the browser UI listens to. The fake skips the
+        # the event the browser UI listens to, with the same GemstoneError
+        # gate that turns a 'no such class' lookup into a friendly warning
+        # instead of bubbling to the generic error dialog. Skips the
         # `notebook.select(browser_tab)` step because the fixture does not
         # render the top-level Swordfish notebook.
         if not class_name:
             return
-        self.gemstone_session_record.jump_to_class(
-            class_name, show_instance_side
-        )
+        try:
+            self.gemstone_session_record.jump_to_class(
+                class_name, show_instance_side
+            )
+        except GemstoneError:
+            messagebox.showwarning(
+                'No Such Class',
+                f'There is no class named {class_name!r}.',
+            )
+            return
         self.event_queue.publish("SelectedClassChanged")
 
 
@@ -1241,6 +1251,61 @@ def test_browse_class_from_source_jumps_to_class_under_cursor(fixture):
         "OrderLine", True
     )
     assert "SelectedClassChanged" in published_events
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_browse_class_warns_when_identifier_is_not_capitalised(fixture):
+    """AI: A cursor on a lowercase identifier (a variable like `amount`)
+    earns a friendly 'Not a Class Name' warning rather than a generic
+    GemStone error from the server. The cheap local check prevents a
+    wasted server round-trip for the common variable-under-cursor case."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+    tab.code_panel.text_editor.delete("1.0", "end")
+    tab.code_panel.text_editor.insert("1.0", "total\n    ^amount * quantity")
+    tab.code_panel.text_editor.mark_set("insert", "2.6")
+    fixture.session_record.jump_to_class = Mock()
+
+    with patch("reahl.swordfish.text_editing.messagebox") as mock_messagebox:
+        tab.code_panel.browse_class_from_source()
+
+    mock_messagebox.showwarning.assert_called_once()
+    title, _message = mock_messagebox.showwarning.call_args.args
+    assert title == "Not a Class Name"
+    fixture.session_record.jump_to_class.assert_not_called()
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_browse_class_warns_when_no_such_class_exists(fixture):
+    """AI: When the identifier looks like a class but the server replies
+    with a GemstoneError (class not in the system), Browse Class shows a
+    specific 'No Such Class' warning rather than letting the error bubble
+    to the generic report_callback_exception dialog."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+    tab.code_panel.text_editor.delete("1.0", "end")
+    tab.code_panel.text_editor.insert("1.0", "total\n    ^Nonexistent new")
+    tab.code_panel.text_editor.mark_set("insert", "2.7")
+    fixture.session_record.jump_to_class = Mock(side_effect=FakeGemstoneError())
+
+    published_events = []
+    original_publish = fixture.application.event_queue.publish
+    def recording_publish(*args, **kwargs):
+        published_events.append(args[0])
+        return original_publish(*args, **kwargs)
+    fixture.application.event_queue.publish = recording_publish
+
+    with patch.object(messagebox, "showwarning") as mock_showwarning:
+        tab.code_panel.browse_class_from_source()
+
+    mock_showwarning.assert_called_once()
+    title, _message = mock_showwarning.call_args.args
+    assert title == "No Such Class"
+    assert "SelectedClassChanged" not in published_events
 
 
 @with_fixtures(SwordfishGuiFixture)
