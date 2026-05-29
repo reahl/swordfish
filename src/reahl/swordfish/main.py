@@ -1698,8 +1698,6 @@ class McpConfigurationStore:
             explicit_overrides["allow_commit"] = True
         if self.argument_is_explicitly_set(argument_tokens, "--allow-tracing"):
             explicit_overrides["allow_tracing"] = True
-        if self.argument_is_explicitly_set(argument_tokens, "--require-gemstone-ast"):
-            explicit_overrides["require_gemstone_ast"] = True
         if self.argument_is_explicitly_set(argument_tokens, "--mcp-host"):
             explicit_overrides["mcp_host"] = True
         if self.argument_is_explicitly_set(argument_tokens, "--mcp-port"):
@@ -1718,7 +1716,6 @@ class McpConfigurationStore:
             allow_ide_write=getattr(arguments, "allow_ide_write", False),
             allow_commit=getattr(arguments, "allow_commit", False),
             allow_tracing=getattr(arguments, "allow_tracing", False),
-            require_gemstone_ast=getattr(arguments, "require_gemstone_ast", False),
             mcp_host=getattr(arguments, "mcp_host", "127.0.0.1"),
             mcp_port=getattr(arguments, "mcp_port", 8000),
             mcp_http_path=getattr(arguments, "mcp_http_path", "/mcp"),
@@ -1784,11 +1781,6 @@ class McpConfigurationStore:
                 if explicit_overrides.get("allow_tracing")
                 else None
             ),
-            require_gemstone_ast=(
-                cli_runtime_config.require_gemstone_ast
-                if explicit_overrides.get("require_gemstone_ast")
-                else None
-            ),
             mcp_host=(
                 cli_runtime_config.mcp_host
                 if explicit_overrides.get("mcp_host")
@@ -1819,7 +1811,6 @@ class McpRuntimeConfig:
         allow_ide_write=False,
         allow_commit=False,
         allow_tracing=False,
-        require_gemstone_ast=False,
         mcp_host="127.0.0.1",
         mcp_port=8000,
         mcp_http_path="/mcp",
@@ -1832,7 +1823,6 @@ class McpRuntimeConfig:
         self.allow_ide_write = allow_ide_write
         self.allow_commit = allow_commit
         self.allow_tracing = allow_tracing
-        self.require_gemstone_ast = require_gemstone_ast
         self.mcp_host = mcp_host
         self.mcp_port = mcp_port
         self.mcp_http_path = mcp_http_path
@@ -1847,7 +1837,6 @@ class McpRuntimeConfig:
             allow_ide_write=self.allow_ide_write,
             allow_commit=self.allow_commit,
             allow_tracing=self.allow_tracing,
-            require_gemstone_ast=self.require_gemstone_ast,
             mcp_host=self.mcp_host,
             mcp_port=self.mcp_port,
             mcp_http_path=self.mcp_http_path,
@@ -1868,9 +1857,6 @@ class McpRuntimeConfig:
             allow_ide_write=bool(config_payload.get("allow_ide_write", False)),
             allow_commit=bool(config_payload.get("allow_commit", False)),
             allow_tracing=bool(config_payload.get("allow_tracing", False)),
-            require_gemstone_ast=bool(
-                config_payload.get("require_gemstone_ast", False)
-            ),
             mcp_host=str(config_payload.get("mcp_host", "127.0.0.1")).strip(),
             mcp_port=int(config_payload.get("mcp_port", 8000)),
             mcp_http_path=str(config_payload.get("mcp_http_path", "/mcp")).strip(),
@@ -1886,7 +1872,6 @@ class McpRuntimeConfig:
             "allow_ide_write": bool(self.allow_ide_write),
             "allow_commit": bool(self.allow_commit),
             "allow_tracing": bool(self.allow_tracing),
-            "require_gemstone_ast": bool(self.require_gemstone_ast),
             "mcp_host": self.mcp_host,
             "mcp_port": self.mcp_port,
             "mcp_http_path": self.mcp_http_path,
@@ -1907,7 +1892,6 @@ class McpRuntimeConfig:
             'allow_ide_write': self.allow_ide_write,
             'allow_commit': self.allow_commit,
             'allow_tracing': self.allow_tracing,
-            'require_gemstone_ast': self.require_gemstone_ast,
         }
 
     def network_config_differs_from(self, other):
@@ -1934,7 +1918,6 @@ class McpRuntimeConfig:
         allow_ide_write=None,
         allow_commit=None,
         allow_tracing=None,
-        require_gemstone_ast=None,
         mcp_host=None,
         mcp_port=None,
         mcp_http_path=None,
@@ -1955,8 +1938,6 @@ class McpRuntimeConfig:
             self.allow_commit = bool(allow_commit)
         if allow_tracing is not None:
             self.allow_tracing = bool(allow_tracing)
-        if require_gemstone_ast is not None:
-            self.require_gemstone_ast = bool(require_gemstone_ast)
         if mcp_host is not None:
             self.mcp_host = mcp_host
         if mcp_port is not None:
@@ -2019,7 +2000,6 @@ class McpServerController:
             'allow_ide_write': 'modify IDE state',
             'allow_commit': 'commit GemStone transactions',
             'allow_tracing': 'use tracing tools',
-            'require_gemstone_ast': 'use GemStone AST backend',
         }
         old_perms = old_config.to_permissions_dict()
         new_perms = new_config.to_permissions_dict()
@@ -2305,9 +2285,6 @@ class McpConfigurationDialog(tk.Toplevel):
         self.allow_tracing_variable = tk.BooleanVar(
             value=self.current_runtime_config.allow_tracing
         )
-        self.require_gemstone_ast_variable = tk.BooleanVar(
-            value=self.current_runtime_config.require_gemstone_ast
-        )
         self.permission_note_variable = tk.StringVar(
             value=self.configuration_access.note
         )
@@ -2417,14 +2394,6 @@ class McpConfigurationDialog(tk.Toplevel):
             state=permission_state,
         )
         self.allow_tracing_checkbutton.grid(row=14, column=0, sticky="w")
-        self.require_gemstone_ast_checkbutton = ttk.Checkbutton(
-            body_frame,
-            text="Require GemStone AST backend",
-            variable=self.require_gemstone_ast_variable,
-            state=permission_state,
-        )
-        self.require_gemstone_ast_checkbutton.grid(row=15, column=0, sticky="w")
-
         self.risk_note_label = ttk.Label(
             body_frame,
             textvariable=self.risk_note_variable,
@@ -2541,7 +2510,6 @@ class McpConfigurationDialog(tk.Toplevel):
         allow_ide_write = self.current_runtime_config.allow_ide_write
         allow_commit = self.current_runtime_config.allow_commit
         allow_tracing = self.current_runtime_config.allow_tracing
-        require_gemstone_ast = self.current_runtime_config.require_gemstone_ast
         if self.configuration_access.permission_controls_editable:
             allow_source_read = self.allow_source_read_variable.get()
             allow_source_write = self.allow_source_write_variable.get()
@@ -2551,7 +2519,6 @@ class McpConfigurationDialog(tk.Toplevel):
             allow_ide_write = self.allow_ide_write_variable.get()
             allow_commit = self.allow_commit_variable.get()
             allow_tracing = self.allow_tracing_variable.get()
-            require_gemstone_ast = self.require_gemstone_ast_variable.get()
         self.result = McpRuntimeConfig(
             allow_source_read=allow_source_read,
             allow_source_write=allow_source_write,
@@ -2561,7 +2528,6 @@ class McpConfigurationDialog(tk.Toplevel):
             allow_ide_write=allow_ide_write,
             allow_commit=allow_commit,
             allow_tracing=allow_tracing,
-            require_gemstone_ast=require_gemstone_ast,
             mcp_host=mcp_host,
             mcp_port=mcp_port,
             mcp_http_path=mcp_http_path,
@@ -4849,14 +4815,6 @@ class Swordfish(tk.Tk):
             '--allow-tracing',
             action='store_true',
             help='Enable gs_tracer_* and evidence tools (disabled by default).',
-        )
-        argument_parser.add_argument(
-            '--require-gemstone-ast',
-            action='store_true',
-            help=(
-                'Require real GemStone AST backend for refactoring tools. '
-                'When enabled, heuristic refactorings are blocked.'
-            ),
         )
         argument_parser.add_argument(
             '--experimental',

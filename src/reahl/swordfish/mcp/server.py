@@ -50,7 +50,6 @@ def create_server(
     allow_commit=False,
     allow_tracing=False,
     integrated_session_state=None,
-    require_gemstone_ast=False,
     experimental=False,
     mcp_host="127.0.0.1",
     mcp_port=8000,
@@ -116,7 +115,6 @@ def create_server(
         allow_commit=allow_commit,
         allow_tracing=allow_tracing,
         integrated_session_state=integrated_session_state,
-        require_gemstone_ast=require_gemstone_ast,
         experimental=experimental,
         get_permissions=get_permissions,
     )

@@ -58,7 +58,6 @@ def register_tools(
     allow_commit=False,
     allow_tracing=False,
     integrated_session_state=None,
-    require_gemstone_ast=False,
     experimental=False,
     get_permissions=None,
 ):
@@ -74,7 +73,6 @@ def register_tools(
             'allow_ide_write': allow_ide_write,
             'allow_commit': allow_commit,
             'allow_tracing': allow_tracing,
-            'require_gemstone_ast': require_gemstone_ast,
         }
         get_permissions = lambda: _static_permissions
 
@@ -232,10 +230,7 @@ def register_tools(
         return browser_session_for_policy(gemstone_session), None
 
     def browser_session_for_policy(gemstone_session):
-        return GemstoneBrowserSession(
-            gemstone_session,
-            require_gemstone_ast=get_permissions()['require_gemstone_ast'],
-        )
+        return GemstoneBrowserSession(gemstone_session)
 
     def get_active_debug_session(connection_id, debug_id):
         if not has_debug_session(debug_id):
@@ -597,7 +592,6 @@ def register_tools(
             "allow_ide_write": perms['allow_ide_write'],
             "allow_commit": commit_allowed_for_current_mode(),
             "allow_tracing": perms['allow_tracing'],
-            "require_gemstone_ast": perms['require_gemstone_ast'],
             "gui_session_active": gui_active,
             "mcp_can_connect_sessions": not gui_active,
             "mcp_can_disconnect_sessions": not gui_active,
@@ -861,11 +855,6 @@ def register_tools(
                 'Runtime evidence tools are disabled. '
                 'Start swordfish --headless-mcp with --allow-tracing '
                 'for observed caller evidence.'
-            )
-        if get_permissions()['require_gemstone_ast']:
-            cautions.append(
-                'Strict AST mode is active. Install AST support with '
-                'gs_ast_install and verify with gs_ast_status.'
             )
         return cautions
 
@@ -2490,7 +2479,7 @@ def register_tools(
     def gs_guidance(selector=None):
         """Return state-dependent advice: cautions and decision rules that
         depend on the current permission flags (allow_eval_arbitrary,
-        allow_commit, allow_tracing, require_gemstone_ast) and on whether the
+        allow_commit, allow_tracing) and on whether the
         named selector is a common high-fanout hotspot. The static tool
         catalog and server instructions cover the rest - call this only when
         you need to know what is allowed right now, e.g. before attempting an
@@ -3563,7 +3552,6 @@ def register_tools(
             return {
                 "ok": True,
                 "connection_id": connection_id,
-                "require_gemstone_ast": get_permissions()['require_gemstone_ast'],
                 **ast_status,
             }
         except GemstoneError as error:

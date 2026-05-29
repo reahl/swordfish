@@ -41,14 +41,8 @@ class GemstoneBrowserSession:
     def __init__(
         self,
         gemstone_session,
-        require_gemstone_ast=None,
     ):
         self.gemstone_session = gemstone_session
-        if require_gemstone_ast is None:
-            require_gemstone_ast = self.boolean_flag_from_environment(
-                "SWORDFISH_REQUIRE_GEMSTONE_AST"
-            )
-        self.require_gemstone_ast = require_gemstone_ast
         self.rowan_installed_cache = None
 
     def class_categories_by_class_name(self):
@@ -76,15 +70,7 @@ class GemstoneBrowserSession:
                     category_by_class_name[class_name[:-6]] = category_name
         return category_by_class_name
 
-    def boolean_flag_from_environment(self, environment_name):
-        environment_value = os.environ.get(environment_name, "")
-        normalized_environment_value = environment_value.strip().lower()
-        return normalized_environment_value in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
+    
 
     def can_attempt_ast_support_auto_install(self):
         return (
