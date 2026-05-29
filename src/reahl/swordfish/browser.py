@@ -2010,6 +2010,19 @@ class MethodSelection(FramedWidget):
             command=self.show_method_in_class_diagram,
             state=tk.NORMAL if has_selection else tk.DISABLED,
         )
+        # AI: Senders/Implementors lookups are read-only; gate only on selection.
+        selector_navigation_state = tk.NORMAL if has_selection else tk.DISABLED
+        menu.add_separator()
+        menu.add_command(
+            label='Senders',
+            command=self.open_senders_for_selection,
+            state=selector_navigation_state,
+        )
+        menu.add_command(
+            label='Implementors',
+            command=self.open_implementors_for_selection,
+            state=selector_navigation_state,
+        )
         menu.add_separator()
         menu.add_command(
             label='Run Test',
@@ -2132,6 +2145,26 @@ class MethodSelection(FramedWidget):
         CoveringTestsBrowseDialog(
             self.browser_window,
             method_selector,
+        )
+
+    def open_senders_for_selection(self):
+        # AI: Method-list right-click -> Senders. Mirrors the source-window path
+        # by routing through the same Swordfish.open_senders_dialog entry point.
+        selector = self.get_selected_method()
+        if not selector:
+            return
+        self.browser_window.application.event_queue.publish(
+            'SendersOpened', log_context={'selector': selector}
+        )
+        self.browser_window.application.open_senders_dialog(method_symbol=selector)
+
+    def open_implementors_for_selection(self):
+        # AI: Method-list right-click -> Implementors.
+        selector = self.get_selected_method()
+        if not selector:
+            return
+        self.browser_window.application.open_implementors_dialog(
+            method_symbol=selector,
         )
 
 
