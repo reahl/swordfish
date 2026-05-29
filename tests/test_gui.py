@@ -821,6 +821,7 @@ def test_text_context_menu_keeps_save_but_drops_tab_actions(fixture):
     command_labels = menu_command_labels(menu)
 
     assert "Save" in command_labels
+    assert "Cancel" in command_labels
     assert "Set Breakpoint Here" in command_labels
     assert "Clear Breakpoint Here" in command_labels
     assert "Implementors" in command_labels
@@ -1196,6 +1197,30 @@ def test_save_command_from_text_context_menu_compiles_to_gemstone(fixture):
     fixture.mock_browser.compile_method.assert_called_with(
         "OrderLine", True, "total\n    ^99"
     )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_cancel_reverts_dirty_buffer_to_saved_source(fixture):
+    """AI: Invoking Cancel on a dirty editor tab discards the in-buffer edits
+    and reloads the saved source from GemStone, clearing the dirty flag."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+
+    tab.code_panel.text_editor.delete("1.0", "end")
+    tab.code_panel.text_editor.insert("1.0", "garbage\n    ^nil")
+    tab.mark_dirty()
+    assert tab.is_dirty
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    fixture.invoke_menu_command(menu, "Cancel")
+
+    assert (
+        tab.code_panel.text_editor.get("1.0", "end-1c")
+        == "total\n    ^amount * quantity"
+    )
+    assert tab.is_dirty is False
 
 
 @with_fixtures(SwordfishGuiFixture)

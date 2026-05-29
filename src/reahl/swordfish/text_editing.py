@@ -592,6 +592,11 @@ class CodePanel(tk.Frame):
                 state=write_command_state,
             )
             self.current_context_menu.add_command(
+                label='Cancel',
+                command=self.cancel_current_tab,
+                state=write_command_state,
+            )
+            self.current_context_menu.add_command(
                 label='Set Breakpoint Here',
                 command=self.set_breakpoint_at_cursor,
                 state=write_command_state,
