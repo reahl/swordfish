@@ -628,6 +628,10 @@ class CodePanel(tk.Frame):
             label='References',
             command=self.find_references_from_source,
         )
+        self.current_context_menu.add_command(
+            label='Browse Class',
+            command=self.browse_class_from_source,
+        )
         if self.application.experimental_features_enabled:
             self.current_context_menu.add_separator()
             self.current_context_menu.add_command(
@@ -1027,6 +1031,22 @@ class CodePanel(tk.Frame):
             )
             return
         self.application.open_find_dialog_for_class(class_name)
+
+    def browse_class_from_source(self):
+        # AI: Use the same selection-then-cursor-fallback logic that the
+        # References lookup uses, then navigate the browser to that class.
+        # Instance side is assumed (matches jump_to_method_context).
+        class_name = self.class_name_for_reference_lookup()
+        if class_name is None:
+            messagebox.showwarning(
+                'No Class Name',
+                'Place the cursor on a class name or select one before '
+                'running this.',
+            )
+            return
+        self.application.gemstone_session_record.jump_to_class(
+            class_name, True
+        )
 
     def run_method_analysis(self, analysis_function, title):
         method_context = self.method_context()

@@ -826,6 +826,7 @@ def test_text_context_menu_keeps_save_but_drops_tab_actions(fixture):
     assert "Clear Breakpoint Here" in command_labels
     assert "Implementors" in command_labels
     assert "Senders" in command_labels
+    assert "Browse Class" in command_labels
     assert "Select All" in command_labels
     assert "Copy" in command_labels
     assert "Paste" in command_labels
@@ -1196,6 +1197,30 @@ def test_save_command_from_text_context_menu_compiles_to_gemstone(fixture):
 
     fixture.mock_browser.compile_method.assert_called_with(
         "OrderLine", True, "total\n    ^99"
+    )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_browse_class_from_source_jumps_to_class_under_cursor(fixture):
+    """AI: Browse Class reads the identifier under the insertion cursor and
+    navigates the browser to that class on the instance side. (Invoked
+    directly rather than through the menu because right-clicking the menu
+    snaps the cursor to the click coordinate, which would override the
+    cursor placement this test cares about.)"""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+
+    tab.code_panel.text_editor.delete("1.0", "end")
+    tab.code_panel.text_editor.insert("1.0", "total\n    ^OrderLine new")
+    tab.code_panel.text_editor.mark_set("insert", "2.7")
+    fixture.session_record.jump_to_class = Mock()
+
+    tab.code_panel.browse_class_from_source()
+
+    fixture.session_record.jump_to_class.assert_called_once_with(
+        "OrderLine", True
     )
 
 
