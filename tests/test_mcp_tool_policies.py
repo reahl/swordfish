@@ -2617,18 +2617,10 @@ def test_gs_apply_remove_parameter_validates_boolean_flags(tools_fixture):
 def test_gs_preview_extract_method_validates_statement_indexes_and_selector(
     tools_fixture,
 ):
-    preview_result = tools_fixture.gs_preview_extract_method(
-        tools_fixture.connection_id,
-        "ExampleClass",
-        "exampleMethod",
-        "newSelector:",
-        [1],
-        True,
-    )
-    assert not preview_result["ok"]
-    assert preview_result["error"]["message"] == (
-        "new_selector must be a unary selector."
-    )
+    """AI: The MCP wrapper now accepts keyword selectors (the browser layer's
+    method_extract_plan handles captured caller variables) and accepts
+    zero-based statement_indexes to match gs_method_ast. Validation still
+    rejects non-list and negative inputs, and non-boolean side flags."""
     preview_result = tools_fixture.gs_preview_extract_method(
         tools_fixture.connection_id,
         "ExampleClass",
@@ -2646,19 +2638,19 @@ def test_gs_preview_extract_method_validates_statement_indexes_and_selector(
         "ExampleClass",
         "exampleMethod",
         "newSelector",
-        [0],
+        [-1],
         True,
     )
     assert not preview_result["ok"]
     assert preview_result["error"]["message"] == (
-        "statement_indexes must contain positive integers only."
+        "statement_indexes must contain non-negative integers only."
     )
     preview_result = tools_fixture.gs_preview_extract_method(
         tools_fixture.connection_id,
         "ExampleClass",
         "exampleMethod",
         "newSelector",
-        [1],
+        [0],
         "neither",
     )
     assert not preview_result["ok"]
