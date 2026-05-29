@@ -2218,6 +2218,8 @@ class MethodEditor(FramedWidget):
 
         self.editor_notebook.bind('<Motion>', self.on_tab_motion)
         self.editor_notebook.bind('<Leave>', self.on_tab_leave)
+        # AI: Right-click on a tab label opens the per-tab context menu.
+        self.editor_notebook.bind('<Button-3>', self.open_tab_menu_handler)
 
         self.open_tab_registry = DeduplicatedTabRegistry(self.editor_notebook)
         self.open_tabs = self.open_tab_registry.tabs_by_key
@@ -2249,13 +2251,37 @@ class MethodEditor(FramedWidget):
         return self.editor_notebook.nametowidget(tab_id)
 
     def open_tab_menu_handler(self, event):
-        return None
+        # AI: Resolve the tab the user right-clicked on. notebook.identify
+        # returns a string like '' or 'label' depending on whether the click
+        # landed in a tab label. We ignore non-label clicks (clicks inside the
+        # page content are already handled by CodePanel.open_text_menu).
+        element = self.editor_notebook.identify(event.x, event.y)
+        if 'label' not in element:
+            return
+        tab_index = self.editor_notebook.index(f'@{event.x},{event.y}')
+        tab_widget = self.editor_notebook.nametowidget(
+            self.editor_notebook.tabs()[tab_index]
+        )
+        tab_widget.open_tab_menu(event)
 
     def close_tab(self, tab):
         if tab.tab_key not in self.open_tabs:
             return
         self.editor_notebook.forget(self.open_tabs[tab.tab_key])
         self.open_tab_registry.remove_key(tab.tab_key)
+
+    def close_other_tabs(self, except_tab):
+        # AI: Iterate a snapshot of tab paths because close_tab mutates the set.
+        for tab_path in list(self.editor_notebook.tabs()):
+            tab_widget = self.editor_notebook.nametowidget(tab_path)
+            if tab_widget is not except_tab:
+                self.close_tab(tab_widget)
+
+    def close_tabs_to_right(self, after_tab):
+        tab_paths = list(self.editor_notebook.tabs())
+        after_index = self.editor_notebook.index(after_tab)
+        for tab_path in tab_paths[after_index + 1:]:
+            self.close_tab(self.editor_notebook.nametowidget(tab_path))
 
     def current_method_context(self):
         selected_class = self.gemstone_session_record.selected_class

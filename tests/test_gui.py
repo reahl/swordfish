@@ -258,6 +258,18 @@ class SwordfishGuiFixture(Fixture):
         self.root.update()
         return tab.code_panel.current_context_menu
 
+    def open_tab_context_menu_for_tab(self, tab):
+        """AI: Build the per-tab right-click menu (EditorTab.open_tab_menu)."""
+        menu_event = types.SimpleNamespace(
+            x=1,
+            y=1,
+            x_root=1,
+            y_root=1,
+        )
+        tab.open_tab_menu(menu_event)
+        self.root.update()
+        return tab.current_context_menu
+
     def invoke_menu_command(self, menu, label):
         entry_count = int(menu.index("end")) + 1
         for entry_index in range(entry_count):
@@ -796,8 +808,10 @@ def test_saving_method_compiles_to_gemstone(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
-def test_text_context_menu_includes_save_and_close_for_open_tab(fixture):
-    """AI: Right-clicking in an editor text area exposes Save and Close actions for the current tab."""
+def test_text_context_menu_keeps_save_but_drops_tab_actions(fixture):
+    """AI: The text-area menu keeps actions about the *current source* (Save,
+    breakpoints, navigation by selector) but no longer carries actions about
+    the *tab as a whole* (Jump to Class and Close moved to the tab menu)."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
     tab = fixture.browser_window.editor_area_widget.open_tabs[
         ("OrderLine", True, "total")
@@ -806,19 +820,21 @@ def test_text_context_menu_includes_save_and_close_for_open_tab(fixture):
     menu = fixture.open_text_context_menu_for_tab(tab)
     command_labels = menu_command_labels(menu)
 
-    assert "Jump to Class" in command_labels
     assert "Save" in command_labels
-    assert "Close" in command_labels
     assert "Set Breakpoint Here" in command_labels
     assert "Clear Breakpoint Here" in command_labels
     assert "Implementors" in command_labels
     assert "Senders" in command_labels
-    assert "Find Implementors" not in command_labels
-    assert "Find Senders" not in command_labels
     assert "Select All" in command_labels
     assert "Copy" in command_labels
     assert "Paste" in command_labels
     assert "Undo" in command_labels
+    # AI: Moved to EditorTab.open_tab_menu — must no longer be here.
+    assert "Jump to Class" not in command_labels
+    assert "Close" not in command_labels
+    # AI: Pre-existing exclusions kept as regression sentinels.
+    assert "Find Implementors" not in command_labels
+    assert "Find Senders" not in command_labels
     assert "Preview Rename Method" not in command_labels
     assert "Preview Move Method" not in command_labels
     assert "Preview Add Parameter" not in command_labels
@@ -829,6 +845,63 @@ def test_text_context_menu_includes_save_and_close_for_open_tab(fixture):
     assert "Method Structure" not in command_labels
     assert "Method Control Flow" not in command_labels
     assert "Method AST" not in command_labels
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_tab_context_menu_lists_expected_tab_actions(fixture):
+    """AI: Right-clicking a tab label offers the tab-scoped actions:
+    Jump to Class, Save, Cancel, Close, Close Others, Close All to the Right."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+
+    menu = fixture.open_tab_context_menu_for_tab(tab)
+    command_labels = menu_command_labels(menu)
+
+    assert "Jump to Class" in command_labels
+    assert "Save" in command_labels
+    assert "Cancel" in command_labels
+    assert "Close" in command_labels
+    assert "Close Others" in command_labels
+    assert "Close All to the Right" in command_labels
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_close_others_closes_only_other_tabs(fixture):
+    """AI: Invoking 'Close Others' from a tab keeps that one tab open and
+    closes every other tab in the editor notebook."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "description")
+    fixture.select_down_to_method("Kernel", "Order", "accessing", "total")
+
+    editor = fixture.browser_window.editor_area_widget
+    middle_tab = editor.open_tabs[("OrderLine", True, "description")]
+
+    menu = fixture.open_tab_context_menu_for_tab(middle_tab)
+    fixture.invoke_menu_command(menu, "Close Others")
+
+    assert list(editor.open_tabs.keys()) == [("OrderLine", True, "description")]
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_close_tabs_to_right_preserves_left_of_clicked_tab(fixture):
+    """AI: 'Close All to the Right' closes only the tabs positioned after the
+    clicked tab, leaving the clicked tab and everything left of it open."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "description")
+    fixture.select_down_to_method("Kernel", "Order", "accessing", "total")
+
+    editor = fixture.browser_window.editor_area_widget
+    middle_tab = editor.open_tabs[("OrderLine", True, "description")]
+
+    menu = fixture.open_tab_context_menu_for_tab(middle_tab)
+    fixture.invoke_menu_command(menu, "Close All to the Right")
+
+    assert list(editor.open_tabs.keys()) == [
+        ("OrderLine", True, "total"),
+        ("OrderLine", True, "description"),
+    ]
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -1126,14 +1199,14 @@ def test_save_command_from_text_context_menu_compiles_to_gemstone(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
-def test_close_command_from_text_context_menu_closes_the_tab(fixture):
-    """AI: Choosing Close from text context menu removes the current method tab."""
+def test_close_command_from_tab_menu_closes_the_tab(fixture):
+    """AI: Choosing Close from the tab's right-click menu removes that tab."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
     tab = fixture.browser_window.editor_area_widget.open_tabs[
         ("OrderLine", True, "total")
     ]
 
-    menu = fixture.open_text_context_menu_for_tab(tab)
+    menu = fixture.open_tab_context_menu_for_tab(tab)
     fixture.invoke_menu_command(menu, "Close")
 
     assert (
@@ -1144,10 +1217,10 @@ def test_close_command_from_text_context_menu_closes_the_tab(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
-def test_jump_to_class_command_from_text_context_menu_syncs_browser_selection(
+def test_jump_to_class_command_from_tab_menu_syncs_browser_selection(
     fixture,
 ):
-    """AI: Choosing Jump to Class from a method tab synchronizes package/class/side/category/method browser selections to that method context."""
+    """AI: Choosing Jump to Class from the tab's right-click menu synchronizes package/class/side/category/method browser selections to that method context."""
     fixture.browser_window.packages_widget.browse_mode_var.set("categories")
     fixture.browser_window.packages_widget.change_browse_mode()
     fixture.root.update()
@@ -1160,7 +1233,7 @@ def test_jump_to_class_command_from_text_context_menu_syncs_browser_selection(
     fixture.root.update()
     assert fixture.browser_window.classes_widget.selection_var.get() == "class"
 
-    menu = fixture.open_text_context_menu_for_tab(tab)
+    menu = fixture.open_tab_context_menu_for_tab(tab)
     fixture.invoke_menu_command(menu, "Jump to Class")
 
     assert fixture.session_record.selected_package == "Kernel"
