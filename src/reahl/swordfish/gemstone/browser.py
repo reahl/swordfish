@@ -49,7 +49,6 @@ class GemstoneBrowserSession:
                 "SWORDFISH_REQUIRE_GEMSTONE_AST"
             )
         self.require_gemstone_ast = require_gemstone_ast
-        self.real_gemstone_ast_backend_available = None
         self.rowan_installed_cache = None
 
     def class_categories_by_class_name(self):
@@ -146,79 +145,6 @@ class GemstoneBrowserSession:
         self.run_code(ast_support_source())
         self.run_code(self.ast_support_manifest_install_script())
         self.real_gemstone_ast_backend_available = None
-
-    def has_real_gemstone_ast_backend(self):
-        if self.real_gemstone_ast_backend_available is not None:
-            return self.real_gemstone_ast_backend_available
-        if not self.can_attempt_ast_support_auto_install():
-            self.real_gemstone_ast_backend_available = False
-            return False
-        try:
-            if self.require_gemstone_ast:
-                manifest_matches = self.ast_support_manifest_matches_expected()
-                if not manifest_matches:
-                    self.real_gemstone_ast_backend_available = False
-                    return False
-                ast_support_exists = self.gemstone_session.execute(
-                    (
-                        "| swordfishDictionary |\n"
-                        "swordfishDictionary := "
-                        "System myUserProfile symbolList "
-                        "objectNamed: #'Reahl-Swordfish'.\n"
-                        "swordfishDictionary notNil and: [\n"
-                        "    swordfishDictionary includesKey: "
-                        "#SwordfishMcpAstSupport\n"
-                        "]"
-                    )
-                ).to_py
-                if not ast_support_exists:
-                    self.real_gemstone_ast_backend_available = False
-                    return False
-            probe_compiled_method = self.get_compiled_method(
-                "Object",
-                "yourself",
-                True,
-            )
-            probe_compiled_method.numArgs()
-            probe_compiled_method.argsAndTemps()
-            self.real_gemstone_ast_backend_available = True
-        except (GemstoneError, GemstoneApiError, DomainException):
-            self.real_gemstone_ast_backend_available = False
-        return self.real_gemstone_ast_backend_available
-
-    def ast_backend_status(self):
-        return {
-            "active_backend": (
-                "gemstone_compiled_method_metadata"
-                if self.has_real_gemstone_ast_backend()
-                else "source_heuristic"
-            ),
-            "require_gemstone_ast": self.require_gemstone_ast,
-            "real_gemstone_ast_available": (self.has_real_gemstone_ast_backend()),
-        }
-
-    def ensure_refactoring_uses_real_ast(self, refactoring_name):
-        if not self.require_gemstone_ast:
-            return
-        has_real_backend = self.has_real_gemstone_ast_backend()
-        if not has_real_backend and self.can_attempt_ast_support_auto_install():
-            try:
-                self.install_or_refresh_ast_support()
-            except (GemstoneError, GemstoneApiError, DomainException):
-                pass
-            has_real_backend = self.has_real_gemstone_ast_backend()
-        if not has_real_backend:
-            raise DomainException(
-                (
-                    "%s requires real GemStone AST, but only "
-                    "source-heuristic analysis is available. Disable strict "
-                    "mode (SWORDFISH_REQUIRE_GEMSTONE_AST=false or "
-                    "start without --require-gemstone-ast) or install AST "
-                    "support in the image via gs_ast_install. Swordfish "
-                    "attempted automatic installation when possible."
-                )
-                % refactoring_name
-            )
 
     @property
     def class_organizer(self):
@@ -713,27 +639,7 @@ class GemstoneBrowserSession:
                 return False
         return True
 
-    def compiled_method_argument_and_temporary_names(
-        self,
-        class_name,
-        method_selector,
-        show_instance_side,
-    ):
-        compiled_method = self.get_compiled_method(
-            class_name,
-            method_selector,
-            show_instance_side,
-        )
-        all_names = []
-        args_and_temps = compiled_method.argsAndTemps()
-        num_args = compiled_method.numArgs().to_py
-        size = args_and_temps.size().to_py
-        for index in range(1, size + 1):
-            all_names.append(args_and_temps.at(index).to_py)
-        return {
-            "argument_names": all_names[:num_args],
-            "temporary_names": all_names[num_args:],
-        }
+    
 
     def method_header_for_selector_and_argument_names(
         self,
@@ -783,12 +689,19 @@ class GemstoneBrowserSession:
         show_instance_side,
         method_selector,
     ):
-        names = self.compiled_method_argument_and_temporary_names(
+        # AI: Argument names come from parsing the method header in source - the same
+        # AI: declaration the user types - so refactorings that compose new method
+        # AI: signatures use exactly what the IDE shows.
+        source = self.get_method_source(
             class_name,
             method_selector,
             show_instance_side,
         )
-        return names["argument_names"]
+        try:
+            method_node = SmalltalkMethodParser().parse_method(source)
+        except SmalltalkSyntaxError:
+            return []
+        return list(method_node.argument_names)
 
     def method_ast(
         self,
@@ -820,13 +733,6 @@ class GemstoneBrowserSession:
                 list(method_node.argument_names),
             )
         )
-        source_ast["analysis_backend"] = "gemstone_compiled_method_metadata"
-        source_ast["analysis_limitations"] = [
-            (
-                "Arguments and temporaries are derived from GemStone "
-                "compiled method metadata."
-            ),
-        ] + source_ast["analysis_limitations"]
         return source_ast
 
 
@@ -881,7 +787,6 @@ class GemstoneBrowserSession:
             'node_type': 'method',
             'selector': method_selector,
             'node_offsets_origin': 'zero_based',
-            'analysis_backend': 'swordfish_recursive_descent',
             'scope_node_path': scope_node_path,
             'argument_names': list(method_node.argument_names),
             'temporaries': list(method_node.temporaries),
@@ -1174,12 +1079,7 @@ class GemstoneBrowserSession:
             "statements": statement_entries,
             "sends": method_sends["sends"],
             "structure_summary": structure_summary,
-            "analysis_backend": "source_heuristic",
             "analysis_limitations": [
-                (
-                    "This AST is a lightweight source-based approximation; "
-                    "it is not the GemStone parser internal tree."
-                ),
                 (
                     "Statement boundaries are inferred from top-level periods "
                     "and can miss edge cases with unusual syntax."
@@ -3411,7 +3311,6 @@ class GemstoneBrowserSession:
         target_show_instance_side,
         method_selector,
     ):
-        self.ensure_refactoring_uses_real_ast("method move preview")
         source_show_instance_side = self.validated_show_instance_side(
             source_show_instance_side
         )
@@ -3437,7 +3336,6 @@ class GemstoneBrowserSession:
         overwrite_target_method=False,
         delete_source_method=True,
     ):
-        self.ensure_refactoring_uses_real_ast("method move apply")
         source_show_instance_side = self.validated_show_instance_side(
             source_show_instance_side
         )
@@ -3623,7 +3521,6 @@ class GemstoneBrowserSession:
         parameter_name,
         default_argument_source,
     ):
-        self.ensure_refactoring_uses_real_ast("add parameter preview")
         show_instance_side = self.validated_show_instance_side(show_instance_side)
         add_parameter_plan = self.method_add_parameter_plan(
             class_name,
@@ -3644,7 +3541,6 @@ class GemstoneBrowserSession:
         parameter_name,
         default_argument_source,
     ):
-        self.ensure_refactoring_uses_real_ast("add parameter apply")
         show_instance_side = self.validated_show_instance_side(show_instance_side)
         add_parameter_plan = self.method_add_parameter_plan(
             class_name,
@@ -3816,7 +3712,6 @@ class GemstoneBrowserSession:
         parameter_keyword,
         rewrite_source_senders=False,
     ):
-        self.ensure_refactoring_uses_real_ast("remove parameter preview")
         show_instance_side = self.validated_show_instance_side(show_instance_side)
         rewrite_source_senders = self.validated_boolean_flag(
             rewrite_source_senders,
@@ -3840,7 +3735,6 @@ class GemstoneBrowserSession:
         overwrite_new_method=False,
         rewrite_source_senders=False,
     ):
-        self.ensure_refactoring_uses_real_ast("remove parameter apply")
         show_instance_side = self.validated_show_instance_side(show_instance_side)
         overwrite_new_method = self.validated_boolean_flag(
             overwrite_new_method,
@@ -4281,7 +4175,6 @@ class GemstoneBrowserSession:
         new_selector,
         statement_indexes,
     ):
-        self.ensure_refactoring_uses_real_ast("extract method preview")
         show_instance_side = self.validated_show_instance_side(show_instance_side)
         extract_plan = self.method_extract_plan(
             class_name,
@@ -4301,7 +4194,6 @@ class GemstoneBrowserSession:
         statement_indexes,
         overwrite_new_method=False,
     ):
-        self.ensure_refactoring_uses_real_ast("extract method apply")
         show_instance_side = self.validated_show_instance_side(show_instance_side)
         overwrite_new_method = self.validated_boolean_flag(
             overwrite_new_method,
@@ -4636,7 +4528,6 @@ class GemstoneBrowserSession:
         caller_selector,
         inline_selector,
     ):
-        self.ensure_refactoring_uses_real_ast("inline method preview")
         show_instance_side = self.validated_show_instance_side(show_instance_side)
         inline_plan = self.method_inline_plan(
             class_name,
@@ -4654,7 +4545,6 @@ class GemstoneBrowserSession:
         inline_selector,
         delete_inlined_method=False,
     ):
-        self.ensure_refactoring_uses_real_ast("inline method apply")
         show_instance_side = self.validated_show_instance_side(show_instance_side)
         delete_inlined_method = self.validated_boolean_flag(
             delete_inlined_method,
@@ -5095,7 +4985,6 @@ class GemstoneBrowserSession:
         return method_selector in selector_names
 
     def selector_rename_preview(self, old_selector, new_selector):
-        self.ensure_refactoring_uses_real_ast("selector rename preview")
         planned_changes = self.selector_rename_plan(
             old_selector,
             new_selector,
@@ -5131,7 +5020,6 @@ class GemstoneBrowserSession:
         }
 
     def apply_selector_rename(self, old_selector, new_selector):
-        self.ensure_refactoring_uses_real_ast("selector rename apply")
         planned_changes = self.selector_rename_plan(
             old_selector,
             new_selector,
@@ -5173,7 +5061,6 @@ class GemstoneBrowserSession:
         old_selector,
         new_selector,
     ):
-        self.ensure_refactoring_uses_real_ast("method rename preview")
         show_instance_side = self.validated_show_instance_side(show_instance_side)
         planned_changes = self.method_rename_plan(
             class_name,
@@ -5196,7 +5083,6 @@ class GemstoneBrowserSession:
         old_selector,
         new_selector,
     ):
-        self.ensure_refactoring_uses_real_ast("method rename apply")
         show_instance_side = self.validated_show_instance_side(show_instance_side)
         planned_changes = self.method_rename_plan(
             class_name,

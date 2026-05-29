@@ -1625,7 +1625,6 @@ def test_live_gs_method_ast_reports_temporaries_statements_and_sends(
     assert ast_payload["schema_version"] == 2
     assert ast_payload["node_type"] == "method"
     assert ast_payload["selector"] == analyzed_selector
-    assert ast_payload["analysis_backend"] == "swordfish_recursive_descent"
     assert ast_payload["node_offsets_origin"] == "zero_based"
     assert ast_payload["temporaries"] == ["value", "total"]
     node_kinds = [node["kind"] for node in ast_payload["nodes"]]

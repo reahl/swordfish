@@ -2352,7 +2352,6 @@ def register_tools(
         Call once on startup to learn what is enabled (writes, eval, tracing,
         IDE, commit) and which tools belong to which workflow group. For
         runtime-dependent advice use gs_guidance."""
-        ast_backend = browser_session_for_policy(None).ast_backend_status()
         gui_active = gui_session_is_active()
         shared_connection_id = None
         ide_mcp_runtime = None
@@ -2372,7 +2371,6 @@ def register_tools(
             "policy": policy_flags(),
             "shared_ide_connection_id": shared_connection_id,
             "ide_mcp_runtime": ide_mcp_runtime,
-            "ast_backend": ast_backend,
             "ast_support": {
                 "expected_version": AST_SUPPORT_VERSION,
                 "expected_source_hash": ast_support_source_hash(),

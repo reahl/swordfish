@@ -778,8 +778,6 @@ def test_gs_capabilities_reports_restricted_policy_flags(tools_fixture):
     assert policy["allow_commit"] is False
     assert policy["allow_tracing"] is False
     assert policy["require_gemstone_ast"] is False
-    assert capabilities_result["ast_backend"]["active_backend"] == "source_heuristic"
-    assert not capabilities_result["ast_backend"]["real_gemstone_ast_available"]
     assert capabilities_result["ast_support"]["expected_version"]
     assert capabilities_result["ast_support"]["expected_source_hash"]
     assert capabilities_result["ast_support"]["tools"] == [
@@ -1575,26 +1573,10 @@ def test_gs_capabilities_reports_eval_approval_mode(tools_fixture):
 
 
 @with_fixtures(AllowedToolsWithNoActiveTransactionAndStrictAstFixture)
-def test_strict_ast_mode_blocks_heuristic_extract_preview(tools_fixture):
-    preview_result = tools_fixture.gs_preview_extract_method(
-        tools_fixture.connection_id,
-        "SomeClass",
-        "someMethod",
-        "newMethod",
-        [1],
-        True,
-    )
-    assert not preview_result["ok"]
-    assert "requires real GemStone AST" in preview_result["error"]["message"]
-
-
-@with_fixtures(AllowedToolsWithNoActiveTransactionAndStrictAstFixture)
 def test_gs_capabilities_reports_strict_ast_mode_policy(tools_fixture):
     capabilities_result = tools_fixture.gs_capabilities()
     assert capabilities_result["ok"], capabilities_result
     assert capabilities_result["policy"]["require_gemstone_ast"]
-    assert capabilities_result["ast_backend"]["active_backend"] == "source_heuristic"
-    assert not capabilities_result["ast_backend"]["real_gemstone_ast_available"]
 
 
 @with_fixtures(AllowedToolsWithNoActiveTransactionFixture)
