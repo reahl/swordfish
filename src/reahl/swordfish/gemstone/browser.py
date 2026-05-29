@@ -2003,6 +2003,14 @@ class GemstoneBrowserSession:
         selector_literal = self.smalltalk_string_literal(method_selector)
         return "(%s asSymbol)" % selector_literal
 
+    def class_symbol_expression(self, class_name):
+        # AI: A class is reached at runtime via its global Symbol, so 'find references to
+        # AI: class X' is really 'find methods that reference #X'. We render the symbol the
+        # AI: same way selector_reference_expression renders selectors - via 'X' asSymbol -
+        # AI: so quoting and escaping of the class name reuses one well-known path.
+        class_literal = self.smalltalk_string_literal(class_name)
+        return "(%s asSymbol)" % class_literal
+
     def source_offsets_for_compiled_method(self, compiled_method):
         source_offsets = compiled_method.perform("_sourceOffsets")
         offsets = []
@@ -5849,7 +5857,7 @@ class GemstoneBrowserSession:
                 "returned_count": 0,
             }
         method_summaries = self.class_reference_occurrence_summaries(
-            normalized_class_name
+            normalized_class_name,
         )
         total_count = len(method_summaries)
         limited_references = (
@@ -5862,133 +5870,33 @@ class GemstoneBrowserSession:
         }
 
     def class_reference_occurrence_summaries(self, class_name):
-        class_reference = self.class_reference_expression(
-            class_name,
-            True,
-        )
-        try:
-            candidate_value = self.run_code(
-                "ClassOrganizer new allCallsOn: %s" % class_reference
-            )
-            compiled_methods = self.flatten_compiled_methods(candidate_value)
-            method_summaries = [
-                self.method_summary(compiled_method)
-                for compiled_method in compiled_methods
-            ]
-            return self.unique_sorted_method_summaries(method_summaries)
-        except (DomainException, GemstoneError, GemstoneApiError):
-            return self.class_reference_occurrence_summaries_from_source(class_name)
-
-    def class_reference_occurrence_summaries_from_source(self, class_name):
-        class_reference_pattern = re.compile(
-            r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % re.escape(class_name)
-        )
-        method_summaries = []
-        class_names = self.all_class_names()
-        for scoped_class_name in class_names:
-            method_summaries += self.class_reference_occurrence_summaries_for_side(
-                scoped_class_name,
-                True,
-                class_reference_pattern,
-            )
-            method_summaries += self.class_reference_occurrence_summaries_for_side(
-                scoped_class_name,
-                False,
-                class_reference_pattern,
-            )
-        return self.unique_sorted_method_summaries(method_summaries)
-
-    def class_reference_occurrence_summaries_for_side(
-        self,
-        class_name,
-        show_instance_side,
-        class_reference_pattern,
-    ):
-        method_summaries = []
-        selector_names = self.selectors_for_class_side(
-            class_name,
-            show_instance_side,
-        )
-        for selector_name in selector_names:
-            method_source = None
-            try:
-                method_source = self.get_method_source(
-                    class_name,
-                    selector_name,
-                    show_instance_side,
-                )
-            except (GemstoneError, GemstoneApiError):
-                method_source = None
-            if (
-                method_source
-                and class_reference_pattern.search(method_source) is not None
-            ):
-                method_summaries.append(
-                    {
-                        "class_name": class_name,
-                        "show_instance_side": show_instance_side,
-                        "method_selector": selector_name,
-                    }
-                )
-        return method_summaries
-
-    def selector_occurrence_summaries(
-        self,
-        method_name,
-        occurrence_type,
-        include_category_details=False,
-    ):
-        try:
-            return self.selector_occurrence_summaries_fast(
-                method_name, occurrence_type, include_category_details
-            )
-        except (GemstoneError, GemstoneApiError):
-            return self.selector_occurrence_summaries_slow(
-                method_name, occurrence_type, include_category_details
-            )
-
-    def selector_occurrence_summaries_fast(
-        self,
-        method_name,
-        occurrence_type,
-        include_category_details=False,
-    ):
-        selector_expression = self.selector_reference_expression(method_name)
-        if occurrence_type == "implementors":
-            query = "ClassOrganizer new implementorsOf: %s" % selector_expression
-        elif occurrence_type == "senders":
-            query = "ClassOrganizer new sendersOf: %s" % selector_expression
-        else:
-            raise DomainException("occurrence_type must be implementors or senders.")
+        # AI: GemStone keeps a reference index that ClassOrganizer>>referencesTo: queries
+        # AI: directly; against a class's global Symbol that means 'every method that
+        # AI: mentions the class'. The returned Array is shaped (methods, source-offsets),
+        # AI: and we only need methods, so we take 'first'.
+        # AI: We emit one tab-delimited line per GsNMethod server-side, so finding all
+        # AI: references is one GCI round-trip regardless of how many results match -
+        # AI: this is what makes issue #14's class-reference search fast.
+        # AI: Joining via (String with: Character lf) join: is portable across the GemStone
+        # AI: images we run on; joining on Character lf directly relies on an image
+        # AI: extension that is not guaranteed.
+        class_symbol_expression = self.class_symbol_expression(class_name)
         smalltalk_source = """
-            | results seen stack |
+            | methods results |
+            methods := (ClassOrganizer new referencesTo: %s) first.
             results := OrderedCollection new.
-            seen := Set new.
-            stack := OrderedCollection with: (%s).
-            [ stack isEmpty ] whileFalse: [
-                | current |
-                current := stack removeLast.
-                (current isKindOf: GsNMethod) ifTrue: [
-                    | inClass className selector isInstanceSide key |
-                    inClass := current inClass.
-                    selector := current selector asString.
-                    isInstanceSide := inClass isMeta not.
-                    className := inClass name asString.
-                    (isInstanceSide not and: [ className endsWith: ' class' ])
-                        ifTrue: [ className := className copyFrom: 1 to: className size - 6 ].
-                    key := className, '>>',
-                        (isInstanceSide ifTrue: ['i'] ifFalse: ['c']), '>>',
-                        selector.
-                    (seen includes: key) ifFalse: [
-                        seen add: key.
-                        results add: className, Character tab asString,
-                            (isInstanceSide ifTrue: ['true'] ifFalse: ['false']), Character tab asString,
-                            selector ] ]
-                ifFalse: [
-                    (current isKindOf: Collection) ifTrue: [
-                        current do: [ :each | stack add: each ] ] ] ].
-            Character lf join: results
-        """ % query
+            methods do: [ :compiledMethod |
+                | inClass className isInstanceSide |
+                inClass := compiledMethod inClass.
+                isInstanceSide := inClass isMeta not.
+                className := inClass name asString.
+                (isInstanceSide not and: [ className endsWith: ' class' ])
+                    ifTrue: [ className := className copyFrom: 1 to: className size - 6 ].
+                results add: className, Character tab asString,
+                    (isInstanceSide ifTrue: ['true'] ifFalse: ['false']), Character tab asString,
+                    compiledMethod selector asString ].
+            (String with: Character lf) join: results
+        """ % class_symbol_expression
         result_string = self.run_code(smalltalk_source).to_py
         if not result_string:
             return []
@@ -6005,36 +5913,110 @@ class GemstoneBrowserSession:
                 )
         return self.unique_sorted_method_summaries(method_summaries)
 
-    def selector_occurrence_summaries_slow(
+    
+
+    
+
+    
+
+    def selector_occurrence_summaries(
         self,
         method_name,
         occurrence_type,
         include_category_details=False,
     ):
+        # AI: Single server-side query, then optionally enrich in Python. We always emit
+        # AI: the method's category as a fourth tab-delimited field so 'find senders'
+        # AI: with category filtering does not have to issue one categoryOfSelector:
+        # AI: round-trip per result - and the IDE's class-category filter stops
+        # AI: silently depending on the old slow fallback running.
+        # AI: Joining via (String with: Character lf) join: is portable across the GemStone
+        # AI: images we run on; joining on Character lf directly relies on an image
+        # AI: extension that is not guaranteed.
         selector_expression = self.selector_reference_expression(method_name)
         if occurrence_type == "implementors":
-            candidate_value = self.run_code(
-                "ClassOrganizer new implementorsOf: %s" % selector_expression
-            )
+            query = "ClassOrganizer new implementorsOf: %s" % selector_expression
         elif occurrence_type == "senders":
-            candidate_value = self.run_code(
-                "ClassOrganizer new sendersOf: %s" % selector_expression
-            )
+            query = "ClassOrganizer new sendersOf: %s" % selector_expression
         else:
             raise DomainException("occurrence_type must be implementors or senders.")
-        compiled_methods = self.flatten_compiled_methods(candidate_value)
-        class_categories = None
-        if include_category_details:
-            class_categories = self.class_categories_by_class_name()
-        method_summaries = [
-            self.method_summary(
-                compiled_method,
-                include_category_details=include_category_details,
-                class_categories=class_categories,
-            )
-            for compiled_method in compiled_methods
-        ]
+        smalltalk_source = """
+            | results seen stack |
+            results := OrderedCollection new.
+            seen := Set new.
+            stack := OrderedCollection with: (%s).
+            [ stack isEmpty ] whileFalse: [
+                | current |
+                current := stack removeLast.
+                (current isKindOf: GsNMethod) ifTrue: [
+                    | inClass className selector isInstanceSide key methodCategory methodCategoryString |
+                    inClass := current inClass.
+                    selector := current selector asString.
+                    isInstanceSide := inClass isMeta not.
+                    className := inClass name asString.
+                    (isInstanceSide not and: [ className endsWith: ' class' ])
+                        ifTrue: [ className := className copyFrom: 1 to: className size - 6 ].
+                    methodCategory := inClass categoryOfSelector: current selector.
+                    methodCategoryString := methodCategory isNil
+                        ifTrue: ['']
+                        ifFalse: [methodCategory asString].
+                    key := className, '>>',
+                        (isInstanceSide ifTrue: ['i'] ifFalse: ['c']), '>>',
+                        selector.
+                    (seen includes: key) ifFalse: [
+                        seen add: key.
+                        results add: className, Character tab asString,
+                            (isInstanceSide ifTrue: ['true'] ifFalse: ['false']), Character tab asString,
+                            selector, Character tab asString,
+                            methodCategoryString ] ]
+                ifFalse: [
+                    (current isKindOf: Collection) ifTrue: [
+                        current do: [ :each | stack add: each ] ] ] ].
+            (String with: Character lf) join: results
+        """ % query
+        result_string = self.run_code(smalltalk_source).to_py
+        if not result_string:
+            return []
+        class_categories = (
+            self.class_categories_by_class_name() if include_category_details else None
+        )
+        method_summaries = []
+        for line in result_string.split("\n"):
+            parts = line.split("\t")
+            if len(parts) != 4:
+                continue
+            class_name = parts[0]
+            show_instance_side = parts[1] == "true"
+            method_selector = parts[2]
+            method_category_text = parts[3]
+            method_summary = {
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "method_selector": method_selector,
+            }
+            if include_category_details:
+                method_category = method_category_text if method_category_text else None
+                method_category_is_extension = (
+                    isinstance(method_category, str)
+                    and method_category.startswith("*")
+                )
+                extension_category_name = None
+                if method_category_is_extension:
+                    extension_category_name = method_category[1:].strip() or None
+                method_summary["class_category"] = (
+                    class_categories.get(class_name) if class_categories else None
+                )
+                method_summary["method_category"] = method_category
+                method_summary["method_category_is_extension"] = (
+                    method_category_is_extension
+                )
+                method_summary["extension_category_name"] = extension_category_name
+            method_summaries.append(method_summary)
         return self.unique_sorted_method_summaries(method_summaries)
+
+    
+
+    
 
     def implementor_entries_from_method_summaries(self, method_summaries):
         implementors = []

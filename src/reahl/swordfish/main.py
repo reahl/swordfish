@@ -3301,6 +3301,11 @@ class FindDialog(tk.Toplevel):
         match_mode,
         should_stop=None,
     ):
+        # AI: The dialog still polls should_stop once before launching the call so
+        # AI: a Stop click that arrives before the round-trip begins is honoured;
+        # AI: the call itself is one GCI round-trip and has no point at which it
+        # AI: could be polled. Anything finer than that needs a parseltongue
+        # AI: soft-break binding, which is a separate concern (see issue #14 notes).
         class_names = [query_text]
         reference_results = []
         for class_name in class_names:
