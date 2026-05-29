@@ -706,6 +706,111 @@ class GemstoneBrowserSession:
         return entry
 
     def source_method_sends(self, source):
+        """AI: Parser-backed enumeration of message sends. Walks the
+        SmalltalkMethodParser AST so cascade messages, parenthesised
+        receivers and primitive pragmas are all classified correctly; the
+        heuristic source scanner used to merge a pragma into the next
+        keyword selector and miscount sends through parenthesised
+        receivers. Falls back to the heuristic if the source does not
+        parse, so half-typed methods still produce useful output."""
+        try:
+            method_node = SmalltalkMethodParser().parse_method(source)
+        except SmalltalkSyntaxError:
+            return self.heuristic_method_sends(source)
+        send_entries = []
+        self.collect_send_entries(method_node, source, send_entries)
+        return {
+            "total_count": len(send_entries),
+            "sends": sorted(
+                send_entries,
+                key=lambda send_entry: (
+                    send_entry["start_offset"],
+                    send_entry["end_offset"],
+                    send_entry["selector"],
+                ),
+            ),
+            "analysis_limitations": [
+                (
+                    "Runtime dispatch targets still depend on dynamic "
+                    "receiver classes; this analysis lists the static "
+                    "selectors and their lexical positions."
+                ),
+            ],
+        }
+
+    def collect_send_entries(self, node, source, send_entries):
+        """AI: Walk the parser AST and append one entry per static send.
+        Cascades contribute one entry per message; the cascade receiver
+        is shared but each message is its own send. labelled_child_nodes
+        on each node type already enumerates the right structural
+        children (MethodNode.statements, DynamicArrayNode.elements,
+        CascadeNode.messages, MessageSendNode.arguments)."""
+        from reahl.swordfish.gemstone.smalltalk_method_parser import (
+            CascadeNode,
+            MessageSendNode,
+        )
+
+        if isinstance(node, MessageSendNode):
+            send_entries.append(self.send_entry_for_message(node, source))
+        elif isinstance(node, CascadeNode):
+            for message in node.messages:
+                send_entries.append(
+                    self.send_entry_for_message(
+                        message,
+                        source,
+                        receiver_hint_override='cascade',
+                    )
+                )
+        for _, child_node in node.labelled_child_nodes():
+            if child_node is None:
+                continue
+            self.collect_send_entries(child_node, source, send_entries)
+
+    def send_entry_for_message(
+        self,
+        message_node,
+        source,
+        receiver_hint_override=None,
+    ):
+        line_column_map = self.source_line_column_map(source)
+        coordinates = self.source_range_coordinates(
+            source,
+            line_column_map,
+            message_node.start_offset,
+            message_node.end_offset,
+        )
+        if receiver_hint_override is not None:
+            receiver_hint = receiver_hint_override
+        else:
+            receiver_hint = self.receiver_hint_for_node(
+                getattr(message_node, 'receiver', None),
+            )
+        return {
+            "selector": message_node.selector,
+            "send_type": message_node.send_kind,
+            "receiver_hint": receiver_hint,
+            "start_offset": message_node.start_offset,
+            "end_offset": message_node.end_offset,
+            "token_count": len(message_node.selector.split(":"))
+            if ":" in message_node.selector
+            else 1,
+            "start_line": coordinates["start_line"],
+            "start_column": coordinates["start_column"],
+            "end_line": coordinates["end_line"],
+            "end_column": coordinates["end_column"],
+        }
+
+    def receiver_hint_for_node(self, receiver_node):
+        if receiver_node is None:
+            return "unknown"
+        if receiver_node.node_kind == "variable":
+            return receiver_node.name
+        return "unknown"
+
+    def heuristic_method_sends(self, source):
+        """AI: Legacy source-scanning detector retained for the case where
+        the proposed source does not parse (e.g. a half-typed method in
+        the editor). Carries a marker so callers can spot the fallback."""
         code_character_map = self.source_code_character_map(source)
         line_column_map = self.source_line_column_map(source)
         body_start_offset = self.body_start_offset_for_method_source(source)
@@ -770,13 +875,9 @@ class GemstoneBrowserSession:
             ),
             "analysis_limitations": [
                 (
-                    "Send detection is source-based and heuristic; "
-                    "runtime dispatch targets still depend on dynamic receiver classes."
-                ),
-                (
-                    "Unary and binary sends are inferred for explicit receivers, "
-                    "common expression receivers, and cascades; uncommon layouts "
-                    "may still be missed."
+                    "Source did not parse; reverted to heuristic source "
+                    "scanning, which may merge adjacent keyword tokens or "
+                    "miss sends under uncommon receiver shapes."
                 ),
             ],
         }
@@ -863,6 +964,10 @@ class GemstoneBrowserSession:
         }
 
     def source_method_control_flow_summary(self, source):
+        """AI: Parser-backed counts of branch and loop selectors. The
+        heuristic version missed 'ifTrue:' sends whose receiver was a
+        parenthesised expression. source_method_sends now enumerates from
+        the AST, so we count by selector match directly."""
         structure_summary = self.source_method_structure_summary(source)
         method_sends = self.source_method_sends(source)
         control_selector_counts = {
@@ -918,9 +1023,8 @@ class GemstoneBrowserSession:
             "return_count": structure_summary["return_count"],
             "analysis_limitations": [
                 (
-                    "Control-flow summary is heuristic and selector-based; "
-                    "dynamic dispatch and non-standard control abstractions "
-                    "are not resolved."
+                    "Selector-based — dynamic dispatch and non-standard "
+                    "control abstractions are not resolved."
                 ),
             ],
         }
