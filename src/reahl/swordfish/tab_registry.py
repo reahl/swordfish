@@ -21,6 +21,12 @@ class DeduplicatedTabRegistry:
         if tab_key in self.label_by_key:
             del self.label_by_key[tab_key]
 
+    def remove_widget(self, tab_widget):
+        tab_id = str(tab_widget)
+        if tab_id not in self.key_by_tab_id:
+            return
+        self.remove_key(self.key_by_tab_id[tab_id])
+
     def select_key(self, tab_key):
         if tab_key not in self.tabs_by_key:
             return False

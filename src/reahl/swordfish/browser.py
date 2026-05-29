@@ -8,6 +8,7 @@ from tkinter import ttk
 
 from reahl.ptongue import GemstoneError
 
+from reahl.swordfish.closable_notebook import install_close_buttons
 from reahl.swordfish.exceptions import DomainException
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.navigation import NavigationHistory
@@ -2220,6 +2221,11 @@ class MethodEditor(FramedWidget):
         self.editor_notebook.bind('<Leave>', self.on_tab_leave)
         # AI: Right-click on a tab label opens the per-tab context menu.
         self.editor_notebook.bind('<Button-3>', self.open_tab_menu_handler)
+        # AI: Each tab gets an 'x' close affordance via the shared
+        # closable_notebook helper.
+        install_close_buttons(
+            self.editor_notebook, self.close_editor_tab_at_index
+        )
 
         self.open_tab_registry = DeduplicatedTabRegistry(self.editor_notebook)
         self.open_tabs = self.open_tab_registry.tabs_by_key
@@ -2282,6 +2288,13 @@ class MethodEditor(FramedWidget):
         after_index = self.editor_notebook.index(after_tab)
         for tab_path in tab_paths[after_index + 1:]:
             self.close_tab(self.editor_notebook.nametowidget(tab_path))
+
+    def close_editor_tab_at_index(self, notebook, tab_index):
+        # AI: Adapter that the closable_notebook helper calls when the user
+        # clicks the 'x' on a tab. Routes through the existing close_tab to
+        # keep the open-tab-registry bookkeeping in one place.
+        tab_widget = notebook.nametowidget(notebook.tabs()[tab_index])
+        self.close_tab(tab_widget)
 
     def current_method_context(self):
         selected_class = self.gemstone_session_record.selected_class

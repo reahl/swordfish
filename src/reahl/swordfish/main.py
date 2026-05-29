@@ -42,6 +42,7 @@ from reahl.swordfish.class_diagram import (
     UmlClassRelationship,
     format_class_diagram_method_label,
 )
+from reahl.swordfish.closable_notebook import install_close_buttons
 from reahl.swordfish.exceptions import DomainException
 from reahl.swordfish.execution import DebuggerControls, DebuggerWindow, RunTab
 from reahl.swordfish.gemstone import GemstoneBrowserSession, GemstoneDebugSession
@@ -5335,6 +5336,40 @@ class Swordfish(tk.Tk):
         )
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
+        # AI: Top-level Browser/Debugger/Run/Inspect/Diagram tabs gain an 'x'.
+        # The Browser tab is non-closable: closing it would empty the IDE.
+        install_close_buttons(
+            self.notebook,
+            self.close_top_level_tab_at_index,
+            is_closable=self.top_level_tab_is_closable,
+        )
+
+    def top_level_tab_is_closable(self, notebook, tab_index):
+        # AI: The Browser tab is the main IDE surface — closing it would
+        # leave the window empty. Every other top-level tab is transient.
+        return notebook.tab(tab_index, 'text') != 'Browser'
+
+    def close_top_level_tab_at_index(self, notebook, tab_index):
+        # AI: Dispatch by tab widget identity so the existing per-window
+        # teardown branches (close_inspector_tab/close_object_diagram_tab/
+        # close_class_diagram_tab) run their bookkeeping. Debugger and Run
+        # tabs have no dedicated close branch, so forget them directly and
+        # clear the cached attribute pointing at them.
+        tab_widget = notebook.nametowidget(notebook.tabs()[tab_index])
+        if tab_widget is self.inspector_tab:
+            self.close_inspector_tab()
+            return
+        if tab_widget is self.object_diagram_tab:
+            self.close_object_diagram_tab()
+            return
+        if tab_widget is self.class_diagram_tab:
+            self.close_class_diagram_tab()
+            return
+        notebook.forget(tab_widget)
+        if tab_widget is self.debugger_tab:
+            self.debugger_tab = None
+        if tab_widget is self.run_tab:
+            self.run_tab = None
 
     def create_collaboration_status_bar(self):
         self.collaboration_status_frame = ttk.Frame(self)

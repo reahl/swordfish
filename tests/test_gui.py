@@ -1224,6 +1224,27 @@ def test_cancel_reverts_dirty_buffer_to_saved_source(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_editor_notebook_uses_closable_style(fixture):
+    """AI: The method editor's notebook is wired with the close-button
+    style so every tab gets an 'x'."""
+    editor = fixture.browser_window.editor_area_widget
+    assert editor.editor_notebook.cget('style') == 'Closable.TNotebook'
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_close_editor_tab_at_index_removes_that_tab(fixture):
+    """AI: Closing a tab via the close-button dispatch removes that tab from
+    the editor's open_tabs registry (and only that one)."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "description")
+
+    editor = fixture.browser_window.editor_area_widget
+    editor.editor_notebook.close_tab_at_index(0)
+
+    assert list(editor.open_tabs.keys()) == [("OrderLine", True, "description")]
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_close_command_from_tab_menu_closes_the_tab(fixture):
     """AI: Choosing Close from the tab's right-click menu removes that tab."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
