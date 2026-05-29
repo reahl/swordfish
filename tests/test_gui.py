@@ -5375,7 +5375,7 @@ def test_completed_debugger_can_be_dismissed_with_close_button(fixture):
 
 @with_fixtures(SwordfishAppFixture)
 def test_debugger_active_controls_keep_close_on_right(fixture):
-    """AI: Debugger control row includes close on the right of stepping and browse actions."""
+    """AI: Debugger control row keeps Close at the right edge, past the rightmost stepping action, so closing the debugger never sits next to the step buttons (Browse Method now lives on the stack-frame right-click menu, issue #13)."""
     fixture.simulate_login()
     fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
 
@@ -5389,13 +5389,13 @@ def test_debugger_active_controls_keep_close_on_right(fixture):
     assert debugger_tab is not None
     assert debugger_tab.close_button is debugger_tab.debugger_controls.close_button
 
-    browse_column = int(
-        debugger_tab.debugger_controls.browse_button.grid_info()["column"]
+    stop_column = int(
+        debugger_tab.debugger_controls.stop_button.grid_info()["column"]
     )
     close_column = int(
         debugger_tab.debugger_controls.close_button.grid_info()["column"]
     )
-    assert browse_column < close_column
+    assert stop_column < close_column
     assert debugger_tab.debugger_controls.close_button.cget("text") == "Close"
 
 
@@ -5579,26 +5579,93 @@ def test_debugger_browse_method_maps_class_side_frames_to_class_side_selection(f
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_debugger_browse_button_dispatches_to_browse_selected_frame_method(fixture):
-    """AI: Browse Method debugger control should invoke debugger frame browsing action."""
+def test_debugger_stack_frame_menu_offers_browse_class_and_browse_method(fixture):
+    """AI: Right-clicking a stack frame in the debugger should expose both Browse Class (jumps to the frame's receiver class) and Browse Method (jumps to the method currently executing on that frame), since 'browse the code that this frame is paused inside' is what users reach for when triaging an exception."""
     fixture.simulate_login()
     fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
 
-    fixture.app.run_code("1/0")
+    fixture.app.run_code('1/0')
     fixture.app.update()
     run_tab = fixture.app.run_tab
     run_tab.debug_button.invoke()
     fixture.app.update()
 
     debugger_tab = fixture.app.debugger_tab
+    frame = types.SimpleNamespace(
+        class_name='OrderLine',
+        method_name='total',
+    )
 
     with patch.object(
         debugger_tab,
-        "open_selected_frame_method",
-    ) as open_selected_frame_method:
-        debugger_tab.debugger_controls.browse_button.invoke()
+        'get_selected_stack_frame',
+        return_value=frame,
+    ):
+        debugger_tab.open_stack_frame_menu(
+            types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1),
+        )
+        fixture.app.update()
 
-    open_selected_frame_method.assert_called_once_with()
+        command_labels = menu_command_labels(debugger_tab.current_stack_frame_menu)
+        assert 'Browse Class' in command_labels
+        assert 'Browse Method' in command_labels
+
+        with patch.object(
+            fixture.app,
+            'browse_class_by_name',
+        ) as browse_class_by_name:
+            invoke_menu_command_by_label(
+                debugger_tab.current_stack_frame_menu, 'Browse Class'
+            )
+        browse_class_by_name.assert_called_once_with('OrderLine', True)
+
+        with patch.object(
+            fixture.app,
+            'handle_sender_selection',
+        ) as handle_sender_selection:
+            invoke_menu_command_by_label(
+                debugger_tab.current_stack_frame_menu, 'Browse Method'
+            )
+        handle_sender_selection.assert_called_once_with('OrderLine', True, 'total')
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugger_stack_frame_menu_browse_class_respects_class_side_frames(fixture):
+    """AI: A class-side stack frame ('OrderLine class') should browse to the class side, mirroring how Browse Method already strips the ' class' suffix and flips show_instance_side."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+
+    fixture.app.run_code('1/0')
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    debugger_tab = fixture.app.debugger_tab
+    frame = types.SimpleNamespace(
+        class_name='OrderLine class',
+        method_name='buildForDemo',
+    )
+
+    with patch.object(
+        debugger_tab,
+        'get_selected_stack_frame',
+        return_value=frame,
+    ):
+        debugger_tab.open_stack_frame_menu(
+            types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1),
+        )
+        fixture.app.update()
+
+        with patch.object(
+            fixture.app,
+            'browse_class_by_name',
+        ) as browse_class_by_name:
+            invoke_menu_command_by_label(
+                debugger_tab.current_stack_frame_menu, 'Browse Class'
+            )
+
+    browse_class_by_name.assert_called_once_with('OrderLine', False)
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -7234,6 +7301,35 @@ def test_object_inspector_row_menu_graph_inspect_routes_selected_value(fixture):
     fixture.root.update()
 
     graph_inspect_action.assert_called_once_with(fixture.mock_self)
+
+
+@with_fixtures(ObjectInspectorFixture)
+def test_object_inspector_row_menu_browse_class_routes_selected_value(fixture):
+    """AI: The object row context menu should expose Browse Class and route the selected row's value to the browser callback, so a user can jump to the class of any displayed instVar without going through the inspected-container header button."""
+    browse_class_action = Mock()
+    inspector = ObjectInspector(
+        fixture.root,
+        values={'self': fixture.mock_self},
+        browse_class_action=browse_class_action,
+    )
+    inspector.pack()
+    fixture.root.update()
+
+    row = inspector.treeview.get_children()[0]
+    inspector.treeview.focus(row)
+    inspector.treeview.selection_set(row)
+    inspector.open_object_menu(
+        types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1),
+    )
+    fixture.root.update()
+
+    command_labels = menu_command_labels(inspector.current_object_menu)
+    assert 'Browse Class' in command_labels
+
+    invoke_menu_command_by_label(inspector.current_object_menu, 'Browse Class')
+    fixture.root.update()
+
+    browse_class_action.assert_called_once_with(fixture.mock_self)
 
 
 @with_fixtures(ObjectInspectorFixture)

@@ -504,6 +504,18 @@ class ObjectInspector(ttk.Frame):
             return
         self.graph_inspect_action(value)
 
+    def browse_selected_row_class(self):
+        # AI: Row-level companion to browse_inspected_object_class. Where the
+        # header button browses the inspected container's class, this routes the
+        # currently-focused row's value so the user can jump to the class of any
+        # displayed instVar straight from its right-click menu (issue #13).
+        if self.browse_class_action is None:
+            return
+        value = self.selected_row_value()
+        if value is None:
+            return
+        self.browse_class_action(value)
+
     def browse_inspected_object_class(self):
         if self.browse_class_action is None:
             return
@@ -527,6 +539,14 @@ class ObjectInspector(ttk.Frame):
             object_menu.add_command(
                 label='Show in Object Diagram',
                 command=self.show_selected_row_in_object_diagram,
+            )
+        if self.browse_class_action is not None:
+            # AI: Mirrors the source-window and object-graph Browse Class
+            # entries so the inspector row menu offers the same affordance
+            # for the row's value (issue #13).
+            object_menu.add_command(
+                label='Browse Class',
+                command=self.browse_selected_row_class,
             )
         has_menu_entries = object_menu.index('end') is not None
         if not has_menu_entries:
