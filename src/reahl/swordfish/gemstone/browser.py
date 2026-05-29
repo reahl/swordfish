@@ -1276,15 +1276,18 @@ class GemstoneBrowserSession:
         raw_start_offset,
         raw_end_offset,
     ):
+        """AI: Strip surrounding whitespace from a statement range. Earlier
+        versions also trimmed any 'non-code' character (string-literal and
+        comment interiors), which silently truncated statements that ended
+        in a trailing string literal — e.g. 'aPrefix, \\' world\\'' lost
+        the literal because the scanner marks string interiors as non-code.
+        Whitespace is the only safe thing to trim; legitimate inline
+        string and comment characters are part of the statement."""
         start_offset = raw_start_offset
         end_offset = raw_end_offset
-        while start_offset < end_offset and (
-            not code_character_map[start_offset] or source[start_offset].isspace()
-        ):
+        while start_offset < end_offset and source[start_offset].isspace():
             start_offset = start_offset + 1
-        while end_offset > start_offset and (
-            not code_character_map[end_offset - 1] or source[end_offset - 1].isspace()
-        ):
+        while end_offset > start_offset and source[end_offset - 1].isspace():
             end_offset = end_offset - 1
         if start_offset >= end_offset:
             return None, None

@@ -106,6 +106,36 @@ def test_extract_plan_unary_selector_still_works_when_no_arguments_are_needed(
 
 
 @with_fixtures(ExtractPlanningFixture)
+def test_extract_plan_keeps_trailing_string_literals_in_extracted_statement_source(
+    extract_planning_fixture,
+):
+    """AI: A statement that ends in a string literal (very common in
+    Smalltalk: 'a, b' concatenations, '^ \\'message\\'') used to have the
+    literal silently truncated. The cause was trimmed_code_range eating
+    every non-code character on the right — and string-literal interiors
+    are non-code in the scanner. The trimmer must only strip trailing
+    whitespace, not legitimate string-literal characters."""
+    extract_planning_fixture.set_method_source(
+        'processFor: aPrefix\n'
+        '    | greeting |\n'
+        "    greeting := aPrefix, ' world'.\n"
+        '    ^ greeting'
+    )
+
+    extract_plan = extract_planning_fixture.browser_session.method_extract_plan(
+        'OrderLine',
+        True,
+        'processFor:',
+        'computeGreetingFrom:',
+        [1],
+    )
+
+    assert "aPrefix, ' world'" in extract_plan['new_method_source'], (
+        extract_plan['new_method_source']
+    )
+
+
+@with_fixtures(ExtractPlanningFixture)
 def test_extract_plan_declares_caller_temporaries_that_are_locally_assigned(
     extract_planning_fixture,
 ):
