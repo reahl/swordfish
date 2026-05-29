@@ -706,6 +706,121 @@ class GemstoneBrowserSession:
         return entry
 
     def source_method_sends(self, source):
+        """AI: Parser-backed enumeration of message sends. Walks the
+        SmalltalkMethodParser AST so cascade messages, parenthesised
+        receivers and primitive pragmas are all classified correctly; the
+        heuristic source scanner used to merge a pragma into the next
+        keyword selector and miscount sends through parenthesised
+        receivers. Falls back to the heuristic if the source does not
+        parse, so half-typed methods still produce useful output."""
+        try:
+            method_node = SmalltalkMethodParser().parse_method(source)
+        except SmalltalkSyntaxError:
+            return self.heuristic_method_sends(source)
+        send_entries = []
+        self.collect_send_entries(method_node, source, send_entries)
+        return {
+            "total_count": len(send_entries),
+            "sends": sorted(
+                send_entries,
+                key=lambda send_entry: (
+                    send_entry["start_offset"],
+                    send_entry["end_offset"],
+                    send_entry["selector"],
+                ),
+            ),
+            "analysis_limitations": [
+                (
+                    "Runtime dispatch targets still depend on dynamic "
+                    "receiver classes; this analysis lists the static "
+                    "selectors and their lexical positions."
+                ),
+            ],
+        }
+
+    def collect_send_entries(self, node, source, send_entries):
+        """AI: Walk the parser AST and append one entry per static send.
+        Cascades contribute one entry per message; the cascade receiver
+        is shared but each message is its own send. CascadeNode exposes
+        its messages through labelled_child_nodes(), so we handle the
+        cascade case specially: we record each message ourselves and
+        descend only into each message's arguments — descending through
+        labelled_child_nodes() instead would record every cascade
+        message a second time as a plain MessageSendNode."""
+        from reahl.swordfish.gemstone.smalltalk_method_parser import (
+            CascadeNode,
+            MessageSendNode,
+        )
+
+        if isinstance(node, CascadeNode):
+            if node.receiver is not None:
+                self.collect_send_entries(node.receiver, source, send_entries)
+            for message in node.messages:
+                send_entries.append(
+                    self.send_entry_for_message(
+                        message,
+                        source,
+                        receiver_hint_override='cascade',
+                    )
+                )
+                for argument in message.arguments:
+                    if argument is not None:
+                        self.collect_send_entries(
+                            argument, source, send_entries
+                        )
+            return
+        if isinstance(node, MessageSendNode):
+            send_entries.append(self.send_entry_for_message(node, source))
+        for _, child_node in node.labelled_child_nodes():
+            if child_node is None:
+                continue
+            self.collect_send_entries(child_node, source, send_entries)
+
+    def send_entry_for_message(
+        self,
+        message_node,
+        source,
+        receiver_hint_override=None,
+    ):
+        line_column_map = self.source_line_column_map(source)
+        coordinates = self.source_range_coordinates(
+            source,
+            line_column_map,
+            message_node.start_offset,
+            message_node.end_offset,
+        )
+        if receiver_hint_override is not None:
+            receiver_hint = receiver_hint_override
+        else:
+            receiver_hint = self.receiver_hint_for_node(
+                getattr(message_node, 'receiver', None),
+            )
+        return {
+            "selector": message_node.selector,
+            "send_type": message_node.send_kind,
+            "receiver_hint": receiver_hint,
+            "start_offset": message_node.start_offset,
+            "end_offset": message_node.end_offset,
+            "token_count": len(message_node.selector.split(":"))
+            if ":" in message_node.selector
+            else 1,
+            "start_line": coordinates["start_line"],
+            "start_column": coordinates["start_column"],
+            "end_line": coordinates["end_line"],
+            "end_column": coordinates["end_column"],
+        }
+
+    def receiver_hint_for_node(self, receiver_node):
+        if receiver_node is None:
+            return "unknown"
+        if receiver_node.node_kind == "variable":
+            return receiver_node.name
+        return "unknown"
+
+    def heuristic_method_sends(self, source):
+        """AI: Legacy source-scanning detector retained for the case where
+        the proposed source does not parse (e.g. a half-typed method in
+        the editor). Carries a marker so callers can spot the fallback."""
         code_character_map = self.source_code_character_map(source)
         line_column_map = self.source_line_column_map(source)
         body_start_offset = self.body_start_offset_for_method_source(source)
@@ -770,60 +885,53 @@ class GemstoneBrowserSession:
             ),
             "analysis_limitations": [
                 (
-                    "Send detection is source-based and heuristic; "
-                    "runtime dispatch targets still depend on dynamic receiver classes."
-                ),
-                (
-                    "Unary and binary sends are inferred for explicit receivers, "
-                    "common expression receivers, and cascades; uncommon layouts "
-                    "may still be missed."
+                    "Source did not parse; reverted to heuristic source "
+                    "scanning, which may merge adjacent keyword tokens or "
+                    "miss sends under uncommon receiver shapes."
                 ),
             ],
         }
 
     def source_method_structure_summary(self, source):
+        """AI: Parser-backed structure counts. The character-walking
+        heuristic counted the '.' inside a float literal as a statement
+        terminator and counted each ';' in a cascade as its own cascade.
+        The parser walk gives true statement, cascade, block, return and
+        assignment counts; the character walk is kept as a fallback so a
+        half-typed method still produces output."""
         code_character_map = self.source_code_character_map(source)
         body_start_offset = self.body_start_offset_for_method_source(source)
         if body_start_offset >= len(source):
             body_start_offset = 0
         body_source = source[body_start_offset:]
         method_sends = self.source_method_sends(source)
-        block_open_count = 0
-        block_close_count = 0
-        return_count = 0
-        cascade_count = 0
-        assignment_count = 0
-        statement_terminator_count = 0
         code_character_count = 0
         non_code_character_count = 0
-        index = body_start_offset
-        while index < len(source):
-            is_code_character = code_character_map[index]
-            character = source[index]
-            if is_code_character:
+        for index in range(body_start_offset, len(source)):
+            if code_character_map[index]:
                 code_character_count = code_character_count + 1
-                if character == "[":
-                    block_open_count = block_open_count + 1
-                if character == "]":
-                    block_close_count = block_close_count + 1
-                if character == "^":
-                    return_count = return_count + 1
-                if character == ";":
-                    cascade_count = cascade_count + 1
-                if character == ".":
-                    statement_terminator_count = statement_terminator_count + 1
-                has_next_character = index + 1 < len(source)
-                has_assignment = (
-                    character == ":"
-                    and has_next_character
-                    and source[index + 1] == "="
-                    and code_character_map[index + 1]
-                )
-                if has_assignment:
-                    assignment_count = assignment_count + 1
             else:
                 non_code_character_count = non_code_character_count + 1
-            index = index + 1
+        try:
+            method_node = SmalltalkMethodParser().parse_method(source)
+        except SmalltalkSyntaxError:
+            method_node = None
+        if method_node is not None:
+            structure_counts = self.parser_backed_structure_counts(method_node)
+        else:
+            structure_counts = self.heuristic_structure_counts(
+                source,
+                code_character_map,
+                body_start_offset,
+            )
+        block_open_count = structure_counts["block_open_count"]
+        block_close_count = structure_counts["block_close_count"]
+        return_count = structure_counts["return_count"]
+        cascade_count = structure_counts["cascade_count"]
+        assignment_count = structure_counts["assignment_count"]
+        statement_terminator_count = structure_counts[
+            "statement_terminator_count"
+        ]
         keyword_send_count = 0
         unary_send_count = 0
         binary_send_count = 0
@@ -862,7 +970,99 @@ class GemstoneBrowserSession:
             "analysis_limitations": method_sends["analysis_limitations"],
         }
 
+    def parser_backed_structure_counts(self, method_node):
+        """AI: Walk the parser AST once and return true counts of blocks,
+        returns, cascade expressions, assignments, and inter-statement
+        terminators."""
+        from reahl.swordfish.gemstone.smalltalk_method_parser import (
+            AssignmentNode,
+            BlockNode,
+            CascadeNode,
+            ReturnNode,
+        )
+
+        counts = {
+            "block_open_count": 0,
+            "block_close_count": 0,
+            "return_count": 0,
+            "cascade_count": 0,
+            "assignment_count": 0,
+            "statement_terminator_count": max(
+                len(method_node.statements) - 1,
+                0,
+            ),
+        }
+
+        def walk(node):
+            if isinstance(node, BlockNode):
+                counts["block_open_count"] = counts["block_open_count"] + 1
+                counts["block_close_count"] = counts["block_close_count"] + 1
+            if isinstance(node, ReturnNode):
+                counts["return_count"] = counts["return_count"] + 1
+            if isinstance(node, CascadeNode):
+                counts["cascade_count"] = counts["cascade_count"] + 1
+            if isinstance(node, AssignmentNode):
+                counts["assignment_count"] = counts["assignment_count"] + 1
+            for _, child in node.labelled_child_nodes():
+                if child is not None:
+                    walk(child)
+
+        walk(method_node)
+        return counts
+
+    def heuristic_structure_counts(
+        self,
+        source,
+        code_character_map,
+        body_start_offset,
+    ):
+        """AI: Fallback character walk used when the source does not parse.
+        Same shape as parser_backed_structure_counts; carries the same
+        rough-edge caveats the old summary had (float-literal periods
+        counted as terminators, ';' counted as cascade expressions)."""
+        block_open_count = 0
+        block_close_count = 0
+        return_count = 0
+        cascade_count = 0
+        assignment_count = 0
+        statement_terminator_count = 0
+        for index in range(body_start_offset, len(source)):
+            if not code_character_map[index]:
+                continue
+            character = source[index]
+            if character == "[":
+                block_open_count = block_open_count + 1
+            if character == "]":
+                block_close_count = block_close_count + 1
+            if character == "^":
+                return_count = return_count + 1
+            if character == ";":
+                cascade_count = cascade_count + 1
+            if character == ".":
+                statement_terminator_count = statement_terminator_count + 1
+            has_next_character = index + 1 < len(source)
+            has_assignment = (
+                character == ":"
+                and has_next_character
+                and source[index + 1] == "="
+                and code_character_map[index + 1]
+            )
+            if has_assignment:
+                assignment_count = assignment_count + 1
+        return {
+            "block_open_count": block_open_count,
+            "block_close_count": block_close_count,
+            "return_count": return_count,
+            "cascade_count": cascade_count,
+            "assignment_count": assignment_count,
+            "statement_terminator_count": statement_terminator_count,
+        }
+
     def source_method_control_flow_summary(self, source):
+        """AI: Parser-backed counts of branch and loop selectors. The
+        heuristic version missed 'ifTrue:' sends whose receiver was a
+        parenthesised expression. source_method_sends now enumerates from
+        the AST, so we count by selector match directly."""
         structure_summary = self.source_method_structure_summary(source)
         method_sends = self.source_method_sends(source)
         control_selector_counts = {
@@ -918,9 +1118,8 @@ class GemstoneBrowserSession:
             "return_count": structure_summary["return_count"],
             "analysis_limitations": [
                 (
-                    "Control-flow summary is heuristic and selector-based; "
-                    "dynamic dispatch and non-standard control abstractions "
-                    "are not resolved."
+                    "Selector-based — dynamic dispatch and non-standard "
+                    "control abstractions are not resolved."
                 ),
             ],
         }
@@ -1172,15 +1371,18 @@ class GemstoneBrowserSession:
         raw_start_offset,
         raw_end_offset,
     ):
+        """AI: Strip surrounding whitespace from a statement range. Earlier
+        versions also trimmed any 'non-code' character (string-literal and
+        comment interiors), which silently truncated statements that ended
+        in a trailing string literal — e.g. 'aPrefix, \\' world\\'' lost
+        the literal because the scanner marks string interiors as non-code.
+        Whitespace is the only safe thing to trim; legitimate inline
+        string and comment characters are part of the statement."""
         start_offset = raw_start_offset
         end_offset = raw_end_offset
-        while start_offset < end_offset and (
-            not code_character_map[start_offset] or source[start_offset].isspace()
-        ):
+        while start_offset < end_offset and source[start_offset].isspace():
             start_offset = start_offset + 1
-        while end_offset > start_offset and (
-            not code_character_map[end_offset - 1] or source[end_offset - 1].isspace()
-        ):
+        while end_offset > start_offset and source[end_offset - 1].isspace():
             end_offset = end_offset - 1
         if start_offset >= end_offset:
             return None, None
@@ -3256,6 +3458,8 @@ class GemstoneBrowserSession:
         method_selector,
         overwrite_target_method=False,
         delete_source_method=True,
+        rewrite_source_senders=False,
+        helper_receiver_source=None,
     ):
         source_show_instance_side = self.validated_show_instance_side(
             source_show_instance_side
@@ -3271,6 +3475,15 @@ class GemstoneBrowserSession:
             delete_source_method,
             "delete_source_method",
         )
+        rewrite_source_senders = self.validated_boolean_flag(
+            rewrite_source_senders,
+            "rewrite_source_senders",
+        )
+        if rewrite_source_senders and not helper_receiver_source:
+            raise DomainException(
+                "helper_receiver_source is required when "
+                "rewrite_source_senders is true."
+            )
         move_plan = self.method_move_plan(
             source_class_name,
             source_show_instance_side,
@@ -3296,6 +3509,16 @@ class GemstoneBrowserSession:
             source=move_plan["source_method_source"],
             method_category=move_plan["source_method_category"],
         )
+        rewritten_sender_count = 0
+        if rewrite_source_senders:
+            rewritten_sender_count = (
+                self.rewrite_same_class_senders_to_helper_receiver(
+                    source_class_name,
+                    source_show_instance_side,
+                    method_selector,
+                    helper_receiver_source,
+                )
+            )
         source_deleted = False
         if delete_source_method:
             self.delete_method(
@@ -3309,7 +3532,143 @@ class GemstoneBrowserSession:
         summary["overwrite_target_method"] = overwrite_target_method
         summary["delete_source_method"] = delete_source_method
         summary["source_deleted"] = source_deleted
+        summary["rewrite_source_senders"] = rewrite_source_senders
+        summary["helper_receiver_source"] = helper_receiver_source
+        summary["rewritten_sender_count"] = rewritten_sender_count
         return summary
+
+    def rewrite_same_class_senders_to_helper_receiver(
+        self,
+        source_class_name,
+        source_show_instance_side,
+        moved_selector,
+        helper_receiver_source,
+    ):
+        """AI: Rewrite every static call site of moved_selector in
+        same-class senders so its receiver becomes helper_receiver_source.
+        Walks each sender's parser AST, slices the receiver range, and
+        recompiles. Returns the count of senders that were rewritten."""
+        sender_summaries = self.selector_occurrence_summaries(
+            moved_selector,
+            "senders",
+        )
+        same_class_sender_summaries = [
+            sender_summary
+            for sender_summary in sender_summaries
+            if (
+                sender_summary["class_name"] == source_class_name
+                and sender_summary["show_instance_side"]
+                == source_show_instance_side
+            )
+        ]
+        rewritten_count = 0
+        seen_sender_selectors = set()
+        for sender_summary in same_class_sender_summaries:
+            sender_selector = sender_summary["method_selector"]
+            if sender_selector == moved_selector:
+                continue
+            if sender_selector in seen_sender_selectors:
+                continue
+            seen_sender_selectors.add(sender_selector)
+            rewritten_source = self.sender_source_with_receiver_replaced(
+                source_class_name,
+                source_show_instance_side,
+                sender_selector,
+                moved_selector,
+                helper_receiver_source,
+            )
+            if rewritten_source is None:
+                continue
+            sender_category = self.get_method_category(
+                source_class_name,
+                sender_selector,
+                source_show_instance_side,
+            )
+            self.compile_method(
+                class_name=source_class_name,
+                show_instance_side=source_show_instance_side,
+                source=rewritten_source,
+                method_category=sender_category,
+            )
+            rewritten_count = rewritten_count + 1
+        return rewritten_count
+
+    def sender_source_with_receiver_replaced(
+        self,
+        sender_class_name,
+        sender_show_instance_side,
+        sender_selector,
+        moved_selector,
+        helper_receiver_source,
+    ):
+        """AI: Build a rewritten source for one sender method where every
+        static send of moved_selector has its receiver replaced by
+        helper_receiver_source. Uses the parser AST so we know each send's
+        exact receiver range; cascades and nested expressions are
+        respected. Returns None if no matching sends were found."""
+        from reahl.swordfish.gemstone.smalltalk_method_parser import (
+            CascadeNode,
+            MessageSendNode,
+        )
+
+        sender_source = self.get_method_source(
+            sender_class_name,
+            sender_selector,
+            sender_show_instance_side,
+        )
+        try:
+            sender_method_node = SmalltalkMethodParser().parse_method(
+                sender_source
+            )
+        except SmalltalkSyntaxError:
+            return None
+        receiver_replacements = []
+
+        def collect_receiver_replacements(node):
+            if isinstance(node, CascadeNode):
+                if (
+                    any(
+                        message.selector == moved_selector
+                        for message in node.messages
+                    )
+                    and node.receiver is not None
+                ):
+                    receiver_replacements.append(
+                        (
+                            node.receiver.start_offset,
+                            node.receiver.end_offset,
+                        )
+                    )
+            elif (
+                isinstance(node, MessageSendNode)
+                and node.selector == moved_selector
+                and node.receiver is not None
+            ):
+                receiver_replacements.append(
+                    (
+                        node.receiver.start_offset,
+                        node.receiver.end_offset,
+                    )
+                )
+            for _, child_node in node.labelled_child_nodes():
+                if child_node is not None:
+                    collect_receiver_replacements(child_node)
+
+        collect_receiver_replacements(sender_method_node)
+        if not receiver_replacements:
+            return None
+        # AI: Apply replacements from the end so earlier offsets stay valid.
+        rewritten_source = sender_source
+        for start_offset, end_offset in sorted(
+            receiver_replacements,
+            reverse=True,
+        ):
+            rewritten_source = (
+                rewritten_source[:start_offset]
+                + helper_receiver_source
+                + rewritten_source[end_offset:]
+            )
+        return rewritten_source
 
     def method_move_plan(
         self,
@@ -3579,6 +3938,7 @@ class GemstoneBrowserSession:
             "default_argument_source": default_argument_source,
             "method_category": method_category,
             "new_selector_exists": new_selector_exists,
+            "new_method_header": new_method_header,
             "new_method_source": new_method_source,
             "compatibility_wrapper_source": compatibility_wrapper_source,
             "total_sender_count": len(sender_summaries),
@@ -3618,7 +3978,11 @@ class GemstoneBrowserSession:
             "default_argument_source": (add_parameter_plan["default_argument_source"]),
             "method_category": add_parameter_plan["method_category"],
             "new_selector_exists": add_parameter_plan["new_selector_exists"],
+            "new_method_header": add_parameter_plan["new_method_header"],
             "compatibility_wrapper": True,
+            "compatibility_wrapper_source": (
+                add_parameter_plan["compatibility_wrapper_source"]
+            ),
             "total_sender_count": add_parameter_plan["total_sender_count"],
             "source_sender_count": add_parameter_plan["source_sender_count"],
             "sender_examples": add_parameter_plan["sender_examples"],
@@ -3858,6 +4222,7 @@ class GemstoneBrowserSession:
             "creates_unary_selector": creates_unary_selector,
             "method_category": method_category,
             "new_selector_exists": new_selector_exists,
+            "new_method_header": new_method_header,
             "new_method_source": new_method_source,
             "compatibility_wrapper_source": compatibility_wrapper_source,
             "total_sender_count": len(sender_summaries),
@@ -3933,7 +4298,11 @@ class GemstoneBrowserSession:
             "creates_unary_selector": remove_parameter_plan["creates_unary_selector"],
             "method_category": remove_parameter_plan["method_category"],
             "new_selector_exists": remove_parameter_plan["new_selector_exists"],
+            "new_method_header": remove_parameter_plan["new_method_header"],
             "compatibility_wrapper": True,
+            "compatibility_wrapper_source": remove_parameter_plan[
+                "compatibility_wrapper_source"
+            ],
             "total_sender_count": remove_parameter_plan["total_sender_count"],
             "source_sender_count": remove_parameter_plan["source_sender_count"],
             "rewrite_source_senders": remove_parameter_plan["rewrite_source_senders"],
@@ -4208,9 +4577,6 @@ class GemstoneBrowserSession:
             raise DomainException("Extract cannot include return statements.")
         extraction_start_offset = selected_statement_entries[0]["start_offset"]
         extraction_end_offset = selected_statement_entries[-1]["end_offset"]
-        extracted_body = self.extracted_method_body_from_statement_entries(
-            selected_statement_entries
-        )
         source_method_argument_names = self.method_argument_names_for_method(
             class_name,
             show_instance_side,
@@ -4223,6 +4589,44 @@ class GemstoneBrowserSession:
             source_method_ast["temporaries"],
         )
         extracted_argument_count = len(extracted_argument_names)
+        extracted_local_temporary_names = (
+            self.extraction_local_temporary_names(
+                selected_statement_entries,
+                source_method_argument_names,
+                source_method_ast["temporaries"],
+            )
+        )
+        post_extraction_statement_entries = [
+            statement_entry
+            for statement_entry in source_method_ast["statements"]
+            if statement_entry["statement_index"]
+            > selected_statement_entries[-1]["statement_index"]
+        ]
+        names_read_after_extraction = (
+            self.identifier_names_referenced_in_statement_entries(
+                source_method_source,
+                post_extraction_statement_entries,
+            )
+        )
+        leaked_temporary_names = [
+            name
+            for name in extracted_local_temporary_names
+            if name in names_read_after_extraction
+        ]
+        if leaked_temporary_names:
+            raise DomainException(
+                (
+                    "Cannot extract: caller temporary %s is assigned inside "
+                    "the extracted range but read again in a later "
+                    "statement. Extracting would silently change the "
+                    "caller's return value or later reads."
+                )
+                % ", ".join(leaked_temporary_names)
+            )
+        extracted_body = self.extracted_method_body_from_statement_entries(
+            selected_statement_entries,
+            extracted_local_temporary_names,
+        )
         if is_keyword_selector:
             expected_argument_count = len(selector_tokens)
             if expected_argument_count != extracted_argument_count:
@@ -4285,6 +4689,14 @@ class GemstoneBrowserSession:
             new_selector,
             show_instance_side,
         )
+        # AI: Parse the proposed new-method source so that apply does not
+        # surface a CompileError that preview had already had a chance to
+        # see. Wraps both real parser failures and tests that stub the
+        # candidate-parse seam to inject a synthetic syntax error.
+        new_method_compile_warning = self.candidate_source_compile_warning(
+            new_method_source,
+            new_selector,
+        )
         return {
             "class_name": class_name,
             "show_instance_side": show_instance_side,
@@ -4298,10 +4710,126 @@ class GemstoneBrowserSession:
             "extracted_statement_count": len(selected_statement_entries),
             "extracted_argument_count": extracted_argument_count,
             "extracted_argument_names": extracted_argument_names,
+            "extracted_local_temporary_names": extracted_local_temporary_names,
             "extracted_source_character_count": (
                 extraction_end_offset - extraction_start_offset
             ),
+            "new_method_compile_warning": new_method_compile_warning,
         }
+
+    def candidate_source_compile_warning(self, source, method_selector):
+        """AI: Parse a proposed new-method source with the Smalltalk parser
+        and return a human-readable warning if it does not parse. Tests can
+        stub source_method_ast_for_candidate to inject a synthetic failure
+        without bringing the parser fully into the test."""
+        candidate_parse = getattr(
+            self,
+            'source_method_ast_for_candidate',
+            None,
+        )
+        try:
+            if candidate_parse is not None:
+                candidate_parse(source, method_selector)
+            else:
+                SmalltalkMethodParser().parse_method(source)
+        except SmalltalkSyntaxError as parse_error:
+            return (
+                'Proposed new-method source did not parse: %s'
+                % str(parse_error)
+            )
+        return None
+
+    def edit_method_node_plan(
+        self,
+        class_name,
+        show_instance_side,
+        method_selector,
+        node_path,
+        new_source,
+    ):
+        """AI: Plan an edit that replaces the source range of one AST
+        node with new_source. The parser is the single source of truth
+        for where the node sits, so a caller never does offset
+        arithmetic. Runs the Tier B candidate-parse check on the spliced
+        full method source and returns the warning rather than raising,
+        so the caller can decide what to do."""
+        method_source = self.get_method_source(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        try:
+            method_node = SmalltalkMethodParser().parse_method(method_source)
+        except SmalltalkSyntaxError as parse_error:
+            raise DomainException(
+                'Method source did not parse: %s' % str(parse_error)
+            )
+        indexed_nodes = index_nodes_by_path(method_node)
+        if node_path not in indexed_nodes:
+            raise DomainException(
+                'Unknown node_path: %r is not a node in this method.'
+                % node_path
+            )
+        target_node = indexed_nodes[node_path]
+        new_method_source = (
+            method_source[: target_node.start_offset]
+            + new_source
+            + method_source[target_node.end_offset :]
+        )
+        candidate_warning = self.candidate_source_compile_warning(
+            new_method_source,
+            method_selector,
+        )
+        return {
+            'class_name': class_name,
+            'show_instance_side': show_instance_side,
+            'method_selector': method_selector,
+            'node_path': node_path,
+            'original_node_kind': target_node.node_kind,
+            'original_start_offset': target_node.start_offset,
+            'original_end_offset': target_node.end_offset,
+            'replaced_source_character_count': (
+                target_node.end_offset - target_node.start_offset
+            ),
+            'new_source_character_count': len(new_source),
+            'new_method_source': new_method_source,
+            'new_method_compile_warning': candidate_warning,
+        }
+
+    def apply_edit_method_node(
+        self,
+        class_name,
+        show_instance_side,
+        method_selector,
+        node_path,
+        new_source,
+    ):
+        """AI: Plan + compile. Atomic: refuses to compile a candidate
+        that does not parse, returning the parser error verbatim.
+        Failure leaves the method unchanged."""
+        plan = self.edit_method_node_plan(
+            class_name,
+            show_instance_side,
+            method_selector,
+            node_path,
+            new_source,
+        )
+        if plan['new_method_compile_warning'] is not None:
+            raise DomainException(plan['new_method_compile_warning'])
+        method_category = self.get_method_category(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        self.compile_method(
+            class_name=class_name,
+            show_instance_side=show_instance_side,
+            source=plan['new_method_source'],
+            method_category=method_category,
+        )
+        result = dict(plan)
+        result['applied'] = True
+        return result
 
     def method_extract_summary(self, extract_plan):
         warnings = []
@@ -4314,6 +4842,8 @@ class GemstoneBrowserSession:
                     "instance" if extract_plan["show_instance_side"] else "class",
                 )
             )
+        if extract_plan.get("new_method_compile_warning"):
+            warnings.append(extract_plan["new_method_compile_warning"])
         return {
             "class_name": extract_plan["class_name"],
             "show_instance_side": extract_plan["show_instance_side"],
@@ -4325,6 +4855,9 @@ class GemstoneBrowserSession:
             "extracted_statement_count": extract_plan["extracted_statement_count"],
             "extracted_argument_count": extract_plan["extracted_argument_count"],
             "extracted_argument_names": extract_plan["extracted_argument_names"],
+            "extracted_local_temporary_names": extract_plan.get(
+                "extracted_local_temporary_names", []
+            ),
             "extracted_source_character_count": extract_plan[
                 "extracted_source_character_count"
             ],
@@ -4402,6 +4935,35 @@ class GemstoneBrowserSession:
             if is_scoped and not is_assigned_name and not is_already_added:
                 argument_names.append(name)
         return argument_names
+
+    def identifier_names_referenced_in_statement_entries(
+        self,
+        source,
+        statement_entries,
+    ):
+        """AI: Distinct identifier names that appear anywhere in any of the
+        given statement entries — used by the extract-method safety check
+        that refuses to promote a caller temporary to a local of the new
+        method when the caller still reads it after the extracted range."""
+        if not statement_entries:
+            return []
+        selected_ranges = [
+            (
+                statement_entry["start_offset"],
+                statement_entry["end_offset"],
+            )
+            for statement_entry in statement_entries
+        ]
+        identifier_occurrences = self.identifier_occurrences_in_ranges(
+            source,
+            selected_ranges,
+        )
+        seen_names = []
+        for occurrence in identifier_occurrences:
+            occurrence_name = occurrence["name"]
+            if occurrence_name not in seen_names:
+                seen_names.append(occurrence_name)
+        return seen_names
 
     def identifier_occurrences_in_ranges(self, source, selected_ranges):
         code_character_map = self.source_code_character_map(source)
@@ -4500,6 +5062,12 @@ class GemstoneBrowserSession:
         caller_selector,
         inline_selector,
     ):
+        # AI: Unary-only is a real algorithmic constraint, not a stylistic
+        # one: inlining a keyword method would have to substitute each
+        # formal argument with its call-site expression at every send
+        # site, which the inline-expression splicer below does not do.
+        # Lifting this guard is a feature, not a fix; the MCP layer
+        # mirrors this guard so the rejection is local.
         if ":" in inline_selector:
             raise DomainException("inline_selector must be a unary selector.")
         inline_method_source = self.get_method_source(
@@ -4797,11 +5365,45 @@ class GemstoneBrowserSession:
     def extracted_method_body_from_statement_entries(
         self,
         statement_entries,
+        local_temporary_names=None,
     ):
         statement_sources = [
             statement_entry["source"].strip() for statement_entry in statement_entries
         ]
-        return "    " + ".\n    ".join(statement_sources)
+        body_statements = "    " + ".\n    ".join(statement_sources)
+        if local_temporary_names:
+            temporaries_clause = "    | %s |\n" % " ".join(local_temporary_names)
+            return temporaries_clause + body_statements
+        return body_statements
+
+    def extraction_local_temporary_names(
+        self,
+        selected_statement_entries,
+        source_method_argument_names,
+        source_method_temporaries,
+    ):
+        """AI: A caller-scoped name that is both assigned in the extracted
+        range AND not a caller argument becomes a local temporary in the
+        new method. Without declaring it the produced source has an
+        undeclared variable on its assignment LHS and refuses to compile."""
+        assigned_names = []
+        for statement_entry in selected_statement_entries:
+            assignment_match = re.match(
+                r"\s*([A-Za-z][A-Za-z0-9_]*)\s*:=",
+                statement_entry["source"],
+            )
+            if assignment_match is not None:
+                assigned_name = assignment_match.group(1)
+                is_caller_temporary = (
+                    assigned_name in source_method_temporaries
+                    and assigned_name not in source_method_argument_names
+                )
+                if (
+                    is_caller_temporary
+                    and assigned_name not in assigned_names
+                ):
+                    assigned_names.append(assigned_name)
+        return assigned_names
 
     def sorted_unique_positive_indexes(self, input_indexes):
         if not isinstance(input_indexes, list) or not input_indexes:

@@ -3,6 +3,7 @@ import re
 import threading
 import time
 import uuid
+from typing import List, Optional
 
 from reahl.ptongue import GemstoneApiError, GemstoneError
 
@@ -1279,8 +1280,8 @@ def register_tools(
     def tracer_observed_senders_for_selector(
         browser_session,
         method_name,
-        max_results=None,
-        count_only=False,
+        max_results: Optional[int] = None,
+        count_only: bool = False,
     ):
         return browser_session.observed_senders_for_selector(
             method_name,
@@ -1332,19 +1333,35 @@ def register_tools(
         return input_value
 
     def validated_statement_indexes(input_value, argument_name):
+        """AI: Accepts the same zero-based origin gs_method_ast advertises
+        (statements[0], statements[1], ...) so a caller can feed AST output
+        straight back without an off-by-one. Returns the sorted, unique,
+        zero-based list; the browser layer's one-based shift happens at
+        the call site."""
         if not isinstance(input_value, list) or not input_value:
             raise DomainException(
                 "%s must be a non-empty list of integers." % argument_name
             )
         validated_indexes = []
         for index_value in input_value:
-            if not isinstance(index_value, int) or index_value <= 0:
+            if not isinstance(index_value, int) or index_value < 0:
                 raise DomainException(
-                    "%s must contain positive integers only." % argument_name
+                    "%s must contain non-negative integers only."
+                    % argument_name
                 )
             if index_value not in validated_indexes:
                 validated_indexes.append(index_value)
         return sorted(validated_indexes)
+
+    def one_based_statement_indexes(zero_based_indexes):
+        """AI: Shift from the MCP wrapper's zero-based contract to the
+        browser layer's one-based statement_index."""
+        return [zero_based + 1 for zero_based in zero_based_indexes]
+
+    def zero_based_statement_indexes(one_based_indexes):
+        """AI: Shift the browser layer's one-based statement_index back to
+        the MCP wrapper's zero-based contract."""
+        return [one_based - 1 for one_based in one_based_indexes]
 
     def validated_ast_pattern(input_value, argument_name):
         if not isinstance(input_value, dict):
@@ -1731,7 +1748,7 @@ def register_tools(
     @mcp_server.tool()
     def gs_commit(
         connection_id,
-        approved_by_user=False,
+        approved_by_user: bool = False,
         approval_note="",
     ):
         """Commit the active transaction. Requires --allow-commit and explicit
@@ -1845,7 +1862,7 @@ def register_tools(
     def gs_ide_open_graph_for_oops(
         connection_id,
         oops,
-        clear_existing=False,
+        clear_existing: bool = False,
     ):
         """Open an object inspector graph in the IDE for the given oop list.
         Pass clear_existing=True to drop currently graphed oops first."""
@@ -1874,7 +1891,7 @@ def register_tools(
     def gs_ide_select_class(
         connection_id,
         class_name,
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """Select a class in the IDE browser so subsequent IDE actions act on it.
         show_instance_side toggles the instance-side / class-side switch."""
@@ -1908,7 +1925,7 @@ def register_tools(
         connection_id,
         class_name,
         method_selector,
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """Open a method in the IDE browser, selecting its class and side."""
         try:
@@ -2002,7 +2019,7 @@ def register_tools(
         connection_id,
         class_name,
         method_selector,
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """Pin a specific method to its class box in the UML diagram so it stays
         visible when the diagram is reflowed."""
@@ -2129,11 +2146,11 @@ def register_tools(
     @mcp_server.tool()
     def gs_ide_filter_senders(
         connection_id,
-        class_category_filters=None,
-        class_name_filters=None,
-        method_selector_filters=None,
-        method_category_filters=None,
-        include_extension_method_category_for_class_category=True,
+        class_category_filters: Optional[List[str]] = None,
+        class_name_filters: Optional[List[str]] = None,
+        method_selector_filters: Optional[List[str]] = None,
+        method_category_filters: Optional[List[str]] = None,
+        include_extension_method_category_for_class_category: bool = True,
         reasoning_note="",
     ):
         """Apply class/category/selector filters to the IDE's find-senders dialog.
@@ -2211,7 +2228,7 @@ def register_tools(
     def gs_ide_open_debugger(
         connection_id,
         debug_id,
-        ask_before_open=True,
+        ask_before_open: bool = True,
     ):
         """Open the IDE debugger on a paused debug_id from gs_debug_test_method,
         gs_run_test_method or gs_debug_eval. ask_before_open=False suppresses
@@ -2315,6 +2332,7 @@ def register_tools(
                     "gs_method_structure_summary",
                     "gs_method_control_flow_summary",
                     "gs_query_methods_by_ast_pattern",
+                    "gs_preview_edit_node",
                     "gs_breakpoint_list",
                 ],
                 "debugging": [
@@ -2348,6 +2366,7 @@ def register_tools(
                     "gs_apply_remove_parameter",
                     "gs_apply_extract_method",
                     "gs_apply_inline_method",
+                    "gs_apply_edit_node",
                     "gs_commit",
                     "gs_abort",
                 ],
@@ -2376,7 +2395,7 @@ def register_tools(
         }
 
     @mcp_server.tool()
-    def gs_guidance(selector=None):
+    def gs_guidance(selector: Optional[str] = None):
         """Return state-dependent advice: cautions and decision rules that
         depend on the current permission flags (allow_eval_arbitrary,
         allow_commit, allow_tracing) and on whether the
@@ -2807,7 +2826,7 @@ def register_tools(
     def gs_list_method_categories(
         connection_id,
         class_name,
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """List the method categories (protocols) defined on a class, on the
         instance side or the class side."""
@@ -2846,7 +2865,7 @@ def register_tools(
         connection_id,
         class_name,
         method_category="all",
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """List method selectors on a class, scoped to a side and optionally a
         single method_category. Pass method_category='all' (the default) for
@@ -2889,7 +2908,7 @@ def register_tools(
         connection_id,
         class_name,
         method_selector,
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """Return the source code of a method. For structure-only navigation
         prefer gs_method_ast (bodyless outline) or gs_method_structure_summary
@@ -2965,7 +2984,7 @@ def register_tools(
         connection_id,
         class_name,
         method_selector,
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """List the message sends performed by a method, with location and
         receiver information. Token-cheaper than the full source when you only
@@ -3025,9 +3044,9 @@ def register_tools(
         connection_id,
         class_name,
         method_selector,
-        show_instance_side=True,
-        node_path=None,
-        include_source=False,
+        show_instance_side: bool = True,
+        node_path: Optional[str] = None,
+        include_source: bool = False,
     ):
         """Return the recursive-descent AST of a method. Defaults to a bodyless
         outline - one entry per node with node_path, kind, summary, start/end -
@@ -3096,7 +3115,7 @@ def register_tools(
         connection_id,
         class_name,
         method_selector,
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """Return a compact structural summary of a method (statement count,
         nesting, sends-per-statement, etc.) without source. Cheaper than
@@ -3154,7 +3173,7 @@ def register_tools(
         connection_id,
         class_name,
         method_selector,
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """Return a control-flow summary of a method (branches, loops, returns,
         nesting depth) without source."""
@@ -3210,11 +3229,11 @@ def register_tools(
     def gs_query_methods_by_ast_pattern(
         connection_id,
         ast_pattern,
-        package_name=None,
-        class_name=None,
-        show_instance_side=True,
+        package_name: Optional[str] = None,
+        class_name: Optional[str] = None,
+        show_instance_side: bool = True,
         method_category="all",
-        max_results=None,
+        max_results: Optional[int] = None,
     ):
         """Structural search across method ASTs. The ast_pattern is a node-level
         filter (node_kind, selector, selector_regex, send_kind,
@@ -3322,8 +3341,8 @@ def register_tools(
     def gs_find_implementors(
         connection_id,
         method_name,
-        max_results=None,
-        count_only=False,
+        max_results: Optional[int] = None,
+        count_only: bool = False,
     ):
         """Find classes that implement a given selector. By default returns the
         full list with class/side context; pass count_only to skip the result
@@ -3379,8 +3398,8 @@ def register_tools(
     def gs_find_senders(
         connection_id,
         method_name,
-        max_results=None,
-        count_only=False,
+        max_results: Optional[int] = None,
+        count_only: bool = False,
         granularity='send_site',
     ):
         """Find static senders of a selector. By default returns sliced
@@ -3510,7 +3529,7 @@ def register_tools(
             }
 
     @experimental_tool()
-    def gs_tracer_enable(connection_id, force=False):
+    def gs_tracer_enable(connection_id, force: bool = False):
         """Enable tracing in the current image. Requires --allow-tracing and an
         active transaction. Pass force=True to enable even if the installed
         manifest does not match the expected version."""
@@ -3635,7 +3654,7 @@ def register_tools(
     def gs_tracer_trace_selector(
         connection_id,
         method_name,
-        max_results=None,
+        max_results: Optional[int] = None,
     ):
         """Begin tracing a selector: subsequent sends are recorded as observed
         senders. Requires --allow-tracing and an active transaction. Read
@@ -3742,7 +3761,9 @@ def register_tools(
             }
 
     @experimental_tool()
-    def gs_tracer_clear_observed_senders(connection_id, method_name=None):
+    def gs_tracer_clear_observed_senders(
+        connection_id, method_name: Optional[str] = None
+    ):
         """Clear recorded observed-sender data. With method_name=None clears all;
         with a selector clears only that selector. Requires --allow-tracing."""
         tracing_error_response = require_tracing_enabled(
@@ -3791,8 +3812,8 @@ def register_tools(
     def gs_tracer_find_observed_senders(
         connection_id,
         method_name,
-        max_results=None,
-        count_only=False,
+        max_results: Optional[int] = None,
+        count_only: bool = False,
     ):
         """Return the runtime senders that were observed for a selector while
         tracing was active. The strict counterpart to gs_find_senders (static).
@@ -3856,10 +3877,10 @@ def register_tools(
     def gs_plan_evidence_tests(
         connection_id,
         method_name,
-        max_depth=2,
-        max_nodes=500,
-        max_senders_per_selector=200,
-        max_test_methods=200,
+        max_depth: int = 2,
+        max_nodes: int = 500,
+        max_senders_per_selector: int = 200,
+        max_test_methods: int = 200,
     ):
         """Plan a set of test_method candidates that exercise senders of a
         selector, returning a test_plan_id. Feed that id into
@@ -3940,16 +3961,16 @@ def register_tools(
     def gs_collect_sender_evidence(
         connection_id,
         method_name,
-        test_case_class_name=None,
-        test_method_selector=None,
-        package_name=None,
-        test_plan_id=None,
-        max_planned_tests=None,
-        stop_on_first_observed=False,
-        max_results=None,
-        count_only=False,
-        clear_observed=True,
-        untrace_after=True,
+        test_case_class_name: Optional[str] = None,
+        test_method_selector: Optional[str] = None,
+        package_name: Optional[str] = None,
+        test_plan_id: Optional[str] = None,
+        max_planned_tests: Optional[int] = None,
+        stop_on_first_observed: bool = False,
+        max_results: Optional[int] = None,
+        count_only: bool = False,
+        clear_observed: bool = True,
+        untrace_after: bool = True,
     ):
         """Run the planned (or explicit) tests with the tracer enabled and
         return observed senders. Use test_plan_id from gs_plan_evidence_tests,
@@ -4170,9 +4191,9 @@ def register_tools(
         connection_id,
         class_name,
         source,
-        show_instance_side=True,
+        show_instance_side: bool = True,
         method_category="as yet unclassified",
-        in_dictionary=None,
+        in_dictionary: Optional[str] = None,
     ):
         """Compile a method into a class. Requires --allow-source-write and an
         active transaction. method_category defaults to 'as yet unclassified';
@@ -4255,10 +4276,10 @@ def register_tools(
         connection_id,
         class_name,
         superclass_name="Object",
-        inst_var_names=None,
-        class_var_names=None,
-        class_inst_var_names=None,
-        pool_dictionary_names=None,
+        inst_var_names: Optional[List[str]] = None,
+        class_var_names: Optional[List[str]] = None,
+        class_inst_var_names: Optional[List[str]] = None,
+        pool_dictionary_names: Optional[List[str]] = None,
         in_dictionary="UserGlobals",
     ):
         """Create a new class via the classic Smalltalk class-definition pathway.
@@ -4350,10 +4371,10 @@ def register_tools(
         class_name,
         package_name,
         superclass_name="Object",
-        inst_var_names=None,
-        class_var_names=None,
-        class_inst_var_names=None,
-        pool_dictionary_names=None,
+        inst_var_names: Optional[List[str]] = None,
+        class_var_names: Optional[List[str]] = None,
+        class_inst_var_names: Optional[List[str]] = None,
+        pool_dictionary_names: Optional[List[str]] = None,
         in_dictionary="UserGlobals",
     ):
         """Create a new class and assign it to a Rowan package in one step.
@@ -4612,7 +4633,7 @@ def register_tools(
         connection_id,
         class_name,
         method_selector,
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """Delete a method from a class. Requires --allow-source-write and an
         active transaction."""
@@ -4678,7 +4699,7 @@ def register_tools(
         class_name,
         method_selector,
         method_category,
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """Move a method to a different method_category (protocol). Requires
         --allow-source-write and an active transaction."""
@@ -4745,7 +4766,9 @@ def register_tools(
             }
 
     @mcp_server.tool()
-    def gs_list_test_case_classes(connection_id, package_name=None):
+    def gs_list_test_case_classes(
+        connection_id, package_name: Optional[str] = None
+    ):
         """List TestCase subclasses on the stone, optionally scoped to a Rowan
         package_name."""
         browser_session, error_response = get_browser_session(connection_id)
@@ -4960,7 +4983,7 @@ def register_tools(
         class_name,
         old_selector,
         new_selector,
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """Preview renaming a single method on one class (no senders rewritten).
         Inspect the preview, then call gs_apply_rename_method. For project-wide
@@ -5018,7 +5041,7 @@ def register_tools(
         class_name,
         old_selector,
         new_selector,
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """Apply the rename previewed by gs_preview_rename_method. Requires
         --allow-source-write and an active transaction."""
@@ -5087,8 +5110,8 @@ def register_tools(
         source_class_name,
         method_selector,
         target_class_name,
-        source_show_instance_side=True,
-        target_show_instance_side=True,
+        source_show_instance_side: bool = True,
+        target_show_instance_side: bool = True,
     ):
         """Preview moving a method from source_class to target_class. Inspect the
         preview, then call gs_apply_move_method."""
@@ -5158,15 +5181,20 @@ def register_tools(
         source_class_name,
         method_selector,
         target_class_name,
-        source_show_instance_side=True,
-        target_show_instance_side=True,
-        overwrite_target_method=False,
-        delete_source_method=True,
+        source_show_instance_side: bool = True,
+        target_show_instance_side: bool = True,
+        overwrite_target_method: bool = False,
+        delete_source_method: bool = True,
+        rewrite_source_senders: bool = False,
+        helper_receiver_source: Optional[str] = None,
     ):
         """Apply the move previewed by gs_preview_move_method. delete_source_method
         defaults to True; pass overwrite_target_method=True to replace an
-        existing same-selector method on the target. Requires --allow-source-write
-        and an active transaction."""
+        existing same-selector method on the target. Pass rewrite_source_senders=True
+        with helper_receiver_source (e.g. 'self helper') to rewrite every static
+        same-class call site so its receiver becomes helper_receiver_source —
+        otherwise same-class senders break when delete_source_method is true.
+        Requires --allow-source-write and an active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -5211,6 +5239,10 @@ def register_tools(
                 delete_source_method,
                 "delete_source_method",
             )
+            rewrite_source_senders = validated_boolean_like(
+                rewrite_source_senders,
+                "rewrite_source_senders",
+            )
             result = browser_session.apply_method_move(
                 source_class_name,
                 source_show_instance_side,
@@ -5219,6 +5251,8 @@ def register_tools(
                 method_selector,
                 overwrite_target_method=overwrite_target_method,
                 delete_source_method=delete_source_method,
+                rewrite_source_senders=rewrite_source_senders,
+                helper_receiver_source=helper_receiver_source,
             )
             return {
                 "ok": True,
@@ -5230,6 +5264,8 @@ def register_tools(
                 "method_selector": method_selector,
                 "overwrite_target_method": overwrite_target_method,
                 "delete_source_method": delete_source_method,
+                "rewrite_source_senders": rewrite_source_senders,
+                "helper_receiver_source": helper_receiver_source,
                 "result": result,
             }
         except GemstoneError as error:
@@ -5259,7 +5295,7 @@ def register_tools(
         parameter_keyword,
         parameter_name,
         default_argument_source,
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """Preview adding a keyword parameter to a keyword selector method, with a
         default_argument_source spliced into existing call sites. Inspect the
@@ -5340,7 +5376,7 @@ def register_tools(
         parameter_keyword,
         parameter_name,
         default_argument_source,
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """Apply the parameter addition previewed by gs_preview_add_parameter.
         Requires --allow-source-write and an active transaction."""
@@ -5430,8 +5466,8 @@ def register_tools(
         class_name,
         method_selector,
         parameter_keyword,
-        show_instance_side=True,
-        rewrite_source_senders=False,
+        show_instance_side: bool = True,
+        rewrite_source_senders: bool = False,
     ):
         """Preview removing a keyword from a keyword selector. By default leaves
         callers on a compatibility wrapper; pass rewrite_source_senders=True to
@@ -5505,9 +5541,9 @@ def register_tools(
         class_name,
         method_selector,
         parameter_keyword,
-        show_instance_side=True,
-        overwrite_new_method=False,
-        rewrite_source_senders=False,
+        show_instance_side: bool = True,
+        overwrite_new_method: bool = False,
+        rewrite_source_senders: bool = False,
     ):
         """Apply the removal previewed by gs_preview_remove_parameter.
         rewrite_source_senders mirrors the preview's flag. Requires
@@ -5599,10 +5635,14 @@ def register_tools(
         method_selector,
         new_selector,
         statement_indexes,
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """Preview extracting a contiguous statement_indexes range into a new
-        unary selector. Inspect the preview, then call gs_apply_extract_method."""
+        selector. statement_indexes are zero-based, matching gs_method_ast's
+        node_offsets_origin (so statements[N] in the AST is index N here).
+        new_selector may be unary, or a keyword selector whose keyword count
+        matches the number of captured caller variables. Inspect the preview,
+        then call gs_apply_extract_method."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -5619,8 +5659,9 @@ def register_tools(
                 new_selector,
                 "new_selector",
             )
-            if ":" in new_selector:
-                raise DomainException("new_selector must be a unary selector.")
+            # AI: Keyword selectors are valid extract targets when captured
+            # variables become keyword arguments; method_extract_plan in the
+            # browser layer handles both unary and keyword shapes.
             statement_indexes = validated_statement_indexes(
                 statement_indexes,
                 "statement_indexes",
@@ -5634,8 +5675,13 @@ def register_tools(
                 show_instance_side,
                 method_selector,
                 new_selector,
-                statement_indexes,
+                one_based_statement_indexes(statement_indexes),
             )
+            # AI: Echo the wrapper's zero-based contract back to the caller.
+            if 'statement_indexes' in preview:
+                preview['statement_indexes'] = zero_based_statement_indexes(
+                    preview['statement_indexes']
+                )
             return {
                 "ok": True,
                 "connection_id": connection_id,
@@ -5672,8 +5718,8 @@ def register_tools(
         method_selector,
         new_selector,
         statement_indexes,
-        show_instance_side=True,
-        overwrite_new_method=False,
+        show_instance_side: bool = True,
+        overwrite_new_method: bool = False,
     ):
         """Apply the extraction previewed by gs_preview_extract_method. Pass
         overwrite_new_method=True to replace an existing same-selector method.
@@ -5706,8 +5752,9 @@ def register_tools(
                 new_selector,
                 "new_selector",
             )
-            if ":" in new_selector:
-                raise DomainException("new_selector must be a unary selector.")
+            # AI: Keyword selectors are valid extract targets when captured
+            # variables become keyword arguments; apply_method_extract on the
+            # browser layer handles both unary and keyword shapes.
             statement_indexes = validated_statement_indexes(
                 statement_indexes,
                 "statement_indexes",
@@ -5725,9 +5772,14 @@ def register_tools(
                 show_instance_side,
                 method_selector,
                 new_selector,
-                statement_indexes,
+                one_based_statement_indexes(statement_indexes),
                 overwrite_new_method=overwrite_new_method,
             )
+            # AI: Echo the wrapper's zero-based contract back to the caller.
+            if 'statement_indexes' in result:
+                result['statement_indexes'] = zero_based_statement_indexes(
+                    result['statement_indexes']
+                )
             return {
                 "ok": True,
                 "connection_id": connection_id,
@@ -5758,13 +5810,156 @@ def register_tools(
                 "error": {"message": str(error)},
             }
 
+    @mcp_server.tool()
+    def gs_preview_edit_node(
+        connection_id,
+        class_name,
+        method_selector,
+        node_path,
+        new_source,
+        show_instance_side: bool = True,
+    ):
+        """Preview replacing the source range of one AST node with
+        new_source. The parser is the single source of truth for where
+        the node sits, so a caller passes the node_path from gs_method_ast
+        and never does offset arithmetic. Returns the spliced new method
+        source plus a candidate-parse warning when the result does not
+        parse, so the caller can decide before commit. Read-only."""
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            class_name = validated_identifier(class_name, "class_name")
+            method_selector = validated_selector(
+                method_selector,
+                "method_selector",
+            )
+            node_path = validated_non_empty_string(node_path, "node_path")
+            if not isinstance(new_source, str):
+                raise DomainException("new_source must be a string.")
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                "show_instance_side",
+            )
+            plan = browser_session.edit_method_node_plan(
+                class_name,
+                show_instance_side,
+                method_selector,
+                node_path,
+                new_source,
+            )
+            return {
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "method_selector": method_selector,
+                "node_path": node_path,
+                "preview": plan,
+            }
+        except GemstoneError as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
+            }
+        except DomainException as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
+            }
+
+    @experimental_tool()
+    def gs_apply_edit_node(
+        connection_id,
+        class_name,
+        method_selector,
+        node_path,
+        new_source,
+        show_instance_side: bool = True,
+    ):
+        """Apply the edit previewed by gs_preview_edit_node. Splices
+        new_source into the byte range of the node addressed by
+        node_path and recompiles the method. Atomic: refuses to compile
+        a candidate that does not parse, so the method is unchanged on
+        failure. Requires --allow-source-write and an active transaction."""
+        if not get_permissions()['allow_source_write']:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    "gs_apply_edit_node is disabled. "
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = browser_session_for_policy(gemstone_session)
+        try:
+            class_name = validated_identifier(class_name, "class_name")
+            method_selector = validated_selector(
+                method_selector,
+                "method_selector",
+            )
+            node_path = validated_non_empty_string(node_path, "node_path")
+            if not isinstance(new_source, str):
+                raise DomainException("new_source must be a string.")
+            show_instance_side = validated_boolean_like(
+                show_instance_side,
+                "show_instance_side",
+            )
+            result = browser_session.apply_edit_method_node(
+                class_name,
+                show_instance_side,
+                method_selector,
+                node_path,
+                new_source,
+            )
+            return {
+                "ok": True,
+                "connection_id": connection_id,
+                "class_name": class_name,
+                "show_instance_side": show_instance_side,
+                "method_selector": method_selector,
+                "node_path": node_path,
+                "result": result,
+            }
+        except GemstoneError as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
+            }
+        except DomainException as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
+            }
+
     @experimental_tool()
     def gs_preview_inline_method(
         connection_id,
         class_name,
         caller_selector,
         inline_selector,
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """Preview inlining inline_selector into caller_selector. inline_selector
         must be unary. Inspect the preview, then call gs_apply_inline_method."""
@@ -5830,8 +6025,8 @@ def register_tools(
         class_name,
         caller_selector,
         inline_selector,
-        show_instance_side=True,
-        delete_inlined_method=False,
+        show_instance_side: bool = True,
+        delete_inlined_method: bool = False,
     ):
         """Apply the inline previewed by gs_preview_inline_method. Pass
         delete_inlined_method=True to remove the now-unused inlined method.
@@ -5962,9 +6157,9 @@ def register_tools(
         connection_id,
         old_selector,
         new_selector,
-        require_observed_sender_evidence=False,
-        evidence_run_id=None,
-        evidence_max_age_seconds=3600,
+        require_observed_sender_evidence: bool = False,
+        evidence_run_id: Optional[str] = None,
+        evidence_max_age_seconds: int = 3600,
     ):
         """Apply the image-wide selector rename previewed by gs_preview_selector_rename.
         Pass require_observed_sender_evidence=True with an evidence_run_id from
@@ -6261,10 +6456,10 @@ def register_tools(
         connection_id,
         source,
         reason="",
-        approved_by_user=False,
+        approved_by_user: bool = False,
         approval_note="",
-        open_ide_debugger_on_error=False,
-        ask_before_open_ide_debugger=True,
+        open_ide_debugger_on_error: bool = False,
+        ask_before_open_ide_debugger: bool = True,
     ):
         """Evaluate Smalltalk source and open a debug session on error rather than
         returning a plain error. Requires --allow-eval-arbitrary, approved_by_user
@@ -6402,7 +6597,7 @@ def register_tools(
         )
 
     @mcp_server.tool()
-    def gs_debug_step_over(connection_id, debug_id, level=1):
+    def gs_debug_step_over(connection_id, debug_id, level: int = 1):
         """Step over level frames in the debug session. level defaults to 1."""
         debug_session, error_response = get_active_debug_session(
             connection_id,
@@ -6419,7 +6614,7 @@ def register_tools(
         )
 
     @mcp_server.tool()
-    def gs_debug_step_into(connection_id, debug_id, level=1):
+    def gs_debug_step_into(connection_id, debug_id, level: int = 1):
         """Step into the message send at the current frame, level times."""
         debug_session, error_response = get_active_debug_session(
             connection_id,
@@ -6436,7 +6631,7 @@ def register_tools(
         )
 
     @mcp_server.tool()
-    def gs_debug_step_through(connection_id, debug_id, level=1):
+    def gs_debug_step_through(connection_id, debug_id, level: int = 1):
         """Step through the current frame (step over while staying in the same
         method), level times."""
         debug_session, error_response = get_active_debug_session(
@@ -6454,7 +6649,7 @@ def register_tools(
         )
 
     @mcp_server.tool()
-    def gs_debug_restart_frame(connection_id, debug_id, level=1):
+    def gs_debug_restart_frame(connection_id, debug_id, level: int = 1):
         """Restart the current (or level-th) frame from its start."""
         debug_session, error_response = get_active_debug_session(
             connection_id,
@@ -6502,7 +6697,7 @@ def register_tools(
         class_name,
         method_selector,
         source_offset: int,
-        show_instance_side=True,
+        show_instance_side: bool = True,
     ):
         """Set a breakpoint at source_offset bytes into a method. Requires
         --allow-ide-write. Subsequent runs that hit the breakpoint pause and
@@ -6660,9 +6855,9 @@ def register_tools(
     def gs_eval(
         connection_id,
         source,
-        unsafe=False,
+        unsafe: bool = False,
         reason="",
-        approved_by_user=False,
+        approved_by_user: bool = False,
         approval_note="",
     ):
         """Evaluate arbitrary Smalltalk source. Powerful and exceptional - prefer

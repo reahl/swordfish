@@ -46,9 +46,16 @@ class ExtractPlanningFixture(Fixture):
 def test_extract_plan_keyword_selector_infers_argument_names_and_rewrites_call(
     extract_planning_fixture,
 ):
-    """AI: Keyword extract should infer caller-scoped argument names and build matching keyword call/send headers."""
+    """AI: Keyword extract should infer caller-scoped argument names and
+    build matching keyword call/send headers. The caller temporary 'tmp'
+    is local to the extracted range (assigned in the range and never
+    read again afterward), so the new method declares it as its own
+    local."""
     extract_planning_fixture.set_method_source(
-        "buildFrom: input\n" "    | tmp |\n" "    tmp := input + 1.\n" "    ^tmp"
+        "buildFrom: input\n"
+        "    | tmp |\n"
+        "    tmp := input + 1.\n"
+        "    ^ input * 2"
     )
 
     extract_plan = extract_planning_fixture.browser_session.method_extract_plan(
@@ -103,6 +110,147 @@ def test_extract_plan_unary_selector_still_works_when_no_arguments_are_needed(
     assert extract_plan["extracted_argument_names"] == []
     assert extract_plan["new_method_source"].startswith("extractedFirstStep\n")
     assert "self extractedFirstStep" in extract_plan["updated_method_source"]
+
+
+@with_fixtures(ExtractPlanningFixture)
+def test_extract_plan_keeps_trailing_string_literals_in_extracted_statement_source(
+    extract_planning_fixture,
+):
+    """AI: A statement that ends in a string literal (very common in
+    Smalltalk: 'a, b' concatenations, '^ \\'message\\'') used to have the
+    literal silently truncated. The cause was trimmed_code_range eating
+    every non-code character on the right — and string-literal interiors
+    are non-code in the scanner. The trimmer must only strip trailing
+    whitespace, not legitimate string-literal characters."""
+    extract_planning_fixture.set_method_source(
+        'processFor: aPrefix\n'
+        '    | greeting |\n'
+        "    greeting := aPrefix, ' world'.\n"
+        '    ^ aPrefix'
+    )
+
+    extract_plan = extract_planning_fixture.browser_session.method_extract_plan(
+        'OrderLine',
+        True,
+        'processFor:',
+        'computeGreetingFrom:',
+        [1],
+    )
+
+    assert "aPrefix, ' world'" in extract_plan['new_method_source'], (
+        extract_plan['new_method_source']
+    )
+
+
+@with_fixtures(ExtractPlanningFixture)
+def test_extract_plan_declares_caller_temporaries_that_are_locally_assigned(
+    extract_planning_fixture,
+):
+    """AI: When the extracted range both assigns and uses a caller-scoped
+    temporary, and the variable is NOT read in any statement after the
+    extracted range, that name is local to the new method — it must
+    therefore be declared in a new temporaries clause. Without it the
+    produced source has an undeclared variable on the assignment LHS and
+    refuses to compile ('expected a primary expression')."""
+    extract_planning_fixture.set_method_source(
+        'announceWith: aPrefix\n'
+        '    | greeting |\n'
+        "    greeting := aPrefix, ' world'.\n"
+        "    Transcript show: greeting; cr.\n"
+        '    ^ aPrefix'
+    )
+
+    extract_plan = extract_planning_fixture.browser_session.method_extract_plan(
+        'OrderLine',
+        True,
+        'announceWith:',
+        'announceWith:',
+        [1, 2],
+    )
+
+    assert extract_plan['extracted_argument_names'] == ['aPrefix']
+    assert extract_plan['extracted_local_temporary_names'] == ['greeting']
+    # AI: The extracted body must declare greeting locally; without this
+    # the new method has an undeclared greeting on its assignment LHS.
+    new_method_source = extract_plan['new_method_source']
+    assert '| greeting |' in new_method_source, new_method_source
+
+
+@with_fixtures(ExtractPlanningFixture)
+def test_extract_plan_rejects_when_caller_temporary_assigned_in_range_is_read_after(
+    extract_planning_fixture,
+):
+    """AI: If the extracted range assigns a caller temporary that the
+    caller still reads in a statement *after* the range, promoting that
+    temporary to the new method's local scope would silently change
+    semantics — the caller's later read would return nil instead of the
+    assigned value. Refuse the extract with a clear error rather than
+    produce code whose runtime meaning quietly changed. This is the
+    semantic gap that surfaced during the post-merge tryout verification."""
+    extract_planning_fixture.set_method_source(
+        'processFor: aPrefix\n'
+        '    | greeting |\n'
+        "    greeting := aPrefix, ' world'.\n"
+        "    Transcript show: greeting; cr.\n"
+        '    ^ greeting'
+    )
+
+    with expected(DomainException):
+        extract_planning_fixture.browser_session.method_extract_plan(
+            'OrderLine',
+            True,
+            'processFor:',
+            'announceWith:',
+            [1, 2],
+        )
+
+
+@with_fixtures(ExtractPlanningFixture)
+def test_extract_preview_returns_compile_warning_for_malformed_candidate_source(
+    extract_planning_fixture,
+):
+    """AI: The preview used to return ok with zero warnings even when apply
+    later died with a CompileError. Now we parse the proposed new-method
+    source at preview time and surface a warning so callers can decide
+    before committing. We exercise the warning path by stubbing the source
+    parser to report a syntax error against any extracted candidate."""
+    extract_planning_fixture.set_method_source(
+        'exampleMethod\n    self yourself.\n    self class.\n    ^7'
+    )
+
+    def fake_parse(self, source, method_selector):
+        # AI: Simulate an upstream parser error on the proposed new source.
+        raise __import__(
+            'reahl.swordfish.gemstone.smalltalk_method_parser',
+            fromlist=['SmalltalkSyntaxError'],
+        ).SmalltalkSyntaxError(
+            'simulated syntax error in proposed source'
+        )
+
+    extract_planning_fixture.browser_session.source_method_ast_for_candidate = (
+        lambda source, method_selector: (_ for _ in ()).throw(
+            __import__(
+                'reahl.swordfish.gemstone.smalltalk_method_parser',
+                fromlist=['SmalltalkSyntaxError'],
+            ).SmalltalkSyntaxError(
+                'simulated syntax error in proposed source'
+            )
+        )
+    )
+
+    extract_plan = extract_planning_fixture.browser_session.method_extract_plan(
+        'OrderLine',
+        True,
+        'exampleMethod',
+        'extractedFirstStep',
+        [1],
+    )
+
+    assert extract_plan.get('new_method_compile_warning') is not None, (
+        extract_plan.get('new_method_compile_warning'),
+        extract_plan.keys(),
+    )
+    assert 'simulated syntax error' in extract_plan['new_method_compile_warning']
 
 
 def test_get_class_definition_treats_class_as_root_when_superclass_proxy_unavailable():
