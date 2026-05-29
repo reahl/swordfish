@@ -99,6 +99,18 @@ class FakeApplication:
     ):
         pass
 
+    def browse_class(self, class_name, show_instance_side=True):
+        # AI: Mirrors Swordfish.browse_class — update the model and publish
+        # the event the browser UI listens to. The fake skips the
+        # `notebook.select(browser_tab)` step because the fixture does not
+        # render the top-level Swordfish notebook.
+        if not class_name:
+            return
+        self.gemstone_session_record.jump_to_class(
+            class_name, show_instance_side
+        )
+        self.event_queue.publish("SelectedClassChanged")
+
 
 class SwordfishGuiFixture(Fixture):
     @set_up
@@ -1202,11 +1214,10 @@ def test_save_command_from_text_context_menu_compiles_to_gemstone(fixture):
 
 @with_fixtures(SwordfishGuiFixture)
 def test_browse_class_from_source_jumps_to_class_under_cursor(fixture):
-    """AI: Browse Class reads the identifier under the insertion cursor and
-    navigates the browser to that class on the instance side. (Invoked
-    directly rather than through the menu because right-clicking the menu
-    snaps the cursor to the click coordinate, which would override the
-    cursor placement this test cares about.)"""
+    """AI: Browse Class reads the identifier under the insertion cursor,
+    updates the browser model AND publishes SelectedClassChanged so the
+    browser UI repaints. Without the publish, jump_to_class succeeds
+    silently and nothing visibly happens — the bug this test pins."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
     tab = fixture.browser_window.editor_area_widget.open_tabs[
         ("OrderLine", True, "total")
@@ -1217,11 +1228,19 @@ def test_browse_class_from_source_jumps_to_class_under_cursor(fixture):
     tab.code_panel.text_editor.mark_set("insert", "2.7")
     fixture.session_record.jump_to_class = Mock()
 
+    published_events = []
+    original_publish = fixture.application.event_queue.publish
+    def recording_publish(*args, **kwargs):
+        published_events.append(args[0])
+        return original_publish(*args, **kwargs)
+    fixture.application.event_queue.publish = recording_publish
+
     tab.code_panel.browse_class_from_source()
 
     fixture.session_record.jump_to_class.assert_called_once_with(
         "OrderLine", True
     )
+    assert "SelectedClassChanged" in published_events
 
 
 @with_fixtures(SwordfishGuiFixture)

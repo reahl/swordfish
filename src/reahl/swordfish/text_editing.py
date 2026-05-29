@@ -1033,9 +1033,12 @@ class CodePanel(tk.Frame):
         self.application.open_find_dialog_for_class(class_name)
 
     def browse_class_from_source(self):
-        # AI: Use the same selection-then-cursor-fallback logic that the
-        # References lookup uses, then navigate the browser to that class.
-        # Instance side is assumed (matches jump_to_method_context).
+        # AI: Resolve the identifier under the cursor (or the selection)
+        # then delegate to Swordfish.browse_class, which updates the model
+        # AND publishes SelectedClassChanged AND brings the Browser tab to
+        # the front. Calling gemstone_session_record.jump_to_class directly
+        # is not enough because the browser UI listens to the event to
+        # repaint itself.
         class_name = self.class_name_for_reference_lookup()
         if class_name is None:
             messagebox.showwarning(
@@ -1044,9 +1047,7 @@ class CodePanel(tk.Frame):
                 'running this.',
             )
             return
-        self.application.gemstone_session_record.jump_to_class(
-            class_name, True
-        )
+        self.application.browse_class(class_name, show_instance_side=True)
 
     def run_method_analysis(self, analysis_function, title):
         method_context = self.method_context()

@@ -7161,6 +7161,19 @@ class Swordfish(tk.Tk):
         self.gemstone_session_record.jump_to_class(class_name, show_instance_side)
         self.event_queue.publish("SelectedClassChanged")
 
+    def browse_class(self, class_name, show_instance_side=True):
+        # AI: Public entry point used by Browse Class (CodePanel) and any
+        # other caller that needs to bring `class_name` into focus in the
+        # browser. Mirrors handle_find_selection but also brings the
+        # Browser tab to the front so the navigation is visible when the
+        # caller lives in the Debugger/Inspector tab.
+        if not class_name:
+            return
+        if self.browser_tab is not None and self.browser_tab.winfo_exists():
+            self.notebook.select(self.browser_tab)
+        self.gemstone_session_record.jump_to_class(class_name, show_instance_side)
+        self.event_queue.publish("SelectedClassChanged")
+
     def handle_implementor_selection(
         self, method_symbol, class_name, show_instance_side
     ):
