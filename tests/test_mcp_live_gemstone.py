@@ -244,12 +244,6 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_find_senders(self):
         return self.registered_mcp_tools["gs_find_senders"]
 
-    def new_gs_ast_status(self):
-        return self.registered_mcp_tools["gs_ast_status"]
-
-    def new_gs_ast_install(self):
-        return self.registered_mcp_tools["gs_ast_install"]
-
     def new_gs_tracer_status(self):
         return self.registered_mcp_tools["gs_tracer_status"]
 
@@ -949,35 +943,6 @@ def test_live_gs_tracer_lifecycle_tracks_manifest_and_hash(live_connection):
     assert uninstall_result["ok"], uninstall_result
     assert not uninstall_result["tracer_installed"]
     assert not uninstall_result["manifest_matches"]
-
-
-@with_fixtures(LiveMcpConnectionFixture)
-def test_live_gs_ast_install_tracks_manifest_and_hash(live_connection):
-    begin_result = live_connection.gs_begin(live_connection.connection_id)
-    assert begin_result["ok"], begin_result
-    status_before_install_result = live_connection.gs_ast_status(
-        live_connection.connection_id
-    )
-    assert status_before_install_result["ok"], status_before_install_result
-    install_result = live_connection.gs_ast_install(live_connection.connection_id)
-    assert install_result["ok"], install_result
-    assert install_result["ast_support_installed"]
-    package_exists_result = live_connection.gs_package_exists(
-        live_connection.connection_id,
-        "Reahl-Swordfish",
-    )
-    assert package_exists_result["ok"], package_exists_result
-    assert package_exists_result["exists"]
-    assert install_result["ast_manifest_installed"]
-    assert install_result["hashes_match"]
-    assert install_result["versions_match"]
-    assert install_result["manifest_matches"]
-    status_after_install_result = live_connection.gs_ast_status(
-        live_connection.connection_id
-    )
-    assert status_after_install_result["ok"], status_after_install_result
-    assert status_after_install_result["manifest_matches"]
-
 
 @with_fixtures(LiveMcpConnectionFixture)
 def test_live_gs_tracer_observed_senders_report_runtime_callers(

@@ -735,12 +735,6 @@ def test_gs_capabilities_reports_restricted_policy_flags(tools_fixture):
     assert policy["allow_source_write"] is False
     assert policy["allow_commit"] is False
     assert policy["allow_tracing"] is False
-    assert capabilities_result["ast_support"]["expected_version"]
-    assert capabilities_result["ast_support"]["expected_source_hash"]
-    assert capabilities_result["ast_support"]["tools"] == [
-        "gs_ast_status",
-        "gs_ast_install",
-    ]
     assert capabilities_result["recommended_bootstrap"] == [
         "gs_capabilities",
         "gs_guidance",
@@ -785,7 +779,6 @@ def test_gs_capabilities_navigation_includes_method_semantic_tools(
     capabilities_result = tools_fixture.gs_capabilities()
     assert capabilities_result["ok"], capabilities_result
     navigation_tools = capabilities_result["tool_groups"]["navigation"]
-    assert "gs_ast_status" in navigation_tools
     assert "gs_method_ast" in navigation_tools
     assert "gs_method_sends" in navigation_tools
     assert "gs_method_structure_summary" in navigation_tools
@@ -810,14 +803,6 @@ def test_gs_capabilities_refactor_includes_move_method_tools(
     assert "gs_apply_extract_method" in refactor_tools
     assert "gs_preview_inline_method" in refactor_tools
     assert "gs_apply_inline_method" in refactor_tools
-
-
-@with_fixtures(AllowedToolsFixture)
-def test_gs_capabilities_exposes_ast_support_tool_group(tools_fixture):
-    capabilities_result = tools_fixture.gs_capabilities()
-    assert capabilities_result["ok"], capabilities_result
-    ast_support_tools = capabilities_result["tool_groups"]["ast_support"]
-    assert ast_support_tools == ["gs_ast_status", "gs_ast_install"]
 
 
 @with_fixtures(AllowedToolsFixture)
@@ -971,17 +956,6 @@ def test_gs_tracer_install_is_disabled_by_default(tools_fixture):
     assert tracer_install_result["error"]["message"] == (
         "gs_tracer_install is disabled. "
         "Start swordfish --headless-mcp with --allow-tracing to enable."
-    )
-
-
-@with_fixtures(RestrictedToolsFixture)
-def test_gs_ast_install_is_disabled_by_default(tools_fixture):
-    ast_install = tools_fixture.registered_mcp_tools["gs_ast_install"]
-    ast_install_result = ast_install("missing-connection-id")
-    assert not ast_install_result["ok"]
-    assert ast_install_result["error"]["message"] == (
-        "gs_ast_install is disabled. "
-        "Start swordfish --headless-mcp with --allow-source-write to enable."
     )
 
 
@@ -1987,20 +1961,6 @@ def test_gs_method_ast_checks_connection(tools_fixture):
     assert ast_result["error"]["message"] == "Unknown connection_id."
 
 
-@with_fixtures(AllowedToolsFixture)
-def test_gs_ast_status_checks_connection(tools_fixture):
-    ast_status = tools_fixture.registered_mcp_tools["gs_ast_status"]
-    ast_status_result = ast_status("missing-connection-id")
-    assert not ast_status_result["ok"]
-    assert ast_status_result["error"]["message"] == "Unknown connection_id."
-
-
-@with_fixtures(AllowedToolsFixture)
-def test_gs_ast_install_checks_connection(tools_fixture):
-    ast_install = tools_fixture.registered_mcp_tools["gs_ast_install"]
-    ast_install_result = ast_install("missing-connection-id")
-    assert not ast_install_result["ok"]
-    assert ast_install_result["error"]["message"] == "Unknown connection_id."
 
 
 @with_fixtures(AllowedToolsFixture)

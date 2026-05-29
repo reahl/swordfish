@@ -25,11 +25,6 @@ from reahl.swordfish.gemstone.smalltalk_source_scanner import (
     SmalltalkSourceScanner,
     SmalltalkTokenKind,
 )
-from reahl.swordfish.mcp.ast_assets import (
-    AST_SUPPORT_VERSION,
-    ast_support_source,
-    ast_support_source_hash,
-)
 from reahl.swordfish.mcp.tracer_assets import (
     TRACER_VERSION,
     tracer_source,
@@ -72,65 +67,13 @@ class GemstoneBrowserSession:
 
     
 
-    def can_attempt_ast_support_auto_install(self):
-        return (
-            self.gemstone_session is not None
-            and hasattr(self.gemstone_session, "resolve_symbol")
-            and hasattr(self.gemstone_session, "execute")
-        )
+    
 
-    def ast_support_manifest_matches_expected(self):
-        if not self.can_attempt_ast_support_auto_install():
-            return False
-        manifest_exists = self.gemstone_session.execute(
-            "UserGlobals includesKey: #SwordfishMcpAstManifest"
-        ).to_py
-        if not manifest_exists:
-            return False
-        installed_source_hash = self.gemstone_session.execute(
-            (
-                "(UserGlobals at: #SwordfishMcpAstManifest) "
-                "at: #sourceHash ifAbsent: ['']"
-            )
-        ).to_py
-        installed_version = self.gemstone_session.execute(
-            (
-                "(UserGlobals at: #SwordfishMcpAstManifest) "
-                "at: #version ifAbsent: ['']"
-            )
-        ).to_py
-        return (
-            installed_source_hash == ast_support_source_hash()
-            and installed_version == AST_SUPPORT_VERSION
-        )
+    
 
-    def ast_support_manifest_install_script(self):
-        expected_source_hash_literal = self.smalltalk_string_literal(
-            ast_support_source_hash()
-        )
-        expected_version_literal = self.smalltalk_string_literal(AST_SUPPORT_VERSION)
-        installed_by_literal = self.smalltalk_string_literal("swordfish-ide")
-        return (
-            "| manifest |\n"
-            "manifest := Dictionary new.\n"
-            "manifest at: #version put: %s.\n"
-            "manifest at: #sourceHash put: %s.\n"
-            "manifest at: #installedBy put: %s.\n"
-            "manifest at: #installedAt put: DateAndTime now printString.\n"
-            "UserGlobals at: #SwordfishMcpAstManifest put: manifest.\n"
-            "true"
-        ) % (
-            expected_version_literal,
-            expected_source_hash_literal,
-            installed_by_literal,
-        )
+    
 
-    def install_or_refresh_ast_support(self):
-        if not self.installed_package_named("Reahl-Swordfish"):
-            self.create_and_install_package("Reahl-Swordfish")
-        self.run_code(ast_support_source())
-        self.run_code(self.ast_support_manifest_install_script())
-        self.real_gemstone_ast_backend_available = None
+    
 
     @property
     def class_organizer(self):
