@@ -7267,12 +7267,9 @@ class Swordfish(tk.Tk):
         except (GemstoneError, AttributeError):
             class_name = ""
         class_name = " ".join(class_name.split()) if isinstance(class_name, str) else ""
-        if not class_name:
-            return
-        if self.browser_tab is not None and self.browser_tab.winfo_exists():
-            self.notebook.select(self.browser_tab)
-        self.gemstone_session_record.jump_to_class(class_name, show_instance_side)
-        self.event_queue.publish("SelectedClassChanged")
+        self.browse_class(class_name, show_instance_side)
+
+    
 
     def add_method_for_class(self, class_name, show_instance_side=True):
         if not class_name:

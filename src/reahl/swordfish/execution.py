@@ -22,6 +22,7 @@ from reahl.swordfish.ui_support import (
     add_source_code_commands,
     class_name_at_widget_cursor,
     is_compile_error,
+    popup_menu,
 )
 
 
@@ -956,8 +957,12 @@ class DebuggerWindow(ttk.PanedWindow):
         self.debug_session = GemstoneDebugSession(self.exception)
         self.stack_frames = self.debug_session.call_stack()
 
+        self.current_stack_frame_menu = None
+
         self.listbox.bind('<ButtonRelease-1>', self.on_listbox_select)
         self.listbox.bind('<Double-1>', self.open_method_from_selected_frame)
+        self.listbox.bind('<Button-3>', self.open_stack_frame_menu)
+        self.listbox.bind('<Button-1>', self.close_stack_frame_menu, add='+')
 
         self.code_panel = CodePanel(self.code_panel_frame, application=application)
         self.code_panel.grid(row=0, column=0, sticky='nsew')
@@ -1033,6 +1038,43 @@ class DebuggerWindow(ttk.PanedWindow):
 
     def open_method_from_selected_frame(self, event):
         self.open_selected_frame_method()
+
+    def open_stack_frame_menu(self, event):
+        # AI: Right-click on a stack frame opens a small menu offering the two
+        # navigation moves users want when triaging an exception: jump to the
+        # receiver's class, or jump to the method that the frame is paused in
+        # (issue #13). Both entries operate on the frame that's now selected
+        # under the cursor, mirroring how the inspector row menu uses the row
+        # under the cursor.
+        self.close_stack_frame_menu()
+        item_under_cursor = self.listbox.identify_row(event.y)
+        if item_under_cursor:
+            self.listbox.selection_set(item_under_cursor)
+            self.listbox.focus(item_under_cursor)
+        frame = self.get_selected_stack_frame()
+        method_context = self.frame_method_context(frame)
+        if method_context is None:
+            return
+        class_name, show_instance_side, _method_name = method_context
+        stack_frame_menu = tk.Menu(self, tearoff=0)
+        stack_frame_menu.add_command(
+            label='Browse Class',
+            command=lambda: self.application.browse_class(
+                class_name, show_instance_side
+            ),
+        )
+        stack_frame_menu.add_command(
+            label='Browse Method',
+            command=self.open_selected_frame_method,
+        )
+        add_close_command_to_popup_menu(stack_frame_menu)
+        self.current_stack_frame_menu = stack_frame_menu
+        popup_menu(stack_frame_menu, event)
+
+    def close_stack_frame_menu(self, event=None):
+        if self.current_stack_frame_menu is not None:
+            self.current_stack_frame_menu.unpost()
+            self.current_stack_frame_menu = None
 
     def stack_frame_for_level(self, level):
         for frame in self.stack_frames:
@@ -1324,20 +1366,16 @@ class DebuggerControls(ttk.Frame):
         self.stop_button = ttk.Button(self, text='Stop', command=self.handle_stop)
         self.stop_button.grid(row=0, column=5, padx=5, pady=5)
 
-        self.browse_button = ttk.Button(
-            self,
-            text='Browse Method',
-            command=self.handle_browse,
-        )
-        self.browse_button.grid(row=0, column=6, padx=5, pady=5)
-
-        self.columnconfigure(7, weight=1)
+        # AI: Browse Method moved to the stack-frame right-click menu (issue
+        # #13); the spring column absorbs space between the stepping cluster
+        # and the right-aligned Close button.
+        self.columnconfigure(6, weight=1)
         self.close_button = ttk.Button(
             self,
             text='Close',
             command=self.handle_close,
         )
-        self.close_button.grid(row=0, column=8, padx=5, pady=5, sticky='e')
+        self.close_button.grid(row=0, column=7, padx=5, pady=5, sticky='e')
 
     def handle_continue(self):
         self.event_queue.publish('DebuggerContinued')
@@ -1363,9 +1401,7 @@ class DebuggerControls(ttk.Frame):
         self.event_queue.publish('DebuggerStopped')
         self.debugger.stop()
 
-    def handle_browse(self):
-        self.event_queue.publish('DebuggerBrowsed')
-        self.debugger.open_selected_frame_method()
+    
 
     def handle_close(self):
         self.event_queue.publish('DebuggerClosed')
