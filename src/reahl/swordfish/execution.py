@@ -20,6 +20,7 @@ from reahl.swordfish.ui_context import UiContext
 from reahl.swordfish.ui_support import (
     add_close_command_to_popup_menu,
     add_source_code_commands,
+    class_name_at_widget_cursor,
     is_compile_error,
 )
 
@@ -242,6 +243,31 @@ class RunTab(ttk.Frame):
             return ''
         return self.source_text.get(start_index, end_index)
 
+    def browse_class_from_source(self):
+        # AI: 'Browse Class' from the Run tab's source editor. Mirrors the
+        # CodePanel version (text_editing.py) so behaviour stays uniform
+        # across every source window: warn cheaply when the cursor word is
+        # missing or non-capitalised; let Swordfish.browse_class handle the
+        # 'no such class' case with its own friendly warning.
+        class_name = class_name_at_widget_cursor(
+            self.source_text, self.selected_source_text()
+        )
+        if class_name is None:
+            messagebox.showwarning(
+                'No Class Name',
+                'Place the cursor on a class name or select one before '
+                'running this.',
+            )
+            return
+        if not class_name[0].isupper():
+            messagebox.showwarning(
+                'Not a Class Name',
+                f'{class_name!r} does not look like a class name. '
+                'Class names start with a capital letter.',
+            )
+            return
+        self.application.browse_class(class_name, show_instance_side=True)
+
     def editable_text_for_widget(self, text_widget):
         if text_widget is self.source_text:
             return self.editable_source
@@ -443,6 +469,10 @@ class RunTab(ttk.Frame):
                 self,
                 selected_text,
                 enabled=not self.is_read_only(),
+            )
+            self.current_text_menu.add_command(
+                label='Browse Class',
+                command=self.browse_class_from_source,
             )
         add_close_command_to_popup_menu(self.current_text_menu)
         self.current_text_menu.bind(

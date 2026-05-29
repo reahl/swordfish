@@ -3290,6 +3290,29 @@ def test_indicator_is_hidden_when_mcp_server_is_running_but_idle(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_browse_class_from_run_tab_navigates_to_class_under_cursor(fixture):
+    """AI: Browse Class invoked from the Run tab's source editor delegates
+    to the same Swordfish.browse_class entry point as the editor-tab
+    version, so the user gets identical behaviour regardless of which
+    source window they came from."""
+    fixture.simulate_login()
+    fixture.app.run_code("")
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+
+    run_tab.source_text.delete("1.0", "end")
+    run_tab.source_text.insert("1.0", "^OrderLine new")
+    run_tab.source_text.mark_set("insert", "1.1")
+    fixture.session_record.jump_to_class = Mock()
+
+    run_tab.browse_class_from_source()
+
+    fixture.session_record.jump_to_class.assert_called_once_with(
+        "OrderLine", True
+    )
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_run_tab_run_action_uses_foreground_activity_feedback(fixture):
     """AI: Run action should trigger shared foreground activity feedback while code executes."""
     fixture.simulate_login()
