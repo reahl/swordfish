@@ -3360,6 +3360,8 @@ class GemstoneBrowserSession:
         method_selector,
         overwrite_target_method=False,
         delete_source_method=True,
+        rewrite_source_senders=False,
+        helper_receiver_source=None,
     ):
         source_show_instance_side = self.validated_show_instance_side(
             source_show_instance_side
@@ -3375,6 +3377,15 @@ class GemstoneBrowserSession:
             delete_source_method,
             "delete_source_method",
         )
+        rewrite_source_senders = self.validated_boolean_flag(
+            rewrite_source_senders,
+            "rewrite_source_senders",
+        )
+        if rewrite_source_senders and not helper_receiver_source:
+            raise DomainException(
+                "helper_receiver_source is required when "
+                "rewrite_source_senders is true."
+            )
         move_plan = self.method_move_plan(
             source_class_name,
             source_show_instance_side,
@@ -3400,6 +3411,16 @@ class GemstoneBrowserSession:
             source=move_plan["source_method_source"],
             method_category=move_plan["source_method_category"],
         )
+        rewritten_sender_count = 0
+        if rewrite_source_senders:
+            rewritten_sender_count = (
+                self.rewrite_same_class_senders_to_helper_receiver(
+                    source_class_name,
+                    source_show_instance_side,
+                    method_selector,
+                    helper_receiver_source,
+                )
+            )
         source_deleted = False
         if delete_source_method:
             self.delete_method(
@@ -3413,7 +3434,143 @@ class GemstoneBrowserSession:
         summary["overwrite_target_method"] = overwrite_target_method
         summary["delete_source_method"] = delete_source_method
         summary["source_deleted"] = source_deleted
+        summary["rewrite_source_senders"] = rewrite_source_senders
+        summary["helper_receiver_source"] = helper_receiver_source
+        summary["rewritten_sender_count"] = rewritten_sender_count
         return summary
+
+    def rewrite_same_class_senders_to_helper_receiver(
+        self,
+        source_class_name,
+        source_show_instance_side,
+        moved_selector,
+        helper_receiver_source,
+    ):
+        """AI: Rewrite every static call site of moved_selector in
+        same-class senders so its receiver becomes helper_receiver_source.
+        Walks each sender's parser AST, slices the receiver range, and
+        recompiles. Returns the count of senders that were rewritten."""
+        sender_summaries = self.selector_occurrence_summaries(
+            moved_selector,
+            "senders",
+        )
+        same_class_sender_summaries = [
+            sender_summary
+            for sender_summary in sender_summaries
+            if (
+                sender_summary["class_name"] == source_class_name
+                and sender_summary["show_instance_side"]
+                == source_show_instance_side
+            )
+        ]
+        rewritten_count = 0
+        seen_sender_selectors = set()
+        for sender_summary in same_class_sender_summaries:
+            sender_selector = sender_summary["method_selector"]
+            if sender_selector == moved_selector:
+                continue
+            if sender_selector in seen_sender_selectors:
+                continue
+            seen_sender_selectors.add(sender_selector)
+            rewritten_source = self.sender_source_with_receiver_replaced(
+                source_class_name,
+                source_show_instance_side,
+                sender_selector,
+                moved_selector,
+                helper_receiver_source,
+            )
+            if rewritten_source is None:
+                continue
+            sender_category = self.get_method_category(
+                source_class_name,
+                sender_selector,
+                source_show_instance_side,
+            )
+            self.compile_method(
+                class_name=source_class_name,
+                show_instance_side=source_show_instance_side,
+                source=rewritten_source,
+                method_category=sender_category,
+            )
+            rewritten_count = rewritten_count + 1
+        return rewritten_count
+
+    def sender_source_with_receiver_replaced(
+        self,
+        sender_class_name,
+        sender_show_instance_side,
+        sender_selector,
+        moved_selector,
+        helper_receiver_source,
+    ):
+        """AI: Build a rewritten source for one sender method where every
+        static send of moved_selector has its receiver replaced by
+        helper_receiver_source. Uses the parser AST so we know each send's
+        exact receiver range; cascades and nested expressions are
+        respected. Returns None if no matching sends were found."""
+        from reahl.swordfish.gemstone.smalltalk_method_parser import (
+            CascadeNode,
+            MessageSendNode,
+        )
+
+        sender_source = self.get_method_source(
+            sender_class_name,
+            sender_selector,
+            sender_show_instance_side,
+        )
+        try:
+            sender_method_node = SmalltalkMethodParser().parse_method(
+                sender_source
+            )
+        except SmalltalkSyntaxError:
+            return None
+        receiver_replacements = []
+
+        def collect_receiver_replacements(node):
+            if isinstance(node, CascadeNode):
+                if (
+                    any(
+                        message.selector == moved_selector
+                        for message in node.messages
+                    )
+                    and node.receiver is not None
+                ):
+                    receiver_replacements.append(
+                        (
+                            node.receiver.start_offset,
+                            node.receiver.end_offset,
+                        )
+                    )
+            elif (
+                isinstance(node, MessageSendNode)
+                and node.selector == moved_selector
+                and node.receiver is not None
+            ):
+                receiver_replacements.append(
+                    (
+                        node.receiver.start_offset,
+                        node.receiver.end_offset,
+                    )
+                )
+            for _, child_node in node.labelled_child_nodes():
+                if child_node is not None:
+                    collect_receiver_replacements(child_node)
+
+        collect_receiver_replacements(sender_method_node)
+        if not receiver_replacements:
+            return None
+        # AI: Apply replacements from the end so earlier offsets stay valid.
+        rewritten_source = sender_source
+        for start_offset, end_offset in sorted(
+            receiver_replacements,
+            reverse=True,
+        ):
+            rewritten_source = (
+                rewritten_source[:start_offset]
+                + helper_receiver_source
+                + rewritten_source[end_offset:]
+            )
+        return rewritten_source
 
     def method_move_plan(
         self,
@@ -3683,6 +3840,7 @@ class GemstoneBrowserSession:
             "default_argument_source": default_argument_source,
             "method_category": method_category,
             "new_selector_exists": new_selector_exists,
+            "new_method_header": new_method_header,
             "new_method_source": new_method_source,
             "compatibility_wrapper_source": compatibility_wrapper_source,
             "total_sender_count": len(sender_summaries),
@@ -3722,7 +3880,11 @@ class GemstoneBrowserSession:
             "default_argument_source": (add_parameter_plan["default_argument_source"]),
             "method_category": add_parameter_plan["method_category"],
             "new_selector_exists": add_parameter_plan["new_selector_exists"],
+            "new_method_header": add_parameter_plan["new_method_header"],
             "compatibility_wrapper": True,
+            "compatibility_wrapper_source": (
+                add_parameter_plan["compatibility_wrapper_source"]
+            ),
             "total_sender_count": add_parameter_plan["total_sender_count"],
             "source_sender_count": add_parameter_plan["source_sender_count"],
             "sender_examples": add_parameter_plan["sender_examples"],
@@ -3962,6 +4124,7 @@ class GemstoneBrowserSession:
             "creates_unary_selector": creates_unary_selector,
             "method_category": method_category,
             "new_selector_exists": new_selector_exists,
+            "new_method_header": new_method_header,
             "new_method_source": new_method_source,
             "compatibility_wrapper_source": compatibility_wrapper_source,
             "total_sender_count": len(sender_summaries),
@@ -4037,7 +4200,11 @@ class GemstoneBrowserSession:
             "creates_unary_selector": remove_parameter_plan["creates_unary_selector"],
             "method_category": remove_parameter_plan["method_category"],
             "new_selector_exists": remove_parameter_plan["new_selector_exists"],
+            "new_method_header": remove_parameter_plan["new_method_header"],
             "compatibility_wrapper": True,
+            "compatibility_wrapper_source": remove_parameter_plan[
+                "compatibility_wrapper_source"
+            ],
             "total_sender_count": remove_parameter_plan["total_sender_count"],
             "source_sender_count": remove_parameter_plan["source_sender_count"],
             "rewrite_source_senders": remove_parameter_plan["rewrite_source_senders"],

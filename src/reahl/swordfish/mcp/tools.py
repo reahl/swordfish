@@ -5183,11 +5183,16 @@ def register_tools(
         target_show_instance_side: bool = True,
         overwrite_target_method: bool = False,
         delete_source_method: bool = True,
+        rewrite_source_senders: bool = False,
+        helper_receiver_source: Optional[str] = None,
     ):
         """Apply the move previewed by gs_preview_move_method. delete_source_method
         defaults to True; pass overwrite_target_method=True to replace an
-        existing same-selector method on the target. Requires --allow-source-write
-        and an active transaction."""
+        existing same-selector method on the target. Pass rewrite_source_senders=True
+        with helper_receiver_source (e.g. 'self helper') to rewrite every static
+        same-class call site so its receiver becomes helper_receiver_source —
+        otherwise same-class senders break when delete_source_method is true.
+        Requires --allow-source-write and an active transaction."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -5232,6 +5237,10 @@ def register_tools(
                 delete_source_method,
                 "delete_source_method",
             )
+            rewrite_source_senders = validated_boolean_like(
+                rewrite_source_senders,
+                "rewrite_source_senders",
+            )
             result = browser_session.apply_method_move(
                 source_class_name,
                 source_show_instance_side,
@@ -5240,6 +5249,8 @@ def register_tools(
                 method_selector,
                 overwrite_target_method=overwrite_target_method,
                 delete_source_method=delete_source_method,
+                rewrite_source_senders=rewrite_source_senders,
+                helper_receiver_source=helper_receiver_source,
             )
             return {
                 "ok": True,
@@ -5251,6 +5262,8 @@ def register_tools(
                 "method_selector": method_selector,
                 "overwrite_target_method": overwrite_target_method,
                 "delete_source_method": delete_source_method,
+                "rewrite_source_senders": rewrite_source_senders,
+                "helper_receiver_source": helper_receiver_source,
                 "result": result,
             }
         except GemstoneError as error:
