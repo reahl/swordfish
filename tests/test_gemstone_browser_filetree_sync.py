@@ -29,13 +29,31 @@ def enabled_repository_root(tmp_path, monkeypatch):
     return root
 
 
+def add_tracked_package(root, package_name):
+    '''AI: Register a second Cypress-configured package on disk so an extension protocol that
+    names it resolves to a genuinely foreign package.'''
+    package = os.path.join(root, package_name + '.package')
+    os.makedirs(package)
+    with open(os.path.join(package, '.filetree'), 'w', encoding='utf-8') as config:
+        config.write(CYPRESS_CONFIG)
+
+
 def read_text(path):
     with open(path, 'r', encoding='utf-8', newline='') as text_file:
         return text_file.read()
 
 
 class FakeCompiledClass:
-    def compileMethod_dictionaries_category_environmentId(self, *arguments):
+    '''AI: Records the category each compile is asked to use, so a test can assert the category
+    that reaches the image - not only the one that reaches disk.'''
+
+    def __init__(self, compiled_categories):
+        self.compiled_categories = compiled_categories
+
+    def compileMethod_dictionaries_category_environmentId(
+        self, source, dictionaries, category, environment_id
+    ):
+        self.compiled_categories.append(category)
         return None
 
 
@@ -54,9 +72,10 @@ class StubbedEditingSession(GemstoneBrowserSession):
         self.source_by_selector = source_by_selector
         self.protocol_by_selector = protocol_by_selector
         self.class_definition = class_definition
+        self.compiled_categories = []
 
     def class_to_query(self, class_name, show_instance_side):
-        return FakeCompiledClass()
+        return FakeCompiledClass(self.compiled_categories)
 
     def class_reference_expression(self, class_name, show_instance_side):
         return class_name
@@ -135,9 +154,10 @@ def test_deleting_a_method_removes_its_mirrored_file(tmp_path, monkeypatch):
 
 
 def test_recategorising_into_extension_moves_the_file(tmp_path, monkeypatch):
-    '''AI: Recategorising a method into a '*Package' extension writes the extension file and
-    removes the now-stale class-directory file.'''
+    '''AI: Recategorising a method into a '*Package' extension that names a foreign package
+    writes the extension file under that package and removes the now-stale class-directory file.'''
     root = enabled_repository_root(tmp_path, monkeypatch)
+    add_tracked_package(root, 'Wonka-Other-Core')
     session = amount_session()
     session.source_by_selector['doubled'] = 'doubled\n\t^ 1'
     session.protocol_by_selector['doubled'] = 'arithmetic'
@@ -146,12 +166,58 @@ def test_recategorising_into_extension_moves_the_file(tmp_path, monkeypatch):
         root, 'Wonka-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
     )
     assert os.path.exists(class_file)
-    session.set_method_category('Amount', 'doubled', '*Wonka-Amount-Core', True)
+    session.set_method_category('Amount', 'doubled', '*Wonka-Other-Core', True)
     extension_file = os.path.join(
-        root, 'Wonka-Amount-Core.package', 'Amount.extension', 'instance', 'doubled.st'
+        root, 'Wonka-Other-Core.package', 'Amount.extension', 'instance', 'doubled.st'
     )
     assert os.path.exists(extension_file)
     assert not os.path.exists(class_file)
+
+
+def test_own_package_star_protocol_stays_in_the_class_directory(tmp_path, monkeypatch):
+    '''AI: A '*Package' protocol that names the class's OWN defining package is not an
+    extension: Pharo keeps such a method in the class directory with that star category line.
+    The live mirror must write it there, never under a .extension directory.'''
+    root = enabled_repository_root(tmp_path, monkeypatch)
+    session = amount_session()
+    session.compile_method('Amount', True, 'doubled\n\t^ number * 2', '*Wonka-Amount-Core')
+    class_file = os.path.join(
+        root, 'Wonka-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
+    )
+    assert read_text(class_file) == '*Wonka-Amount-Core\ndoubled\n\t^ number * 2'
+    assert not os.path.exists(
+        os.path.join(root, 'Wonka-Amount-Core.package', 'Amount.extension')
+    )
+
+
+def test_saving_an_edited_method_without_a_category_keeps_its_protocol(tmp_path, monkeypatch):
+    '''AI: A plain save names no category (the IDE save path and the MCP default), so the
+    session must reuse the method's current protocol rather than silently moving it to
+    "as yet unclassified" - both in the image (the category handed to the compiler) and on disk
+    (the mirrored file's category line).'''
+    root = enabled_repository_root(tmp_path, monkeypatch)
+    session = amount_session()
+    session.source_by_selector['doubled'] = 'doubled\n\t^ 1'
+    session.protocol_by_selector['doubled'] = 'arithmetic'
+    session.compile_method('Amount', True, 'doubled\n\t^ number * 2')
+    assert session.compiled_categories == ['arithmetic']
+    written = os.path.join(
+        root, 'Wonka-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
+    )
+    assert read_text(written) == 'arithmetic\ndoubled\n\t^ number * 2'
+
+
+def test_saving_a_brand_new_method_without_a_category_is_unclassified(tmp_path, monkeypatch):
+    '''AI: When no category is named and the method does not yet exist, there is no protocol to
+    preserve, so it falls back to the conventional "as yet unclassified" default.'''
+    root = enabled_repository_root(tmp_path, monkeypatch)
+    session = amount_session()
+    session.compile_method('Amount', True, 'fresh\n\t^ 1')
+    assert session.compiled_categories == ['as yet unclassified']
+    written = os.path.join(
+        root, 'Wonka-Amount-Core.package', 'Amount.class', 'instance', 'fresh.st'
+    )
+    assert read_text(written) == 'as yet unclassified\nfresh\n\t^ 1'
 
 
 def test_creating_a_class_writes_its_properties_file(tmp_path, monkeypatch):

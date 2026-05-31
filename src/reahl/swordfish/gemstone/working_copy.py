@@ -67,16 +67,27 @@ class MonticelloWorkingCopy:
     def target_for_method(self, protocol, class_category):
         '''AI: Resolve where a method belongs. An extension protocol ('*Package') routes the
         method into that package's .extension directory with a canonical '*Package' category
-        line; otherwise the method lives with the package that owns its class by category.'''
+        line - unless the named package is the class's own defining package, in which case the
+        star protocol is not an extension and the method stays in the class directory carrying
+        that star category line. Otherwise the method lives with the package owning its class.'''
         if protocol.startswith('*'):
             package_name = self.repository.package_for_extension_protocol(protocol)
             if package_name is None:
                 return None
+            if self.names_own_package(package_name, class_category):
+                return MethodTarget(package_name, False, protocol)
             return MethodTarget(package_name, True, '*' + package_name)
         package_name = self.repository.package_owning_category(class_category)
         if package_name is None:
             return None
         return MethodTarget(package_name, False, protocol)
+
+    def names_own_package(self, package_name, class_category):
+        '''AI: True when a '*Package' protocol names the very package that already owns the
+        class by category. Such a method is not a cross-package extension - Pharo keeps it in
+        the class's own directory - so it must not be diverted to a .extension directory.'''
+        owning_package = self.repository.package_owning_category(class_category)
+        return owning_package is not None and owning_package == package_name
 
     def update_for_compiled_method(
         self,
@@ -220,18 +231,21 @@ class MonticelloWorkingCopy:
 
     def ensured_target_for_method(self, protocol, class_category):
         '''AI: Like target_for_method, but for file-out: the destination package is created on
-        disk when it does not exist yet, so filing out can introduce new packages.'''
+        disk when it does not exist yet, so filing out can introduce new packages. A '*Package'
+        protocol that names the class's own defining package is kept in the class directory (not
+        an extension), matching how Pharo files it out.'''
         if protocol.startswith('*'):
             existing = self.repository.package_for_extension_protocol(protocol)
             package_name = existing if existing else protocol[1:]
-            is_extension = True
         else:
             existing = self.repository.package_owning_category(class_category)
             package_name = existing if existing else class_category
-            is_extension = False
         if not package_name:
             return None
         self.repository.ensure_package(package_name)
+        is_extension = protocol.startswith('*') and not self.names_own_package(
+            package_name, class_category
+        )
         category_line = ('*' + package_name) if is_extension else protocol
         return MethodTarget(package_name, is_extension, category_line)
 

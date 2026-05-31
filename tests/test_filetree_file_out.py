@@ -111,6 +111,44 @@ def test_filing_out_a_class_routes_extension_methods_to_their_package(tmp_path):
     assert os.path.isdir(os.path.join(str(tmp_path), 'Wonka-Other-Core.package'))
 
 
+def own_package_star_image():
+    '''AI: A class whose own method carries a '*ThisPackage' protocol - a star category that
+    names the class's own defining package rather than a foreign one.'''
+    return StubImage(
+        classes_by_category={'Wonka-Amount-Core': ['Amount']},
+        class_definitions={
+            'Amount': {
+                'class_name': 'Amount',
+                'superclass_name': 'Number',
+                'package_name': 'Wonka-Amount-Core',
+                'inst_var_names': ['number'],
+                'class_var_names': [],
+                'class_inst_var_names': [],
+                'pool_dictionary_names': [],
+            }
+        },
+        methods={
+            ('Amount', True): {
+                'tripled': ('*Wonka-Amount-Core', 'tripled\n\t^ number * 3'),
+            },
+            ('Amount', False): {},
+        },
+    )
+
+
+def test_filing_out_keeps_own_package_star_methods_in_the_class_directory(tmp_path):
+    '''AI: A method whose protocol names the class's OWN defining package ('*ThisPackage') is
+    not an extension - Pharo keeps it in the class directory carrying that star category line.
+    It must not be diverted into a .extension directory.'''
+    working_copy = working_copy_over(tmp_path)
+    working_copy.file_out_class(own_package_star_image(), 'Amount')
+    package = os.path.join(str(tmp_path), 'Wonka-Amount-Core.package')
+    assert read_text(
+        os.path.join(package, 'Amount.class', 'instance', 'tripled.st')
+    ) == '*Wonka-Amount-Core\ntripled\n\t^ number * 3'
+    assert not os.path.exists(os.path.join(package, 'Amount.extension'))
+
+
 def test_filing_out_a_category_files_out_each_of_its_classes(tmp_path):
     '''AI: Filing out a class category files out every class the image lists under it.'''
     working_copy = working_copy_over(tmp_path)

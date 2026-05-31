@@ -4247,13 +4247,14 @@ def register_tools(
         class_name,
         source,
         show_instance_side: bool = True,
-        method_category="as yet unclassified",
+        method_category: Optional[str] = None,
         in_dictionary: Optional[str] = None,
     ):
         """Compile a method into a class. Requires --allow-source-write and an
-        active transaction. method_category defaults to 'as yet unclassified';
-        in_dictionary, when given, scopes the recompile to a specific
-        dictionary."""
+        active transaction. When method_category is omitted, an existing method
+        keeps its current protocol and a brand-new method is filed under
+        'as yet unclassified'; in_dictionary, when given, scopes the recompile
+        to a specific dictionary."""
         if not get_permissions()['allow_source_write']:
             return disabled_tool_response(
                 connection_id,
@@ -4276,9 +4277,16 @@ def register_tools(
                 show_instance_side,
                 "show_instance_side",
             )
-            method_category = validated_non_empty_string(
-                method_category,
-                "method_category",
+            if method_category is not None:
+                method_category = validated_non_empty_string(
+                    method_category,
+                    "method_category",
+                )
+            # AI: Resolve omitted categories once here so both the dictionary-scoped and the
+            # ordinary recompile preserve an existing method's protocol instead of defaulting
+            # it to "as yet unclassified".
+            method_category = browser_session.effective_method_category(
+                class_name, source, show_instance_side, method_category
             )
             if in_dictionary is not None:
                 in_dictionary = validated_non_empty_string_stripped(

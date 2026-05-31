@@ -1882,8 +1882,15 @@ class GemstoneBrowserSession:
         class_name,
         show_instance_side,
         source,
-        method_category="as yet unclassified",
+        method_category=None,
     ):
+        # AI: A recompile that names no category must keep the method's current protocol rather
+        # than silently moving it to "as yet unclassified"; only a brand-new method falls back
+        # to that default. Resolving here fixes every edit path (IDE save, MCP, node-path edits)
+        # and the mirror, which writes whatever category the compile actually used.
+        method_category = self.effective_method_category(
+            class_name, source, show_instance_side, method_category
+        )
         # AI: When mirroring is off this adds only a tiny config read - no parsing and no extra
         # image queries - so ordinary compiles (including refactoring batches) pay almost nothing.
         mirroring = current_working_copy().active
@@ -1906,6 +1913,23 @@ class GemstoneBrowserSession:
                 class_name, show_instance_side, source, method_category, selector, previous_source
             )
         return compile_result
+
+    def effective_method_category(
+        self, class_name, source, show_instance_side, requested_category
+    ):
+        '''AI: The category a compile should use. When the caller names one, honour it. When it
+        names none, keep the method's current protocol if the method already exists - so editing
+        and saving a method never reclassifies it - and fall back to "as yet unclassified" only
+        for a method that does not yet exist.'''
+        if requested_category is not None:
+            return requested_category
+        selector = self.mirrored_selector(source)
+        existing = (
+            self.existing_method_protocol(class_name, selector, show_instance_side)
+            if selector is not None
+            else None
+        )
+        return existing if existing is not None else "as yet unclassified"
 
     def mirrored_selector(self, source):
         '''AI: The selector a method source defines, used to name its on-disk file. None when
@@ -2037,7 +2061,7 @@ class GemstoneBrowserSession:
         show_instance_side,
         original_source,
         source_edits,
-        method_category='as yet unclassified',
+        method_category=None,
     ):
         """AI: Recompile a method by applying a sequence of node-path-addressed SourceEdits to
         its known original source and routing the rewritten text through the normal
