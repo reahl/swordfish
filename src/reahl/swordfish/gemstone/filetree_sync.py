@@ -253,10 +253,24 @@ class MonticelloRepository:
         path = self.method_path(
             package_name, class_name, on_class_side, is_extension, selector
         )
+        new_content = self.method_file_contents(category_line, source)
+        if self.method_file_already_current(path, new_content):
+            return path
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'w', encoding='utf-8', newline='\n') as method_file:
-            method_file.write(self.method_file_contents(category_line, source))
+            method_file.write(new_content)
         return path
+
+    def method_file_already_current(self, path, new_content):
+        '''AI: True when the file on disk already holds this category line and source, apart from
+        a trailing newline (which Pharo keeps and our canonical form drops). Lets an unchanged
+        method file be left exactly as Pharo wrote it, so re-filing it produces no whitespace
+        diff; any real change to the category or source still differs and is written.'''
+        if not os.path.exists(path):
+            return False
+        with open(path, 'r', encoding='utf-8', newline='') as method_file:
+            existing = method_file.read()
+        return existing.rstrip('\n') == new_content.rstrip('\n')
 
     def disk_method_source(
         self, package_name, class_name, on_class_side, is_extension, selector
@@ -303,21 +317,39 @@ class MonticelloRepository:
         return json.dumps(value)
 
     def write_class_definition(self, package_name, class_definition):
-        '''AI: Write (or rewrite) a class's properties.json and ensure its instance/ and
-        class/ directories exist. When the file already exists, the previously stored
-        commentStamp is preserved so an instvar/superclass change does not disturb it.'''
+        '''AI: Write (or rewrite) a class's properties.json. No empty instance/ or class/ side
+        directory is created - those appear lazily when a method is written - matching Pharo,
+        which leaves no empty side directory. When the file already exists, the previously stored
+        commentStamp is preserved so an instvar/superclass change does not disturb it; and when
+        the definition is unchanged the file is left untouched (see class_definition_already_current).'''
         class_directory = os.path.join(
             self.package_directory(package_name), class_definition['name'] + '.class'
         )
-        os.makedirs(os.path.join(class_directory, 'instance'), exist_ok=True)
-        os.makedirs(os.path.join(class_directory, 'class'), exist_ok=True)
         properties_path = os.path.join(class_directory, 'properties.json')
         merged = self.definition_preserving_existing_metadata(
             properties_path, class_definition
         )
+        if self.class_definition_already_current(properties_path, merged):
+            return properties_path
+        # AI: Create only the class directory itself, not empty instance/ and class/ side
+        # directories. Pharo creates a side directory only when it holds a method, so an empty
+        # one would be a spurious artifact; write_method creates the side it needs lazily.
+        os.makedirs(class_directory, exist_ok=True)
         with open(properties_path, 'w', encoding='utf-8', newline='\n') as properties_file:
             properties_file.write(self.class_properties_json(merged))
         return properties_path
+
+    def class_definition_already_current(self, properties_path, merged):
+        '''AI: True when the properties.json on disk already records exactly this class
+        definition. The comparison is on the parsed JSON, so a difference in indentation
+        (Pharo's four-space vs our canonical tabs) or key order does not count as a change -
+        only a real change to the definition does. Lets an unchanged, differently-formatted
+        file be left untouched rather than reformatted into a spurious diff.'''
+        if not os.path.exists(properties_path):
+            return False
+        with open(properties_path, 'r', encoding='utf-8') as properties_file:
+            existing = json.load(properties_file)
+        return existing == merged
 
     def definition_preserving_existing_metadata(self, properties_path, class_definition):
         '''AI: Keep the commentStamp the existing file recorded (the comment did not change),

@@ -9,7 +9,6 @@ import json
 import os
 
 from reahl.tofu import Fixture, scenario, with_fixtures
-from reahl.tofu import expected, NoException
 
 from reahl.swordfish.gemstone.filetree_sync import (
     MonticelloRepository,
@@ -223,6 +222,37 @@ def test_writing_a_method_produces_the_expected_file(tmp_path):
     )
 
 
+def test_rewriting_an_unchanged_method_leaves_the_file_untouched(tmp_path):
+    '''AI: When the category line and source already on disk match what we would write (apart
+    from a trailing newline Pharo keeps and our canonical form drops), the file is left exactly
+    as it was - so re-filing an unchanged method produces no spurious whitespace diff.'''
+    repository = repository_with_empty_package(tmp_path)
+    path = repository.method_path('Wonka-Amount-Core', 'Amount', False, False, 'doubled')
+    os.makedirs(os.path.dirname(path))
+    with open(path, 'w', encoding='utf-8', newline='\n') as seeded:
+        seeded.write('arithmetic\ndoubled\n\t^ number * 2\n')
+    repository.write_method(
+        'Wonka-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic',
+        'doubled\n\t^ number * 2',
+    )
+    assert read_bytes_as_text(path) == 'arithmetic\ndoubled\n\t^ number * 2\n'
+
+
+def test_rewriting_a_changed_method_writes_the_canonical_form(tmp_path):
+    '''AI: When the source genuinely changed, the file is rewritten in our canonical form (no
+    trailing newline) - the file changes only because its content changed.'''
+    repository = repository_with_empty_package(tmp_path)
+    path = repository.method_path('Wonka-Amount-Core', 'Amount', False, False, 'doubled')
+    os.makedirs(os.path.dirname(path))
+    with open(path, 'w', encoding='utf-8', newline='\n') as seeded:
+        seeded.write('arithmetic\ndoubled\n\t^ 1\n')
+    repository.write_method(
+        'Wonka-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic',
+        'doubled\n\t^ number * 2',
+    )
+    assert read_bytes_as_text(path) == 'arithmetic\ndoubled\n\t^ number * 2'
+
+
 def test_removing_a_method_deletes_only_its_file(tmp_path):
     '''AI: Removing a method deletes exactly its own file and reports whether one was there.'''
     repository = repository_with_empty_package(tmp_path)
@@ -259,6 +289,69 @@ def test_class_definition_change_preserves_existing_comment_stamp(tmp_path):
         written = json.load(properties_file)
     assert written['commentStamp'] == 'iwan 5/30/2026 09:00'
     assert written['instvars'] == ['number', 'currency']
+
+
+SPACE_INDENTED_AMOUNT_PROPERTIES = (
+    '{\n'
+    '    "commentStamp" : "",\n'
+    '    "super" : "Number",\n'
+    '    "category" : "Wonka-Amount-Core",\n'
+    '    "classinstvars" : [ ],\n'
+    '    "pools" : [ ],\n'
+    '    "classvars" : [ ],\n'
+    '    "instvars" : [ "number" ],\n'
+    '    "name" : "Amount",\n'
+    '    "type" : "normal"\n'
+    '}'
+)
+
+
+def amount_definition_dict():
+    return {
+        'super': 'Number',
+        'category': 'Wonka-Amount-Core',
+        'classinstvars': [],
+        'pools': [],
+        'classvars': [],
+        'instvars': ['number'],
+        'name': 'Amount',
+        'type': 'normal',
+    }
+
+
+def seed_properties_file(tmp_path, contents):
+    class_directory = os.path.join(
+        str(tmp_path), 'Wonka-Amount-Core.package', 'Amount.class'
+    )
+    os.makedirs(class_directory)
+    properties_path = os.path.join(class_directory, 'properties.json')
+    with open(properties_path, 'w', encoding='utf-8', newline='\n') as seeded:
+        seeded.write(contents)
+    return properties_path
+
+
+def test_rewriting_an_unchanged_class_definition_leaves_its_formatting_untouched(tmp_path):
+    '''AI: A properties.json whose meaning already matches is left exactly as it is, even when
+    Pharo wrote it with four-space indentation rather than our canonical tabs - re-filing an
+    unchanged class must not reformat the file and create a spurious diff.'''
+    repository = repository_with_empty_package(tmp_path)
+    properties_path = seed_properties_file(tmp_path, SPACE_INDENTED_AMOUNT_PROPERTIES)
+    repository.write_class_definition('Wonka-Amount-Core', amount_definition_dict())
+    assert read_bytes_as_text(properties_path) == SPACE_INDENTED_AMOUNT_PROPERTIES
+
+
+def test_rewriting_a_changed_class_definition_writes_canonical_tabs(tmp_path):
+    '''AI: When the class definition genuinely changed, the file is rewritten in our canonical
+    tab-indented form - the formatting changes only because the definition did.'''
+    repository = repository_with_empty_package(tmp_path)
+    spaced_with_old_super = SPACE_INDENTED_AMOUNT_PROPERTIES.replace(
+        '"super" : "Number"', '"super" : "Object"'
+    )
+    properties_path = seed_properties_file(tmp_path, spaced_with_old_super)
+    repository.write_class_definition('Wonka-Amount-Core', amount_definition_dict())
+    written = read_bytes_as_text(properties_path)
+    assert '\t"super" : "Number"' in written
+    assert '    "super"' not in written
 
 
 def test_reading_back_the_corpus_classes_and_methods(tmp_path):
@@ -306,26 +399,32 @@ def test_ensuring_an_existing_package_leaves_it_untouched(tmp_path):
     assert read_bytes_as_text(marker_path) == 'SENTINEL'
 
 
-def test_writing_class_definition_creates_method_directories(tmp_path):
-    '''AI: A freshly created class gets empty instance/ and class/ directories alongside its
-    properties.json, matching the layout Pharo expects.'''
+def test_writing_a_class_definition_creates_no_empty_side_directories(tmp_path):
+    '''AI: A class definition writes properties.json but no empty instance/ or class/ directory.
+    Pharo only creates the side that actually holds methods, so a method-less side leaves no
+    spurious empty directory; the side directory appears lazily when a method is written to it.'''
     repository = repository_with_empty_package(tmp_path)
-    with expected(NoException):
-        repository.write_class_definition(
-            'Wonka-Amount-Core',
-            {
-                'super': 'Object',
-                'category': 'Wonka-Amount-Core',
-                'classinstvars': [],
-                'pools': [],
-                'classvars': [],
-                'instvars': [],
-                'name': 'Widget',
-                'type': 'normal',
-            },
-        )
+    repository.write_class_definition(
+        'Wonka-Amount-Core',
+        {
+            'super': 'Object',
+            'category': 'Wonka-Amount-Core',
+            'classinstvars': [],
+            'pools': [],
+            'classvars': [],
+            'instvars': [],
+            'name': 'Widget',
+            'type': 'normal',
+        },
+    )
     class_directory = os.path.join(
         str(tmp_path), 'Wonka-Amount-Core.package', 'Widget.class'
     )
+    assert os.path.exists(os.path.join(class_directory, 'properties.json'))
+    assert not os.path.exists(os.path.join(class_directory, 'instance'))
+    assert not os.path.exists(os.path.join(class_directory, 'class'))
+    repository.write_method(
+        'Wonka-Amount-Core', 'Widget', False, False, 'size', 'accessing', 'size\n\t^ 1',
+    )
     assert os.path.isdir(os.path.join(class_directory, 'instance'))
-    assert os.path.isdir(os.path.join(class_directory, 'class'))
+    assert not os.path.exists(os.path.join(class_directory, 'class'))
