@@ -1,4 +1,5 @@
 import functools
+import os
 import re
 import threading
 import time
@@ -19,6 +20,12 @@ from reahl.swordfish.gemstone import (
     create_rpc_session,
     gemstone_error_payload,
     session_summary,
+)
+from reahl.swordfish.gemstone.working_copy import (
+    current_working_copy,
+    disable_working_copy,
+    point_working_copy_at,
+    sync_config_path,
 )
 from reahl.swordfish.mcp.debug_registry import (
     add_debug_session,
@@ -1654,6 +1661,54 @@ def register_tools(
             "ok": True,
             "connection_id": connection_id,
         }
+
+    def sync_status_payload():
+        working_copy = current_working_copy()
+        root_path = (
+            working_copy.repository.root_path if working_copy.repository else None
+        )
+        tracked_packages = []
+        if root_path and os.path.isdir(root_path):
+            tracked_packages = working_copy.repository.tracked_package_names()
+        return {
+            "ok": True,
+            "enabled": working_copy.enabled,
+            "active": working_copy.active,
+            "root_path": root_path,
+            "tracked_package_count": len(tracked_packages),
+            "config_path": sync_config_path(),
+        }
+
+    @mcp_server.tool()
+    def gs_sync_status():
+        """Report whether on-disk FileTree mirroring is on, which Monticello repository it
+        targets, and how many packages are tracked there. The setting is shared with the
+        swordfish IDE."""
+        return sync_status_payload()
+
+    @mcp_server.tool()
+    def gs_sync_set_root(root_path):
+        """Enable FileTree mirroring and point it at the on-disk Monticello repository at
+        root_path. From then on every method or class edit made through the IDE or the MCP
+        tools is mirrored into the matching <Package>.package directory on disk; edits that
+        resolve to a package not present on disk are left alone. The setting is shared with
+        the IDE and persists across sessions."""
+        if not root_path or not os.path.isdir(root_path):
+            return {
+                "ok": False,
+                "error": {
+                    "message": "root_path is not an existing directory.",
+                },
+            }
+        point_working_copy_at(root_path)
+        return sync_status_payload()
+
+    @mcp_server.tool()
+    def gs_sync_disable():
+        """Turn off FileTree mirroring. The configured root is remembered, but no edits are
+        written to disk until mirroring is enabled again with gs_sync_set_root."""
+        disable_working_copy()
+        return sync_status_payload()
 
     @mcp_server.tool()
     def gs_begin(connection_id):

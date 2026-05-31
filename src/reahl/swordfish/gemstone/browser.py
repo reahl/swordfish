@@ -13,6 +13,7 @@ from reahl.swordfish.gemstone.breakpoint_registry import (
     remove_breakpoint_for_session,
 )
 from reahl.swordfish.gemstone.session import DomainException, render_result
+from reahl.swordfish.gemstone.working_copy import current_working_copy
 from reahl.swordfish.gemstone.smalltalk_method_parser import (
     OverlappingSourceEditsError,
     SmalltalkMethodParser,
@@ -39,6 +40,9 @@ class GemstoneBrowserSession:
     ):
         self.gemstone_session = gemstone_session
         self.rowan_installed_cache = None
+        # AI: The outcome of mirroring the most recent edit to the on-disk FileTree, so the
+        # MCP tools and IDE can surface drift warnings without changing edit return contracts.
+        self.last_sync_outcome = None
 
     def class_categories_by_class_name(self):
         category_by_class_name = {}
@@ -1880,14 +1884,152 @@ class GemstoneBrowserSession:
         source,
         method_category="as yet unclassified",
     ):
+        # AI: When mirroring is off this adds only a tiny config read - no parsing and no extra
+        # image queries - so ordinary compiles (including refactoring batches) pay almost nothing.
+        mirroring = current_working_copy().active
+        selector = self.mirrored_selector(source) if mirroring else None
+        previous_source = (
+            self.existing_method_source(class_name, selector, show_instance_side)
+            if mirroring
+            else None
+        )
         class_to_query = self.class_to_query(class_name, show_instance_side)
         symbol_list = self.gemstone_session.execute("System myUserProfile symbolList")
-        return class_to_query.compileMethod_dictionaries_category_environmentId(
+        compile_result = class_to_query.compileMethod_dictionaries_category_environmentId(
             source,
             symbol_list,
             method_category,
             0,
         )
+        if mirroring:
+            self.mirror_compiled_method(
+                class_name, show_instance_side, source, method_category, selector, previous_source
+            )
+        return compile_result
+
+    def mirrored_selector(self, source):
+        '''AI: The selector a method source defines, used to name its on-disk file. None when
+        the source does not parse, so a half-typed compile cannot crash the mirror.'''
+        try:
+            return SmalltalkMethodParser().parse_method(source).selector
+        except SmalltalkSyntaxError:
+            return None
+
+    def existing_method_source(self, class_name, selector, show_instance_side):
+        '''AI: The source installed for a selector before we recompile it, so the mirror can
+        notice divergence from disk. None when no such method exists yet.'''
+        if selector is None:
+            return None
+        try:
+            return self.get_method_source(class_name, selector, show_instance_side)
+        except (GemstoneError, GemstoneApiError, AttributeError):
+            return None
+
+    def existing_method_protocol(self, class_name, method_selector, show_instance_side):
+        '''AI: The protocol a method currently sits in, captured before a removal or a
+        recategorise so the mirror knows which on-disk file the method occupied.'''
+        try:
+            return self.get_method_category(class_name, method_selector, show_instance_side)
+        except (GemstoneError, GemstoneApiError, AttributeError):
+            return None
+
+    def category_of_class(self, class_name):
+        '''AI: A class's category - its Monticello package by name - or None when the class
+        cannot be resolved.'''
+        gemstone_class = self.resolved_class(class_name)
+        if gemstone_class is None:
+            return None
+        try:
+            return gemstone_class.category().to_py
+        except (GemstoneError, GemstoneApiError):
+            return None
+
+    def mirror_compiled_method(
+        self, class_name, show_instance_side, source, method_category, selector, previous_source
+    ):
+        working_copy = current_working_copy()
+        if not working_copy.active or selector is None:
+            return None
+        class_category = self.category_of_class(class_name)
+        if class_category is None:
+            return None
+        self.last_sync_outcome = working_copy.update_for_compiled_method(
+            class_name=class_name,
+            selector=selector,
+            on_class_side=not show_instance_side,
+            protocol=method_category,
+            class_category=class_category,
+            previous_source=previous_source,
+            new_source=source,
+        )
+        return self.last_sync_outcome
+
+    def mirror_removed_method(
+        self, class_name, method_selector, show_instance_side, protocol
+    ):
+        working_copy = current_working_copy()
+        if not working_copy.active or protocol is None:
+            return None
+        class_category = self.category_of_class(class_name)
+        if class_category is None:
+            return None
+        self.last_sync_outcome = working_copy.update_for_removed_method(
+            class_name, method_selector, not show_instance_side, protocol, class_category
+        )
+        return self.last_sync_outcome
+
+    def mirror_recategorised_method(
+        self, class_name, method_selector, show_instance_side, old_protocol, new_protocol
+    ):
+        working_copy = current_working_copy()
+        if not working_copy.active or old_protocol is None:
+            return None
+        class_category = self.category_of_class(class_name)
+        if class_category is None:
+            return None
+        outcome = working_copy.remove_stale_after_recategorise(
+            class_name,
+            method_selector,
+            not show_instance_side,
+            old_protocol,
+            new_protocol,
+            class_category,
+        )
+        # AI: keep the more informative 'wrote' outcome from the recompile unless we actually
+        # removed a stale file, in which case that cleanup is what is worth reporting.
+        if outcome.action == 'removed':
+            self.last_sync_outcome = outcome
+        return outcome
+
+    def mirror_created_class(self, class_name):
+        working_copy = current_working_copy()
+        if not working_copy.active:
+            return None
+        try:
+            definition = self.get_class_definition(class_name)
+        except DomainException:
+            return None
+        class_definition = {
+            'super': definition['superclass_name'],
+            'category': definition['package_name'],
+            'classinstvars': definition['class_inst_var_names'],
+            'pools': definition['pool_dictionary_names'],
+            'classvars': definition['class_var_names'],
+            'instvars': definition['inst_var_names'],
+            'name': definition['class_name'],
+            'type': 'normal',
+        }
+        self.last_sync_outcome = working_copy.update_for_created_class(class_definition)
+        return self.last_sync_outcome
+
+    def mirror_removed_class(self, class_name, class_category):
+        working_copy = current_working_copy()
+        if not working_copy.active or class_category is None:
+            return None
+        self.last_sync_outcome = working_copy.update_for_removed_class(
+            class_name, class_category
+        )
+        return self.last_sync_outcome
 
     def compile_method_with_edits(
         self,
@@ -1977,7 +2119,9 @@ class GemstoneBrowserSession:
             self.symbol_array_literal(pool_dictionary_names),
             self.dictionary_reference_expression(in_dictionary),
         )
-        return self.run_code(source)
+        result = self.run_code(source)
+        self.mirror_created_class(class_name)
+        return result
 
     def create_test_case_class(
         self,
@@ -3312,7 +3456,12 @@ class GemstoneBrowserSession:
         }
 
     def delete_class(self, class_name, in_dictionary="UserGlobals"):
-        return self.run_code(
+        class_category = (
+            self.category_of_class(class_name)
+            if current_working_copy().active
+            else None
+        )
+        result = self.run_code(
             (
                 "| classToDelete |\n"
                 "classToDelete := %s at: #%s ifAbsent: [ nil ].\n"
@@ -3324,17 +3473,28 @@ class GemstoneBrowserSession:
             )
             % (in_dictionary, class_name, in_dictionary, class_name)
         )
+        self.mirror_removed_class(class_name, class_category)
+        return result
 
     def delete_method(self, class_name, method_selector, show_instance_side):
+        protocol = (
+            self.existing_method_protocol(class_name, method_selector, show_instance_side)
+            if current_working_copy().active
+            else None
+        )
         class_reference = self.class_reference_expression(
             class_name,
             show_instance_side,
         )
         selector_literal = self.smalltalk_string_literal(method_selector)
-        return self.run_code(
+        result = self.run_code(
             ("%s removeSelector: (%s asSymbol) " "environmentId: 0 ifAbsent: []")
             % (class_reference, selector_literal)
         )
+        self.mirror_removed_method(
+            class_name, method_selector, show_instance_side, protocol
+        )
+        return result
 
     def set_method_category(
         self,
@@ -3348,12 +3508,21 @@ class GemstoneBrowserSession:
             method_selector,
             show_instance_side,
         )
-        return self.compile_method(
+        old_protocol = (
+            self.existing_method_protocol(class_name, method_selector, show_instance_side)
+            if current_working_copy().active
+            else None
+        )
+        compile_result = self.compile_method(
             class_name=class_name,
             show_instance_side=show_instance_side,
             source=method_source,
             method_category=method_category,
         )
+        self.mirror_recategorised_method(
+            class_name, method_selector, show_instance_side, old_protocol, method_category
+        )
+        return compile_result
 
     def create_method_category(self, class_name, method_category, show_instance_side):
         method_category = method_category.strip()

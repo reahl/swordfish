@@ -2957,14 +2957,27 @@ def test_close_run_tab_drops_stale_mcp_busy_callback(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_mcp_menu_contains_start_stop_and_config_commands(fixture):
-    """AI: MCP menu should expose start/stop/configure commands for runtime control when logged in."""
+def test_mcp_menu_contains_only_start_stop_and_config_commands(fixture):
+    """AI: The MCP menu is just MCP runtime control - FileTree concerns live on their own
+    menu, so they must not leak onto the MCP menu."""
     fixture.simulate_login()
     mcp_menu = fixture.app.menu_bar.mcp_menu
     labels = menu_command_labels(mcp_menu)
     assert labels == ["Start MCP", "Stop MCP", "Configure MCP"]
     assert mcp_menu.entrycget(0, "state") == tk.NORMAL
     assert mcp_menu.entrycget(1, "state") == tk.DISABLED
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_filetree_menu_holds_sync_config_and_filing_commands(fixture):
+    """AI: The FileTree menu carries everything about the on-disk repository: the live-mirror
+    configuration plus the explicit whole-repository file-in and category-selecting file-out."""
+    fixture.simulate_login()
+    labels = menu_command_labels(fixture.app.menu_bar.filetree_menu)
+    assert "Set FileTree Sync Folder..." in labels
+    assert "Disable FileTree Sync" in labels
+    assert "File in Everything (overwrite from disk)..." in labels
+    assert "File out Class Categories..." in labels
 
 
 @with_fixtures(SwordfishAppFixture)

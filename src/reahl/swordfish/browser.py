@@ -604,6 +604,10 @@ class PackageSelection(FramedWidget):
             self.select_group,
         )
         self.selection_list.grid(row=0, column=0, sticky='nsew')
+        self.context_menu_class_category = None
+        self.selection_list.selection_listbox.bind(
+            '<Button-3>', self.show_context_menu
+        )
         self.browse_mode_var = tk.StringVar(
             value=self.gemstone_session_record.browse_mode
         )
@@ -700,6 +704,54 @@ class PackageSelection(FramedWidget):
 
     def get_selected_group(self):
         return self.gemstone_session_record.selected_class_category()
+
+    def show_context_menu(self, event):
+        listbox = self.selection_list.selection_listbox
+        has_selection = listbox.size() > 0
+        if has_selection:
+            selected_index = listbox.nearest(event.y)
+            listbox.selection_clear(0, 'end')
+            listbox.selection_set(selected_index)
+            self.context_menu_class_category = listbox.get(selected_index)
+        else:
+            self.context_menu_class_category = None
+        menu = tk.Menu(self, tearoff=0)
+        read_only = (
+            self.browser_window.application.integrated_session_state.is_mcp_busy()
+        )
+        # AI: A selected group is only a class category in categories/rowan mode; in
+        # dictionaries mode it names a symbol dictionary, which file in/out does not address.
+        names_a_category = (
+            has_selection
+            and self.gemstone_session_record.browse_mode in ('categories', 'rowan')
+        )
+        file_command_state = (
+            tk.DISABLED if read_only or not names_a_category else tk.NORMAL
+        )
+        menu.add_command(
+            label='File out Category',
+            command=self.file_out_class_category,
+            state=file_command_state,
+        )
+        menu.add_command(
+            label='File in Category',
+            command=self.file_in_class_category,
+            state=file_command_state,
+        )
+        add_close_command_to_popup_menu(menu)
+        popup_menu(menu, event)
+
+    def file_out_class_category(self):
+        if self.context_menu_class_category:
+            self.browser_window.application.file_out_class_category_action(
+                self.context_menu_class_category
+            )
+
+    def file_in_class_category(self):
+        if self.context_menu_class_category:
+            self.browser_window.application.file_in_class_category_action(
+                self.context_menu_class_category
+            )
 
     def repopulate(self, origin=None):
         if origin is not self:
@@ -1122,8 +1174,34 @@ class ClassSelection(FramedWidget):
             command=self.run_all_tests,
             state=run_command_state,
         )
+        file_command_state = write_command_state if has_selection else tk.DISABLED
+        menu.add_separator()
+        menu.add_command(
+            label='File out Class',
+            command=self.file_out_class,
+            state=file_command_state,
+        )
+        menu.add_command(
+            label='File in Class',
+            command=self.file_in_class,
+            state=file_command_state,
+        )
         add_close_command_to_popup_menu(menu)
         popup_menu(menu, event)
+
+    def file_out_class(self):
+        class_name = (
+            self.context_menu_class_name or self.gemstone_session_record.selected_class
+        )
+        if class_name:
+            self.browser_window.application.file_out_class_action(class_name)
+
+    def file_in_class(self):
+        class_name = (
+            self.context_menu_class_name or self.gemstone_session_record.selected_class
+        )
+        if class_name:
+            self.browser_window.application.file_in_class_action(class_name)
 
     def class_name_from_list_context_event(self, event):
         listbox = self.selection_list.selection_listbox
@@ -1459,6 +1537,9 @@ class CategorySelection(FramedWidget):
             selected_index = listbox.nearest(event.y)
             listbox.selection_clear(0, 'end')
             listbox.selection_set(selected_index)
+            self.context_menu_method_category = listbox.get(selected_index)
+        else:
+            self.context_menu_method_category = None
         menu = tk.Menu(self, tearoff=0)
         read_only = (
             self.browser_window.application.integrated_session_state.is_mcp_busy()
@@ -1475,8 +1556,45 @@ class CategorySelection(FramedWidget):
             command=self.delete_category,
             state=delete_command_state,
         )
+        # AI: 'all' is a pseudo-category; filing a real protocol in/out is well defined, but
+        # filing 'all' in is not (it would mean 'every protocol'), so gate on a real protocol.
+        names_a_real_protocol = (
+            has_selection and self.context_menu_method_category != 'all'
+        )
+        file_command_state = (
+            write_command_state if names_a_real_protocol else tk.DISABLED
+        )
+        menu.add_separator()
+        menu.add_command(
+            label='File out Category',
+            command=self.file_out_method_category,
+            state=file_command_state,
+        )
+        menu.add_command(
+            label='File in Category',
+            command=self.file_in_method_category,
+            state=file_command_state,
+        )
         add_close_command_to_popup_menu(menu)
         popup_menu(menu, event)
+
+    def file_out_method_category(self):
+        class_name = self.gemstone_session_record.selected_class
+        if class_name and self.context_menu_method_category:
+            self.browser_window.application.file_out_method_category_action(
+                class_name,
+                self.context_menu_method_category,
+                self.gemstone_session_record.show_instance_side,
+            )
+
+    def file_in_method_category(self):
+        class_name = self.gemstone_session_record.selected_class
+        if class_name and self.context_menu_method_category:
+            self.browser_window.application.file_in_method_category_action(
+                class_name,
+                self.context_menu_method_category,
+                self.gemstone_session_record.show_instance_side,
+            )
 
     def add_category(self):
         selected_class = self.gemstone_session_record.selected_class
@@ -1986,6 +2104,9 @@ class MethodSelection(FramedWidget):
             idx = listbox.nearest(event.y)
             listbox.selection_clear(0, 'end')
             listbox.selection_set(idx)
+        self.context_menu_method_selector = (
+            listbox.get(idx) if has_selection else None
+        )
         menu = self.current_context_menu = tk.Menu(self, tearoff=0)
         read_only = (
             self.browser_window.application.integrated_session_state.is_mcp_busy()
@@ -2041,8 +2162,38 @@ class MethodSelection(FramedWidget):
             command=self.open_covering_tests,
             state=covering_tests_state,
         )
+        file_command_state = write_command_state if has_selection else tk.DISABLED
+        menu.add_separator()
+        menu.add_command(
+            label='File out Method',
+            command=self.file_out_method,
+            state=file_command_state,
+        )
+        menu.add_command(
+            label='File in Method',
+            command=self.file_in_method,
+            state=file_command_state,
+        )
         add_close_command_to_popup_menu(menu)
         popup_menu(menu, event)
+
+    def file_out_method(self):
+        class_name = self.gemstone_session_record.selected_class
+        if class_name and self.context_menu_method_selector:
+            self.browser_window.application.file_out_method_action(
+                class_name,
+                self.context_menu_method_selector,
+                self.gemstone_session_record.show_instance_side,
+            )
+
+    def file_in_method(self):
+        class_name = self.gemstone_session_record.selected_class
+        if class_name and self.context_menu_method_selector:
+            self.browser_window.application.file_in_method_action(
+                class_name,
+                self.context_menu_method_selector,
+                self.gemstone_session_record.show_instance_side,
+            )
 
     def show_method_in_class_diagram(self):
         class_name = self.gemstone_session_record.selected_class
