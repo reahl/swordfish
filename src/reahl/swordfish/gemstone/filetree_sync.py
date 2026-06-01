@@ -13,7 +13,6 @@ that actually changed are ever written - untouched code keeps Pharo's exact form
 import json
 import os
 
-
 # AI: Character -> word table from MCFileTreeStCypressWriter>>initializeSpecials. Used to
 # encode binary selectors into filenames that are legal on every filesystem.
 CYPRESS_SPECIAL_CHARACTERS = {

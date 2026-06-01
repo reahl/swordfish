@@ -11,7 +11,6 @@ import os
 
 from reahl.swordfish.gemstone.filetree_sync import MonticelloRepository
 
-
 DEFAULT_CONFIG_RELATIVE_PATH = os.path.join('.config', 'swordfish', 'filetree_sync.json')
 
 

@@ -13,7 +13,6 @@ from reahl.swordfish.gemstone.breakpoint_registry import (
     remove_breakpoint_for_session,
 )
 from reahl.swordfish.gemstone.session import DomainException, render_result
-from reahl.swordfish.gemstone.working_copy import current_working_copy
 from reahl.swordfish.gemstone.smalltalk_method_parser import (
     OverlappingSourceEditsError,
     SmalltalkMethodParser,
@@ -26,6 +25,7 @@ from reahl.swordfish.gemstone.smalltalk_source_scanner import (
     SmalltalkSourceScanner,
     SmalltalkTokenKind,
 )
+from reahl.swordfish.gemstone.working_copy import current_working_copy
 from reahl.swordfish.mcp.tracer_assets import (
     TRACER_VERSION,
     tracer_source,
