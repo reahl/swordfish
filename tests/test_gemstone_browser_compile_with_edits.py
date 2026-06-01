@@ -22,7 +22,7 @@ class RecordingBrowserSession(GemstoneBrowserSession):
         class_name,
         show_instance_side,
         source,
-        method_category='as yet unclassified',
+        method_category=None,
     ):
         self.recorded_compile_call = {
             'class_name': class_name,
@@ -55,7 +55,9 @@ def test_compile_method_with_edits_applies_edits_then_routes_through_compile_met
     assert recorded['class_name'] == 'Account'
     assert recorded['show_instance_side'] is True
     assert recorded['source'] == 'compute\n    ^self total + 1'
-    assert recorded['method_category'] == 'as yet unclassified'
+    # AI: With no category named, the edit path delegates the sentinel None so the real
+    # compile_method preserves the edited method's existing protocol rather than reclassifying it.
+    assert recorded['method_category'] is None
 
 
 @with_fixtures(CompileWithEditsFixture)

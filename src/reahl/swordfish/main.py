@@ -11,6 +11,7 @@ import re
 import sys
 import threading
 import tkinter as tk
+import tkinter.filedialog as filedialog
 import tkinter.messagebox as messagebox
 import tkinter.simpledialog as simpledialog
 import traceback
@@ -47,6 +48,11 @@ from reahl.swordfish.exceptions import DomainException
 from reahl.swordfish.execution import DebuggerControls, DebuggerWindow, RunTab
 from reahl.swordfish.gemstone import GemstoneBrowserSession, GemstoneDebugSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
+from reahl.swordfish.gemstone.working_copy import (
+    current_working_copy,
+    disable_working_copy,
+    point_working_copy_at,
+)
 from reahl.swordfish.inspector import Explorer, InspectorTab, ObjectInspector
 from reahl.swordfish.mcp.integration_state import current_integrated_session_state
 from reahl.swordfish.mcp.server import McpDependencyNotInstalled, create_server
@@ -2246,6 +2252,49 @@ class McpServerController:
             self.notify_server_state_subscribers()
 
 
+class FileOutCategoriesDialog(tk.Toplevel):
+    '''AI: A modal dialog that lets the user pick one or more class categories to file out to
+    the configured FileTree repository.'''
+
+    def __init__(self, parent, categories):
+        super().__init__(parent)
+        self.categories = categories
+        self.selected_categories = []
+        self.title('File out Class Categories')
+        self.transient(parent)
+        ttk.Label(self, text='Select class categories to file out to disk:').grid(
+            row=0, column=0, padx=8, pady=(8, 4), sticky='w'
+        )
+        self.categories_listbox = tk.Listbox(
+            self, selectmode='multiple', width=52, height=18, exportselection=False
+        )
+        for class_category in categories:
+            self.categories_listbox.insert('end', class_category)
+        self.categories_listbox.grid(row=1, column=0, padx=8, sticky='nsew')
+        button_frame = ttk.Frame(self)
+        button_frame.grid(row=2, column=0, pady=8)
+        ttk.Button(button_frame, text='File out', command=self.confirm).grid(
+            row=0, column=0, padx=4
+        )
+        ttk.Button(button_frame, text='Cancel', command=self.cancel).grid(
+            row=0, column=1, padx=4
+        )
+        self.rowconfigure(1, weight=1)
+        self.columnconfigure(0, weight=1)
+        self.wait_visibility()
+        self.grab_set()
+
+    def confirm(self):
+        self.selected_categories = [
+            self.categories[index] for index in self.categories_listbox.curselection()
+        ]
+        self.destroy()
+
+    def cancel(self):
+        self.selected_categories = []
+        self.destroy()
+
+
 class McpConfigurationDialog(tk.Toplevel):
     def __init__(self, parent, current_runtime_config, configuration_access=None):
         super().__init__(parent)
@@ -2554,6 +2603,7 @@ class MainMenu(tk.Menu):
         self.file_menu = tk.Menu(self, tearoff=0)
         self.session_menu = tk.Menu(self, tearoff=0)
         self.mcp_menu = tk.Menu(self, tearoff=0)
+        self.filetree_menu = tk.Menu(self, tearoff=0)
 
         self._create_menus()
         self._subscribe_events()
@@ -2568,6 +2618,8 @@ class MainMenu(tk.Menu):
         self.update_session_menu()
         self.add_cascade(label="MCP", menu=self.mcp_menu)
         self.update_mcp_menu()
+        self.add_cascade(label="FileTree", menu=self.filetree_menu)
+        self.update_filetree_menu()
 
     def _subscribe_events(self):
         self.event_queue.subscribe("LoggedInSuccessfully", self.update_menus)
@@ -2579,6 +2631,7 @@ class MainMenu(tk.Menu):
         self.update_session_menu()
         self.update_file_menu()
         self.update_mcp_menu()
+        self.update_filetree_menu()
 
     def update_session_menu(self):
         self.session_menu.delete(0, tk.END)
@@ -2645,6 +2698,51 @@ class MainMenu(tk.Menu):
             command=self.configure_mcp_server,
             state=configure_state,
         )
+
+    def update_filetree_menu(self):
+        # AI: Everything about the on-disk FileTree - live mirroring config plus explicit
+        # filing in/out - lives on its own menu; only MCP runtime control stays on the MCP menu.
+        self.filetree_menu.delete(0, tk.END)
+        sync_working_copy = current_working_copy()
+        if sync_working_copy.active:
+            sync_label = 'FileTree Sync: %s' % sync_working_copy.repository.root_path
+        else:
+            sync_label = 'FileTree Sync: Off'
+        self.filetree_menu.add_command(label=sync_label, state=tk.DISABLED)
+        self.filetree_menu.add_command(
+            label='Set FileTree Sync Folder...',
+            command=self.configure_filetree_sync,
+        )
+        disable_state = tk.NORMAL if sync_working_copy.active else tk.DISABLED
+        self.filetree_menu.add_command(
+            label='Disable FileTree Sync',
+            command=self.disable_filetree_sync,
+            state=disable_state,
+        )
+        filing_state = tk.NORMAL if self.parent.is_logged_in else tk.DISABLED
+        self.filetree_menu.add_separator()
+        self.filetree_menu.add_command(
+            label='File in Everything (overwrite from disk)...',
+            command=self.file_in_everything,
+            state=filing_state,
+        )
+        self.filetree_menu.add_command(
+            label='File out Class Categories...',
+            command=self.file_out_class_categories,
+            state=filing_state,
+        )
+
+    def configure_filetree_sync(self):
+        self.parent.configure_filetree_sync_from_menu()
+
+    def disable_filetree_sync(self):
+        self.parent.disable_filetree_sync_from_menu()
+
+    def file_in_everything(self):
+        self.parent.file_in_everything_from_menu()
+
+    def file_out_class_categories(self):
+        self.parent.file_out_class_categories_from_menu()
 
     def update_file_menu(self):
         self.file_menu.delete(0, tk.END)
@@ -5166,6 +5264,190 @@ class Swordfish(tk.Tk):
         self.apply_mcp_runtime_config(dialog.result, configuration_access)
         self.menu_bar.update_menus()
         self.refresh_collaboration_status()
+
+    def configure_filetree_sync_from_menu(self):
+        existing = current_working_copy()
+        initial_directory = (
+            existing.repository.root_path if existing.repository else ''
+        )
+        chosen_directory = filedialog.askdirectory(
+            title='Choose the Monticello FileTree folder to mirror edits into',
+            initialdir=initial_directory,
+        )
+        if not chosen_directory:
+            return
+        if not os.path.isdir(chosen_directory):
+            messagebox.showerror(
+                'FileTree Sync',
+                'The chosen path is not a directory.',
+            )
+            return
+        point_working_copy_at(chosen_directory)
+        self.menu_bar.update_menus()
+
+    def disable_filetree_sync_from_menu(self):
+        disable_working_copy()
+        self.menu_bar.update_menus()
+
+    # AI: --- Filing code in and out of the configured FileTree repository ------------------
+    # File-out (image -> disk) is non-destructive. File-in (disk -> image) is a full replace
+    # that deletes image code absent from disk in the chosen scope, so it always confirms and
+    # never auto-commits - the user commits or aborts through the existing controls.
+
+    def file_tree_working_copy_or_warn(self):
+        working_copy = current_working_copy()
+        if not working_copy.has_repository:
+            messagebox.showerror(
+                'FileTree Sync',
+                'Set a FileTree Sync folder first (MCP menu).',
+            )
+            return None
+        return working_copy
+
+    def filing_browser_session(self):
+        return self.gemstone_session_record.gemstone_browser_session
+
+    def refresh_after_file_in(self):
+        self.publish_model_change_events('transaction')
+
+    def confirm_destructive_file_in(self, scope_description):
+        return messagebox.askyesno(
+            'File in',
+            'Overwrite %s in the image to match disk?\n\n'
+            'Image code in this scope that is absent from disk will be deleted. '
+            'Review the result, then commit or abort.' % scope_description,
+        )
+
+    def file_in_everything_from_menu(self):
+        working_copy = self.file_tree_working_copy_or_warn()
+        if working_copy is None:
+            return
+        if not self.confirm_destructive_file_in('every tracked package'):
+            return
+        working_copy.file_in_everything(self.filing_browser_session())
+        self.refresh_after_file_in()
+        messagebox.showinfo(
+            'File in',
+            'Filed in from disk. Commit or abort to keep or discard the changes.',
+        )
+
+    def file_out_class_categories_from_menu(self):
+        working_copy = self.file_tree_working_copy_or_warn()
+        if working_copy is None:
+            return
+        categories = sorted(self.filing_browser_session().list_categories())
+        dialog = FileOutCategoriesDialog(self, categories)
+        self.wait_window(dialog)
+        if not dialog.selected_categories:
+            return
+        for class_category in dialog.selected_categories:
+            working_copy.file_out_class_category(
+                self.filing_browser_session(), class_category
+            )
+        messagebox.showinfo(
+            'File out',
+            'Filed out %d class categories to disk.' % len(dialog.selected_categories),
+        )
+
+    def file_out_class_category_action(self, class_category):
+        working_copy = self.file_tree_working_copy_or_warn()
+        if working_copy is None:
+            return
+        working_copy.file_out_class_category(
+            self.filing_browser_session(), class_category
+        )
+        messagebox.showinfo('File out', 'Filed out %s to disk.' % class_category)
+
+    def file_in_class_category_action(self, class_category):
+        working_copy = self.file_tree_working_copy_or_warn()
+        if working_copy is None:
+            return
+        if not self.confirm_destructive_file_in('class category %s' % class_category):
+            return
+        working_copy.file_in_class_category(
+            self.filing_browser_session(), class_category
+        )
+        self.refresh_after_file_in()
+
+    def file_out_class_action(self, class_name):
+        working_copy = self.file_tree_working_copy_or_warn()
+        if working_copy is None:
+            return
+        working_copy.file_out_class(self.filing_browser_session(), class_name)
+        messagebox.showinfo('File out', 'Filed out %s to disk.' % class_name)
+
+    def file_in_class_action(self, class_name):
+        working_copy = self.file_tree_working_copy_or_warn()
+        if working_copy is None:
+            return
+        if not self.confirm_destructive_file_in('class %s' % class_name):
+            return
+        working_copy.file_in_named_class(self.filing_browser_session(), class_name)
+        self.refresh_after_file_in()
+
+    def file_out_method_action(self, class_name, method_selector, show_instance_side):
+        working_copy = self.file_tree_working_copy_or_warn()
+        if working_copy is None:
+            return
+        working_copy.file_out_method(
+            self.filing_browser_session(),
+            class_name,
+            method_selector,
+            not show_instance_side,
+        )
+        messagebox.showinfo(
+            'File out', 'Filed out %s>>%s to disk.' % (class_name, method_selector)
+        )
+
+    def file_in_method_action(self, class_name, method_selector, show_instance_side):
+        working_copy = self.file_tree_working_copy_or_warn()
+        if working_copy is None:
+            return
+        if not self.confirm_destructive_file_in(
+            '%s>>%s' % (class_name, method_selector)
+        ):
+            return
+        working_copy.file_in_method(
+            self.filing_browser_session(),
+            class_name,
+            method_selector,
+            not show_instance_side,
+        )
+        self.refresh_after_file_in()
+
+    def file_out_method_category_action(
+        self, class_name, method_category, show_instance_side
+    ):
+        working_copy = self.file_tree_working_copy_or_warn()
+        if working_copy is None:
+            return
+        working_copy.file_out_method_category(
+            self.filing_browser_session(),
+            class_name,
+            method_category,
+            not show_instance_side,
+        )
+        messagebox.showinfo(
+            'File out', 'Filed out %s (%s) to disk.' % (class_name, method_category)
+        )
+
+    def file_in_method_category_action(
+        self, class_name, method_category, show_instance_side
+    ):
+        working_copy = self.file_tree_working_copy_or_warn()
+        if working_copy is None:
+            return
+        if not self.confirm_destructive_file_in(
+            '%s protocol %s' % (class_name, method_category)
+        ):
+            return
+        working_copy.file_in_method_category(
+            self.filing_browser_session(),
+            class_name,
+            method_category,
+            not show_instance_side,
+        )
+        self.refresh_after_file_in()
 
     def commit(self):
         self.gemstone_session_record.commit()
