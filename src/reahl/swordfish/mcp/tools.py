@@ -1,5 +1,4 @@
 import functools
-import json
 import os
 import re
 import threading
@@ -578,24 +577,6 @@ def register_tools(
         )
 
     sender_response_char_budget = 32000
-
-    def entries_within_char_budget(entries, max_chars):
-        # AI: Keep entries until adding the next one would exceed the response budget,
-        # so a result can never blow past the client's token limit however large each
-        # send-site slice is. Always keep at least one entry so a single huge entry is
-        # still returned (truncated by paging) rather than producing an empty page.
-        kept = []
-        used = 0
-        budget_reached = False
-        for entry in entries:
-            if not budget_reached:
-                entry_chars = len(json.dumps(entry))
-                if kept and used + entry_chars > max_chars:
-                    budget_reached = True
-                else:
-                    kept.append(entry)
-                    used = used + entry_chars
-        return kept, budget_reached
 
     def current_eval_mode():
         if not get_permissions()['allow_eval_arbitrary']:
@@ -3490,6 +3471,7 @@ def register_tools(
         class_name_pattern: Optional[str] = None,
         side: Optional[str] = None,
         offset: int = 0,
+        real_sends_only: bool = False,
     ):
         """Find static senders of a selector, as a bounded page. Returns at most
         max_results (default 50) entries and never exceeds a response-size budget, so a
@@ -3498,10 +3480,12 @@ def register_tools(
         first to size the result and choose filters. Narrow with class_categories,
         method_categories, class_name_pattern (regex) and side ('instance'/'class').
         granularity 'send_site' (default) gives one entry per call site; 'method' whole
-        methods; 'identifier' locations only. count_only returns counts only. Note:
-        senders come from the symbol-reference index, so an entry means the selector is
-        referenced - usually a real send, but a #selector literal (e.g. for perform:)
-        also counts."""
+        methods; 'identifier' locations only. count_only returns counts only. Each entry
+        (at send_site/method granularity) carries a 'kind': 'direct_send', 'reflective_send'
+        (a #selector handed to perform:), or 'reference_only' (a #selector literal used
+        elsewhere - surfaced with its source so you can judge it). real_sends_only keeps
+        direct_send + reflective_send and reports how many reference_only were omitted, so
+        the symbol-reference noise is dropped without hiding perform: sends."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
@@ -3520,6 +3504,7 @@ def register_tools(
                 method_categories, "method_categories"
             )
             side = validated_sender_side(side)
+            real_sends_only = validated_boolean(real_sends_only, "real_sends_only")
             if class_name_pattern is not None:
                 class_name_pattern = validated_non_empty_string(
                     class_name_pattern, "class_name_pattern"
@@ -3535,16 +3520,9 @@ def register_tools(
                 class_name_pattern=class_name_pattern,
                 side=side,
                 offset=offset,
+                real_sends_only=real_sends_only,
+                max_response_chars=sender_response_char_budget,
             )
-            total_count = search_result["total_count"]
-            kept_senders, budget_reached = entries_within_char_budget(
-                search_result["senders"], sender_response_char_budget
-            )
-            returned_count = len(kept_senders)
-            more_remaining = (not count_only) and (
-                offset + returned_count < total_count
-            )
-            next_offset = (offset + returned_count) if more_remaining else None
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             return {
                 "ok": True,
@@ -3553,6 +3531,7 @@ def register_tools(
                 "max_results": max_results,
                 "count_only": count_only,
                 "granularity": granularity,
+                "real_sends_only": real_sends_only,
                 "offset": offset,
                 "filters": {
                     "class_categories": class_categories,
@@ -3560,13 +3539,14 @@ def register_tools(
                     "class_name_pattern": class_name_pattern,
                     "side": side,
                 },
-                "total_count": total_count,
-                "returned_count": returned_count,
-                "truncated": more_remaining,
-                "budget_reached": budget_reached,
-                "next_offset": next_offset,
+                "total_count": search_result["total_count"],
+                "returned_count": search_result["returned_count"],
+                "reference_only_omitted": search_result["reference_only_omitted"],
+                "truncated": search_result["truncated"],
+                "budget_reached": search_result["budget_reached"],
+                "next_offset": search_result["next_offset"],
                 "elapsed_ms": elapsed_ms,
-                "senders": kept_senders,
+                "senders": search_result["senders"],
             }
         except GemstoneError as error:
             return {
