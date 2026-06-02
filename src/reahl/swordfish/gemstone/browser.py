@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import time
@@ -31,6 +32,19 @@ from reahl.swordfish.mcp.tracer_assets import (
     tracer_source,
     tracer_source_hash,
 )
+
+# AI: Selectors that send their first argument as a message - a #selector literal handed
+# to one of these is a real (dynamic) send, not mere data, so it must be classified as a
+# reflective send rather than dropped as a symbol reference.
+PERFORM_FAMILY_SELECTORS = frozenset({
+    'perform:',
+    'perform:with:',
+    'perform:with:with:',
+    'perform:with:with:with:',
+    'perform:with:with:with:with:',
+    'perform:withArguments:',
+    'perform:withArguments:environment:',
+})
 
 
 class GemstoneBrowserSession:
@@ -6432,6 +6446,8 @@ class GemstoneBrowserSession:
         class_name_pattern=None,
         side=None,
         offset=0,
+        real_sends_only=False,
+        max_response_chars=None,
     ):
         needs_categories = (
             include_category_details
@@ -6451,25 +6467,68 @@ class GemstoneBrowserSession:
             side=side,
         )
         total_count = len(method_summaries)
-        page_summaries = (
-            [] if count_only else self.paged_entries(method_summaries, offset, max_results)
-        )
-        detailed_senders = [
-            self.sender_with_call_detail(sender, method_name, granularity)
-            for sender in page_summaries
-        ]
+        if count_only:
+            return {
+                "senders": [],
+                "total_count": total_count,
+                "returned_count": 0,
+                "reference_only_omitted": 0,
+                "offset": offset,
+                "next_offset": None,
+                "truncated": False,
+                "budget_reached": False,
+            }
+        # AI: One pass over candidates from offset, consuming each (so paging resumes
+        # correctly) until max_results entries are shown or the next shown entry would
+        # exceed the response budget. real_sends_only drops reference_only candidates from
+        # the shown list but still consumes them, and they cost nothing against the budget
+        # since they are not returned. At least one entry is always kept so a single huge
+        # entry is paged rather than producing an empty page.
+        senders = []
+        reference_only_omitted = 0
+        consumed = 0
+        used_chars = 0
+        budget_reached = False
+        index = offset
+        while (
+            index < total_count
+            and not budget_reached
+            and (max_results is None or consumed < max_results)
+        ):
+            detail = self.sender_with_call_detail(
+                method_summaries[index], method_name, granularity
+            )
+            if real_sends_only and detail.get('kind') == 'reference_only':
+                reference_only_omitted = reference_only_omitted + 1
+                consumed = consumed + 1
+                index = index + 1
+            else:
+                entry_chars = (
+                    len(json.dumps(detail)) if max_response_chars is not None else 0
+                )
+                if (
+                    senders
+                    and max_response_chars is not None
+                    and used_chars + entry_chars > max_response_chars
+                ):
+                    budget_reached = True
+                else:
+                    senders.append(detail)
+                    used_chars = used_chars + entry_chars
+                    consumed = consumed + 1
+                    index = index + 1
+        next_offset = offset + consumed
+        more_remaining = next_offset < total_count
         return {
-            "senders": detailed_senders,
+            "senders": senders,
             "total_count": total_count,
-            "returned_count": len(detailed_senders),
+            "returned_count": len(senders),
+            "reference_only_omitted": reference_only_omitted,
             "offset": offset,
+            "next_offset": next_offset if more_remaining else None,
+            "truncated": more_remaining,
+            "budget_reached": budget_reached,
         }
-
-    def paged_entries(self, entries, offset, max_results):
-        start = offset or 0
-        if max_results is None:
-            return entries[start:]
-        return entries[start : start + max_results]
 
     def filtered_method_summaries(
         self,
@@ -6579,27 +6638,77 @@ class GemstoneBrowserSession:
             sender["method_selector"],
             sender["show_instance_side"],
         )
+        classification = self.classified_occurrences(source, method_name)
         if granularity == 'method':
-            return {**sender, 'method_source': source}
-        return {**sender, **self.send_sites_in_source(source, method_name)}
+            return {**sender, 'method_source': source, 'kind': classification['kind']}
+        return {**sender, **classification}
 
-    def send_sites_in_source(self, source, method_name):
+    def classified_occurrences(self, source, method_name):
+        # AI: Distinguish a real send of the selector from a #selector literal that merely
+        # references it - senders come from the symbol-reference index, which cannot tell
+        # them apart, but the parsed method can. A literal handed to perform: (etc.) is
+        # still a real (dynamic) send, so it is kept as reflective_send, not dropped; a
+        # literal used anywhere else is reference_only but is surfaced with its source
+        # slice, so a custom dispatcher or an indirect 'sel := #x. obj perform: sel' is
+        # flagged for the reader rather than silently hidden.
         try:
             method_node = SmalltalkMethodParser().parse_method(source)
         except SmalltalkSyntaxError:
-            return {'send_sites_unavailable': 'parse_error', 'method_source': source}
-        indexed_nodes = index_nodes_by_path(method_node)
-        send_sites = [
-            {
-                'node_path': path,
-                'start': node.start_offset,
-                'end': node.end_offset,
-                'source': source[node.start_offset : node.end_offset],
+            return {
+                'kind': 'unparseable',
+                'send_sites': [],
+                'send_sites_unavailable': 'parse_error',
+                'method_source': source,
             }
-            for path, node in indexed_nodes.items()
-            if node.node_kind == 'message_send' and node.selector == method_name
-        ]
-        return {'send_sites': send_sites}
+        indexed_nodes = index_nodes_by_path(method_node)
+        reflective_sites = []
+        performed_literal_node_ids = set()
+        for path, node in indexed_nodes.items():
+            if (
+                node.node_kind == 'message_send'
+                and node.selector in PERFORM_FAMILY_SELECTORS
+                and node.arguments
+                and self.is_symbol_literal_for(node.arguments[0], method_name)
+            ):
+                reflective_sites.append(self.occurrence_slice(source, path, node))
+                performed_literal_node_ids.add(id(node.arguments[0]))
+        send_sites = []
+        reference_sites = []
+        for path, node in indexed_nodes.items():
+            if node.node_kind == 'message_send' and node.selector == method_name:
+                send_sites.append(self.occurrence_slice(source, path, node))
+            elif (
+                self.is_symbol_literal_for(node, method_name)
+                and id(node) not in performed_literal_node_ids
+            ):
+                reference_sites.append(self.occurrence_slice(source, path, node))
+        if send_sites:
+            kind = 'direct_send'
+        elif reflective_sites:
+            kind = 'reflective_send'
+        else:
+            kind = 'reference_only'
+        classification = {'kind': kind, 'send_sites': send_sites}
+        non_send_occurrences = reflective_sites + reference_sites
+        if kind != 'direct_send' and non_send_occurrences:
+            classification['reference_sites'] = non_send_occurrences
+        return classification
+
+    def is_symbol_literal_for(self, node, method_name):
+        if node.node_kind != 'literal' or node.literal_kind != 'symbol':
+            return False
+        symbol_text = node.text[1:] if node.text.startswith('#') else node.text
+        if symbol_text.startswith("'") and symbol_text.endswith("'"):
+            symbol_text = symbol_text[1:-1]
+        return symbol_text == method_name
+
+    def occurrence_slice(self, source, node_path, node):
+        return {
+            'node_path': node_path,
+            'start': node.start_offset,
+            'end': node.end_offset,
+            'source': source[node.start_offset : node.end_offset],
+        }
 
     def find_class_references(
         self,
