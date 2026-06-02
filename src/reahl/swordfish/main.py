@@ -486,6 +486,11 @@ class GemstoneSessionRecord:
             should_stop=should_stop,
         )
 
+    def existing_class_named(self, class_name):
+        """AI: Exact class lookup that resolves the name as a symbol instead of scanning
+        every class in the image - the fast path for the Find dialog's Exact match."""
+        return self.gemstone_browser_session.existing_class_named(class_name)
+
     def find_selectors_matching(self, search_input, should_stop=None):
         yield from self.gemstone_browser_session.find_selectors(
             search_input,
@@ -3346,6 +3351,8 @@ class FindDialog(tk.Toplevel):
         match_mode,
         should_stop=None,
     ):
+        if match_mode == "exact":
+            return self.gemstone_session_record.existing_class_named(query_text)
         class_pattern = self.class_match_query_pattern(
             query_text,
             match_mode,

@@ -6356,6 +6356,27 @@ class GemstoneBrowserSession:
                 class_matches.append(class_name)
         return class_matches
 
+    def existing_class_named(self, class_name):
+        """AI: The exact-match counterpart of find_classes. An exact name needs no scan
+        over every class in the image - it is one symbol resolve (an O(1) dictionary
+        lookup), the same primitive Browse Class uses. resolve_symbol does not raise for
+        an undefined name: it answers a phantom object on the illegal OOP, and for a
+        defined non-class global it answers that global - so a bare truthiness check
+        would report both as matches and then fail to open them ('object does not
+        exist'). We therefore confirm the resolved object is really a class (a Behavior)
+        before claiming a match, keeping find_classes' contract of yielding only
+        navigable class names. This stays O(1) - a resolve plus one send."""
+        gemstone_class = self.resolved_class(class_name)
+        if gemstone_class is None:
+            return []
+        try:
+            resolved_is_class = gemstone_class.perform('isBehavior').to_py
+        except (GemstoneError, GemstoneApiError):
+            return []
+        if resolved_is_class:
+            return [class_name]
+        return []
+
     def find_selectors(self, search_input, should_stop=None):
         selector_matches = set()
         class_names = self.all_class_names()
