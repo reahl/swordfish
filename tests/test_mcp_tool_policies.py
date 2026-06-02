@@ -948,6 +948,26 @@ def test_gs_guidance_recommends_evidence_for_hotspot_when_tracing_enabled(
     assert fanout_rule_present
 
 
+@with_fixtures(AllowedToolsFixture)
+def test_gs_guidance_steers_any_selector_to_the_senders_overview_workflow(
+    tools_fixture,
+):
+    """AI: Whatever selector you ask about - not just the few hardcoded hotspots like
+    ifTrue: - the guidance points at sizing senders with gs_senders_overview before
+    pulling a bounded, filtered gs_find_senders page, so an AI does not dump a hot
+    selector like name (thousands of senders). The steering is a decision rule, not a
+    caution, so a non-hotspot selector stays free of high-fanout noise."""
+    guidance_result = tools_fixture.gs_guidance(selector="name")
+    assert guidance_result["ok"], guidance_result
+    senders_rule_present = any(
+        "gs_senders_overview" in rule["prefer_tools"]
+        for rule in guidance_result["decision_rules"]
+    )
+    assert senders_rule_present
+    cautions_text = " ".join(guidance_result["cautions"])
+    assert "high-fanout" not in cautions_text
+
+
 
 @with_fixtures(RestrictedToolsFixture)
 def test_gs_tracer_install_is_disabled_by_default(tools_fixture):

@@ -6496,7 +6496,10 @@ class GemstoneBrowserSession:
             and (max_results is None or consumed < max_results)
         ):
             detail = self.sender_with_call_detail(
-                method_summaries[index], method_name, granularity
+                method_summaries[index],
+                method_name,
+                granularity,
+                classify=real_sends_only,
             )
             if real_sends_only and detail.get('kind') == 'reference_only':
                 reference_only_omitted = reference_only_omitted + 1
@@ -6630,9 +6633,22 @@ class GemstoneBrowserSession:
             "remaining_count": sum(count for value, count in remaining_entries),
         }
 
-    def sender_with_call_detail(self, sender, method_name, granularity):
+    def sender_with_call_detail(self, sender, method_name, granularity, classify=False):
         if granularity == 'identifier':
-            return sender
+            if not classify:
+                return sender
+            # AI: identifier granularity normally fetches no source, but real_sends_only
+            # needs each entry's kind to filter on, so classify here - staying lean by
+            # carrying only the kind, not the send_sites.
+            source = self.get_method_source(
+                sender["class_name"],
+                sender["method_selector"],
+                sender["show_instance_side"],
+            )
+            return {
+                **sender,
+                'kind': self.classified_occurrences(source, method_name)['kind'],
+            }
         source = self.get_method_source(
             sender["class_name"],
             sender["method_selector"],

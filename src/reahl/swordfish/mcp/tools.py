@@ -855,7 +855,10 @@ def register_tools(
         if selector_is_common_hotspot(selector):
             cautions.append(
                 'Selector %s is often high-fanout. '
-                'Static senders may contain many unrelated call sites.'
+                'Static senders may contain many unrelated call sites - call '
+                'gs_senders_overview to size and locate them, then gs_find_senders '
+                'with filters and paging (real_sends_only drops symbol-reference '
+                'noise).'
                 % selector
             )
         if (
@@ -871,6 +874,25 @@ def register_tools(
 
     def state_dependent_decision_rules(selector):
         decision_rules = []
+        if selector is not None:
+            decision_rules.append(
+                {
+                    'when': 'You need the senders of %s.' % selector,
+                    'prefer_tools': ['gs_senders_overview', 'gs_find_senders'],
+                    'avoid_tools': [
+                        'gs_find_senders with no filters or paging on a '
+                        'high-traffic selector'
+                    ],
+                    'reason': (
+                        'gs_senders_overview cheaply sizes the senders and shows '
+                        'where they cluster (by class category, method category and '
+                        'class); gs_find_senders then returns a bounded, paged result '
+                        'you narrow with class_categories / method_categories / side / '
+                        'class_name_pattern, and real_sends_only keeps real and '
+                        'perform: sends while dropping #selector reference noise.'
+                    ),
+                }
+            )
         if get_permissions()['allow_eval_arbitrary']:
             decision_rules.append(
                 {
