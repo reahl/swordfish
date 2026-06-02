@@ -100,6 +100,14 @@ class CoveringTestsDiscoveryWorkflow:
     def request_cancel(self):
         self.search_state['cancel_requested'] = True
         self.should_stop.set()
+        try:
+            self.gemstone_session_record.hard_break()
+        except GemstoneError:
+            # AI: should_stop above already covers the safe points between calls; a
+            # hard_break that cannot be delivered (or that finds the gem idle) must not
+            # crash the UI thread that asked to stop, so we let the cooperative flag
+            # stand on its own.
+            pass
 
     def request_use_results(self):
         self.search_state['use_results_requested_for_attempt'] = True
@@ -271,6 +279,9 @@ class CoveringTestsBrowseDialog(tk.Toplevel):
         )
         self.close_button.grid(row=0, column=3)
         self.protocol('WM_DELETE_WINDOW', self.close_dialog)
+        self.bind('<Command-period>', self.interrupt_search_shortcut)
+        self.bind('<Alt-period>', self.interrupt_search_shortcut)
+        self.bind('<Control-period>', self.interrupt_search_shortcut)
 
         self.run_search_attempt()
         self.after(50, self.monitor_search)
@@ -533,6 +544,13 @@ class CoveringTestsBrowseDialog(tk.Toplevel):
             self.stop_search_requested = True
         if not self.is_searching:
             self.destroy()
+
+    def interrupt_search_shortcut(self, event):
+        """AI: Pharo-style Cmd/Alt/Ctrl + . interrupts the running search from the
+        keyboard, mirroring the Stop button so a search parked inside a long GemStone
+        call can be abandoned without reaching for the mouse."""
+        self.request_stop_search()
+        return 'break'
 
     def request_search_further(self):
         if not self.is_searching and self.is_timed_out:

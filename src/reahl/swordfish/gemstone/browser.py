@@ -44,6 +44,14 @@ class GemstoneBrowserSession:
         # MCP tools and IDE can surface drift warnings without changing edit return contracts.
         self.last_sync_outcome = None
 
+    def hard_break(self):
+        """AI: Force the session to abandon whatever GemStone code it is currently
+        running. Issue #2 in parseltongue exposes this so a Stop request on one thread
+        can interrupt a call blocked on another; we forward it so the IDE can abandon a
+        search that is parked inside a single long-running call (such as a referencesTo:
+        scan) which the cooperative stop flag cannot reach."""
+        self.gemstone_session.hard_break()
+
     def class_categories_by_class_name(self):
         category_by_class_name = {}
         try:
