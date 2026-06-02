@@ -120,6 +120,12 @@ class GemstoneSessionRecord:
         self.browse_mode = "categories"
         self.transaction_is_dirty = False
 
+    def hard_break(self):
+        """AI: Forward a forceful interrupt to the underlying GemStone session so a
+        Stop request can abandon a call that is in flight on another thread (see
+        parseltongue issue #2)."""
+        self.gemstone_browser_session.hard_break()
+
     def set_integrated_session_state(self, integrated_session_state):
         self.integrated_session_state = integrated_session_state
 
@@ -4340,6 +4346,9 @@ class CoveringTestsSearchDialog(tk.Toplevel):
         self.transient(parent)
         self.wait_visibility()
         self.grab_set()
+        self.bind("<Command-period>", self.interrupt_search_shortcut)
+        self.bind("<Alt-period>", self.interrupt_search_shortcut)
+        self.bind("<Control-period>", self.interrupt_search_shortcut)
 
         self.selected_tests = None
         self.was_cancelled = True
@@ -4633,6 +4642,13 @@ class CoveringTestsSearchDialog(tk.Toplevel):
         if self.is_searching:
             self.stop_search_requested = True
             self.set_stopping_for_cancel_state()
+
+    def interrupt_search_shortcut(self, event):
+        """AI: Pharo-style Cmd/Alt/Ctrl + . interrupts the running search from the
+        keyboard, mirroring the Stop button so a search parked inside a long GemStone
+        call can be abandoned without reaching for the mouse."""
+        self.request_stop_search()
+        return "break"
 
     def request_search_further(self):
         if not self.is_searching and self.is_timed_out:
