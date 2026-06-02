@@ -6427,24 +6427,148 @@ class GemstoneBrowserSession:
         count_only=False,
         include_category_details=False,
         granularity='identifier',
+        class_categories=None,
+        method_categories=None,
+        class_name_pattern=None,
+        side=None,
+        offset=0,
     ):
+        needs_categories = (
+            include_category_details
+            or class_categories is not None
+            or method_categories is not None
+        )
         method_summaries = self.selector_occurrence_summaries(
             method_name,
             "senders",
-            include_category_details=include_category_details,
+            include_category_details=needs_categories,
+        )
+        method_summaries = self.filtered_method_summaries(
+            method_summaries,
+            class_categories=class_categories,
+            method_categories=method_categories,
+            class_name_pattern=class_name_pattern,
+            side=side,
         )
         total_count = len(method_summaries)
-        limited_senders = (
-            [] if count_only else self.limited_entries(method_summaries, max_results)
+        page_summaries = (
+            [] if count_only else self.paged_entries(method_summaries, offset, max_results)
         )
         detailed_senders = [
             self.sender_with_call_detail(sender, method_name, granularity)
-            for sender in limited_senders
+            for sender in page_summaries
         ]
         return {
             "senders": detailed_senders,
             "total_count": total_count,
             "returned_count": len(detailed_senders),
+            "offset": offset,
+        }
+
+    def paged_entries(self, entries, offset, max_results):
+        start = offset or 0
+        if max_results is None:
+            return entries[start:]
+        return entries[start : start + max_results]
+
+    def filtered_method_summaries(
+        self,
+        method_summaries,
+        class_categories=None,
+        method_categories=None,
+        class_name_pattern=None,
+        side=None,
+    ):
+        """AI: Narrow candidate summaries by facet before counting and slicing, so a
+        selector with thousands of senders can be reduced to the class categories, method
+        categories, class-name pattern, or instance/class side the caller cares about.
+        Filtering on the cheap summaries (no source) keeps it fast even on hot selectors."""
+        compiled_pattern = None
+        if class_name_pattern is not None:
+            try:
+                compiled_pattern = re.compile(class_name_pattern, re.IGNORECASE)
+            except re.error as error:
+                raise DomainException("Invalid class_name_pattern: %s" % error)
+
+        def summary_is_kept(summary):
+            # AI: An empty (or None) filter means 'no constraint' - the MCP layer's
+            # validator turns an omitted list into [], so testing truthiness here (not
+            # 'is not None') is what stops an absent filter from matching nothing and
+            # silently dropping every candidate.
+            kept = True
+            if class_categories:
+                kept = kept and summary.get("class_category") in class_categories
+            if method_categories:
+                kept = kept and summary.get("method_category") in method_categories
+            if compiled_pattern is not None:
+                kept = kept and bool(compiled_pattern.search(summary["class_name"]))
+            if side:
+                kept = kept and summary["show_instance_side"] == (side == "instance")
+            return kept
+
+        return [
+            summary for summary in method_summaries if summary_is_kept(summary)
+        ]
+
+    def senders_count(self, method_name):
+        """AI: The cheapest tier - just how many senders there are and the instance/class
+        split, a few integers. The total is the symbol-reference count: an exact, cheap
+        upper bound on real sends, not a precise true-send count (that needs the AST
+        pass). senders_overview adds the grouped breakdown on top of this."""
+        method_summaries = self.selector_occurrence_summaries(
+            method_name, "senders", include_category_details=True
+        )
+        return self.occurrence_count(method_summaries)
+
+    def senders_overview(self, method_name, top=10):
+        """AI: The breakdown tier - the count plus tallies grouped by class category,
+        instance/class side and method category, and per class - computed from the same
+        single occurrence query, no method source fetched. Each grouping is bounded to
+        the top-N most frequent values with a remaining tail, so even a selector with
+        hundreds of classes returns a small, ranked summary the model can narrow from."""
+        method_summaries = self.selector_occurrence_summaries(
+            method_name, "senders", include_category_details=True
+        )
+        return self.occurrence_overview(method_summaries, top=top)
+
+    def occurrence_count(self, method_summaries):
+        instance_side_count = sum(
+            1 for summary in method_summaries if summary["show_instance_side"]
+        )
+        return {
+            "total": len(method_summaries),
+            "by_side": {
+                "instance": instance_side_count,
+                "class": len(method_summaries) - instance_side_count,
+            },
+        }
+
+    def occurrence_overview(self, method_summaries, top=10):
+        overview = self.occurrence_count(method_summaries)
+        overview["by_class_category"] = self.tally_by(
+            method_summaries, "class_category", top
+        )
+        overview["by_method_category"] = self.tally_by(
+            method_summaries, "method_category", top
+        )
+        overview["classes"] = self.tally_by(method_summaries, "class_name", top)
+        return overview
+
+    def tally_by(self, method_summaries, facet, top):
+        counts = {}
+        for summary in method_summaries:
+            value = summary.get(facet)
+            counts[value] = counts.get(value, 0) + 1
+        ranked = sorted(
+            counts.items(),
+            key=lambda item: (-item[1], item[0] if item[0] is not None else ""),
+        )
+        top_entries = ranked[:top]
+        remaining_entries = ranked[top:]
+        return {
+            "top": [{facet: value, "count": count} for value, count in top_entries],
+            "remaining_values": len(remaining_entries),
+            "remaining_count": sum(count for value, count in remaining_entries),
         }
 
     def sender_with_call_detail(self, sender, method_name, granularity):
