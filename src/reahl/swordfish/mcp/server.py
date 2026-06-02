@@ -23,9 +23,13 @@ SWORDFISH_MCP_INSTRUCTIONS = """\
 Swordfish is a Smalltalk IDE MCP server for GemStone. Tools default to
 token-economical shapes: gs_method_ast returns a bodyless outline of the
 recursive-descent AST (drill with node_path / include_source);
-gs_find_senders returns sliced send-sites (set granularity='method' for
-whole-method results); gs_query_methods_by_ast_pattern returns node
-addresses, not method bodies.
+for senders, call gs_senders_overview first to size and locate them (a small
+summary: total plus counts grouped by class category, method category and
+class), then gs_find_senders for a bounded, paged page - narrow with
+class_categories / method_categories / side / class_name_pattern, page via
+next_offset, and use real_sends_only to drop #selector reference noise (each
+entry's kind marks direct_send vs reflective_send vs reference_only);
+gs_query_methods_by_ast_pattern returns node addresses, not method bodies.
 
 All code changes are explicit-transaction: call gs_begin first, then either
 the preview/apply pair pattern for refactorings (gs_preview_* before

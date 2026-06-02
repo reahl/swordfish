@@ -569,6 +569,15 @@ def register_tools(
             "granularity must be one of 'identifier', 'send_site' or 'method'."
         )
 
+    def validated_sender_side(input_value):
+        if input_value is None or input_value in ('instance', 'class'):
+            return input_value
+        raise DomainException(
+            "side must be 'instance', 'class' or omitted for both."
+        )
+
+    sender_response_char_budget = 32000
+
     def current_eval_mode():
         if not get_permissions()['allow_eval_arbitrary']:
             return "disabled"
@@ -846,7 +855,10 @@ def register_tools(
         if selector_is_common_hotspot(selector):
             cautions.append(
                 'Selector %s is often high-fanout. '
-                'Static senders may contain many unrelated call sites.'
+                'Static senders may contain many unrelated call sites - call '
+                'gs_senders_overview to size and locate them, then gs_find_senders '
+                'with filters and paging (real_sends_only drops symbol-reference '
+                'noise).'
                 % selector
             )
         if (
@@ -862,6 +874,25 @@ def register_tools(
 
     def state_dependent_decision_rules(selector):
         decision_rules = []
+        if selector is not None:
+            decision_rules.append(
+                {
+                    'when': 'You need the senders of %s.' % selector,
+                    'prefer_tools': ['gs_senders_overview', 'gs_find_senders'],
+                    'avoid_tools': [
+                        'gs_find_senders with no filters or paging on a '
+                        'high-traffic selector'
+                    ],
+                    'reason': (
+                        'gs_senders_overview cheaply sizes the senders and shows '
+                        'where they cluster (by class category, method category and '
+                        'class); gs_find_senders then returns a bounded, paged result '
+                        'you narrow with class_categories / method_categories / side / '
+                        'class_name_pattern, and real_sends_only keeps real and '
+                        'perform: sends while dropping #selector reference noise.'
+                    ),
+                }
+            )
         if get_permissions()['allow_eval_arbitrary']:
             decision_rules.append(
                 {
@@ -2380,6 +2411,7 @@ def register_tools(
                     "gs_find_classes",
                     "gs_find_selectors",
                     "gs_find_implementors",
+                    "gs_senders_overview",
                     "gs_find_senders",
                     "gs_get_method_source",
                     "gs_method_ast",
@@ -3453,33 +3485,65 @@ def register_tools(
     def gs_find_senders(
         connection_id,
         method_name,
-        max_results: Optional[int] = None,
+        max_results: Optional[int] = 50,
         count_only: bool = False,
         granularity='send_site',
+        class_categories: Optional[List[str]] = None,
+        method_categories: Optional[List[str]] = None,
+        class_name_pattern: Optional[str] = None,
+        side: Optional[str] = None,
+        offset: int = 0,
+        real_sends_only: bool = False,
     ):
-        """Find static senders of a selector. By default returns sliced
-        send-sites - one entry per call site with class, method_selector and
-        send location - which is token-cheaper than fetching whole sender
-        methods. Pass granularity='method' for whole-method results, or
-        granularity='identifier' for identifier-level locations only.
-        count_only skips the result list and returns counts only."""
+        """Find static senders of a selector, as a bounded page. Returns at most
+        max_results (default 50) entries and never exceeds a response-size budget, so a
+        hot selector cannot overflow the token limit: when more remains, 'truncated' is
+        true and 'next_offset' is the cursor for the next page. Run gs_senders_overview
+        first to size the result and choose filters. Narrow with class_categories,
+        method_categories, class_name_pattern (regex) and side ('instance'/'class').
+        granularity 'send_site' (default) gives one entry per call site; 'method' whole
+        methods; 'identifier' locations only. count_only returns counts only. Each entry
+        (at send_site/method granularity) carries a 'kind': 'direct_send', 'reflective_send'
+        (a #selector handed to perform:), or 'reference_only' (a #selector literal used
+        elsewhere - surfaced with its source so you can judge it). real_sends_only keeps
+        direct_send + reflective_send and reports how many reference_only were omitted, so
+        the symbol-reference noise is dropped without hiding perform: sends."""
         browser_session, error_response = get_browser_session(connection_id)
         if error_response:
             return error_response
         try:
             method_name = validated_non_empty_string(method_name, "method_name")
             max_results = validated_non_negative_integer_or_none(
-                max_results,
-                "max_results",
+                max_results, "max_results"
             )
+            offset = validated_non_negative_integer_or_none(offset, "offset") or 0
             count_only = validated_boolean(count_only, "count_only")
             granularity = validated_sender_granularity(granularity)
+            class_categories = validated_string_list_or_none(
+                class_categories, "class_categories"
+            )
+            method_categories = validated_string_list_or_none(
+                method_categories, "method_categories"
+            )
+            side = validated_sender_side(side)
+            real_sends_only = validated_boolean(real_sends_only, "real_sends_only")
+            if class_name_pattern is not None:
+                class_name_pattern = validated_non_empty_string(
+                    class_name_pattern, "class_name_pattern"
+                )
             started_at = time.perf_counter()
             search_result = browser_session.find_senders(
                 method_name,
                 max_results=max_results,
                 count_only=count_only,
                 granularity=granularity,
+                class_categories=class_categories,
+                method_categories=method_categories,
+                class_name_pattern=class_name_pattern,
+                side=side,
+                offset=offset,
+                real_sends_only=real_sends_only,
+                max_response_chars=sender_response_char_budget,
             )
             elapsed_ms = int((time.perf_counter() - started_at) * 1000)
             return {
@@ -3489,10 +3553,65 @@ def register_tools(
                 "max_results": max_results,
                 "count_only": count_only,
                 "granularity": granularity,
+                "real_sends_only": real_sends_only,
+                "offset": offset,
+                "filters": {
+                    "class_categories": class_categories,
+                    "method_categories": method_categories,
+                    "class_name_pattern": class_name_pattern,
+                    "side": side,
+                },
                 "total_count": search_result["total_count"],
                 "returned_count": search_result["returned_count"],
+                "reference_only_omitted": search_result["reference_only_omitted"],
+                "truncated": search_result["truncated"],
+                "budget_reached": search_result["budget_reached"],
+                "next_offset": search_result["next_offset"],
                 "elapsed_ms": elapsed_ms,
                 "senders": search_result["senders"],
+            }
+        except GemstoneError as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
+            }
+        except DomainException as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_senders_overview(connection_id, method_name, top: int = 10):
+        """Size up the senders of a selector before fetching them. Returns the total
+        sender count, the instance/class split, and the most frequent class categories,
+        method categories and classes (each bounded to `top` with a remaining tally).
+        Small and cheap regardless of how many senders exist - use it to decide which
+        filters to pass to gs_find_senders. 'total' is the symbol-reference count, an
+        upper bound on real sends."""
+        browser_session, error_response = get_browser_session(connection_id)
+        if error_response:
+            return error_response
+        try:
+            method_name = validated_non_empty_string(method_name, "method_name")
+            top = validated_positive_integer(top, "top")
+            started_at = time.perf_counter()
+            overview = browser_session.senders_overview(method_name, top=top)
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+            return {
+                "ok": True,
+                "connection_id": connection_id,
+                "method_name": method_name,
+                "elapsed_ms": elapsed_ms,
+                **overview,
             }
         except GemstoneError as error:
             return {

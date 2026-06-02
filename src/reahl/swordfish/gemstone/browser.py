@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import time
@@ -32,6 +33,19 @@ from reahl.swordfish.mcp.tracer_assets import (
     tracer_source_hash,
 )
 
+# AI: Selectors that send their first argument as a message - a #selector literal handed
+# to one of these is a real (dynamic) send, not mere data, so it must be classified as a
+# reflective send rather than dropped as a symbol reference.
+PERFORM_FAMILY_SELECTORS = frozenset({
+    'perform:',
+    'perform:with:',
+    'perform:with:with:',
+    'perform:with:with:with:',
+    'perform:with:with:with:with:',
+    'perform:withArguments:',
+    'perform:withArguments:environment:',
+})
+
 
 class GemstoneBrowserSession:
     def __init__(
@@ -43,6 +57,14 @@ class GemstoneBrowserSession:
         # AI: The outcome of mirroring the most recent edit to the on-disk FileTree, so the
         # MCP tools and IDE can surface drift warnings without changing edit return contracts.
         self.last_sync_outcome = None
+
+    def hard_break(self):
+        """AI: Force the session to abandon whatever GemStone code it is currently
+        running. Issue #2 in parseltongue exposes this so a Stop request on one thread
+        can interrupt a call blocked on another; we forward it so the IDE can abandon a
+        search that is parked inside a single long-running call (such as a referencesTo:
+        scan) which the cooperative stop flag cannot reach."""
+        self.gemstone_session.hard_break()
 
     def class_categories_by_class_name(self):
         category_by_class_name = {}
@@ -6348,6 +6370,27 @@ class GemstoneBrowserSession:
                 class_matches.append(class_name)
         return class_matches
 
+    def existing_class_named(self, class_name):
+        """AI: The exact-match counterpart of find_classes. An exact name needs no scan
+        over every class in the image - it is one symbol resolve (an O(1) dictionary
+        lookup), the same primitive Browse Class uses. resolve_symbol does not raise for
+        an undefined name: it answers a phantom object on the illegal OOP, and for a
+        defined non-class global it answers that global - so a bare truthiness check
+        would report both as matches and then fail to open them ('object does not
+        exist'). We therefore confirm the resolved object is really a class (a Behavior)
+        before claiming a match, keeping find_classes' contract of yielding only
+        navigable class names. This stays O(1) - a resolve plus one send."""
+        gemstone_class = self.resolved_class(class_name)
+        if gemstone_class is None:
+            return []
+        try:
+            resolved_is_class = gemstone_class.perform('isBehavior').to_py
+        except (GemstoneError, GemstoneApiError):
+            return []
+        if resolved_is_class:
+            return [class_name]
+        return []
+
     def find_selectors(self, search_input, should_stop=None):
         selector_matches = set()
         class_names = self.all_class_names()
@@ -6398,55 +6441,290 @@ class GemstoneBrowserSession:
         count_only=False,
         include_category_details=False,
         granularity='identifier',
+        class_categories=None,
+        method_categories=None,
+        class_name_pattern=None,
+        side=None,
+        offset=0,
+        real_sends_only=False,
+        max_response_chars=None,
     ):
+        needs_categories = (
+            include_category_details
+            or class_categories is not None
+            or method_categories is not None
+        )
         method_summaries = self.selector_occurrence_summaries(
             method_name,
             "senders",
-            include_category_details=include_category_details,
+            include_category_details=needs_categories,
+        )
+        method_summaries = self.filtered_method_summaries(
+            method_summaries,
+            class_categories=class_categories,
+            method_categories=method_categories,
+            class_name_pattern=class_name_pattern,
+            side=side,
         )
         total_count = len(method_summaries)
-        limited_senders = (
-            [] if count_only else self.limited_entries(method_summaries, max_results)
-        )
-        detailed_senders = [
-            self.sender_with_call_detail(sender, method_name, granularity)
-            for sender in limited_senders
-        ]
+        if count_only:
+            return {
+                "senders": [],
+                "total_count": total_count,
+                "returned_count": 0,
+                "reference_only_omitted": 0,
+                "offset": offset,
+                "next_offset": None,
+                "truncated": False,
+                "budget_reached": False,
+            }
+        # AI: One pass over candidates from offset, consuming each (so paging resumes
+        # correctly) until max_results entries are shown or the next shown entry would
+        # exceed the response budget. real_sends_only drops reference_only candidates from
+        # the shown list but still consumes them, and they cost nothing against the budget
+        # since they are not returned. At least one entry is always kept so a single huge
+        # entry is paged rather than producing an empty page.
+        senders = []
+        reference_only_omitted = 0
+        consumed = 0
+        used_chars = 0
+        budget_reached = False
+        index = offset
+        while (
+            index < total_count
+            and not budget_reached
+            and (max_results is None or consumed < max_results)
+        ):
+            detail = self.sender_with_call_detail(
+                method_summaries[index],
+                method_name,
+                granularity,
+                classify=real_sends_only,
+            )
+            if real_sends_only and detail.get('kind') == 'reference_only':
+                reference_only_omitted = reference_only_omitted + 1
+                consumed = consumed + 1
+                index = index + 1
+            else:
+                entry_chars = (
+                    len(json.dumps(detail)) if max_response_chars is not None else 0
+                )
+                if (
+                    senders
+                    and max_response_chars is not None
+                    and used_chars + entry_chars > max_response_chars
+                ):
+                    budget_reached = True
+                else:
+                    senders.append(detail)
+                    used_chars = used_chars + entry_chars
+                    consumed = consumed + 1
+                    index = index + 1
+        next_offset = offset + consumed
+        more_remaining = next_offset < total_count
         return {
-            "senders": detailed_senders,
+            "senders": senders,
             "total_count": total_count,
-            "returned_count": len(detailed_senders),
+            "returned_count": len(senders),
+            "reference_only_omitted": reference_only_omitted,
+            "offset": offset,
+            "next_offset": next_offset if more_remaining else None,
+            "truncated": more_remaining,
+            "budget_reached": budget_reached,
         }
 
-    def sender_with_call_detail(self, sender, method_name, granularity):
+    def filtered_method_summaries(
+        self,
+        method_summaries,
+        class_categories=None,
+        method_categories=None,
+        class_name_pattern=None,
+        side=None,
+    ):
+        """AI: Narrow candidate summaries by facet before counting and slicing, so a
+        selector with thousands of senders can be reduced to the class categories, method
+        categories, class-name pattern, or instance/class side the caller cares about.
+        Filtering on the cheap summaries (no source) keeps it fast even on hot selectors."""
+        compiled_pattern = None
+        if class_name_pattern is not None:
+            try:
+                compiled_pattern = re.compile(class_name_pattern, re.IGNORECASE)
+            except re.error as error:
+                raise DomainException("Invalid class_name_pattern: %s" % error)
+
+        def summary_is_kept(summary):
+            # AI: An empty (or None) filter means 'no constraint' - the MCP layer's
+            # validator turns an omitted list into [], so testing truthiness here (not
+            # 'is not None') is what stops an absent filter from matching nothing and
+            # silently dropping every candidate.
+            kept = True
+            if class_categories:
+                kept = kept and summary.get("class_category") in class_categories
+            if method_categories:
+                kept = kept and summary.get("method_category") in method_categories
+            if compiled_pattern is not None:
+                kept = kept and bool(compiled_pattern.search(summary["class_name"]))
+            if side:
+                kept = kept and summary["show_instance_side"] == (side == "instance")
+            return kept
+
+        return [
+            summary for summary in method_summaries if summary_is_kept(summary)
+        ]
+
+    def senders_count(self, method_name):
+        """AI: The cheapest tier - just how many senders there are and the instance/class
+        split, a few integers. The total is the symbol-reference count: an exact, cheap
+        upper bound on real sends, not a precise true-send count (that needs the AST
+        pass). senders_overview adds the grouped breakdown on top of this."""
+        method_summaries = self.selector_occurrence_summaries(
+            method_name, "senders", include_category_details=True
+        )
+        return self.occurrence_count(method_summaries)
+
+    def senders_overview(self, method_name, top=10):
+        """AI: The breakdown tier - the count plus tallies grouped by class category,
+        instance/class side and method category, and per class - computed from the same
+        single occurrence query, no method source fetched. Each grouping is bounded to
+        the top-N most frequent values with a remaining tail, so even a selector with
+        hundreds of classes returns a small, ranked summary the model can narrow from."""
+        method_summaries = self.selector_occurrence_summaries(
+            method_name, "senders", include_category_details=True
+        )
+        return self.occurrence_overview(method_summaries, top=top)
+
+    def occurrence_count(self, method_summaries):
+        instance_side_count = sum(
+            1 for summary in method_summaries if summary["show_instance_side"]
+        )
+        return {
+            "total": len(method_summaries),
+            "by_side": {
+                "instance": instance_side_count,
+                "class": len(method_summaries) - instance_side_count,
+            },
+        }
+
+    def occurrence_overview(self, method_summaries, top=10):
+        overview = self.occurrence_count(method_summaries)
+        overview["by_class_category"] = self.tally_by(
+            method_summaries, "class_category", top
+        )
+        overview["by_method_category"] = self.tally_by(
+            method_summaries, "method_category", top
+        )
+        overview["classes"] = self.tally_by(method_summaries, "class_name", top)
+        return overview
+
+    def tally_by(self, method_summaries, facet, top):
+        counts = {}
+        for summary in method_summaries:
+            value = summary.get(facet)
+            counts[value] = counts.get(value, 0) + 1
+        ranked = sorted(
+            counts.items(),
+            key=lambda item: (-item[1], item[0] if item[0] is not None else ""),
+        )
+        top_entries = ranked[:top]
+        remaining_entries = ranked[top:]
+        return {
+            "top": [{facet: value, "count": count} for value, count in top_entries],
+            "remaining_values": len(remaining_entries),
+            "remaining_count": sum(count for value, count in remaining_entries),
+        }
+
+    def sender_with_call_detail(self, sender, method_name, granularity, classify=False):
         if granularity == 'identifier':
-            return sender
+            if not classify:
+                return sender
+            # AI: identifier granularity normally fetches no source, but real_sends_only
+            # needs each entry's kind to filter on, so classify here - staying lean by
+            # carrying only the kind, not the send_sites.
+            source = self.get_method_source(
+                sender["class_name"],
+                sender["method_selector"],
+                sender["show_instance_side"],
+            )
+            return {
+                **sender,
+                'kind': self.classified_occurrences(source, method_name)['kind'],
+            }
         source = self.get_method_source(
             sender["class_name"],
             sender["method_selector"],
             sender["show_instance_side"],
         )
+        classification = self.classified_occurrences(source, method_name)
         if granularity == 'method':
-            return {**sender, 'method_source': source}
-        return {**sender, **self.send_sites_in_source(source, method_name)}
+            return {**sender, 'method_source': source, 'kind': classification['kind']}
+        return {**sender, **classification}
 
-    def send_sites_in_source(self, source, method_name):
+    def classified_occurrences(self, source, method_name):
+        # AI: Distinguish a real send of the selector from a #selector literal that merely
+        # references it - senders come from the symbol-reference index, which cannot tell
+        # them apart, but the parsed method can. A literal handed to perform: (etc.) is
+        # still a real (dynamic) send, so it is kept as reflective_send, not dropped; a
+        # literal used anywhere else is reference_only but is surfaced with its source
+        # slice, so a custom dispatcher or an indirect 'sel := #x. obj perform: sel' is
+        # flagged for the reader rather than silently hidden.
         try:
             method_node = SmalltalkMethodParser().parse_method(source)
         except SmalltalkSyntaxError:
-            return {'send_sites_unavailable': 'parse_error', 'method_source': source}
-        indexed_nodes = index_nodes_by_path(method_node)
-        send_sites = [
-            {
-                'node_path': path,
-                'start': node.start_offset,
-                'end': node.end_offset,
-                'source': source[node.start_offset : node.end_offset],
+            return {
+                'kind': 'unparseable',
+                'send_sites': [],
+                'send_sites_unavailable': 'parse_error',
+                'method_source': source,
             }
-            for path, node in indexed_nodes.items()
-            if node.node_kind == 'message_send' and node.selector == method_name
-        ]
-        return {'send_sites': send_sites}
+        indexed_nodes = index_nodes_by_path(method_node)
+        reflective_sites = []
+        performed_literal_node_ids = set()
+        for path, node in indexed_nodes.items():
+            if (
+                node.node_kind == 'message_send'
+                and node.selector in PERFORM_FAMILY_SELECTORS
+                and node.arguments
+                and self.is_symbol_literal_for(node.arguments[0], method_name)
+            ):
+                reflective_sites.append(self.occurrence_slice(source, path, node))
+                performed_literal_node_ids.add(id(node.arguments[0]))
+        send_sites = []
+        reference_sites = []
+        for path, node in indexed_nodes.items():
+            if node.node_kind == 'message_send' and node.selector == method_name:
+                send_sites.append(self.occurrence_slice(source, path, node))
+            elif (
+                self.is_symbol_literal_for(node, method_name)
+                and id(node) not in performed_literal_node_ids
+            ):
+                reference_sites.append(self.occurrence_slice(source, path, node))
+        if send_sites:
+            kind = 'direct_send'
+        elif reflective_sites:
+            kind = 'reflective_send'
+        else:
+            kind = 'reference_only'
+        classification = {'kind': kind, 'send_sites': send_sites}
+        non_send_occurrences = reflective_sites + reference_sites
+        if kind != 'direct_send' and non_send_occurrences:
+            classification['reference_sites'] = non_send_occurrences
+        return classification
+
+    def is_symbol_literal_for(self, node, method_name):
+        if node.node_kind != 'literal' or node.literal_kind != 'symbol':
+            return False
+        symbol_text = node.text[1:] if node.text.startswith('#') else node.text
+        if symbol_text.startswith("'") and symbol_text.endswith("'"):
+            symbol_text = symbol_text[1:-1]
+        return symbol_text == method_name
+
+    def occurrence_slice(self, source, node_path, node):
+        return {
+            'node_path': node_path,
+            'start': node.start_offset,
+            'end': node.end_offset,
+            'source': source[node.start_offset : node.end_offset],
+        }
 
     def find_class_references(
         self,

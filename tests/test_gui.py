@@ -6129,17 +6129,24 @@ def test_find_dialog_class_search_populates_result_list(fixture):
 def test_find_dialog_class_mode_supports_contains_and_exact_matching(
     fixture,
 ):
-    """AI: Class mode should switch between contains and exact class-name matching."""
+    """AI: Class mode contains-matches by scanning every class name, but exact-matches
+    by resolving the name as a symbol (an O(1) image lookup, the same primitive Browse
+    Class uses) - so the exact path answers without scanning at all."""
     fixture.simulate_login()
 
     def classes_for_pattern(pattern, should_stop=None):
         if pattern == "Order":
             return ["Order", "OrderLine"]
-        if pattern == "^Order$":
-            return ["Order"]
         return []
 
     fixture.mock_browser.find_classes.side_effect = classes_for_pattern
+
+    def class_named(class_name):
+        if class_name == "Order":
+            return ["Order"]
+        return []
+
+    fixture.mock_browser.existing_class_named.side_effect = class_named
 
     with patch.object(FindDialog, "wait_visibility"):
         dialog = FindDialog(
@@ -6154,6 +6161,9 @@ def test_find_dialog_class_mode_supports_contains_and_exact_matching(
     dialog.match_mode.set("exact")
     dialog.find_text()
     assert list(dialog.results_listbox.get(0, "end")) == ["Order"]
+    # AI: The contains search scanned once; the exact search resolved the symbol and
+    # never scanned, so find_classes was not called a second time.
+    fixture.mock_browser.find_classes.assert_called_once()
     dialog.destroy()
 
 
