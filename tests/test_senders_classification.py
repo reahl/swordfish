@@ -107,6 +107,22 @@ def test_real_sends_only_drops_references_but_keeps_perform_sends(fixture):
     assert result['total_count'] == 3
 
 
+@with_fixtures(RealSendsFixture)
+def test_real_sends_only_classifies_and_filters_even_at_identifier_granularity(fixture):
+    """AI: real_sends_only must mean something regardless of granularity. identifier
+    fetches no source by default, so without care the filter silently no-ops; instead it
+    classifies to apply the filter, while keeping each entry lean - a kind but no
+    send_sites."""
+    result = fixture.session.find_senders(
+        'foo:', granularity='identifier', real_sends_only=True
+    )
+
+    kinds = sorted(sender['kind'] for sender in result['senders'])
+    assert kinds == ['direct_send', 'reflective_send']
+    assert result['reference_only_omitted'] == 1
+    assert all('send_sites' not in sender for sender in result['senders'])
+
+
 @stubclass(GemstoneBrowserSession)
 class BigSendSession(GemstoneBrowserSession):
     def selector_occurrence_summaries(
