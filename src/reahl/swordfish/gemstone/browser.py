@@ -2104,32 +2104,180 @@ class GemstoneBrowserSession:
         in_dictionary,
         show_instance_side,
         source,
-        method_category="as yet unclassified",
+        method_category=None,
     ):
-        class_literal = self.smalltalk_string_literal(class_name)
-        source_literal = self.smalltalk_string_literal(source)
-        method_category_literal = self.smalltalk_string_literal(method_category)
-        dictionary_expression = self.dictionary_reference_expression(in_dictionary)
-        class_side_suffix = "" if show_instance_side else " class"
-        return self.run_code(
-            (
-                "| classToQuery symbolList |\n"
-                "classToQuery := (%s at: (%s asSymbol)).\n"
-                "symbolList := System myUserProfile symbolList.\n"
-                "classToQuery%s\n"
-                "    compileMethod: %s\n"
-                "    dictionaries: symbolList\n"
-                "    category: %s\n"
-                "    environmentId: 0"
-            )
-            % (
-                dictionary_expression,
-                class_literal,
-                class_side_suffix,
-                source_literal,
-                method_category_literal,
-            )
+        '''AI: A dictionary-scoped compile is just a one-element batch whose class is resolved via
+        the named dictionary rather than the whole symbol list. Routing it through compile_methods
+        removes the duplicate compile implementation and, unlike the old standalone version which
+        always filed an omitted category under "as yet unclassified", now preserves an existing
+        method's protocol when no category is named.'''
+        rows = self.compile_methods(
+            [(class_name, show_instance_side, source, method_category, in_dictionary)]
         )
+        return rows[0]
+
+    def compile_methods(self, method_specs, chunk_size=50):
+        '''AI: Compile many methods in as few GCI round-trips as possible - one per chunk of
+        chunk_size, instead of three per method (category lookup, symbol-list fetch, compile).
+        Each spec is (class_name, show_instance_side, source, method_category-or-None,
+        in_dictionary-or-None). The selector is parsed here in pure Python so the gem can keep an
+        existing method's protocol when no category is named, and so a source that does not parse
+        becomes an error row rather than reaching the gem. Chunking bounds both the size of each
+        Smalltalk program and the per-round-trip allocation that pressures the gem's garbage
+        collector. A compile error or a missing class becomes that row's error and leaves the rest
+        of the batch installed. Returns one result row per input spec, in input order:
+        {class_name, selector, show_instance_side, method_category, ok, error}.'''
+        mirroring = current_working_copy().active
+        results = [None] * len(method_specs)
+        sendable = []
+        for index, spec in enumerate(method_specs):
+            class_name, show_instance_side, source, method_category, in_dictionary = spec
+            selector = self.mirrored_selector(source)
+            if selector is None:
+                results[index] = self.compile_result_row(
+                    class_name, '', show_instance_side, '', False,
+                    'Source does not define a parseable method.',
+                )
+            else:
+                previous_source = (
+                    self.existing_method_source(class_name, selector, show_instance_side)
+                    if mirroring
+                    else None
+                )
+                sendable.append(
+                    (index, class_name, show_instance_side, selector, source,
+                     method_category, in_dictionary, previous_source)
+                )
+        for chunk in self.chunked(sendable, chunk_size):
+            for entry, row in zip(chunk, self.run_compile_chunk(chunk)):
+                index = entry[0]
+                results[index] = row
+                if mirroring and row['ok']:
+                    self.mirror_compiled_method(
+                        entry[1], entry[2], entry[4], row['method_category'],
+                        entry[3], entry[7],
+                    )
+        return results
+
+    def chunked(self, items, chunk_size):
+        '''AI: Split items into successive lists of at most chunk_size, preserving order, so a
+        large batch is sent as several bounded programs rather than one unbounded one.'''
+        return [items[start:start + chunk_size] for start in range(0, len(items), chunk_size)]
+
+    def run_compile_chunk(self, chunk):
+        '''AI: Compile one chunk of specs in a single GCI call and return its result rows in the
+        same order the specs were sent.'''
+        elements = [
+            self.compile_spec_element(
+                class_name, show_instance_side, selector, source, method_category, in_dictionary
+            )
+            for (index, class_name, show_instance_side, selector, source,
+                 method_category, in_dictionary, previous_source) in chunk
+        ]
+        raw = self.run_code(self.batch_compile_program('.\n'.join(elements)))
+        return self.parsed_compile_chunk_results(raw)
+
+    def compile_spec_element(
+        self, class_name, show_instance_side, selector, source, method_category, in_dictionary
+    ):
+        '''AI: One element of the dynamic array sent to the gem:
+        { classNameStr. targetClassOrNil. selectorStr. sideBool. sourceStr. categoryOrNil }.
+        A dynamic array (curly braces) is used rather than a literal array so each element is a
+        real evaluated object - the booleans and nils are genuine, and the second slot is the
+        resolved class itself, looked up at array-build time via the same expression
+        dictionary_reference_expression builds for the dictionary-scoped path.'''
+        return '{ %s. %s. %s. %s. %s. %s }' % (
+            self.smalltalk_string_literal(class_name),
+            self.target_class_expression(class_name, in_dictionary),
+            self.smalltalk_string_literal(selector),
+            'true' if show_instance_side else 'false',
+            self.smalltalk_string_literal(source),
+            self.smalltalk_string_literal(method_category) if method_category is not None else 'nil',
+        )
+
+    def target_class_expression(self, class_name, in_dictionary):
+        '''AI: A Smalltalk expression that resolves the class to compile into - via the whole
+        symbol list when no dictionary is named, or via the named dictionary (reusing
+        dictionary_reference_expression) when one is. Both yield nil rather than raising when the
+        class is absent, so a missing class becomes a per-row error, not a chunk-wide failure.'''
+        class_literal = self.smalltalk_string_literal(class_name)
+        if in_dictionary is None:
+            return '(System myUserProfile symbolList objectNamed: %s asSymbol)' % class_literal
+        dictionary_expression = self.dictionary_reference_expression(in_dictionary)
+        return '(%s at: %s asSymbol otherwise: nil)' % (dictionary_expression, class_literal)
+
+    def batch_compile_program(self, elements_source):
+        '''AI: A program that fetches the symbol list once, then compiles every spec, resolving an
+        omitted category to the method's current protocol (or "as yet unclassified" for a new
+        method) inside the loop so the whole chunk stays one round-trip. compileMethod:... returns
+        a GsNMethod on success or an Array of compiler errors on failure - it does not raise - so a
+        bad spec is recorded and the loop continues.'''
+        return (
+            "| symbolList results |\n"
+            "symbolList := System myUserProfile symbolList.\n"
+            "results := OrderedCollection new.\n"
+            "{\n"
+            "%s\n"
+            "} do: [:spec | | className target selector onInstanceSide source category "
+            "catToUse compiled okFlag errorText |\n"
+            "    className := spec at: 1.\n"
+            "    target := spec at: 2.\n"
+            "    selector := (spec at: 3) asSymbol.\n"
+            "    onInstanceSide := spec at: 4.\n"
+            "    source := spec at: 5.\n"
+            "    category := spec at: 6.\n"
+            "    target isNil\n"
+            "        ifTrue: [results add: { className. selector asString. onInstanceSide. "
+            "''. false. 'Class not found.' }]\n"
+            "        ifFalse: [\n"
+            "            onInstanceSide ifFalse: [target := target class].\n"
+            "            catToUse := category ifNil: [\n"
+            "                (target includesSelector: selector)\n"
+            "                    ifTrue: [(target categoryOfSelector: selector) ifNil: ['as yet unclassified']]\n"
+            "                    ifFalse: ['as yet unclassified']].\n"
+            "            compiled := target\n"
+            "                compileMethod: source\n"
+            "                dictionaries: symbolList\n"
+            "                category: catToUse\n"
+            "                environmentId: 0.\n"
+            "            okFlag := compiled isKindOf: GsNMethod.\n"
+            "            errorText := okFlag ifTrue: [''] ifFalse: [compiled printString].\n"
+            "            results add: { className. selector asString. onInstanceSide. "
+            "catToUse asString. okFlag. errorText }]].\n"
+            "results"
+        ) % elements_source
+
+    def parsed_compile_chunk_results(self, raw):
+        '''AI: Turn the gem's OrderedCollection of six-element Arrays into result rows, traversing
+        with size/at: rather than a bulk to_py so each leaf converts predictably.'''
+        rows = []
+        for position in range(1, raw.size().to_py + 1):
+            entry = raw.at(position)
+            rows.append(
+                self.compile_result_row(
+                    entry.at(1).to_py,
+                    entry.at(2).to_py,
+                    entry.at(3).to_py,
+                    entry.at(4).to_py,
+                    entry.at(5).to_py,
+                    entry.at(6).to_py,
+                )
+            )
+        return rows
+
+    def compile_result_row(
+        self, class_name, selector, show_instance_side, method_category, ok, error
+    ):
+        '''AI: One per-method outcome of a batch compile, shaped the same whether it came back from
+        the gem or was decided here (an unparseable source never sent).'''
+        return {
+            'class_name': class_name,
+            'selector': selector,
+            'show_instance_side': show_instance_side,
+            'method_category': method_category,
+            'ok': ok,
+            'error': error,
+        }
 
     def create_class(
         self,

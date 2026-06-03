@@ -280,6 +280,9 @@ class LiveMcpConnectionFixture(Fixture):
     def new_gs_compile_method(self):
         return self.registered_mcp_tools["gs_compile_method"]
 
+    def new_gs_compile_methods(self):
+        return self.registered_mcp_tools["gs_compile_methods"]
+
     def new_gs_get_class_definition(self):
         return self.registered_mcp_tools["gs_get_class_definition"]
 
@@ -3524,3 +3527,79 @@ def test_live_breakpoint_tools_set_list_and_clear_breakpoints(live_connection):
     )
     assert list_after_clear_result["ok"], list_after_clear_result
     assert not list_after_clear_result["breakpoints"]
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_compile_methods_batches_outcomes_per_row(live_connection):
+    """AI: Against a real gem, one gs_compile_methods call installs several methods, reports a
+    per-row outcome for each, and isolates failures: an unparseable source, an unknown class and a
+    genuine compiler error each fail only their own row while their well-formed siblings install -
+    proving the batched dynamic-array program actually runs and that a bad entry never aborts the
+    batch (the round-trip storm that previously hammered the gem is gone)."""
+    begin_result = live_connection.gs_begin_if_needed(live_connection.connection_id)
+    assert begin_result["ok"], begin_result
+    class_name = "McpBatchCompile%s" % uuid.uuid4().hex[:8]
+    create_result = live_connection.gs_create_class(
+        live_connection.connection_id, class_name
+    )
+    assert create_result["ok"], create_result
+
+    batch_result = live_connection.gs_compile_methods(
+        live_connection.connection_id,
+        [
+            {"class_name": class_name, "source": "answerOne\n\t^1"},
+            {"class_name": class_name, "source": "answerTwo\n\t^2", "show_instance_side": False},
+            {"class_name": class_name, "source": "123 not a method"},
+            {"class_name": class_name, "source": "broken\n\t^self +"},
+            {"class_name": "NoSuchClass%s" % uuid.uuid4().hex[:8], "source": "x\n\t^0"},
+        ],
+    )
+    assert batch_result["ok"] is False, batch_result
+    rows = batch_result["results"]
+    assert [row["ok"] for row in rows] == [True, True, False, False, False]
+    assert "parseable" in rows[2]["error"]
+    assert rows[3]["error"]
+    assert "not found" in rows[4]["error"].lower()
+
+    instance_source = live_connection.gs_get_method_source(
+        live_connection.connection_id, class_name, "answerOne"
+    )
+    assert instance_source["ok"], instance_source
+    class_side_source = live_connection.gs_get_method_source(
+        live_connection.connection_id, class_name, "answerTwo", show_instance_side=False
+    )
+    assert class_side_source["ok"], class_side_source
+
+    abort_result = live_connection.gs_abort(live_connection.connection_id)
+    assert abort_result["ok"], abort_result
+
+
+@with_fixtures(LiveMcpConnectionFixture)
+def test_live_compile_methods_preserves_protocol_when_category_omitted(live_connection):
+    """AI: Recompiling an existing method through the batch with no category named must keep its
+    current protocol rather than reclassifying it - the server-side preserve-or-default the batch
+    now owns, and the behaviour the consolidated dictionary path inherits."""
+    begin_result = live_connection.gs_begin_if_needed(live_connection.connection_id)
+    assert begin_result["ok"], begin_result
+    class_name = "McpBatchProtocol%s" % uuid.uuid4().hex[:8]
+    create_result = live_connection.gs_create_class(
+        live_connection.connection_id, class_name
+    )
+    assert create_result["ok"], create_result
+    seed_result = live_connection.gs_compile_method(
+        live_connection.connection_id,
+        class_name,
+        "balance\n\t^0",
+        method_category="accounting",
+    )
+    assert seed_result["ok"], seed_result
+
+    batch_result = live_connection.gs_compile_methods(
+        live_connection.connection_id,
+        [{"class_name": class_name, "source": "balance\n\t^1"}],
+    )
+    assert batch_result["ok"], batch_result
+    assert batch_result["results"][0]["method_category"] == "accounting"
+
+    abort_result = live_connection.gs_abort(live_connection.connection_id)
+    assert abort_result["ok"], abort_result
