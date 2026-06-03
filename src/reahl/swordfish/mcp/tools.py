@@ -4,7 +4,7 @@ import re
 import threading
 import time
 import uuid
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from reahl.ptongue import GemstoneApiError, GemstoneError
 
@@ -2477,6 +2477,7 @@ def register_tools(
                     "gs_create_dictionary",
                     "gs_install_package",
                     "gs_compile_method",
+                    "gs_compile_methods",
                     "gs_create_class",
                     "gs_create_class_in_package",
                     "gs_create_test_case_class",
@@ -4490,7 +4491,7 @@ def register_tools(
     @mcp_server.tool()
     def gs_compile_methods(
         connection_id,
-        methods,
+        methods: List[Dict[str, Any]],
     ):
         """Compile many methods into classes in a single batched round-trip
         instead of one call per method. `methods` is a non-empty list of entries,

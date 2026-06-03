@@ -14,6 +14,7 @@ import tkinter as tk
 import tkinter.filedialog as filedialog
 import tkinter.messagebox as messagebox
 import tkinter.simpledialog as simpledialog
+import time
 import traceback
 import weakref
 from collections import deque
@@ -1099,6 +1100,26 @@ class BusyCoordinator:
             if self.busy:
                 return lease_token == self.active_lease_token
             return lease_token == 0
+
+
+class ActivityLinger:
+    '''AI: Holds the MCP activity indicator visible for a minimum time after each busy signal.
+    A fast MCP operation begins and ends before the Tk thread renders its busy state, so an
+    indicator driven by raw busy-state edges shows nothing at all for exactly the workloads -
+    bursts of small, quick tool calls - a user most wants reassurance about. Every busy signal
+    extends the hold, so a burst reads as one steady period of activity ending a minimum time
+    after the last call.'''
+
+    def __init__(self, minimum_visible_seconds=0.5, clock=time.monotonic):
+        self.minimum_visible_seconds = minimum_visible_seconds
+        self.clock = clock
+        self.visible_until = 0.0
+
+    def note_activity(self):
+        self.visible_until = self.clock() + self.minimum_visible_seconds
+
+    def is_lingering(self):
+        return self.clock() < self.visible_until
 
 
 class ActionGate:
@@ -5054,6 +5075,10 @@ class Swordfish(tk.Tk):
 
         self.gemstone_session_record = None
         self.last_mcp_busy_state = None
+        self.activity_linger = ActivityLinger()
+        self.last_seen_mcp_operation_name = ''
+        self.last_mcp_activity_text = ''
+        self.linger_refresh_after_id = None
         self.last_mcp_server_running_state = None
         self.last_mcp_server_starting_state = None
         self.last_mcp_server_stopping_state = None
@@ -6276,6 +6301,9 @@ class Swordfish(tk.Tk):
             'Uncommitted changes' if session_is_dirty else ''
         )
         mcp_busy = self.integrated_session_state.is_mcp_busy()
+        # AI: The linger only stretches what the indicator *shows*; action gating below uses the
+        # real busy state so the IDE unlocks the moment the MCP is actually idle.
+        mcp_activity_visible = mcp_busy or self.activity_linger.is_lingering()
         mcp_server_status = self.mcp_server_controller.status()
         mcp_server_running = mcp_server_status["running"]
         mcp_server_starting = mcp_server_status["starting"]
@@ -6285,7 +6313,7 @@ class Swordfish(tk.Tk):
         )
         self.set_mcp_activity_indicator_visibility(
             bool(self.foreground_activity_message)
-            or mcp_busy
+            or mcp_activity_visible
             or mcp_server_starting
             or mcp_server_stopping
         )
@@ -6293,12 +6321,18 @@ class Swordfish(tk.Tk):
             self.collaboration_status_text.set(self.foreground_activity_message)
         elif mcp_busy:
             operation_name = (
-                self.integrated_session_state.current_mcp_operation_name() or "unknown"
+                self.integrated_session_state.current_mcp_operation_name()
+                or self.last_seen_mcp_operation_name
+                or "unknown"
             )
             self.collaboration_status_text.set(
                 "MCP busy: %s. IDE write/run/debug actions are read-only."
                 % operation_name
             )
+        elif mcp_activity_visible:
+            # AI: The operation already finished; during the linger the status bar reports what
+            # just ran rather than claiming the IDE is still locked.
+            self.collaboration_status_text.set(self.last_mcp_activity_text)
         elif mcp_server_stopping:
             self.collaboration_status_text.set("Stopping MCP server...")
         elif mcp_server_starting:
@@ -6312,6 +6346,8 @@ class Swordfish(tk.Tk):
                     runtime_message
                     + " Network settings changed; they will take effect at next MCP start."
                 )
+            if self.last_mcp_activity_text:
+                runtime_message = runtime_message + " " + self.last_mcp_activity_text
             self.collaboration_status_text.set(runtime_message)
         elif self.is_logged_in:
             self.collaboration_status_text.set("IDE ready. Embedded MCP is stopped.")
@@ -6324,10 +6360,44 @@ class Swordfish(tk.Tk):
         operation_name="",
         busy_lease_token=None,
     ):
+        if is_busy:
+            # AI: A fast operation is usually finished - its lease already stale - by the time
+            # the Tk thread runs this handler. Record it anyway: the indicator owes every
+            # operation a minimum visible time and the status bar a durable trace, otherwise
+            # sub-second MCP activity is invisible exactly when it is most frequent.
+            self.note_mcp_activity(operation_name)
         if not self.busy_coordinator.is_current_lease(busy_lease_token):
+            if is_busy:
+                self.refresh_collaboration_status()
             return
         self.last_mcp_busy_state = is_busy
         self.refresh_collaboration_status()
+
+    def note_mcp_activity(self, operation_name):
+        self.activity_linger.note_activity()
+        self.last_seen_mcp_operation_name = operation_name or "unknown"
+        self.last_mcp_activity_text = "Last MCP: %s %s." % (
+            self.last_seen_mcp_operation_name,
+            datetime.now().strftime("%H:%M:%S"),
+        )
+        self.schedule_linger_expiry_refresh()
+
+    def schedule_linger_expiry_refresh(self):
+        '''AI: The linger expires silently - nothing else is guaranteed to refresh the status
+        bar afterwards - so schedule one refresh just past the hold to take the indicator
+        down. A newer activity replaces the pending refresh rather than stacking one per call.'''
+        if self.linger_refresh_after_id is not None:
+            try:
+                self.after_cancel(self.linger_refresh_after_id)
+            except tk.TclError:
+                pass
+        delay_milliseconds = (
+            int(self.activity_linger.minimum_visible_seconds * 1000) + 50
+        )
+        self.linger_refresh_after_id = self.after(
+            delay_milliseconds,
+            self.refresh_collaboration_status,
+        )
 
     def handle_mcp_server_state_changed(
         self,
