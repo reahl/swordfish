@@ -34,6 +34,21 @@ class MoveAndParamPreviewFixture(Fixture):
             def fake_compile_method(**kwargs):
                 self.recompiled_methods.append(kwargs)
 
+            def fake_compile_methods(method_specs, chunk_size=50):
+                # AI: The batched compile seam records each spec in the same shape as a single
+                # compile, so assertions that read recompiled_methods stay valid whether a
+                # refactoring installs one method or a whole batch.
+                for class_name, show_instance_side, source, method_category, in_dictionary in method_specs:
+                    self.recompiled_methods.append(
+                        {
+                            'class_name': class_name,
+                            'show_instance_side': show_instance_side,
+                            'source': source,
+                            'method_category': method_category,
+                        }
+                    )
+                return []
+
             def fake_delete_method(class_name, method_selector, show_instance_side):
                 self.deleted_methods.append(
                     (class_name, method_selector, show_instance_side)
@@ -73,6 +88,7 @@ class MoveAndParamPreviewFixture(Fixture):
             self.browser_session.get_method_source = fake_get_method_source
             self.browser_session.get_method_category = fake_get_method_category
             self.browser_session.compile_method = fake_compile_method
+            self.browser_session.compile_methods = fake_compile_methods
             self.browser_session.delete_method = fake_delete_method
             self.browser_session.selector_occurrence_summaries = (
                 fake_selector_occurrence_summaries

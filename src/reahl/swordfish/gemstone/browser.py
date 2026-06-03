@@ -2279,6 +2279,22 @@ class GemstoneBrowserSession:
             'error': error,
         }
 
+    def compile_planned_changes(self, planned_changes):
+        '''AI: Compile every method a refactoring plan rewrites in one batched round-trip rather
+        than one per sender - the difference between a smooth rename and the compile storm that can
+        crash a linked gem. Each planned change already carries the class, side, rewritten source
+        and category, so it maps straight onto a batch spec with no dictionary scoping.'''
+        return self.compile_methods([
+            (
+                planned_change['class_name'],
+                planned_change['show_instance_side'],
+                planned_change['updated_source'],
+                planned_change['method_category'],
+                None,
+            )
+            for planned_change in planned_changes
+        ])
+
     def create_class(
         self,
         class_name,
@@ -3907,32 +3923,33 @@ class GemstoneBrowserSession:
         moved_selector,
         helper_receiver_source,
     ):
-        """AI: Rewrite every static call site of moved_selector in
-        same-class senders so its receiver becomes helper_receiver_source.
-        Walks each sender's parser AST, slices the receiver range, and
-        recompiles. Returns the count of senders that were rewritten."""
+        """AI: Rewrite every static call site of moved_selector in same-class senders so its
+        receiver becomes helper_receiver_source. Walks each sender's parser AST, slices the
+        receiver range, and recompiles every rewritten sender in one batched round-trip rather than
+        one per sender. The category is left to the batch's server-side preserve-or-default, which
+        keeps each recompiled sender's protocol without a per-sender category lookup. Returns the
+        count of senders that were rewritten."""
         sender_summaries = self.selector_occurrence_summaries(
             moved_selector,
             "senders",
         )
-        same_class_sender_summaries = [
-            sender_summary
-            for sender_summary in sender_summaries
-            if (
-                sender_summary["class_name"] == source_class_name
-                and sender_summary["show_instance_side"]
-                == source_show_instance_side
-            )
-        ]
-        rewritten_count = 0
+        candidate_selectors = []
         seen_sender_selectors = set()
-        for sender_summary in same_class_sender_summaries:
+        for sender_summary in sender_summaries:
             sender_selector = sender_summary["method_selector"]
-            if sender_selector == moved_selector:
-                continue
-            if sender_selector in seen_sender_selectors:
-                continue
-            seen_sender_selectors.add(sender_selector)
+            is_same_class = (
+                sender_summary["class_name"] == source_class_name
+                and sender_summary["show_instance_side"] == source_show_instance_side
+            )
+            is_unseen_other_selector = (
+                sender_selector != moved_selector
+                and sender_selector not in seen_sender_selectors
+            )
+            if is_same_class and is_unseen_other_selector:
+                seen_sender_selectors.add(sender_selector)
+                candidate_selectors.append(sender_selector)
+        rewrite_specs = []
+        for sender_selector in candidate_selectors:
             rewritten_source = self.sender_source_with_receiver_replaced(
                 source_class_name,
                 source_show_instance_side,
@@ -3940,21 +3957,12 @@ class GemstoneBrowserSession:
                 moved_selector,
                 helper_receiver_source,
             )
-            if rewritten_source is None:
-                continue
-            sender_category = self.get_method_category(
-                source_class_name,
-                sender_selector,
-                source_show_instance_side,
-            )
-            self.compile_method(
-                class_name=source_class_name,
-                show_instance_side=source_show_instance_side,
-                source=rewritten_source,
-                method_category=sender_category,
-            )
-            rewritten_count = rewritten_count + 1
-        return rewritten_count
+            if rewritten_source is not None:
+                rewrite_specs.append(
+                    (source_class_name, source_show_instance_side, rewritten_source, None, None)
+                )
+        self.compile_methods(rewrite_specs)
+        return len(rewrite_specs)
 
     def sender_source_with_receiver_replaced(
         self,
@@ -4193,18 +4201,14 @@ class GemstoneBrowserSession:
             parameter_name,
             default_argument_source,
         )
-        self.compile_method(
-            class_name=class_name,
-            show_instance_side=show_instance_side,
-            source=add_parameter_plan["new_method_source"],
-            method_category=add_parameter_plan["method_category"],
-        )
-        self.compile_method(
-            class_name=class_name,
-            show_instance_side=show_instance_side,
-            source=add_parameter_plan["compatibility_wrapper_source"],
-            method_category=add_parameter_plan["method_category"],
-        )
+        # AI: The widened method and its compatibility wrapper install into the same class with no
+        # compile-order dependency, so both go in one batched round-trip.
+        self.compile_methods([
+            (class_name, show_instance_side, add_parameter_plan["new_method_source"],
+             add_parameter_plan["method_category"], None),
+            (class_name, show_instance_side, add_parameter_plan["compatibility_wrapper_source"],
+             add_parameter_plan["method_category"], None),
+        ])
         summary = self.method_add_parameter_summary(add_parameter_plan)
         summary["applied"] = True
         return summary
@@ -4411,28 +4415,21 @@ class GemstoneBrowserSession:
                     "instance" if show_instance_side else "class",
                 )
             )
-        self.compile_method(
-            class_name=class_name,
-            show_instance_side=show_instance_side,
-            source=remove_parameter_plan["new_method_source"],
-            method_category=remove_parameter_plan["method_category"],
-        )
-        self.compile_method(
-            class_name=class_name,
-            show_instance_side=show_instance_side,
-            source=remove_parameter_plan["compatibility_wrapper_source"],
-            method_category=remove_parameter_plan["method_category"],
-        )
+        # AI: The new method, its compatibility wrapper and any source-sender rewrites all install
+        # into the same class with no compile-order dependency, so they go in one batched round-trip.
+        compile_specs = [
+            (class_name, show_instance_side, remove_parameter_plan["new_method_source"],
+             remove_parameter_plan["method_category"], None),
+            (class_name, show_instance_side, remove_parameter_plan["compatibility_wrapper_source"],
+             remove_parameter_plan["method_category"], None),
+        ]
         if rewrite_source_senders:
-            for caller_rewrite_plan in remove_parameter_plan[
-                "source_sender_rewrite_plans"
-            ]:
-                self.compile_method(
-                    class_name=class_name,
-                    show_instance_side=show_instance_side,
-                    source=caller_rewrite_plan["updated_source"],
-                    method_category=caller_rewrite_plan["method_category"],
-                )
+            compile_specs += [
+                (class_name, show_instance_side, caller_rewrite_plan["updated_source"],
+                 caller_rewrite_plan["method_category"], None)
+                for caller_rewrite_plan in remove_parameter_plan["source_sender_rewrite_plans"]
+            ]
+        self.compile_methods(compile_specs)
         summary = self.method_remove_parameter_summary(remove_parameter_plan)
         summary["applied"] = True
         summary["overwrite_new_method"] = overwrite_new_method
@@ -5908,13 +5905,7 @@ class GemstoneBrowserSession:
             old_selector,
             new_selector,
         )
-        for planned_change in planned_changes:
-            self.compile_method(
-                class_name=planned_change["class_name"],
-                show_instance_side=planned_change["show_instance_side"],
-                source=planned_change["updated_source"],
-                method_category=planned_change["method_category"],
-            )
+        self.compile_planned_changes(planned_changes)
         if old_selector != new_selector:
             deleted_implementors = set()
             for planned_change in planned_changes:
@@ -5974,13 +5965,7 @@ class GemstoneBrowserSession:
             old_selector,
             new_selector,
         )
-        for planned_change in planned_changes:
-            self.compile_method(
-                class_name=planned_change["class_name"],
-                show_instance_side=planned_change["show_instance_side"],
-                source=planned_change["updated_source"],
-                method_category=planned_change["method_category"],
-            )
+        self.compile_planned_changes(planned_changes)
         has_implementor_change = any(
             planned_change["change_type"] == "implementor"
             for planned_change in planned_changes
