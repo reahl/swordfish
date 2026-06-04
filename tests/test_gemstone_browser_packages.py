@@ -1,4 +1,4 @@
-from reahl.tofu import Fixture, with_fixtures
+from reahl.tofu import Fixture, scenario, with_fixtures
 
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 
@@ -8,98 +8,19 @@ class NameProxy:
         self.to_py = value
 
 
-class BooleanProxy:
-    def __init__(self, value):
-        self.to_py = value
+class RecordingListingBrowserSession(GemstoneBrowserSession):
+    """AI: Stubs run_code at the GCI boundary with a canned lf-joined reply (the shape the
+    server-side join produces) and records every executed source, so tests can assert both
+    the parsed result and that a listing costs exactly one server round trip."""
 
-
-class SymbolDictionaryStub:
-    def __init__(self, dictionary_name):
-        self.dictionary_name = dictionary_name
-
-    def name(self):
-        return NameProxy(self.dictionary_name)
-
-    def isBehavior(self):
-        return BooleanProxy(False)
-
-
-class GemstoneClassStub:
-    def __init__(self, class_name):
-        self.class_name = class_name
-
-    def name(self):
-        return NameProxy(self.class_name)
-
-    def isBehavior(self):
-        return BooleanProxy(True)
-
-
-class NonClassEntryStub:
-    def __init__(self, name):
-        self.name_value = name
-
-    def name(self):
-        return NameProxy(self.name_value)
-
-    def isBehavior(self):
-        return BooleanProxy(False)
-
-
-class CategoriesStub:
-    def __init__(self, classes_by_category):
-        self.classes_by_category = classes_by_category
-
-    def keys(self):
-        return [NameProxy(category_name) for category_name in self.classes_by_category]
-
-    def at(self, category_name):
-        return self.classes_by_category[category_name]
-
-
-class ClassOrganizerStub:
-    def __init__(self, classes_by_category):
-        self.classes_by_category = classes_by_category
-
-    def categories(self):
-        return CategoriesStub(self.classes_by_category)
-
-
-class PackageLibraryStub:
-    def __init__(self, package_entries, classes_by_package):
-        self.package_entries = [
-            SymbolDictionaryStub(package_name) for package_name in package_entries
-        ]
-        self.classes_by_package = classes_by_package
-
-    def __iter__(self):
-        return iter(self.package_entries)
-
-    def objectNamed(self, package_name):
-        return self.classes_by_package[package_name]
-
-
-class StubbedClassOrganizerBrowserSession(GemstoneBrowserSession):
-    def __init__(
-        self,
-        classes_by_package,
-        package_library_names,
-        package_dictionary_entries_by_package,
-    ):
+    def __init__(self, joined_reply=""):
         super().__init__(None)
-        self.organizer = ClassOrganizerStub(classes_by_package)
-        self.library_entries = PackageLibraryStub(
-            package_library_names,
-            package_dictionary_entries_by_package,
-        )
+        self.joined_reply = joined_reply
+        self.executed_sources = []
 
-    @property
-    def class_organizer(self):
-        return self.organizer
-
-    @property
-    def package_library(self):
-        return self.library_entries
+    def run_code(self, source):
+        self.executed_sources.append(source)
+        return NameProxy(self.joined_reply)
 
 
 class StubbedDictionaryBrowserSession(GemstoneBrowserSession):
@@ -115,11 +36,11 @@ class StubbedDictionaryBrowserSession(GemstoneBrowserSession):
     def run_code(self, source):
         self.executed_sources.append(source)
         if "System myUserProfile symbolList do:" in source:
-            return [NameProxy(name) for name in self.dictionary_names]
+            return NameProxy("\n".join(self.dictionary_names))
         dictionary_literal = source.split("dictionaryName := ")[1].split(".\n", 1)[0]
         dictionary_name = self.smalltalk_string_value(dictionary_literal)
         class_names = self.class_names_by_dictionary.get(dictionary_name, [])
-        return [NameProxy(class_name) for class_name in class_names]
+        return NameProxy("\n".join(class_names))
 
 
 class SourceCapturingBrowserSession(GemstoneBrowserSession):
@@ -132,27 +53,9 @@ class SourceCapturingBrowserSession(GemstoneBrowserSession):
         return source
 
 
-class BrowserPackagesFixture(Fixture):
+class BrowserListingFixture(Fixture):
     def new_browser_session(self):
-        return StubbedClassOrganizerBrowserSession(
-            {
-                "Kernel": [
-                    GemstoneClassStub("Object"),
-                    GemstoneClassStub("Behavior"),
-                ]
-            },
-            [
-                "Stuff",
-                "Wonka-thing",
-            ],
-            {
-                "Stuff": [NonClassEntryStub("Stuff")],
-                "Wonka-thing": [
-                    GemstoneClassStub("WonkaThingTest"),
-                    NonClassEntryStub("Wonka-thing"),
-                ],
-            },
-        )
+        return RecordingListingBrowserSession()
 
 
 class BrowserDictionariesFixture(Fixture):
@@ -176,46 +79,160 @@ class BrowserSourceCaptureFixture(Fixture):
         return SourceCapturingBrowserSession()
 
 
-@with_fixtures(BrowserPackagesFixture)
+@with_fixtures(BrowserListingFixture)
 def test_list_classes_in_category_returns_empty_for_unknown_category(
-    browser_packages_fixture,
+    browser_listing_fixture,
 ):
-    """AI: Listing classes for a missing category should return an empty list."""
-    assert (
-        browser_packages_fixture.browser_session.list_classes_in_category("Nope") == []
-    )
+    """AI: Listing classes for a missing category should return an empty list: the server
+    program answers an empty string via at:ifAbsent: rather than raising."""
+    browser_session = browser_listing_fixture.browser_session
+    assert browser_session.list_classes_in_category("Nope") == []
+    assert "ifAbsent:" in browser_session.executed_sources[0]
 
 
-@with_fixtures(BrowserPackagesFixture)
-def test_list_classes_in_category_returns_class_names_for_known_category(
-    browser_packages_fixture,
+@with_fixtures(BrowserListingFixture)
+def test_list_classes_in_category_returns_sorted_class_names_for_known_category(
+    browser_listing_fixture,
 ):
-    """AI: Listing classes for a known category should return that category's class names."""
-    assert browser_packages_fixture.browser_session.list_classes_in_category(
-        "Kernel"
-    ) == [
+    """AI: Listing classes for a known category should return that category's class names,
+    sorted, regardless of the order the server emits them in."""
+    browser_session = browser_listing_fixture.browser_session
+    browser_session.joined_reply = "Object\nBehavior"
+    assert browser_session.list_classes_in_category("Kernel") == [
         "Behavior",
         "Object",
     ]
 
 
-@with_fixtures(BrowserPackagesFixture)
-def test_list_classes_in_category_ignores_package_library_entries(
-    browser_packages_fixture,
+@with_fixtures(BrowserListingFixture)
+def test_class_listings_consult_class_organizer_not_package_library(
+    browser_listing_fixture,
 ):
-    """AI: Category class listing should not include classes discovered only from package dictionaries."""
-    assert (
-        browser_packages_fixture.browser_session.list_classes_in_category("Wonka-thing")
-        == []
-    )
+    """AI: Category class listing must come from ClassOrganizer's categories only; classes
+    discovered via package dictionaries (GsPackageLibrary) do not belong in it."""
+    browser_session = browser_listing_fixture.browser_session
+    browser_session.list_classes_in_category("Wonka-thing")
+    executed_source = browser_session.executed_sources[0]
+    assert "ClassOrganizer new categories" in executed_source
+    assert "GsPackageLibrary" not in executed_source
 
 
-@with_fixtures(BrowserPackagesFixture)
+@with_fixtures(BrowserListingFixture)
 def test_list_categories_only_returns_class_organizer_categories(
-    browser_packages_fixture,
+    browser_listing_fixture,
 ):
     """AI: Category listing should only return categories from ClassOrganizer."""
-    assert browser_packages_fixture.browser_session.list_categories() == ["Kernel"]
+    browser_session = browser_listing_fixture.browser_session
+    browser_session.joined_reply = "Kernel"
+    assert browser_session.list_categories() == ["Kernel"]
+    executed_source = browser_session.executed_sources[0]
+    assert "ClassOrganizer new categories" in executed_source
+    assert "GsPackageLibrary" not in executed_source
+
+
+@with_fixtures(BrowserListingFixture)
+def test_list_method_categories_prepends_the_all_pseudo_category(
+    browser_listing_fixture,
+):
+    """AI: The 'all' pseudo-category is an IDE concept, prepended client-side; the server
+    only reports the class's real protocol names."""
+    browser_session = browser_listing_fixture.browser_session
+    browser_session.joined_reply = "accessing\ntesting"
+    assert browser_session.list_method_categories("Order", True) == [
+        "all",
+        "accessing",
+        "testing",
+    ]
+
+
+@with_fixtures(BrowserListingFixture)
+def test_method_listings_address_the_class_side_when_asked(browser_listing_fixture):
+    """AI: Listing for the class side must query the metaclass: the server expression
+    addresses '<class> class', not the class itself."""
+    browser_session = browser_listing_fixture.browser_session
+    browser_session.list_method_categories("Order", False)
+    assert " class " in browser_session.executed_sources[0]
+    browser_session.list_methods("Order", "all", False)
+    assert " class " in browser_session.executed_sources[1]
+
+
+@with_fixtures(BrowserListingFixture)
+def test_list_methods_for_all_lists_every_selector(browser_listing_fixture):
+    """AI: The 'all' pseudo-category lists the selectors of every protocol of the class."""
+    browser_session = browser_listing_fixture.browser_session
+    browser_session.joined_reply = "total\ndescription"
+    assert browser_session.list_methods("Order", "all", True) == [
+        "total",
+        "description",
+    ]
+    assert "selectors" in browser_session.executed_sources[0]
+    assert "selectorsIn:" not in browser_session.executed_sources[0]
+
+
+@with_fixtures(BrowserListingFixture)
+def test_list_methods_for_a_real_category_queries_that_category(
+    browser_listing_fixture,
+):
+    """AI: A real protocol name restricts the listing to that protocol's selectors."""
+    browser_session = browser_listing_fixture.browser_session
+    browser_session.joined_reply = "total"
+    assert browser_session.list_methods("Order", "accessing", True) == ["total"]
+    executed_source = browser_session.executed_sources[0]
+    assert "selectorsIn:" in executed_source
+    assert "'accessing'" in executed_source
+
+
+class ListingCallScenarios(Fixture):
+    @scenario
+    def categories(self):
+        """AI: Listing all class categories of the image."""
+        self.make_listing_call = lambda browser_session: browser_session.list_categories()
+
+    @scenario
+    def classes_in_category(self):
+        """AI: Listing the classes of one category."""
+        self.make_listing_call = lambda browser_session: (
+            browser_session.list_classes_in_category("Kernel")
+        )
+
+    @scenario
+    def dictionaries(self):
+        """AI: Listing the symbol dictionaries of the user."""
+        self.make_listing_call = lambda browser_session: (
+            browser_session.list_dictionaries()
+        )
+
+    @scenario
+    def classes_in_dictionary(self):
+        """AI: Listing the classes of one symbol dictionary."""
+        self.make_listing_call = lambda browser_session: (
+            browser_session.list_classes_in_dictionary("UserGlobals")
+        )
+
+    @scenario
+    def method_categories(self):
+        """AI: Listing the protocols of a class."""
+        self.make_listing_call = lambda browser_session: (
+            browser_session.list_method_categories("Order", True)
+        )
+
+    @scenario
+    def methods(self):
+        """AI: Listing the selectors of a protocol."""
+        self.make_listing_call = lambda browser_session: (
+            browser_session.list_methods("Order", "all", True)
+        )
+
+
+@with_fixtures(BrowserListingFixture, ListingCallScenarios)
+def test_browsing_listings_cost_one_round_trip(browser_listing_fixture, scenario):
+    """AI: Every browsing listing must transfer its names as one lf-joined string in a
+    single server round trip. Per-element proxy fetches make UI latency scale with the
+    size of the package or class being browsed (hundreds of round trips for Kernel)."""
+    browser_session = browser_listing_fixture.browser_session
+    scenario.make_listing_call(browser_session)
+    assert len(browser_session.executed_sources) == 1
+    assert "(String with: Character lf) join:" in browser_session.executed_sources[0]
 
 
 @with_fixtures(BrowserDictionariesFixture)

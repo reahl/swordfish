@@ -128,13 +128,34 @@ class GemstoneBrowserSession:
                 return False
         return True
 
+    def fetch_joined_names(self, smalltalk_source):
+        # AI: One GCI round-trip per listing: the server joins the names with lf and we
+        # split here, so the cost of a listing no longer scales with the number of
+        # elements (iterating a collection proxy costs ~2 round trips per element).
+        result_string = self.run_code(smalltalk_source).to_py
+        if not result_string:
+            return []
+        return result_string.split('\n')
+
+    def class_side_expression(self, class_name, show_instance_side):
+        # AI: Server-side twin of class_to_query: resolves the class via the symbol list
+        # and addresses the metaclass when the class side is asked for. A missing class
+        # yields nil, so the subsequent send raises GemstoneError just as sends to the
+        # phantom proxy returned by resolve_symbol do.
+        show_instance_side = self.validated_show_instance_side(show_instance_side)
+        class_expression = self.target_class_expression(class_name, None)
+        if show_instance_side:
+            return class_expression
+        return '%s class' % class_expression
+
     def list_categories(self):
-        category_names = []
+        smalltalk_source = (
+            '| names |\n'
+            'names := ClassOrganizer new categories keys asArray collect: [:each | each asString].\n'
+            '(String with: Character lf) join: names'
+        )
         try:
-            category_names = [
-                gemstone_package.to_py
-                for gemstone_package in self.class_organizer.categories().keys()
-            ]
+            category_names = self.fetch_joined_names(smalltalk_source)
         except GemstoneError:
             category_names = []
         except GemstoneApiError:
@@ -142,17 +163,16 @@ class GemstoneBrowserSession:
         return sorted(category_names)
 
     def list_dictionaries(self):
-        dictionary_names = self.run_code(
+        return self.fetch_joined_names(
             (
                 "| names |\n"
                 "names := OrderedCollection new.\n"
                 "System myUserProfile symbolList do: [:each |\n"
                 "    names add: each name asString\n"
                 "].\n"
-                "(names asSortedCollection) asArray"
+                "(String with: Character lf) join: (names asSortedCollection) asArray"
             )
         )
-        return [dictionary_name.to_py for dictionary_name in dictionary_names]
 
     def create_package(self, package_name):
         package_name_literal = self.smalltalk_string_literal(package_name)
@@ -251,16 +271,18 @@ class GemstoneBrowserSession:
     def list_classes_in_category(self, category_name):
         if not category_name:
             return []
+        category_literal = self.smalltalk_string_literal(category_name)
+        smalltalk_source = (
+            '| classes |\n'
+            'classes := ClassOrganizer new categories at: %s ifAbsent: [#()].\n'
+            '(String with: Character lf) join: '
+            '(classes asArray collect: [:each | each name asString])'
+        ) % category_literal
         try:
-            gemstone_classes = self.class_organizer.categories().at(category_name)
-            class_names = [
-                gemstone_class.name().to_py for gemstone_class in gemstone_classes
-            ]
+            class_names = self.fetch_joined_names(smalltalk_source)
         except GemstoneError:
             class_names = []
         except GemstoneApiError:
-            class_names = []
-        except KeyError:
             class_names = []
         return sorted(class_names)
 
@@ -268,7 +290,7 @@ class GemstoneBrowserSession:
         if not dictionary_name:
             return []
         dictionary_name_literal = self.smalltalk_string_literal(dictionary_name)
-        class_names = self.run_code(
+        return self.fetch_joined_names(
             (
                 "| dictionaryName dictionary classNames |\n"
                 "dictionaryName := %s.\n"
@@ -285,11 +307,10 @@ class GemstoneBrowserSession:
                 "    ].\n"
                 "    classNames := (classNames asSortedCollection) asArray\n"
                 "].\n"
-                "classNames"
+                "(String with: Character lf) join: classNames"
             )
             % dictionary_name_literal
         )
-        return [class_name.to_py for class_name in class_names]
 
     def dictionary_name_for_class(self, class_name):
         class_name_literal = self.smalltalk_string_literal(class_name)
@@ -383,12 +404,12 @@ class GemstoneBrowserSession:
     def list_method_categories(self, class_name, show_instance_side):
         if not class_name:
             return []
-        class_to_query = self.class_to_query(class_name, show_instance_side)
-        categories = [
-            gemstone_category.to_py
-            for gemstone_category in class_to_query.categoryNames().asSortedCollection()
-        ]
-        return ["all"] + categories
+        class_expression = self.class_side_expression(class_name, show_instance_side)
+        smalltalk_source = (
+            '(String with: Character lf) join: '
+            '(%s categoryNames asSortedCollection asArray collect: [:each | each asString])'
+        ) % class_expression
+        return ['all'] + self.fetch_joined_names(smalltalk_source)
 
     def list_methods(
         self,
@@ -398,19 +419,31 @@ class GemstoneBrowserSession:
     ):
         if not class_name or not method_category:
             return []
-        class_to_query = self.class_to_query(class_name, show_instance_side)
-        if method_category == "all":
-            selectors = class_to_query.selectors().asSortedCollection()
-        else:
-            try:
-                selectors = class_to_query.selectorsIn(
-                    method_category
-                ).asSortedCollection()
-            except GemstoneError:
-                return (
-                    []
-                )  # AI: category exists in categoryNames() but selectorsIn: cannot query it (e.g. *bootstrap-caching)
-        return [gemstone_selector.to_py for gemstone_selector in selectors]
+        class_expression = self.class_side_expression(class_name, show_instance_side)
+        if method_category == 'all':
+            selectors_expression = '%s selectors' % class_expression
+            return self.fetch_joined_names(
+                self.joined_selector_names_source(selectors_expression)
+            )
+        category_literal = self.smalltalk_string_literal(method_category)
+        selectors_expression = '%s selectorsIn: %s' % (
+            class_expression,
+            category_literal,
+        )
+        try:
+            return self.fetch_joined_names(
+                self.joined_selector_names_source(selectors_expression)
+            )
+        except GemstoneError:
+            return (
+                []
+            )  # AI: category exists in categoryNames() but selectorsIn: cannot query it (e.g. *bootstrap-caching)
+
+    def joined_selector_names_source(self, selectors_expression):
+        return (
+            '(String with: Character lf) join: '
+            '((%s) asSortedCollection asArray collect: [:each | each asString])'
+        ) % selectors_expression
 
     def get_compiled_method(self, class_name, method_selector, show_instance_side):
         class_to_query = self.class_to_query(class_name, show_instance_side)
