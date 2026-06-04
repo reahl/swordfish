@@ -1742,7 +1742,6 @@ class MethodSelection(FramedWidget):
             '<<TreeviewSelect>>',
             self.method_hierarchy_selected,
         )
-        self.syncing_method_hierarchy_selection = False
 
         self.rowconfigure(0, weight=1)
         self.rowconfigure(1, weight=0)
@@ -2035,11 +2034,12 @@ class MethodSelection(FramedWidget):
         if selected_item_id is None and parent_item_id:
             selected_item_id = parent_item_id
         if selected_item_id:
-            self.syncing_method_hierarchy_selection = True
+            # AI: This programmatic selection makes ttk queue a <<TreeviewSelect>> for
+            # later delivery; method_hierarchy_selected recognises it as already in sync
+            # with the session state and ignores it.
             self.method_hierarchy_tree.selection_set(selected_item_id)
             self.method_hierarchy_tree.focus(selected_item_id)
             self.method_hierarchy_tree.see(selected_item_id)
-            self.syncing_method_hierarchy_selection = False
 
     def method_inheritance_entries(self):
         selected_class = self.gemstone_session_record.selected_class
@@ -2082,8 +2082,6 @@ class MethodSelection(FramedWidget):
         return superclass_chain
 
     def method_hierarchy_selected(self, event):
-        if self.syncing_method_hierarchy_selection:
-            return
         try:
             selected_item_id = event.widget.selection()[0]
         except IndexError:
@@ -2091,6 +2089,13 @@ class MethodSelection(FramedWidget):
         selected_class = event.widget.item(selected_item_id, 'text')
         selected_method = self.gemstone_session_record.selected_method_symbol
         if not selected_class or not selected_method:
+            return
+        if selected_class == self.gemstone_session_record.selected_class:
+            # AI: The selection already matches the session state. This happens when
+            # refresh_method_hierarchy syncs the tree programmatically: ttk delivers the
+            # resulting <<TreeviewSelect>> asynchronously, so it cannot be suppressed at
+            # the point of syncing. Jumping here would redundantly repopulate the whole
+            # browser and clobber the category selection.
             return
         show_instance_side = self.gemstone_session_record.show_instance_side
         if self.gemstone_session_record.gemstone_session is not None:
