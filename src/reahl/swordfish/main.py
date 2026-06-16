@@ -5171,10 +5171,6 @@ class Swordfish(tk.Tk):
             self.handle_model_refresh_requested,
         )
         self.event_queue.subscribe(
-            'McpIdeNavigationRequested',
-            self.handle_mcp_ide_navigation_requested,
-        )
-        self.event_queue.subscribe(
             'OpenRunWindow',
             self.handle_open_run_window,
         )
@@ -7380,22 +7376,6 @@ class Swordfish(tk.Tk):
             "ok": False,
             "error": {"message": f"Unknown IDE navigation action: {action_name}."},
         }
-
-    def handle_mcp_ide_navigation_requested(
-        self,
-        action_name="",
-        action_parameters=None,
-        response_holder=None,
-        completion_event=None,
-    ):
-        response = self.execute_mcp_ide_navigation_action(
-            action_name,
-            action_parameters,
-        )
-        if response_holder is not None:
-            response_holder["response"] = response
-        if completion_event is not None:
-            completion_event.set()
 
     def perform_mcp_ide_navigation_action(self, action_name, action_parameters=None):
         if action_parameters is None:
