@@ -1033,31 +1033,7 @@ class ClassSelection(FramedWidget):
             self.synchronizing_hierarchy_selection = False
 
     def class_definition_map_for_classes(self, class_names):
-        class_definition_by_class_name = {}
-        classes_to_query = list(class_names)
-        while classes_to_query:
-            class_name = classes_to_query.pop()
-            if class_name not in class_definition_by_class_name:
-                class_definition = {
-                    'class_name': class_name,
-                    'superclass_name': None,
-                    'package_name': '',
-                }
-                try:
-                    fetched_class_definition = self.gemstone_session_record.gemstone_browser_session.get_class_definition(
-                        class_name,
-                    )
-                    class_definition.update(fetched_class_definition)
-                except GemstoneDomainException:
-                    pass
-                superclass_name = class_definition.get('superclass_name')
-                class_definition_by_class_name[class_name] = class_definition
-                if (
-                    superclass_name is not None
-                    and superclass_name not in class_definition_by_class_name
-                ):
-                    classes_to_query.append(superclass_name)
-        return class_definition_by_class_name
+        return self.gemstone_session_record.class_definition_map(class_names)
 
     def add_hierarchy_children(
         self,
