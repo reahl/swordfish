@@ -1016,12 +1016,20 @@ class DebuggerWindow(ttk.PanedWindow):
 
         self.listbox = ttk.Treeview(
             self.call_stack_frame,
-            columns=('Level', 'Column1', 'Column2'),
+            columns=(
+                'Level',
+                'ClassName',
+                'ClassCategory',
+                'MethodName',
+                'MethodCategory',
+            ),
             show='headings',
         )
         self.listbox.heading('Level', text='Level')
-        self.listbox.heading('Column1', text='Class Name')
-        self.listbox.heading('Column2', text='Method Name')
+        self.listbox.heading('ClassName', text='Class Name')
+        self.listbox.heading('ClassCategory', text='Class Category')
+        self.listbox.heading('MethodName', text='Method Name')
+        self.listbox.heading('MethodCategory', text='Method Category')
         self.listbox.grid(row=1, column=0, sticky='nsew')
 
         self.debug_session = GemstoneDebugSession(self.exception)
@@ -1061,13 +1069,24 @@ class DebuggerWindow(ttk.PanedWindow):
         for item in self.listbox.get_children():
             self.listbox.delete(item)
 
+        class_category_by_name = {}
         for frame in self.stack_frames:
             iid = str(frame.level)
+            class_category, method_category = self.frame_categories(
+                frame,
+                class_category_by_name,
+            )
             self.listbox.insert(
                 '',
                 'end',
                 iid=iid,
-                values=(frame.level, frame.class_name, frame.method_name),
+                values=(
+                    frame.level,
+                    frame.class_name,
+                    class_category,
+                    frame.method_name,
+                    method_category,
+                ),
             )
 
         if self.stack_frames:
@@ -1291,6 +1310,46 @@ class DebuggerWindow(ttk.PanedWindow):
         if not class_name or not frame.method_name:
             return None
         return class_name, show_instance_side, frame.method_name
+
+    def frame_categories(self, frame, class_category_by_name):
+        # AI: Resolve the class category (package_name) and method category for a
+        # AI: stack frame, mirroring frame_method_context's handling of the
+        # AI: ' class' suffix for class-side activations. class_category_by_name
+        # AI: caches the per-class lookup so a deep recursive stack costs one
+        # AI: round-trip per distinct class, not per frame. Frames that are not
+        # AI: ordinary method activations (executed code, blocks) yield blanks.
+        class_name = frame.class_name
+        show_instance_side = True
+        class_side_suffix = ' class'
+        if class_name.endswith(class_side_suffix):
+            class_name = class_name[: -len(class_side_suffix)]
+            show_instance_side = False
+        class_category = ''
+        method_category = ''
+        if class_name:
+            if class_name not in class_category_by_name:
+                resolved_class_category = ''
+                try:
+                    class_definition = self.gemstone_session_record.gemstone_browser_session.get_class_definition(
+                        class_name,
+                    )
+                    resolved_class_category = (
+                        class_definition.get('package_name') or ''
+                    )
+                except (GemstoneDomainException, GemstoneError):
+                    resolved_class_category = ''
+                class_category_by_name[class_name] = resolved_class_category
+            class_category = class_category_by_name[class_name]
+            if frame.method_name:
+                try:
+                    method_category = self.gemstone_session_record.gemstone_browser_session.get_method_category(
+                        class_name,
+                        frame.method_name,
+                        show_instance_side,
+                    )
+                except (GemstoneDomainException, GemstoneError):
+                    method_category = ''
+        return class_category, method_category
 
     def open_selected_frame_method(self):
         frame = self.get_selected_stack_frame()
