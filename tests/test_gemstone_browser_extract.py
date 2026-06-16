@@ -275,9 +275,7 @@ def test_get_class_definition_treats_class_as_root_when_superclass_proxy_unavail
 def test_list_methods_returns_empty_for_categories_that_cannot_be_queried():
     """AI: When selectorsIn: raises a GemstoneError (e.g. *bootstrap-caching internal category), list_methods should return [] rather than crashing the method listing."""
     browser_session = GemstoneBrowserSession(None)
-    mock_class = Mock()
-    mock_class.selectorsIn.side_effect = FakeGemstoneError()
-    browser_session.class_to_query = Mock(return_value=mock_class)
+    browser_session.run_code = Mock(side_effect=FakeGemstoneError())
 
     with expected(NoException):
         result = browser_session.list_methods('Object', '*bootstrap-caching', False)

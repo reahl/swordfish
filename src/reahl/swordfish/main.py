@@ -10,11 +10,13 @@ import queue
 import re
 import sys
 import threading
+import time
 import tkinter as tk
 import tkinter.filedialog as filedialog
 import tkinter.messagebox as messagebox
 import tkinter.simpledialog as simpledialog
 import traceback
+import uuid
 import weakref
 from collections import deque
 from datetime import datetime
@@ -56,6 +58,12 @@ from reahl.swordfish.gemstone.working_copy import (
 from reahl.swordfish.inspector import Explorer, InspectorTab, ObjectInspector
 from reahl.swordfish.mcp.integration_state import current_integrated_session_state
 from reahl.swordfish.mcp.server import McpDependencyNotInstalled, create_server
+from reahl.swordfish.mcp.session_serialization import (
+    current_operation_token,
+    leave_session_operation,
+    session_operation,
+    try_enter_session_operation,
+)
 from reahl.swordfish.navigation import (
     GlobalNavigationEntry,
     GlobalNavigationHistory,
@@ -1101,6 +1109,26 @@ class BusyCoordinator:
             return lease_token == 0
 
 
+class ActivityLinger:
+    '''AI: Holds the MCP activity indicator visible for a minimum time after each busy signal.
+    A fast MCP operation begins and ends before the Tk thread renders its busy state, so an
+    indicator driven by raw busy-state edges shows nothing at all for exactly the workloads -
+    bursts of small, quick tool calls - a user most wants reassurance about. Every busy signal
+    extends the hold, so a burst reads as one steady period of activity ending a minimum time
+    after the last call.'''
+
+    def __init__(self, minimum_visible_seconds=0.5, clock=time.monotonic):
+        self.minimum_visible_seconds = minimum_visible_seconds
+        self.clock = clock
+        self.visible_until = 0.0
+
+    def note_activity(self):
+        self.visible_until = self.clock() + self.minimum_visible_seconds
+
+    def is_lingering(self):
+        return self.clock() < self.visible_until
+
+
 class ActionGate:
     def __init__(self):
         self.actions_blocked_while_busy = {
@@ -1179,6 +1207,26 @@ class ActivityLog:
                 f.write(json.dumps(entry) + '\n')
 
 
+class SessionOperationAdmission:
+    """AI: Lets the IDE event drain take the shared GemStone session as a whole operation, without
+    blocking. The Tk thread must never block on the session lock - it also services MCP-driven
+    navigation, so blocking would deadlock an MCP operation that is waiting on Tk. Instead it asks
+    non-blockingly: a token means the drain may run its GCI now; None means an MCP operation holds
+    the session, so the drain defers onto the event loop and retries rather than colliding."""
+
+    def __init__(self, connection_id):
+        self.connection_id = connection_id
+
+    def try_admit(self):
+        operation_token = ('ide', uuid.uuid4().hex)
+        if try_enter_session_operation(self.connection_id, operation_token):
+            return operation_token
+        return None
+
+    def release(self, operation_token):
+        leave_session_operation(self.connection_id, operation_token)
+
+
 class EventQueue:
     def __init__(self, root, activity_log=None):
         self.root = root
@@ -1190,6 +1238,8 @@ class EventQueue:
         self.wakeup_read_descriptor = None
         self.wakeup_write_descriptor = None
         self.processing_events = False
+        self.session_admission = None
+        self.deferred_processing_scheduled = False
         self.ui_dispatcher = UiDispatcher(self.root)
         self.root.bind('<<CustomEventsPublished>>', self.schedule_event_processing)
         self.configure_cross_thread_wakeup()
@@ -1312,6 +1362,14 @@ class EventQueue:
     def process_events(self):
         if self.processing_events:
             return
+        admission_token = None
+        if self.session_admission is not None:
+            admission_token = self.session_admission.try_admit()
+            if admission_token is None:
+                # AI: An MCP operation holds the session; defer this whole drain onto the event
+                # loop rather than blocking Tk or running IDE GCI that would collide with it.
+                self.schedule_deferred_processing()
+                return
         self.processing_events = True
         try:
             while True:
@@ -1348,6 +1406,21 @@ class EventQueue:
                     self.events[event_name] = retained_callbacks
         finally:
             self.processing_events = False
+            if admission_token is not None:
+                self.session_admission.release(admission_token)
+
+    def schedule_deferred_processing(self):
+        if self.deferred_processing_scheduled:
+            return
+        self.deferred_processing_scheduled = True
+        try:
+            self.root.after(20, self.run_deferred_processing)
+        except tk.TclError:
+            self.deferred_processing_scheduled = False
+
+    def run_deferred_processing(self):
+        self.deferred_processing_scheduled = False
+        self.process_events()
 
     def clear_subscribers(self, owner):
         for event_name, registered_callbacks in self.events.copy().items():
@@ -5054,6 +5127,10 @@ class Swordfish(tk.Tk):
 
         self.gemstone_session_record = None
         self.last_mcp_busy_state = None
+        self.activity_linger = ActivityLinger()
+        self.last_seen_mcp_operation_name = ''
+        self.last_mcp_activity_text = ''
+        self.linger_refresh_after_id = None
         self.last_mcp_server_running_state = None
         self.last_mcp_server_starting_state = None
         self.last_mcp_server_stopping_state = None
@@ -5092,10 +5169,6 @@ class Swordfish(tk.Tk):
         self.event_queue.subscribe(
             'ModelRefreshRequested',
             self.handle_model_refresh_requested,
-        )
-        self.event_queue.subscribe(
-            'McpIdeNavigationRequested',
-            self.handle_mcp_ide_navigation_requested,
         )
         self.event_queue.subscribe(
             'OpenRunWindow',
@@ -5516,6 +5589,7 @@ class Swordfish(tk.Tk):
         self.gemstone_session_record.log_out()
         self.gemstone_session_record = None
         self.integrated_session_state.detach_ide_session()
+        self.event_queue.session_admission = None
         self.event_queue.publish(
             "LoggedOut",
             log_context={
@@ -5571,6 +5645,9 @@ class Swordfish(tk.Tk):
         )
         self.integrated_session_state.attach_ide_session(
             self.gemstone_session_record.gemstone_session
+        )
+        self.event_queue.session_admission = SessionOperationAdmission(
+            self.integrated_session_state.ide_connection_id()
         )
 
         self.clear_widgets()
@@ -6276,6 +6353,9 @@ class Swordfish(tk.Tk):
             'Uncommitted changes' if session_is_dirty else ''
         )
         mcp_busy = self.integrated_session_state.is_mcp_busy()
+        # AI: The linger only stretches what the indicator *shows*; action gating below uses the
+        # real busy state so the IDE unlocks the moment the MCP is actually idle.
+        mcp_activity_visible = mcp_busy or self.activity_linger.is_lingering()
         mcp_server_status = self.mcp_server_controller.status()
         mcp_server_running = mcp_server_status["running"]
         mcp_server_starting = mcp_server_status["starting"]
@@ -6285,7 +6365,7 @@ class Swordfish(tk.Tk):
         )
         self.set_mcp_activity_indicator_visibility(
             bool(self.foreground_activity_message)
-            or mcp_busy
+            or mcp_activity_visible
             or mcp_server_starting
             or mcp_server_stopping
         )
@@ -6293,12 +6373,18 @@ class Swordfish(tk.Tk):
             self.collaboration_status_text.set(self.foreground_activity_message)
         elif mcp_busy:
             operation_name = (
-                self.integrated_session_state.current_mcp_operation_name() or "unknown"
+                self.integrated_session_state.current_mcp_operation_name()
+                or self.last_seen_mcp_operation_name
+                or "unknown"
             )
             self.collaboration_status_text.set(
                 "MCP busy: %s. IDE write/run/debug actions are read-only."
                 % operation_name
             )
+        elif mcp_activity_visible:
+            # AI: The operation already finished; during the linger the status bar reports what
+            # just ran rather than claiming the IDE is still locked.
+            self.collaboration_status_text.set(self.last_mcp_activity_text)
         elif mcp_server_stopping:
             self.collaboration_status_text.set("Stopping MCP server...")
         elif mcp_server_starting:
@@ -6312,6 +6398,8 @@ class Swordfish(tk.Tk):
                     runtime_message
                     + " Network settings changed; they will take effect at next MCP start."
                 )
+            if self.last_mcp_activity_text:
+                runtime_message = runtime_message + " " + self.last_mcp_activity_text
             self.collaboration_status_text.set(runtime_message)
         elif self.is_logged_in:
             self.collaboration_status_text.set("IDE ready. Embedded MCP is stopped.")
@@ -6324,10 +6412,44 @@ class Swordfish(tk.Tk):
         operation_name="",
         busy_lease_token=None,
     ):
+        if is_busy:
+            # AI: A fast operation is usually finished - its lease already stale - by the time
+            # the Tk thread runs this handler. Record it anyway: the indicator owes every
+            # operation a minimum visible time and the status bar a durable trace, otherwise
+            # sub-second MCP activity is invisible exactly when it is most frequent.
+            self.note_mcp_activity(operation_name)
         if not self.busy_coordinator.is_current_lease(busy_lease_token):
+            if is_busy:
+                self.refresh_collaboration_status()
             return
         self.last_mcp_busy_state = is_busy
         self.refresh_collaboration_status()
+
+    def note_mcp_activity(self, operation_name):
+        self.activity_linger.note_activity()
+        self.last_seen_mcp_operation_name = operation_name or "unknown"
+        self.last_mcp_activity_text = "Last MCP: %s %s." % (
+            self.last_seen_mcp_operation_name,
+            datetime.now().strftime("%H:%M:%S"),
+        )
+        self.schedule_linger_expiry_refresh()
+
+    def schedule_linger_expiry_refresh(self):
+        '''AI: The linger expires silently - nothing else is guaranteed to refresh the status
+        bar afterwards - so schedule one refresh just past the hold to take the indicator
+        down. A newer activity replaces the pending refresh rather than stacking one per call.'''
+        if self.linger_refresh_after_id is not None:
+            try:
+                self.after_cancel(self.linger_refresh_after_id)
+            except tk.TclError:
+                pass
+        delay_milliseconds = (
+            int(self.activity_linger.minimum_visible_seconds * 1000) + 50
+        )
+        self.linger_refresh_after_id = self.after(
+            delay_milliseconds,
+            self.refresh_collaboration_status,
+        )
 
     def handle_mcp_server_state_changed(
         self,
@@ -7255,22 +7377,6 @@ class Swordfish(tk.Tk):
             "error": {"message": f"Unknown IDE navigation action: {action_name}."},
         }
 
-    def handle_mcp_ide_navigation_requested(
-        self,
-        action_name="",
-        action_parameters=None,
-        response_holder=None,
-        completion_event=None,
-    ):
-        response = self.execute_mcp_ide_navigation_action(
-            action_name,
-            action_parameters,
-        )
-        if response_holder is not None:
-            response_holder["response"] = response
-        if completion_event is not None:
-            completion_event.set()
-
     def perform_mcp_ide_navigation_action(self, action_name, action_parameters=None):
         if action_parameters is None:
             action_parameters = {}
@@ -7280,15 +7386,27 @@ class Swordfish(tk.Tk):
                 action_name,
                 action_parameters,
             )
+        # AI: This runs on the MCP worker thread while its operation holds the session under
+        # operation_token. The navigation must run on the Tk thread, so we dispatch it there
+        # OUTSIDE the gated event drain and re-enter the gate under the same token - the Tk side is
+        # part of this operation, not a competing one, so it must not defer or block against the
+        # operation's own hold (which would time out here).
+        operation_token = current_operation_token() or ("mcp-ide-nav", uuid.uuid4().hex)
+        ide_connection_id = self.integrated_session_state.ide_connection_id()
         response_holder = {}
         completion_event = threading.Event()
-        self.event_queue.publish(
-            "McpIdeNavigationRequested",
-            action_name=action_name,
-            action_parameters=action_parameters,
-            response_holder=response_holder,
-            completion_event=completion_event,
-        )
+
+        def run_navigation_under_operation():
+            try:
+                with session_operation(ide_connection_id, operation_token):
+                    response_holder["response"] = self.execute_mcp_ide_navigation_action(
+                        action_name,
+                        action_parameters,
+                    )
+            finally:
+                completion_event.set()
+
+        self.event_queue.ui_dispatcher.dispatch(run_navigation_under_operation)
         completed = completion_event.wait(timeout=5.0)
         if not completed:
             return {
