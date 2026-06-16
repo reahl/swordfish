@@ -14,11 +14,11 @@ from reahl.swordfish.gemstone.smalltalk_source_scanner import (
     SmalltalkTokenKind,
 )
 from reahl.swordfish.ui_support import (
-    add_close_command_to_popup_menu,
     add_source_code_commands,
     close_popup_menu,
     is_compile_error,
 )
+from reahl.swordfish.ui_support import selector_token as resolve_selector_token
 
 # AI: Maps Smalltalk token kinds to the Tk text tags that colour them. Kinds absent here are left uncoloured.
 SYNTAX_TOKEN_TAGS = {
@@ -472,25 +472,9 @@ class CodePanel(tk.Frame):
         self.editable_text.delete_selection_before_typing(event)
 
     def selector_token(self, token_text):
-        candidate = (token_text or '').strip()
-        if not candidate:
-            return None
-        is_identifier_selector = re.fullmatch(
-            r'[A-Za-z_]\w*(?::[A-Za-z_]\w*)*:?',
-            candidate,
-        )
-        if is_identifier_selector:
-            return candidate
-        keyword_tokens = re.findall(
-            r'[A-Za-z_]\w*:',
-            candidate,
-        )
-        if keyword_tokens:
-            return ''.join(keyword_tokens)
-        is_binary_selector = re.fullmatch(r'[-+*/\\~<>=@%,|&?!]+', candidate)
-        if is_binary_selector:
-            return candidate
-        return None
+        # AI: Delegate to the shared selector resolver so CodePanel and RunTab
+        # reduce a source fragment to a selector by exactly the same rules.
+        return resolve_selector_token(token_text)
 
     def cursor_offset(self):
         cursor_index = self.text_editor.index(tk.INSERT)
@@ -664,12 +648,11 @@ class CodePanel(tk.Frame):
                 command=self.apply_method_inline,
                 state=write_command_state,
             )
-        add_close_command_to_popup_menu(self.current_context_menu)
         self.current_context_menu.bind(
             '<Escape>',
             lambda popup_event: close_popup_menu(self.current_context_menu),
         )
-        self.current_context_menu.post(event.x_root, event.y_root)
+        self.current_context_menu.tk_popup(event.x_root, event.y_root)
 
     def active_editor_tab(self):
         parent_widget = self.master
@@ -2018,12 +2001,11 @@ class EditorTab(tk.Frame):
             label='Close All to the Right',
             command=lambda: self.method_editor.close_tabs_to_right(self),
         )
-        add_close_command_to_popup_menu(menu)
         menu.bind(
             '<Escape>',
             lambda popup_event: close_popup_menu(menu),
         )
-        menu.post(event.x_root, event.y_root)
+        menu.tk_popup(event.x_root, event.y_root)
 
     def mark_dirty(self):
         if not self.is_dirty:

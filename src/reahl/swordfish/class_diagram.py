@@ -19,7 +19,6 @@ from reahl.swordfish.ui_support import (
     UML_NODES_PER_ROW,
     UML_ORIGIN_X,
     UML_ORIGIN_Y,
-    add_close_command_to_popup_menu,
     popup_menu,
 )
 
@@ -999,7 +998,6 @@ class UmlClassDiagramTab(ttk.Frame):
             label="Remove From Class Diagram",
             command=lambda: self.remove_class_from_diagram(node.class_name),
         )
-        add_close_command_to_popup_menu(menu)
         popup_menu(menu, event)
 
     def open_relationship_menu(self, relationship, event):
@@ -1020,7 +1018,6 @@ class UmlClassDiagramTab(ttk.Frame):
                 label="Add Inheritance Details",
                 state=tk.DISABLED,
             )
-        add_close_command_to_popup_menu(menu)
         popup_menu(menu, event)
 
     def browse_class(self, class_name):

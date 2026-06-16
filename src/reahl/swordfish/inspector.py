@@ -7,7 +7,7 @@ from reahl.ptongue import GemstoneError
 from reahl.swordfish.closable_notebook import install_close_buttons
 from reahl.swordfish.navigation import NavigationHistory
 from reahl.swordfish.tab_registry import DeduplicatedTabRegistry
-from reahl.swordfish.ui_support import add_close_command_to_popup_menu, popup_menu
+from reahl.swordfish.ui_support import popup_menu
 
 
 class ObjectInspector(ttk.Frame):
@@ -552,7 +552,6 @@ class ObjectInspector(ttk.Frame):
         has_menu_entries = object_menu.index('end') is not None
         if not has_menu_entries:
             return
-        add_close_command_to_popup_menu(object_menu)
         self.current_object_menu = object_menu
         popup_menu(object_menu, event)
 

@@ -12,7 +12,6 @@ from reahl.swordfish.ui_support import (
     GRAPH_NODES_PER_ROW,
     GRAPH_ORIGIN_X,
     GRAPH_ORIGIN_Y,
-    add_close_command_to_popup_menu,
     popup_menu,
 )
 
@@ -374,7 +373,6 @@ class UmlObjectDiagramCanvas(ttk.Frame):
             label='Browse Class',
             command=lambda: self.browse_class_action(node.gemstone_object),
         )
-        add_close_command_to_popup_menu(menu)
         popup_menu(menu, event)
 
     def expand_scroll_region(self):
