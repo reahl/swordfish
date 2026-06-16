@@ -122,6 +122,53 @@ class FakeApplication:
         self.event_queue.publish("SelectedClassChanged")
 
 
+def find_result_label_for_row(row):
+    # AI: Reconstruct the legacy single-string label for a FindDialog result row
+    # ("Class>>selector" / "Class class>>selector" for method rows, the class name
+    # for class rows, or the bare selector for a 'contains' search), so tests can
+    # assert which results appear independently of the new columns and indentation.
+    if row["class_name"] is None:
+        return row["method_selector"]
+    class_label = row["class_name"]
+    if not row["show_instance_side"]:
+        class_label = "%s class" % row["class_name"]
+    if row["method_selector"] is None:
+        return class_label
+    return "%s>>%s" % (class_label, row["method_selector"])
+
+
+def find_result_labels(dialog):
+    # AI: Flatten the FindDialog results Treeview (depth-first, parents before
+    # their nested overrides) into the list of labels in display order.
+    labels = []
+
+    def collect(parent_iid):
+        for iid in dialog.results_tree.get_children(parent_iid):
+            labels.append(find_result_label_for_row(dialog.result_rows_by_iid[iid]))
+            collect(iid)
+
+    collect("")
+    return labels
+
+
+def find_result_iid_for_label(dialog, label):
+    # AI: Locate the results-tree row whose reconstructed label matches, so
+    # double-click tests can target a specific result without a listbox index.
+    def search(parent_iid):
+        found = []
+        for iid in dialog.results_tree.get_children(parent_iid):
+            if find_result_label_for_row(dialog.result_rows_by_iid[iid]) == label:
+                found.append(iid)
+            found.extend(search(iid))
+        return found
+
+    return search("")[0]
+
+
+def select_find_result(dialog, label):
+    dialog.results_tree.selection_set(find_result_iid_for_label(dialog, label))
+
+
 class SwordfishGuiFixture(Fixture):
     @set_up
     def create_app(self):
@@ -4758,7 +4805,7 @@ def test_mcp_ide_navigation_action_filters_sender_find_dialog_by_class_category(
     )
     assert include_extensions_response["ok"], include_extensions_response
     assert include_extensions_response["displayed_sender_count"] == 2
-    assert list(dialog.results_listbox.get(0, "end")) == [
+    assert find_result_labels(dialog) == [
         "OrderAudit>>recordTotalChange",
         "OrderLine>>recalculateTotal",
     ]
@@ -4772,7 +4819,7 @@ def test_mcp_ide_navigation_action_filters_sender_find_dialog_by_class_category(
     )
     assert exclude_extensions_response["ok"], exclude_extensions_response
     assert exclude_extensions_response["displayed_sender_count"] == 1
-    assert list(dialog.results_listbox.get(0, "end")) == ["OrderLine>>recalculateTotal"]
+    assert find_result_labels(dialog) == ["OrderLine>>recalculateTotal"]
     dialog.destroy()
 
 
@@ -5799,6 +5846,67 @@ def test_debugger_selected_stack_frame_matches_treeview_level_identifier(fixture
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_debugger_frame_list_shows_class_and_method_category_columns(fixture):
+    """AI: Each debugger frame shows the class category and method category of its
+    activation - mirroring the Find dialog - while keeping call-stack order. A
+    class-side activation resolves its categories from the instance-side class."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.mock_browser.get_method_category.return_value = "printing"
+
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    debugger_tab = fixture.app.debugger_tab
+    instance_frame = types.SimpleNamespace(
+        level=1,
+        class_name="Order",
+        method_name="total",
+        method_source="total source",
+        step_point_offset=1,
+        self=Mock(),
+        vars={},
+    )
+    class_side_frame = types.SimpleNamespace(
+        level=2,
+        class_name="Order class",
+        method_name="default",
+        method_source="default source",
+        step_point_offset=1,
+        self=Mock(),
+        vars={},
+    )
+
+    class OneBasedStack:
+        def __init__(self, frames):
+            self.frames = list(frames)
+
+        def __iter__(self):
+            return iter(self.frames)
+
+        def __bool__(self):
+            return bool(self.frames)
+
+        def __getitem__(self, level):
+            return self.frames[level - 1]
+
+    debugger_tab.stack_frames = OneBasedStack([instance_frame, class_side_frame])
+    debugger_tab.refresh()
+
+    assert debugger_tab.listbox.set("1", "ClassCategory") == "Kernel"
+    assert debugger_tab.listbox.set("1", "MethodCategory") == "printing"
+    assert debugger_tab.listbox.set("2", "ClassName") == "Order class"
+    assert debugger_tab.listbox.set("2", "ClassCategory") == "Kernel"
+    assert [
+        debugger_tab.listbox.set(iid, "Level")
+        for iid in debugger_tab.listbox.get_children()
+    ] == ["1", "2"]
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_completed_debugger_can_be_dismissed_with_close_button(fixture):
     """AI: Once debugger execution completes, the UI should expose a close action that exits debugger mode."""
     fixture.simulate_login()
@@ -6322,7 +6430,7 @@ def test_find_dialog_class_search_populates_result_list(fixture):
     dialog.find_entry.insert(0, "Order")
     dialog.find_text()
 
-    results = list(dialog.results_listbox.get(0, "end"))
+    results = find_result_labels(dialog)
     assert "OrderLine" in results
     assert "OrderHistory" in results
     dialog.destroy()
@@ -6360,10 +6468,10 @@ def test_find_dialog_class_mode_supports_contains_and_exact_matching(
             match_mode="contains",
         )
 
-    assert list(dialog.results_listbox.get(0, "end")) == ["Order", "OrderLine"]
+    assert find_result_labels(dialog) == ["Order", "OrderLine"]
     dialog.match_mode.set("exact")
     dialog.find_text()
-    assert list(dialog.results_listbox.get(0, "end")) == ["Order"]
+    assert find_result_labels(dialog) == ["Order"]
     # AI: The contains search scanned once; the exact search resolved the symbol and
     # never scanned, so find_classes was not called a second time.
     fixture.mock_browser.find_classes.assert_called_once()
@@ -6400,7 +6508,7 @@ def test_find_dialog_can_stop_a_running_class_search(fixture):
     dialog.find_text()
 
     assert dialog.status_var.get() == "Find stopped. Showing partial results."
-    assert list(dialog.results_listbox.get(0, "end")) == [
+    assert find_result_labels(dialog) == [
         "Order0",
         "Order1",
         "Order2",
@@ -6431,13 +6539,125 @@ def test_find_dialog_method_mode_supports_contains_and_exact_matching(
             match_mode="contains",
         )
 
-    assert list(dialog.results_listbox.get(0, "end")) == ["subtotal", "total"]
+    assert find_result_labels(dialog) == ["subtotal", "total"]
     dialog.match_mode.set("exact")
     dialog.find_text()
-    assert list(dialog.results_listbox.get(0, "end")) == [
+    assert find_result_labels(dialog) == [
         "Order class>>total",
         "OrderLine>>total",
     ]
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_dialog_method_search_shows_class_and_method_category_columns(fixture):
+    """AI: An implementor search is a method listing, so each result row carries
+    the Class, Class Category, Method and Method Category that an IDE user needs
+    to tell overlapping implementors apart."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_implementors.return_value = [
+        {"class_name": "OrderLine", "show_instance_side": True},
+    ]
+
+    with patch.object(FindDialog, "wait_visibility"):
+        dialog = FindDialog(
+            fixture.app,
+            search_type="method",
+            search_query="total",
+            run_search=True,
+            match_mode="exact",
+        )
+
+    assert tuple(dialog.results_tree["columns"]) == (
+        "ClassCategory",
+        "Method",
+        "MethodCategory",
+    )
+    iid = find_result_iid_for_label(dialog, "OrderLine>>total")
+    assert dialog.results_tree.item(iid, "text") == "OrderLine"
+    assert dialog.results_tree.set(iid, "ClassCategory") == "Kernel"
+    assert dialog.results_tree.set(iid, "Method") == "total"
+    assert dialog.results_tree.set(iid, "MethodCategory") == "accessing"
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_dialog_nests_override_under_the_implementor_it_overrides(fixture):
+    """AI: When a subclass reimplements a selector, its implementor is nested
+    under the inherited implementor it overrides, so the inheritance relationship
+    between implementors is visible directly in the result list."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_implementors.return_value = [
+        {"class_name": "Order", "show_instance_side": True},
+        {"class_name": "OrderLine", "show_instance_side": True},
+    ]
+
+    with patch.object(FindDialog, "wait_visibility"):
+        dialog = FindDialog(
+            fixture.app,
+            search_type="method",
+            search_query="total",
+            run_search=True,
+            match_mode="exact",
+        )
+
+    superclass_iid = find_result_iid_for_label(dialog, "Order>>total")
+    override_iid = find_result_iid_for_label(dialog, "OrderLine>>total")
+    assert dialog.results_tree.parent(superclass_iid) == ""
+    assert dialog.results_tree.parent(override_iid) == superclass_iid
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_dialog_class_search_shows_category_column_and_nests_subclasses(fixture):
+    """AI: A class search lists classes with their class category, and a subclass
+    is nested under the superclass it inherits from."""
+    fixture.simulate_login()
+
+    def classes_for_pattern(pattern, should_stop=None):
+        return ["Order", "OrderLine"]
+
+    fixture.mock_browser.find_classes.side_effect = classes_for_pattern
+
+    with patch.object(FindDialog, "wait_visibility"):
+        dialog = FindDialog(
+            fixture.app,
+            search_type="class",
+            search_query="Order",
+            run_search=True,
+            match_mode="contains",
+        )
+
+    assert tuple(dialog.results_tree["columns"]) == ("ClassCategory",)
+    superclass_iid = find_result_iid_for_label(dialog, "Order")
+    subclass_iid = find_result_iid_for_label(dialog, "OrderLine")
+    assert dialog.results_tree.set(superclass_iid, "ClassCategory") == "Kernel"
+    assert dialog.results_tree.parent(subclass_iid) == superclass_iid
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_dialog_selector_contains_search_shows_only_a_method_column(fixture):
+    """AI: A 'contains' selector search yields bare selectors with no owning
+    class, so it shows a single Method column and no inheritance nesting."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_selectors.return_value = ["subtotal", "total"]
+
+    with patch.object(FindDialog, "wait_visibility"):
+        dialog = FindDialog(
+            fixture.app,
+            search_type="method",
+            search_query="total",
+            run_search=True,
+            match_mode="contains",
+        )
+
+    assert tuple(dialog.results_tree["columns"]) == ()
+    assert find_result_labels(dialog) == ["subtotal", "total"]
+    top_level_iids = dialog.results_tree.get_children("")
+    assert all(
+        dialog.results_tree.get_children(iid) == () for iid in top_level_iids
+    )
     dialog.destroy()
 
 
@@ -6495,8 +6715,7 @@ def test_method_contains_double_click_pivots_to_exact_search_in_place(fixture):
         )
 
     with patch.object(fixture.app, "open_implementors_dialog") as open_implementors:
-        selector_names = list(dialog.results_listbox.get(0, "end"))
-        dialog.results_listbox.selection_set(selector_names.index("total"))
+        select_find_result(dialog, "total")
         dialog.on_result_double_click(None)
 
     open_implementors.assert_not_called()
@@ -6504,7 +6723,7 @@ def test_method_contains_double_click_pivots_to_exact_search_in_place(fixture):
     assert dialog.winfo_exists() == 1
     assert dialog.match_mode.get() == "exact"
     assert dialog.find_entry.get() == "total"
-    assert list(dialog.results_listbox.get(0, "end")) == ["OrderLine>>total"]
+    assert find_result_labels(dialog) == ["OrderLine>>total"]
     assert dialog.search_intent_var.get() == 'Implementors of method "total".'
     dialog.destroy()
 
@@ -6580,7 +6799,7 @@ def test_find_dialog_reference_class_search_is_always_exact(
     assert str(dialog.match_contains_radio.cget("state")) == tk.DISABLED
     fixture.mock_browser.find_classes.assert_not_called()
     fixture.mock_browser.find_class_references.assert_called_once_with("Or")
-    assert list(dialog.results_listbox.get(0, "end")) == ["OrderBuilder>>fromOrder:"]
+    assert find_result_labels(dialog) == ["OrderBuilder>>fromOrder:"]
     dialog.destroy()
 
 
@@ -6621,7 +6840,7 @@ def test_open_find_dialog_for_class_prefills_and_executes_reference_search(
         "Finding references to class OrderLine...",
     )
     end_activity.assert_called_once_with()
-    assert list(dialog.results_listbox.get(0, "end")) == [
+    assert find_result_labels(dialog) == [
         "Order class>>defaultLineClass",
         "Order>>addLine:",
     ]
@@ -6645,9 +6864,8 @@ def test_find_dialog_double_click_navigates_to_selected_class_reference_method(
     dialog.search_type.set("reference")
     dialog.reference_target.set("class")
     dialog.match_mode.set("exact")
-    dialog.navigation_method_results = [("Order", False, "defaultLineClass")]
-    dialog.results_listbox.insert(tk.END, "Order class>>defaultLineClass")
-    dialog.results_listbox.selection_set(0)
+    dialog.populate_navigation_results([("Order", False, "defaultLineClass")])
+    select_find_result(dialog, "Order class>>defaultLineClass")
     dialog.on_result_double_click(None)
     fixture.app.update()
 
@@ -6675,8 +6893,8 @@ def test_find_dialog_double_click_navigates_browser_to_selected_class(fixture):
     with patch.object(FindDialog, "wait_visibility"):
         dialog = FindDialog(fixture.app)
 
-    dialog.results_listbox.insert(tk.END, "OrderLine")
-    dialog.results_listbox.selection_set(0)
+    dialog.display_class_results(["OrderLine"])
+    select_find_result(dialog, "OrderLine")
     dialog.on_result_double_click(None)
     fixture.app.update()
 
@@ -6712,8 +6930,8 @@ def test_find_dialog_double_click_in_dictionary_mode_updates_dictionary_and_clas
     with patch.object(FindDialog, "wait_visibility"):
         dialog = FindDialog(fixture.app)
 
-    dialog.results_listbox.insert(tk.END, "OrderLine")
-    dialog.results_listbox.selection_set(0)
+    dialog.display_class_results(["OrderLine"])
+    select_find_result(dialog, "OrderLine")
     dialog.on_result_double_click(None)
     fixture.app.update()
 
@@ -6760,8 +6978,8 @@ def test_find_dialog_double_click_in_dictionary_mode_uses_class_membership_not_s
     with patch.object(FindDialog, "wait_visibility"):
         dialog = FindDialog(fixture.app)
 
-    dialog.results_listbox.insert(tk.END, "OrderLine")
-    dialog.results_listbox.selection_set(0)
+    dialog.display_class_results(["OrderLine"])
+    select_find_result(dialog, "OrderLine")
     dialog.on_result_double_click(None)
     fixture.app.update()
 
@@ -6806,7 +7024,7 @@ def test_senders_dialog_method_search_populates_result_list(fixture):
             reference_target="method",
         )
 
-    results = list(dialog.results_listbox.get(0, "end"))
+    results = find_result_labels(dialog)
     assert results == ["Order class>>default", "OrderLine>>recalculateTotal"]
     dialog.destroy()
 
@@ -6841,7 +7059,7 @@ def test_senders_dialog_double_click_navigates_browser_to_selected_sender(fixtur
             reference_target="method",
         )
 
-    dialog.results_listbox.selection_set(0)
+    select_find_result(dialog, "OrderLine>>recalculateTotal")
     dialog.on_result_double_click(None)
     fixture.app.update()
 
@@ -6946,7 +7164,7 @@ def test_senders_dialog_narrow_with_tracing_filters_to_observed_senders(fixture)
                 )
                 dialog.narrow_senders_with_tracing()
 
-    results = list(dialog.results_listbox.get(0, "end"))
+    results = find_result_labels(dialog)
     assert results == ["OrderLine>>recalculateTotal"]
     fixture.mock_browser.sender_test_plan_for_selector.assert_called_once_with(
         "total",
@@ -7390,12 +7608,12 @@ def test_senders_dialog_narrow_with_tracing_reloads_static_senders_after_selecto
                 reference_target="method",
             )
             dialog.narrow_senders_with_tracing()
-            first_results = list(dialog.results_listbox.get(0, "end"))
+            first_results = find_result_labels(dialog)
 
             dialog.find_entry.delete(0, tk.END)
             dialog.find_entry.insert(0, "subtotal")
             dialog.narrow_senders_with_tracing()
-            second_results = list(dialog.results_listbox.get(0, "end"))
+            second_results = find_result_labels(dialog)
 
     assert first_results == ["OrderLine>>recalculateTotal"]
     assert second_results == ["Invoice>>recalculateSubtotal"]
