@@ -16,6 +16,7 @@ import tkinter.messagebox as messagebox
 import tkinter.simpledialog as simpledialog
 import time
 import traceback
+import uuid
 import weakref
 from collections import deque
 from datetime import datetime
@@ -57,6 +58,12 @@ from reahl.swordfish.gemstone.working_copy import (
 from reahl.swordfish.inspector import Explorer, InspectorTab, ObjectInspector
 from reahl.swordfish.mcp.integration_state import current_integrated_session_state
 from reahl.swordfish.mcp.server import McpDependencyNotInstalled, create_server
+from reahl.swordfish.mcp.session_serialization import (
+    current_operation_token,
+    leave_session_operation,
+    session_operation,
+    try_enter_session_operation,
+)
 from reahl.swordfish.navigation import (
     GlobalNavigationEntry,
     GlobalNavigationHistory,
@@ -1200,6 +1207,26 @@ class ActivityLog:
                 f.write(json.dumps(entry) + '\n')
 
 
+class SessionOperationAdmission:
+    """AI: Lets the IDE event drain take the shared GemStone session as a whole operation, without
+    blocking. The Tk thread must never block on the session lock - it also services MCP-driven
+    navigation, so blocking would deadlock an MCP operation that is waiting on Tk. Instead it asks
+    non-blockingly: a token means the drain may run its GCI now; None means an MCP operation holds
+    the session, so the drain defers onto the event loop and retries rather than colliding."""
+
+    def __init__(self, connection_id):
+        self.connection_id = connection_id
+
+    def try_admit(self):
+        operation_token = ('ide', uuid.uuid4().hex)
+        if try_enter_session_operation(self.connection_id, operation_token):
+            return operation_token
+        return None
+
+    def release(self, operation_token):
+        leave_session_operation(self.connection_id, operation_token)
+
+
 class EventQueue:
     def __init__(self, root, activity_log=None):
         self.root = root
@@ -1211,6 +1238,8 @@ class EventQueue:
         self.wakeup_read_descriptor = None
         self.wakeup_write_descriptor = None
         self.processing_events = False
+        self.session_admission = None
+        self.deferred_processing_scheduled = False
         self.ui_dispatcher = UiDispatcher(self.root)
         self.root.bind('<<CustomEventsPublished>>', self.schedule_event_processing)
         self.configure_cross_thread_wakeup()
@@ -1333,6 +1362,14 @@ class EventQueue:
     def process_events(self):
         if self.processing_events:
             return
+        admission_token = None
+        if self.session_admission is not None:
+            admission_token = self.session_admission.try_admit()
+            if admission_token is None:
+                # AI: An MCP operation holds the session; defer this whole drain onto the event
+                # loop rather than blocking Tk or running IDE GCI that would collide with it.
+                self.schedule_deferred_processing()
+                return
         self.processing_events = True
         try:
             while True:
@@ -1369,6 +1406,21 @@ class EventQueue:
                     self.events[event_name] = retained_callbacks
         finally:
             self.processing_events = False
+            if admission_token is not None:
+                self.session_admission.release(admission_token)
+
+    def schedule_deferred_processing(self):
+        if self.deferred_processing_scheduled:
+            return
+        self.deferred_processing_scheduled = True
+        try:
+            self.root.after(20, self.run_deferred_processing)
+        except tk.TclError:
+            self.deferred_processing_scheduled = False
+
+    def run_deferred_processing(self):
+        self.deferred_processing_scheduled = False
+        self.process_events()
 
     def clear_subscribers(self, owner):
         for event_name, registered_callbacks in self.events.copy().items():
@@ -5541,6 +5593,7 @@ class Swordfish(tk.Tk):
         self.gemstone_session_record.log_out()
         self.gemstone_session_record = None
         self.integrated_session_state.detach_ide_session()
+        self.event_queue.session_admission = None
         self.event_queue.publish(
             "LoggedOut",
             log_context={
@@ -5596,6 +5649,9 @@ class Swordfish(tk.Tk):
         )
         self.integrated_session_state.attach_ide_session(
             self.gemstone_session_record.gemstone_session
+        )
+        self.event_queue.session_admission = SessionOperationAdmission(
+            self.integrated_session_state.ide_connection_id()
         )
 
         self.clear_widgets()
@@ -7350,15 +7406,27 @@ class Swordfish(tk.Tk):
                 action_name,
                 action_parameters,
             )
+        # AI: This runs on the MCP worker thread while its operation holds the session under
+        # operation_token. The navigation must run on the Tk thread, so we dispatch it there
+        # OUTSIDE the gated event drain and re-enter the gate under the same token - the Tk side is
+        # part of this operation, not a competing one, so it must not defer or block against the
+        # operation's own hold (which would time out here).
+        operation_token = current_operation_token() or ("mcp-ide-nav", uuid.uuid4().hex)
+        ide_connection_id = self.integrated_session_state.ide_connection_id()
         response_holder = {}
         completion_event = threading.Event()
-        self.event_queue.publish(
-            "McpIdeNavigationRequested",
-            action_name=action_name,
-            action_parameters=action_parameters,
-            response_holder=response_holder,
-            completion_event=completion_event,
-        )
+
+        def run_navigation_under_operation():
+            try:
+                with session_operation(ide_connection_id, operation_token):
+                    response_holder["response"] = self.execute_mcp_ide_navigation_action(
+                        action_name,
+                        action_parameters,
+                    )
+            finally:
+                completion_event.set()
+
+        self.event_queue.ui_dispatcher.dispatch(run_navigation_under_operation)
         completed = completion_event.wait(timeout=5.0)
         if not completed:
             return {
