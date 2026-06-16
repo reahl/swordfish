@@ -5206,8 +5206,12 @@ def register_tools(
         test_case_class_name,
         test_method_selector,
     ):
-        """Like gs_run_test_method but pauses on first error and returns a debug_id
-        you can step through with gs_debug_step_*. Requires --allow-test-execution."""
+        """Like gs_run_test_method but stops in the debugger on the first statement of the
+        test method - as if an implicit breakpoint sat there - and returns a debug_id you
+        can step through with gs_debug_step_*. It no longer waits for the test to fail: a
+        passing test still pauses on its first statement (after setUp). tests_passed is only
+        reported for the rare method with no statement to stop at. The implicit break is
+        transient and leaves nothing behind in the image. Requires --allow-test-execution."""
         test_exec_error = require_test_execution_enabled(
             connection_id, 'gs_debug_test_method'
         )
