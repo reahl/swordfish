@@ -383,6 +383,37 @@ class GemstoneSessionRecord:
             return
         yield from self.gemstone_browser_session.list_classes_in_rowan_package(category)
 
+    def class_definition_map(self, class_names):
+        # AI: Build a {class_name: definition} map covering the given classes and
+        # AI: all of their ancestors, so callers can derive inheritance
+        # AI: relationships and class categories (package_name) from one cached
+        # AI: structure rather than re-walking the superclass chain per row.
+        class_definition_by_class_name = {}
+        classes_to_query = list(class_names)
+        while classes_to_query:
+            class_name = classes_to_query.pop()
+            if class_name not in class_definition_by_class_name:
+                class_definition = {
+                    'class_name': class_name,
+                    'superclass_name': None,
+                    'package_name': '',
+                }
+                try:
+                    fetched_class_definition = (
+                        self.gemstone_browser_session.get_class_definition(class_name)
+                    )
+                    class_definition.update(fetched_class_definition)
+                except GemstoneDomainException:
+                    pass
+                superclass_name = class_definition.get('superclass_name')
+                class_definition_by_class_name[class_name] = class_definition
+                if (
+                    superclass_name is not None
+                    and superclass_name not in class_definition_by_class_name
+                ):
+                    classes_to_query.append(superclass_name)
+        return class_definition_by_class_name
+
     def get_categories_in_class(self, class_name, show_instance_side):
         categories = self.gemstone_browser_session.list_method_categories(
             class_name,
@@ -3238,16 +3269,21 @@ class FindDialog(tk.Toplevel):
         )
         self.apply_regex_filter_button.grid(row=1, column=2, columnspan=2, sticky="w")
 
-        self.results_listbox = tk.Listbox(self)
-        self.results_listbox.grid(
+        # AI: A Treeview (tree + headings) so results can carry the adaptive
+        # AI: Class / Class Category / Method / Method Category columns and so
+        # AI: column #0 can indent overrides under the method/class they override.
+        self.result_rows_by_iid = {}
+        self.results_tree = ttk.Treeview(self, show='tree headings')
+        self.results_tree.grid(
             row=8,
             column=0,
             columnspan=6,
             padx=10,
             pady=(10, 4),
-            sticky="nsew",
+            sticky='nsew',
         )
-        self.results_listbox.bind("<Double-Button-1>", self.on_result_double_click)
+        self.results_tree.bind('<Double-Button-1>', self.on_result_double_click)
+        self.configure_result_columns('method')
 
         self.status_label = ttk.Label(
             self,
@@ -3421,21 +3457,6 @@ class FindDialog(tk.Toplevel):
     def finish_stopped_find(self):
         self.status_var.set("Find stopped. Showing partial results.")
         self.sender_tracing_selector = None
-
-    def format_method_navigation_label(
-        self,
-        class_name,
-        show_instance_side,
-        method_selector,
-    ):
-        class_side_label = ""
-        if not show_instance_side:
-            class_side_label = " class"
-        return "%s%s>>%s" % (
-            class_name,
-            class_side_label,
-            method_selector,
-        )
 
     def class_match_query_pattern(self, query_text, match_mode):
         escaped_query = re.escape(query_text)
@@ -3630,26 +3651,206 @@ class FindDialog(tk.Toplevel):
             )
         )
 
-    def display_results(self, results):
-        self.results_listbox.delete(0, tk.END)
-        for result in results:
-            self.results_listbox.insert(tk.END, result)
-        self.results_listbox.grid()
+    def configure_result_columns(self, column_kind):
+        # AI: The find results are adaptive: a class search only needs Class and
+        # AI: Class Category; a method/sender/reference search adds Method and
+        # AI: Method Category; a 'contains' selector search has only bare
+        # AI: selectors, so it shows a single Method column with no nesting.
+        if column_kind == 'method':
+            data_columns = ('ClassCategory', 'Method', 'MethodCategory')
+            headings = {
+                '#0': 'Class',
+                'ClassCategory': 'Class Category',
+                'Method': 'Method',
+                'MethodCategory': 'Method Category',
+            }
+            primary_heading = 'Class'
+        elif column_kind == 'class':
+            data_columns = ('ClassCategory',)
+            headings = {'#0': 'Class', 'ClassCategory': 'Class Category'}
+            primary_heading = 'Class'
+        else:
+            data_columns = ()
+            headings = {'#0': 'Method'}
+            primary_heading = 'Method'
+        self.results_tree.configure(columns=data_columns)
+        self.results_tree.heading('#0', text=primary_heading)
+        self.results_tree.column('#0', width=220, stretch=True)
+        for data_column in data_columns:
+            self.results_tree.heading(data_column, text=headings[data_column])
+            self.results_tree.column(data_column, width=150, stretch=True)
+
+    def clear_results(self):
+        for iid in self.results_tree.get_children():
+            self.results_tree.delete(iid)
+        self.result_rows_by_iid = {}
+
+    def ancestor_class_names(self, class_name, class_definition_by_name):
+        # AI: Superclass chain (nearest ancestor first) drawn from the cached
+        # AI: class-definition map, so nesting can place an override under the
+        # AI: nearest ancestor that is also present in the result set.
+        ancestor_class_names = []
+        current_class_name = class_definition_by_name.get(class_name, {}).get(
+            'superclass_name'
+        )
+        while current_class_name:
+            ancestor_class_names.append(current_class_name)
+            current_class_name = class_definition_by_name.get(
+                current_class_name, {}
+            ).get('superclass_name')
+        return ancestor_class_names
+
+    def render_hierarchy_rows(self, rows, column_kind, class_definition_by_name):
+        # AI: Nest each row under the nearest ancestor that is also in the result
+        # AI: set and shares its side+selector (an override), while preserving the
+        # AI: incoming order among siblings. Parent links are computed up front
+        # AI: from the full key set, then rows are inserted with a pre-order walk
+        # AI: from the roots, so a parent is always inserted before its children
+        # AI: (which Treeview requires).
+        self.clear_results()
+        row_keys = set(
+            (row['class_name'], row['show_instance_side'], row['method_selector'])
+            for row in rows
+        )
+        children_by_parent_key = {}
+        root_rows = []
+        for row in rows:
+            present_ancestor_keys = [
+                (ancestor, row['show_instance_side'], row['method_selector'])
+                for ancestor in self.ancestor_class_names(
+                    row['class_name'], class_definition_by_name
+                )
+                if (ancestor, row['show_instance_side'], row['method_selector'])
+                in row_keys
+            ]
+            if present_ancestor_keys:
+                children_by_parent_key.setdefault(
+                    present_ancestor_keys[0], []
+                ).append(row)
+            else:
+                root_rows.append(row)
+
+        def insert_row(row, parent_iid):
+            class_display = row['class_name']
+            if not row['show_instance_side']:
+                class_display = '%s class' % row['class_name']
+            if column_kind == 'method':
+                values = (
+                    row['class_category'] or '',
+                    row['method_selector'],
+                    row['method_category'] or '',
+                )
+            else:
+                values = (row['class_category'] or '',)
+            iid = self.results_tree.insert(
+                parent_iid,
+                'end',
+                text=class_display,
+                values=values,
+                open=True,
+            )
+            self.result_rows_by_iid[iid] = row
+            key = (
+                row['class_name'],
+                row['show_instance_side'],
+                row['method_selector'],
+            )
+            for child_row in children_by_parent_key.get(key, []):
+                insert_row(child_row, iid)
+
+        for root_row in root_rows:
+            insert_row(root_row, '')
+
+    def display_class_results(self, class_names):
+        class_definition_by_name = self.gemstone_session_record.class_definition_map(
+            class_names
+        )
+        rows = [
+            {
+                'class_name': class_name,
+                'show_instance_side': True,
+                'method_selector': None,
+                'class_category': class_definition_by_name.get(class_name, {}).get(
+                    'package_name'
+                )
+                or '',
+                'method_category': None,
+            }
+            for class_name in class_names
+        ]
+        self.configure_result_columns('class')
+        self.render_hierarchy_rows(rows, 'class', class_definition_by_name)
+
+    def display_selector_results(self, selector_names):
+        self.configure_result_columns('selector')
+        self.clear_results()
+        for selector_name in selector_names:
+            iid = self.results_tree.insert('', 'end', text=selector_name, values=())
+            self.result_rows_by_iid[iid] = {
+                'class_name': None,
+                'show_instance_side': True,
+                'method_selector': selector_name,
+                'class_category': None,
+                'method_category': None,
+            }
+
+    def method_category_for(self, class_name, method_selector, show_instance_side):
+        try:
+            return (
+                self.gemstone_session_record.gemstone_browser_session.get_method_category(
+                    class_name,
+                    method_selector,
+                    show_instance_side,
+                )
+                or ''
+            )
+        except (GemstoneDomainException, GemstoneError):
+            return ''
+
+    def enriched_navigation_row(self, sender_entry, class_definition_by_name):
+        # AI: Sender (method-reference) entries already carry class/method
+        # AI: categories; implementor and class-reference results do not, so we
+        # AI: fill the gaps from the cached class-definition map (class category)
+        # AI: and a categoryOfSelector lookup (method category).
+        class_name = sender_entry['class_name']
+        show_instance_side = sender_entry['show_instance_side']
+        method_selector = sender_entry['method_selector']
+        class_category = sender_entry.get('class_category')
+        if not class_category:
+            class_category = class_definition_by_name.get(class_name, {}).get(
+                'package_name'
+            ) or ''
+        method_category = sender_entry.get('method_category')
+        if not method_category:
+            method_category = self.method_category_for(
+                class_name,
+                method_selector,
+                show_instance_side,
+            )
+        return {
+            'class_name': class_name,
+            'show_instance_side': show_instance_side,
+            'method_selector': method_selector,
+            'class_category': class_category,
+            'method_category': method_category,
+        }
 
     def populate_navigation_results(self, method_results):
         self.navigation_method_results = list(method_results)
-        self.display_results(
-            [
-                self.format_method_navigation_label(
-                    class_name,
-                    show_instance_side,
-                    method_selector,
-                )
-                for class_name, show_instance_side, method_selector in (
-                    self.navigation_method_results
-                )
-            ]
+        sender_entries = [
+            self.sender_entry_for_result(result)
+            for result in self.navigation_method_results
+        ]
+        class_names = [sender_entry['class_name'] for sender_entry in sender_entries]
+        class_definition_by_name = self.gemstone_session_record.class_definition_map(
+            class_names
         )
+        rows = [
+            self.enriched_navigation_row(sender_entry, class_definition_by_name)
+            for sender_entry in sender_entries
+        ]
+        self.configure_result_columns('method')
+        self.render_hierarchy_rows(rows, 'method', class_definition_by_name)
 
     def record_sender_entries_for_navigation(self, sender_entries):
         sender_results = [
@@ -4016,7 +4217,7 @@ class FindDialog(tk.Toplevel):
                 self.sender_entries_by_navigation_result = {}
                 self.last_reference_method_query = None
                 self.last_reference_method_match_mode = None
-                self.display_results([])
+                self.clear_results()
                 self.status_var.set('')
                 return
             if search_type == 'class':
@@ -4025,7 +4226,7 @@ class FindDialog(tk.Toplevel):
                     match_mode,
                     should_stop=self.find_should_stop,
                 )
-                self.display_results(class_names)
+                self.display_class_results(class_names)
                 self.static_sender_results = []
                 self.sender_entries_by_navigation_result = {}
                 self.last_reference_method_query = None
@@ -4043,7 +4244,7 @@ class FindDialog(tk.Toplevel):
                         )
                     )
                     if self.find_should_stop():
-                        self.display_results([])
+                        self.clear_results()
                         self.finish_stopped_find()
                         return
                     self.navigation_method_results = [
@@ -4067,7 +4268,7 @@ class FindDialog(tk.Toplevel):
                     match_mode,
                     should_stop=self.find_should_stop,
                 )
-                self.display_results(selector_names)
+                self.display_selector_results(selector_names)
                 self.static_sender_results = []
                 self.sender_entries_by_navigation_result = {}
                 self.last_reference_method_query = None
@@ -4409,37 +4610,31 @@ class FindDialog(tk.Toplevel):
         self.status_var.set(summary_text)
 
     def on_result_double_click(self, event):
-        selection = self.results_listbox.curselection()
-        if not selection:
-            pass
+        selected_iids = self.results_tree.selection()
+        if not selected_iids:
             return
-        selected_index = selection[0]
-        selected_text = self.results_listbox.get(selected_index)
+        selected_row = self.result_rows_by_iid.get(selected_iids[0])
+        if selected_row is None:
+            return
         search_type = self.search_type.get()
         match_mode = self.match_mode.get()
-        if search_type == "method" and match_mode == "contains":
+        if search_type == 'method' and match_mode == 'contains':
             self.find_entry.delete(0, tk.END)
-            self.find_entry.insert(0, selected_text)
-            self.match_mode.set("exact")
+            self.find_entry.insert(0, selected_row['method_selector'])
+            self.match_mode.set('exact')
             self.find_text()
             self.update_search_context_fields()
             return
         parent = self.parent
         self.destroy()
-        if search_type == "class":
-            parent.handle_find_selection(search_type == "class", selected_text)
+        if search_type == 'class':
+            parent.handle_find_selection(True, selected_row['class_name'])
             return
-        has_navigation_result = selected_index < len(self.navigation_method_results)
-        if has_navigation_result:
-            (
-                class_name,
-                show_instance_side,
-                method_selector,
-            ) = self.navigation_method_results[selected_index]
+        if selected_row['method_selector'] is not None:
             parent.handle_sender_selection(
-                class_name,
-                show_instance_side,
-                method_selector,
+                selected_row['class_name'],
+                selected_row['show_instance_side'],
+                selected_row['method_selector'],
             )
 
 
