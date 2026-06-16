@@ -43,6 +43,7 @@ from reahl.swordfish.mcp.session_registry import (
     has_connection,
     remove_connection,
 )
+from reahl.swordfish.mcp.session_serialization import exclusive_session_access
 from reahl.swordfish.mcp.tracer_assets import (
     TRACER_VERSION,
     tracer_source,
@@ -138,17 +139,25 @@ def register_tools(
         def coordinated_tool_decorator(function):
             @functools.wraps(function)
             def coordinated_tool(*function_arguments, **function_keywords):
-                integrated_session_state.begin_mcp_operation(function.__name__)
-                try:
-                    tool_result = function(*function_arguments, **function_keywords)
-                    if should_refresh_model(function.__name__, tool_result):
-                        integrated_session_state.request_model_refresh("transaction")
-                    notices = integrated_session_state.consume_config_change_notices()
-                    if notices and isinstance(tool_result, dict):
-                        tool_result = dict(tool_result, config_change_notices=notices)
-                    return tool_result
-                finally:
-                    integrated_session_state.end_mcp_operation()
+                connection_id = function_keywords.get("connection_id")
+                with exclusive_session_access(connection_id):
+                    integrated_session_state.begin_mcp_operation(function.__name__)
+                    try:
+                        tool_result = function(
+                            *function_arguments, **function_keywords
+                        )
+                        if should_refresh_model(function.__name__, tool_result):
+                            integrated_session_state.request_model_refresh("transaction")
+                        notices = (
+                            integrated_session_state.consume_config_change_notices()
+                        )
+                        if notices and isinstance(tool_result, dict):
+                            tool_result = dict(
+                                tool_result, config_change_notices=notices
+                            )
+                        return tool_result
+                    finally:
+                        integrated_session_state.end_mcp_operation()
 
             return tool_decorator(coordinated_tool)
 
