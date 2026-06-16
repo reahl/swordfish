@@ -18,6 +18,7 @@ from reahl.swordfish.ui_support import (
     close_popup_menu,
     is_compile_error,
 )
+from reahl.swordfish.ui_support import selector_token as resolve_selector_token
 
 # AI: Maps Smalltalk token kinds to the Tk text tags that colour them. Kinds absent here are left uncoloured.
 SYNTAX_TOKEN_TAGS = {
@@ -471,25 +472,9 @@ class CodePanel(tk.Frame):
         self.editable_text.delete_selection_before_typing(event)
 
     def selector_token(self, token_text):
-        candidate = (token_text or '').strip()
-        if not candidate:
-            return None
-        is_identifier_selector = re.fullmatch(
-            r'[A-Za-z_]\w*(?::[A-Za-z_]\w*)*:?',
-            candidate,
-        )
-        if is_identifier_selector:
-            return candidate
-        keyword_tokens = re.findall(
-            r'[A-Za-z_]\w*:',
-            candidate,
-        )
-        if keyword_tokens:
-            return ''.join(keyword_tokens)
-        is_binary_selector = re.fullmatch(r'[-+*/\\~<>=@%,|&?!]+', candidate)
-        if is_binary_selector:
-            return candidate
-        return None
+        # AI: Delegate to the shared selector resolver so CodePanel and RunTab
+        # reduce a source fragment to a selector by exactly the same rules.
+        return resolve_selector_token(token_text)
 
     def cursor_offset(self):
         cursor_index = self.text_editor.index(tk.INSERT)

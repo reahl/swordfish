@@ -22,6 +22,7 @@ from reahl.swordfish.ui_support import (
     class_name_at_widget_cursor,
     is_compile_error,
     popup_menu,
+    selector_at_widget_cursor,
 )
 
 
@@ -268,6 +269,59 @@ class RunTab(ttk.Frame):
             return
         self.application.browse_class(class_name, show_instance_side=True)
 
+    def open_implementors_from_source(self):
+        # AI: Implementors from the Run tab's source editor. Mirrors the CodePanel
+        # version so the selector under the cursor (or the selection) drives the
+        # same Find dialog wherever code is shown.
+        selector = selector_at_widget_cursor(
+            self.source_text, self.selected_source_text()
+        )
+        if selector is None:
+            messagebox.showwarning(
+                'No Selector',
+                'Place the cursor on a selector or select one before '
+                'running this.',
+            )
+            return
+        self.application.event_queue.publish(
+            'ImplementorsOpened', log_context={'selector': selector}
+        )
+        self.application.open_implementors_dialog(method_symbol=selector)
+
+    def open_senders_from_source(self):
+        # AI: Senders from the Run tab's source editor. Mirrors the CodePanel
+        # version so behaviour stays uniform across every source window.
+        selector = selector_at_widget_cursor(
+            self.source_text, self.selected_source_text()
+        )
+        if selector is None:
+            messagebox.showwarning(
+                'No Selector',
+                'Place the cursor on a selector or select one before '
+                'running this.',
+            )
+            return
+        self.application.event_queue.publish(
+            'SendersOpened', log_context={'selector': selector}
+        )
+        self.application.open_senders_dialog(method_symbol=selector)
+
+    def find_references_from_source(self):
+        # AI: References from the Run tab's source editor. Mirrors the CodePanel
+        # version: resolve the class name under the cursor (or the selection) and
+        # open an exact class-reference search for it.
+        class_name = class_name_at_widget_cursor(
+            self.source_text, self.selected_source_text()
+        )
+        if class_name is None:
+            messagebox.showwarning(
+                'No Class Name',
+                'Place the cursor on a class name or select one before '
+                'running this.',
+            )
+            return
+        self.application.open_find_dialog_for_class(class_name)
+
     def editable_text_for_widget(self, text_widget):
         if text_widget is self.source_text:
             return self.editable_source
@@ -469,6 +523,18 @@ class RunTab(ttk.Frame):
                 self,
                 selected_text,
                 enabled=not self.is_read_only(),
+            )
+            self.current_text_menu.add_command(
+                label='Implementors',
+                command=self.open_implementors_from_source,
+            )
+            self.current_text_menu.add_command(
+                label='Senders',
+                command=self.open_senders_from_source,
+            )
+            self.current_text_menu.add_command(
+                label='References',
+                command=self.find_references_from_source,
             )
             self.current_text_menu.add_command(
                 label='Browse Class',

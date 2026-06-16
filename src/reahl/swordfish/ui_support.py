@@ -114,3 +114,39 @@ def class_name_at_widget_cursor(text_widget, selected_text):
     if class_name_match is None:
         return None
     return class_name_match.group(0)
+
+
+def selector_token(token_text):
+    # AI: Reduce a fragment of source to the Smalltalk selector it names, or None.
+    # Handles unary/keyword identifiers (foo, foo:bar:), bare keyword runs, and
+    # binary selectors (+, ->, etc.). Shared by every source window so cursor->
+    # selector resolution stays identical across CodePanel and RunTab.
+    candidate = (token_text or '').strip()
+    if not candidate:
+        return None
+    is_identifier_selector = re.fullmatch(
+        r'[A-Za-z_]\w*(?::[A-Za-z_]\w*)*:?',
+        candidate,
+    )
+    if is_identifier_selector:
+        return candidate
+    keyword_tokens = re.findall(
+        r'[A-Za-z_]\w*:',
+        candidate,
+    )
+    if keyword_tokens:
+        return ''.join(keyword_tokens)
+    is_binary_selector = re.fullmatch(r'[-+*/\\~<>=@%,|&?!]+', candidate)
+    if is_binary_selector:
+        return candidate
+    return None
+
+
+def selector_at_widget_cursor(text_widget, selected_text):
+    # AI: Prefer the selection if it names a selector; otherwise fall back to the
+    # selector token under the cursor. Mirrors class_name_at_widget_cursor so the
+    # Run tab and CodePanel resolve selectors for Implementors/Senders the same way.
+    selector_from_selection = selector_token(selected_text)
+    if selector_from_selection is not None:
+        return selector_from_selection
+    return selector_token(word_under_text_cursor(text_widget))
