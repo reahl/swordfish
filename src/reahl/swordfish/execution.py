@@ -18,11 +18,11 @@ from reahl.swordfish.text_editing import (
 )
 from reahl.swordfish.ui_context import UiContext
 from reahl.swordfish.ui_support import (
-    add_close_command_to_popup_menu,
     add_source_code_commands,
     class_name_at_widget_cursor,
     is_compile_error,
     popup_menu,
+    selector_at_widget_cursor,
 )
 
 
@@ -269,6 +269,59 @@ class RunTab(ttk.Frame):
             return
         self.application.browse_class(class_name, show_instance_side=True)
 
+    def open_implementors_from_source(self):
+        # AI: Implementors from the Run tab's source editor. Mirrors the CodePanel
+        # version so the selector under the cursor (or the selection) drives the
+        # same Find dialog wherever code is shown.
+        selector = selector_at_widget_cursor(
+            self.source_text, self.selected_source_text()
+        )
+        if selector is None:
+            messagebox.showwarning(
+                'No Selector',
+                'Place the cursor on a selector or select one before '
+                'running this.',
+            )
+            return
+        self.application.event_queue.publish(
+            'ImplementorsOpened', log_context={'selector': selector}
+        )
+        self.application.open_implementors_dialog(method_symbol=selector)
+
+    def open_senders_from_source(self):
+        # AI: Senders from the Run tab's source editor. Mirrors the CodePanel
+        # version so behaviour stays uniform across every source window.
+        selector = selector_at_widget_cursor(
+            self.source_text, self.selected_source_text()
+        )
+        if selector is None:
+            messagebox.showwarning(
+                'No Selector',
+                'Place the cursor on a selector or select one before '
+                'running this.',
+            )
+            return
+        self.application.event_queue.publish(
+            'SendersOpened', log_context={'selector': selector}
+        )
+        self.application.open_senders_dialog(method_symbol=selector)
+
+    def find_references_from_source(self):
+        # AI: References from the Run tab's source editor. Mirrors the CodePanel
+        # version: resolve the class name under the cursor (or the selection) and
+        # open an exact class-reference search for it.
+        class_name = class_name_at_widget_cursor(
+            self.source_text, self.selected_source_text()
+        )
+        if class_name is None:
+            messagebox.showwarning(
+                'No Class Name',
+                'Place the cursor on a class name or select one before '
+                'running this.',
+            )
+            return
+        self.application.open_find_dialog_for_class(class_name)
+
     def editable_text_for_widget(self, text_widget):
         if text_widget is self.source_text:
             return self.editable_source
@@ -472,19 +525,36 @@ class RunTab(ttk.Frame):
                 enabled=not self.is_read_only(),
             )
             self.current_text_menu.add_command(
+                label='Implementors',
+                command=self.open_implementors_from_source,
+            )
+            self.current_text_menu.add_command(
+                label='Senders',
+                command=self.open_senders_from_source,
+            )
+            self.current_text_menu.add_command(
+                label='References',
+                command=self.find_references_from_source,
+            )
+            self.current_text_menu.add_command(
                 label='Browse Class',
                 command=self.browse_class_from_source,
             )
-        add_close_command_to_popup_menu(self.current_text_menu)
         self.current_text_menu.bind(
             '<Escape>',
             lambda popup_event: self.close_text_menu(popup_event),
         )
-        self.current_text_menu.post(event.x_root, event.y_root)
+        self.current_text_menu.tk_popup(event.x_root, event.y_root)
 
     def close_text_menu(self, event):
         if self.current_text_menu is not None:
             self.current_text_menu.unpost()
+            # AI: tk_popup installs an input grab; release it on explicit close so
+            # the rest of the UI is not left frozen behind the dismissed menu.
+            try:
+                self.current_text_menu.grab_release()
+            except tk.TclError:
+                pass
             self.current_text_menu = None
 
     @property
@@ -1067,7 +1137,6 @@ class DebuggerWindow(ttk.PanedWindow):
             label='Browse Method',
             command=self.open_selected_frame_method,
         )
-        add_close_command_to_popup_menu(stack_frame_menu)
         self.current_stack_frame_menu = stack_frame_menu
         popup_menu(stack_frame_menu, event)
 

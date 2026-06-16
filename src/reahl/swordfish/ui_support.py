@@ -22,19 +22,17 @@ UML_HEADER_HEIGHT = 26
 
 
 def close_popup_menu(menu):
+    # AI: Unpost AND release the input grab. tk_popup installs a grab that lets a
+    # click outside the menu dismiss it; the explicit-close path (Escape) must
+    # release that grab so the rest of the UI is not left frozen behind it.
     try:
         menu.unpost()
     except tk.TclError:
         pass
-
-
-def add_close_command_to_popup_menu(menu):
-    if menu.index('end') is not None:
-        menu.add_separator()
-    menu.add_command(
-        label='Close Menu',
-        command=lambda current_menu=menu: close_popup_menu(current_menu),
-    )
+    try:
+        menu.grab_release()
+    except tk.TclError:
+        pass
 
 
 def popup_menu(menu, event):
@@ -42,10 +40,11 @@ def popup_menu(menu, event):
         '<Escape>',
         lambda popup_event, current_menu=menu: close_popup_menu(current_menu),
     )
-    try:
-        menu.tk_popup(event.x_root, event.y_root)
-    finally:
-        menu.grab_release()
+    # AI: Do NOT grab_release() here. tk_popup installs the input grab that makes a
+    # click outside the menu dismiss it; releasing it synchronously (tk_popup returns
+    # immediately on X11) left the menu stuck open. Tk releases the grab itself when
+    # the menu is dismissed normally, and close_popup_menu releases it on Escape/Close.
+    menu.tk_popup(event.x_root, event.y_root)
 
 
 def is_compile_error(exception):
@@ -115,3 +114,39 @@ def class_name_at_widget_cursor(text_widget, selected_text):
     if class_name_match is None:
         return None
     return class_name_match.group(0)
+
+
+def selector_token(token_text):
+    # AI: Reduce a fragment of source to the Smalltalk selector it names, or None.
+    # Handles unary/keyword identifiers (foo, foo:bar:), bare keyword runs, and
+    # binary selectors (+, ->, etc.). Shared by every source window so cursor->
+    # selector resolution stays identical across CodePanel and RunTab.
+    candidate = (token_text or '').strip()
+    if not candidate:
+        return None
+    is_identifier_selector = re.fullmatch(
+        r'[A-Za-z_]\w*(?::[A-Za-z_]\w*)*:?',
+        candidate,
+    )
+    if is_identifier_selector:
+        return candidate
+    keyword_tokens = re.findall(
+        r'[A-Za-z_]\w*:',
+        candidate,
+    )
+    if keyword_tokens:
+        return ''.join(keyword_tokens)
+    is_binary_selector = re.fullmatch(r'[-+*/\\~<>=@%,|&?!]+', candidate)
+    if is_binary_selector:
+        return candidate
+    return None
+
+
+def selector_at_widget_cursor(text_widget, selected_text):
+    # AI: Prefer the selection if it names a selector; otherwise fall back to the
+    # selector token under the cursor. Mirrors class_name_at_widget_cursor so the
+    # Run tab and CodePanel resolve selectors for Implementors/Senders the same way.
+    selector_from_selection = selector_token(selected_text)
+    if selector_from_selection is not None:
+        return selector_from_selection
+    return selector_token(word_under_text_cursor(text_widget))

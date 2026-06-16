@@ -107,7 +107,6 @@ from reahl.swordfish.ui_support import (
     UML_NODES_PER_ROW,
     UML_ORIGIN_X,
     UML_ORIGIN_Y,
-    add_close_command_to_popup_menu,
     close_popup_menu,
     popup_menu,
 )
@@ -2685,6 +2684,8 @@ class MainMenu(tk.Menu):
         self.parent = parent
         self.event_queue = event_queue
         self.file_menu = tk.Menu(self, tearoff=0)
+        self.find_menu = tk.Menu(self, tearoff=0)
+        self.debug_menu = tk.Menu(self, tearoff=0)
         self.session_menu = tk.Menu(self, tearoff=0)
         self.mcp_menu = tk.Menu(self, tearoff=0)
         self.filetree_menu = tk.Menu(self, tearoff=0)
@@ -2696,6 +2697,14 @@ class MainMenu(tk.Menu):
         # File Menu
         self.add_cascade(label="File", menu=self.file_menu)
         self.update_file_menu()
+
+        # Find Menu
+        self.add_cascade(label="Find", menu=self.find_menu)
+        self.update_find_menu()
+
+        # Debug Menu
+        self.add_cascade(label="Debug", menu=self.debug_menu)
+        self.update_debug_menu()
 
         # Session Menu
         self.add_cascade(label="Session", menu=self.session_menu)
@@ -2714,6 +2723,8 @@ class MainMenu(tk.Menu):
     def update_menus(self, gemstone_session_record=None, **kwargs):
         self.update_session_menu()
         self.update_file_menu()
+        self.update_find_menu()
+        self.update_debug_menu()
         self.update_mcp_menu()
         self.update_filetree_menu()
 
@@ -2830,6 +2841,27 @@ class MainMenu(tk.Menu):
 
     def update_file_menu(self):
         self.file_menu.delete(0, tk.END)
+        self.file_menu.add_command(label="Exit", command=self.parent.quit)
+
+    def update_find_menu(self):
+        self.find_menu.delete(0, tk.END)
+        if self.parent.is_logged_in:
+            self.find_menu.add_command(label="Find", command=self.show_find_dialog)
+            self.find_menu.add_command(
+                label="Implementors",
+                command=self.show_find_implementors_dialog,
+            )
+            self.find_menu.add_command(
+                label="Senders",
+                command=self.show_find_senders_dialog,
+            )
+            self.find_menu.add_command(
+                label="References",
+                command=self.show_find_references_dialog,
+            )
+
+    def update_debug_menu(self):
+        self.debug_menu.delete(0, tk.END)
         if self.parent.is_logged_in:
             is_busy = self.parent.integrated_session_state.is_mcp_busy()
             run_command_state = self.parent.action_gate.state_for(
@@ -2839,27 +2871,16 @@ class MainMenu(tk.Menu):
                 'breakpoints',
                 is_busy=is_busy,
             )
-            self.file_menu.add_command(label="Find", command=self.show_find_dialog)
-            self.file_menu.add_command(
-                label="Implementors",
-                command=self.show_find_implementors_dialog,
-            )
-            self.file_menu.add_command(
-                label="Senders",
-                command=self.show_find_senders_dialog,
-            )
-            self.file_menu.add_command(
-                label="Run",
+            self.debug_menu.add_command(
+                label="Workspace",
                 command=self.show_run_dialog,
                 state=run_command_state,
             )
-            self.file_menu.add_command(
+            self.debug_menu.add_command(
                 label="Breakpoints",
                 command=self.show_breakpoints_dialog,
                 state=breakpoints_state,
             )
-            self.file_menu.add_separator()
-        self.file_menu.add_command(label="Exit", command=self.parent.quit)
 
     def show_find_dialog(self):
         self.event_queue.publish('MenuCommandInvoked', command='Find')
@@ -2872,6 +2893,10 @@ class MainMenu(tk.Menu):
     def show_find_senders_dialog(self):
         self.event_queue.publish('MenuCommandInvoked', command='Senders')
         self.parent.open_senders_dialog()
+
+    def show_find_references_dialog(self):
+        self.event_queue.publish('MenuCommandInvoked', command='References')
+        self.parent.open_references_dialog()
 
     def show_run_dialog(self):
         self.event_queue.publish('MenuCommandInvoked', command='Run')
@@ -5992,7 +6017,7 @@ class Swordfish(tk.Tk):
             self.record_global_navigation_entry(
                 GlobalNavigationEntry(
                     'run_session',
-                    'Run',
+                    'Workspace',
                     {'session_key': self.run_tab.global_navigation_session_key},
                     place_key=(
                         'run_session',
@@ -7606,7 +7631,7 @@ class Swordfish(tk.Tk):
             self.run_tab.global_navigation_session_key = (
                 self.allocate_global_navigation_session_key('run')
             )
-            self.notebook.add(self.run_tab, text='Run')
+            self.notebook.add(self.run_tab, text='Workspace')
         self.run_tab.set_read_only(self.integrated_session_state.is_mcp_busy())
         self.notebook.select(self.run_tab)
 
@@ -7849,6 +7874,16 @@ class Swordfish(tk.Tk):
             match_mode='exact',
             reference_target='method',
             sender_source_class_name=source_class_name,
+        )
+
+    def open_references_dialog(self, class_name=None):
+        initial_class_name = (class_name or '').strip()
+        return self.open_find_dialog(
+            search_type='reference',
+            search_query=initial_class_name,
+            run_search=bool(initial_class_name),
+            match_mode='exact',
+            reference_target='class',
         )
 
     def open_breakpoints_dialog(self):
