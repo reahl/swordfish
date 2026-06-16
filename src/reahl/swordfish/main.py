@@ -10,11 +10,11 @@ import queue
 import re
 import sys
 import threading
+import time
 import tkinter as tk
 import tkinter.filedialog as filedialog
 import tkinter.messagebox as messagebox
 import tkinter.simpledialog as simpledialog
-import time
 import traceback
 import uuid
 import weakref
