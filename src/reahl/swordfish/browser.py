@@ -20,7 +20,7 @@ from reahl.swordfish.text_editing import (
     TextCursorPositionIndicator,
 )
 from reahl.swordfish.ui_context import UiContext
-from reahl.swordfish.ui_support import add_close_command_to_popup_menu, popup_menu
+from reahl.swordfish.ui_support import popup_menu
 
 
 class CoveringTestsDiscoveryWorkflow:
@@ -756,7 +756,6 @@ class PackageSelection(FramedWidget):
             command=self.file_in_class_category,
             state=file_command_state,
         )
-        add_close_command_to_popup_menu(menu)
         popup_menu(menu, event)
 
     def file_out_class_category(self):
@@ -1204,7 +1203,6 @@ class ClassSelection(FramedWidget):
             command=self.file_in_class,
             state=file_command_state,
         )
-        add_close_command_to_popup_menu(menu)
         popup_menu(menu, event)
 
     def file_out_class(self):
@@ -1302,7 +1300,6 @@ class ClassSelection(FramedWidget):
             command=self.add_selected_hierarchy_classes_to_class_diagram,
             state=tk.NORMAL if has_selection else tk.DISABLED,
         )
-        add_close_command_to_popup_menu(menu)
         popup_menu(menu, event)
 
     def add_class(self):
@@ -1593,7 +1590,6 @@ class CategorySelection(FramedWidget):
             command=self.file_in_method_category,
             state=file_command_state,
         )
-        add_close_command_to_popup_menu(menu)
         popup_menu(menu, event)
 
     def file_out_method_category(self):
@@ -2197,7 +2193,6 @@ class MethodSelection(FramedWidget):
             command=self.file_in_method,
             state=file_command_state,
         )
-        add_close_command_to_popup_menu(menu)
         popup_menu(menu, event)
 
     def file_out_method(self):

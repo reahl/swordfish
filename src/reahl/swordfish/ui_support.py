@@ -22,19 +22,17 @@ UML_HEADER_HEIGHT = 26
 
 
 def close_popup_menu(menu):
+    # AI: Unpost AND release the input grab. tk_popup installs a grab that lets a
+    # click outside the menu dismiss it; the explicit-close path (Escape) must
+    # release that grab so the rest of the UI is not left frozen behind it.
     try:
         menu.unpost()
     except tk.TclError:
         pass
-
-
-def add_close_command_to_popup_menu(menu):
-    if menu.index('end') is not None:
-        menu.add_separator()
-    menu.add_command(
-        label='Close Menu',
-        command=lambda current_menu=menu: close_popup_menu(current_menu),
-    )
+    try:
+        menu.grab_release()
+    except tk.TclError:
+        pass
 
 
 def popup_menu(menu, event):
@@ -42,10 +40,11 @@ def popup_menu(menu, event):
         '<Escape>',
         lambda popup_event, current_menu=menu: close_popup_menu(current_menu),
     )
-    try:
-        menu.tk_popup(event.x_root, event.y_root)
-    finally:
-        menu.grab_release()
+    # AI: Do NOT grab_release() here. tk_popup installs the input grab that makes a
+    # click outside the menu dismiss it; releasing it synchronously (tk_popup returns
+    # immediately on X11) left the menu stuck open. Tk releases the grab itself when
+    # the menu is dismissed normally, and close_popup_menu releases it on Escape/Close.
+    menu.tk_popup(event.x_root, event.y_root)
 
 
 def is_compile_error(exception):

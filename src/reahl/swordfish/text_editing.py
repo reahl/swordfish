@@ -14,7 +14,6 @@ from reahl.swordfish.gemstone.smalltalk_source_scanner import (
     SmalltalkTokenKind,
 )
 from reahl.swordfish.ui_support import (
-    add_close_command_to_popup_menu,
     add_source_code_commands,
     close_popup_menu,
     is_compile_error,
@@ -664,12 +663,11 @@ class CodePanel(tk.Frame):
                 command=self.apply_method_inline,
                 state=write_command_state,
             )
-        add_close_command_to_popup_menu(self.current_context_menu)
         self.current_context_menu.bind(
             '<Escape>',
             lambda popup_event: close_popup_menu(self.current_context_menu),
         )
-        self.current_context_menu.post(event.x_root, event.y_root)
+        self.current_context_menu.tk_popup(event.x_root, event.y_root)
 
     def active_editor_tab(self):
         parent_widget = self.master
@@ -2018,12 +2016,11 @@ class EditorTab(tk.Frame):
             label='Close All to the Right',
             command=lambda: self.method_editor.close_tabs_to_right(self),
         )
-        add_close_command_to_popup_menu(menu)
         menu.bind(
             '<Escape>',
             lambda popup_event: close_popup_menu(menu),
         )
-        menu.post(event.x_root, event.y_root)
+        menu.tk_popup(event.x_root, event.y_root)
 
     def mark_dirty(self):
         if not self.is_dirty:

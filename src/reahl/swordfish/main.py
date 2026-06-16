@@ -107,7 +107,6 @@ from reahl.swordfish.ui_support import (
     UML_NODES_PER_ROW,
     UML_ORIGIN_X,
     UML_ORIGIN_Y,
-    add_close_command_to_popup_menu,
     close_popup_menu,
     popup_menu,
 )

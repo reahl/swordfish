@@ -18,7 +18,6 @@ from reahl.swordfish.text_editing import (
 )
 from reahl.swordfish.ui_context import UiContext
 from reahl.swordfish.ui_support import (
-    add_close_command_to_popup_menu,
     add_source_code_commands,
     class_name_at_widget_cursor,
     is_compile_error,
@@ -475,16 +474,21 @@ class RunTab(ttk.Frame):
                 label='Browse Class',
                 command=self.browse_class_from_source,
             )
-        add_close_command_to_popup_menu(self.current_text_menu)
         self.current_text_menu.bind(
             '<Escape>',
             lambda popup_event: self.close_text_menu(popup_event),
         )
-        self.current_text_menu.post(event.x_root, event.y_root)
+        self.current_text_menu.tk_popup(event.x_root, event.y_root)
 
     def close_text_menu(self, event):
         if self.current_text_menu is not None:
             self.current_text_menu.unpost()
+            # AI: tk_popup installs an input grab; release it on explicit close so
+            # the rest of the UI is not left frozen behind the dismissed menu.
+            try:
+                self.current_text_menu.grab_release()
+            except tk.TclError:
+                pass
             self.current_text_menu = None
 
     @property
@@ -1067,7 +1071,6 @@ class DebuggerWindow(ttk.PanedWindow):
             label='Browse Method',
             command=self.open_selected_frame_method,
         )
-        add_close_command_to_popup_menu(stack_frame_menu)
         self.current_stack_frame_menu = stack_frame_menu
         popup_menu(stack_frame_menu, event)
 
