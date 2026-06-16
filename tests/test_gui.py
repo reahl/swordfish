@@ -3037,53 +3037,108 @@ def test_filetree_menu_holds_sync_config_and_filing_commands(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_file_menu_contains_breakpoints_command_when_logged_in(fixture):
-    """AI: File menu should expose a Breakpoints dialog action after login."""
+def test_debug_menu_contains_breakpoints_command_when_logged_in(fixture):
+    """AI: Debug menu should expose a Breakpoints dialog action after login."""
+    fixture.simulate_login()
+    fixture.app.menu_bar.update_menus()
+
+    debug_menu_labels = menu_command_labels(fixture.app.menu_bar.debug_menu)
+    assert "Breakpoints" in debug_menu_labels
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debug_menu_renames_run_action_to_workspace(fixture):
+    """AI: The Debug menu surfaces the run-tab action under the Workspace label."""
+    fixture.simulate_login()
+    fixture.app.menu_bar.update_menus()
+
+    debug_menu_labels = menu_command_labels(fixture.app.menu_bar.debug_menu)
+    assert "Workspace" in debug_menu_labels
+    assert "Run" not in debug_menu_labels
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_menu_contains_find_implementors_senders_and_references_shortcuts(
+    fixture,
+):
+    """AI: Find menu should gather every search entry point in one place: Find, Implementors, Senders, References."""
+    fixture.simulate_login()
+    fixture.app.menu_bar.update_menus()
+
+    find_menu_labels = menu_command_labels(fixture.app.menu_bar.find_menu)
+    assert "Find" in find_menu_labels
+    assert "Implementors" in find_menu_labels
+    assert "Senders" in find_menu_labels
+    assert "References" in find_menu_labels
+    assert find_menu_labels.index("Find") < find_menu_labels.index("Implementors")
+    assert find_menu_labels.index("Implementors") < find_menu_labels.index("Senders")
+    assert find_menu_labels.index("Senders") < find_menu_labels.index("References")
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_file_menu_no_longer_carries_find_or_debug_shortcuts(fixture):
+    """AI: The File menu sheds the search and debug actions once they move to dedicated menus."""
     fixture.simulate_login()
     fixture.app.menu_bar.update_menus()
 
     file_menu_labels = menu_command_labels(fixture.app.menu_bar.file_menu)
-    assert "Breakpoints" in file_menu_labels
+    assert "Find" not in file_menu_labels
+    assert "Implementors" not in file_menu_labels
+    assert "Senders" not in file_menu_labels
+    assert "Breakpoints" not in file_menu_labels
+    assert "Workspace" not in file_menu_labels
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_file_menu_contains_find_implementors_and_senders_shortcuts(
+def test_find_menu_find_implementors_command_delegates_to_swordfish_handler(
     fixture,
 ):
-    """AI: File menu should include Find shortcuts for implementors and senders directly below Find."""
+    """AI: Find menu Implementors action should delegate to Swordfish find-implementors handler."""
     fixture.simulate_login()
-    fixture.app.menu_bar.update_menus()
-
-    file_menu_labels = menu_command_labels(fixture.app.menu_bar.file_menu)
-    assert "Find" in file_menu_labels
-    assert "Implementors" in file_menu_labels
-    assert "Senders" in file_menu_labels
-    assert file_menu_labels.index("Find") < file_menu_labels.index("Implementors")
-    assert file_menu_labels.index("Implementors") < file_menu_labels.index("Senders")
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_file_menu_find_implementors_command_delegates_to_swordfish_handler(
-    fixture,
-):
-    """AI: File menu Implementors action should delegate to Swordfish find-implementors handler."""
-    fixture.simulate_login()
-    file_menu = fixture.app.menu_bar.file_menu
+    find_menu = fixture.app.menu_bar.find_menu
     with patch.object(fixture.app, "open_implementors_dialog") as open_dialog:
-        invoke_menu_command_by_label(file_menu, "Implementors")
+        invoke_menu_command_by_label(find_menu, "Implementors")
     open_dialog.assert_called_once_with()
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_file_menu_find_senders_command_delegates_to_swordfish_handler(
+def test_find_menu_find_senders_command_delegates_to_swordfish_handler(
     fixture,
 ):
-    """AI: File menu Senders action should delegate to Swordfish find-senders handler."""
+    """AI: Find menu Senders action should delegate to Swordfish find-senders handler."""
     fixture.simulate_login()
-    file_menu = fixture.app.menu_bar.file_menu
+    find_menu = fixture.app.menu_bar.find_menu
     with patch.object(fixture.app, "open_senders_dialog") as open_dialog:
-        invoke_menu_command_by_label(file_menu, "Senders")
+        invoke_menu_command_by_label(find_menu, "Senders")
     open_dialog.assert_called_once_with()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_menu_references_command_delegates_to_swordfish_handler(
+    fixture,
+):
+    """AI: Find menu References action should delegate to Swordfish find-references handler."""
+    fixture.simulate_login()
+    find_menu = fixture.app.menu_bar.find_menu
+    with patch.object(fixture.app, "open_references_dialog") as open_dialog:
+        invoke_menu_command_by_label(find_menu, "References")
+    open_dialog.assert_called_once_with()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_open_references_dialog_configures_find_dialog_for_exact_class_references(
+    fixture,
+):
+    """AI: Opening references dialog should configure Find for exact class reference lookup."""
+    with patch.object(fixture.app, "open_find_dialog") as open_find_dialog:
+        fixture.app.open_references_dialog(class_name="OrderLine")
+    open_find_dialog.assert_called_once_with(
+        search_type="reference",
+        search_query="OrderLine",
+        run_search=True,
+        match_mode="exact",
+        reference_target="class",
+    )
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -3119,15 +3174,27 @@ def test_open_senders_dialog_configures_find_dialog_for_exact_method_references(
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_file_menu_breakpoints_command_delegates_to_swordfish_handler(
+def test_debug_menu_breakpoints_command_delegates_to_swordfish_handler(
     fixture,
 ):
-    """AI: File menu Breakpoints action should delegate to Swordfish dialog handler."""
+    """AI: Debug menu Breakpoints action should delegate to Swordfish dialog handler."""
     fixture.simulate_login()
-    file_menu = fixture.app.menu_bar.file_menu
+    debug_menu = fixture.app.menu_bar.debug_menu
     with patch.object(fixture.app, "open_breakpoints_dialog") as open_dialog:
-        invoke_menu_command_by_label(file_menu, "Breakpoints")
+        invoke_menu_command_by_label(debug_menu, "Breakpoints")
     open_dialog.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debug_menu_workspace_command_opens_run_tab(
+    fixture,
+):
+    """AI: Debug menu Workspace action should still open the run tab it was renamed from."""
+    fixture.simulate_login()
+    debug_menu = fixture.app.menu_bar.debug_menu
+    with patch.object(fixture.app, "open_run_tab") as open_run_tab:
+        invoke_menu_command_by_label(debug_menu, "Workspace")
+    open_run_tab.assert_called_once()
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -4948,7 +5015,7 @@ def test_global_back_and_forward_navigate_places_across_browser_and_run(fixture)
     fixture.app.open_run_tab()
     fixture.app.update()
 
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Run'
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Workspace'
 
     fixture.app.global_back_button.invoke()
     fixture.app.update()
@@ -4959,7 +5026,7 @@ def test_global_back_and_forward_navigate_places_across_browser_and_run(fixture)
     fixture.app.global_forward_button.invoke()
     fixture.app.update()
 
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Run'
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Workspace'
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -5236,7 +5303,7 @@ def test_browsing_more_in_browser_after_global_back_keeps_forward_history(fixtur
 
     fixture.app.global_forward_button.invoke()
     fixture.app.update()
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Run'
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Workspace'
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -5280,7 +5347,7 @@ def test_global_history_dropdown_marks_stale_entries_unavailable(fixture):
     unavailable_indices = [
         index
         for index, value in enumerate(history_values)
-        if value == 'Run (unavailable)'
+        if value == 'Workspace (unavailable)'
     ]
     target_index = unavailable_indices[0]
 
@@ -5338,7 +5405,7 @@ def test_global_back_skips_replaced_debugger_session_entries(fixture):
 
     fixture.app.global_back_button.invoke()
     fixture.app.update()
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Run'
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Workspace'
 
     fixture.app.global_back_button.invoke()
     fixture.app.update()
@@ -5347,7 +5414,7 @@ def test_global_back_skips_replaced_debugger_session_entries(fixture):
 
     fixture.app.global_back_button.invoke()
     fixture.app.update()
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Run'
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Workspace'
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -6147,7 +6214,7 @@ def test_debugger_source_context_menu_inspect_reads_self_instance_variable(
 
 @with_fixtures(SwordfishAppFixture)
 def test_file_run_command_opens_run_tab_in_notebook(fixture):
-    """Choosing File > Run should open and select a Run tab in the main notebook."""
+    """Choosing Debug > Workspace should open and select a Workspace tab in the main notebook."""
     fixture.simulate_login()
 
     fixture.app.run_code()
@@ -6157,9 +6224,9 @@ def test_file_run_command_opens_run_tab_in_notebook(fixture):
         fixture.app.notebook.tab(tab_id, "text")
         for tab_id in fixture.app.notebook.tabs()
     ]
-    assert "Run" in tab_labels
+    assert "Workspace" in tab_labels
     selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
-    assert selected_tab_text == "Run"
+    assert selected_tab_text == "Workspace"
 
 
 @with_fixtures(SwordfishAppFixture)
