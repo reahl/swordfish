@@ -43,7 +43,7 @@ from reahl.swordfish.mcp.session_registry import (
     has_connection,
     remove_connection,
 )
-from reahl.swordfish.mcp.session_serialization import exclusive_session_access
+from reahl.swordfish.mcp.session_serialization import session_operation
 from reahl.swordfish.mcp.tracer_assets import (
     TRACER_VERSION,
     tracer_source,
@@ -140,7 +140,8 @@ def register_tools(
             @functools.wraps(function)
             def coordinated_tool(*function_arguments, **function_keywords):
                 connection_id = function_keywords.get("connection_id")
-                with exclusive_session_access(connection_id):
+                operation_token = ("mcp", function.__name__, uuid.uuid4().hex)
+                with session_operation(connection_id, operation_token):
                     integrated_session_state.begin_mcp_operation(function.__name__)
                     try:
                         tool_result = function(

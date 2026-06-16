@@ -2,21 +2,25 @@ import threading
 import time
 
 from reahl.swordfish.mcp.integration_state import IntegratedSessionState
-from reahl.swordfish.mcp.session_serialization import exclusive_session_access
+from reahl.swordfish.mcp.session_serialization import (
+    leave_session_operation,
+    session_operation,
+    try_enter_session_operation,
+)
 from reahl.swordfish.mcp.tools import register_tools
 
 
 def peak_overlap_across(connection_ids):
-    """AI: Run one thread per connection_id, each holding exclusive_session_access
-    briefly, and report the largest number of threads that were ever inside the
-    critical section at the same instant."""
+    """AI: Run one thread per connection_id as a distinct operation, each holding the session
+    briefly, and report the largest number of threads that were ever inside the critical section
+    at the same instant."""
     state_lock = threading.Lock()
     occupancy = {'current': 0, 'peak': 0}
     start_barrier = threading.Barrier(len(connection_ids))
 
     def hold_session(connection_id):
         start_barrier.wait()
-        with exclusive_session_access(connection_id):
+        with session_operation(connection_id, ('op', threading.get_ident())):
             with state_lock:
                 occupancy['current'] = occupancy['current'] + 1
                 occupancy['peak'] = max(occupancy['peak'], occupancy['current'])
@@ -123,3 +127,31 @@ def test_coordinated_tool_lets_distinct_connections_run_in_parallel():
     probe, coordinated_call = probe_wrapped_through_coordinated_tool()
     peak_overlap_through(coordinated_call, ['session-a', 'session-b'])
     assert probe.peak == 2
+
+
+def test_ide_can_discover_a_busy_session_without_blocking():
+    """AI: The Tk thread is single-threaded and also services MCP-driven navigation, so it must
+    never block waiting for the session lock - that would deadlock an MCP operation waiting on Tk.
+    Instead it asks non-blockingly whether the session is free, so a busy answer lets it defer the
+    work onto the event loop. While another thread holds the session, try_enter must report False;
+    once that thread releases, a later try_enter must succeed."""
+    connection_id = 'ide-session'
+    holder_has_it = threading.Event()
+    holder_may_release = threading.Event()
+
+    def hold_until_released():
+        with session_operation(connection_id, ('mcp-op', 1)):
+            holder_has_it.set()
+            holder_may_release.wait()
+
+    holder = threading.Thread(target=hold_until_released)
+    holder.start()
+    holder_has_it.wait()
+
+    assert try_enter_session_operation(connection_id, ('ide-op', 1)) is False
+
+    holder_may_release.set()
+    holder.join()
+
+    assert try_enter_session_operation(connection_id, ('ide-op', 1)) is True
+    leave_session_operation(connection_id, ('ide-op', 1))
