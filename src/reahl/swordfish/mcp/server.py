@@ -34,8 +34,11 @@ gs_query_methods_by_ast_pattern returns node addresses, not method bodies.
 All code changes are explicit-transaction: call gs_begin first, then either
 the preview/apply pair pattern for refactorings (gs_preview_* before
 gs_apply_*) or direct gs_compile_method, then gs_commit (requires
-approval) or gs_abort. gs_eval is powerful and should be exceptional -
-prefer structured tools for routine work.
+approval) or gs_abort. To install several methods at once use
+gs_compile_methods, which batches them into one round-trip and reports a
+per-method outcome - prefer it over a loop of gs_compile_method calls.
+gs_eval is powerful and should be exceptional - prefer structured tools for
+routine work.
 
 The Smalltalk parser is always available - no install step is required for
 AST tools. Call gs_capabilities for the stable list of policy switches and

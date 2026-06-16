@@ -4,7 +4,7 @@ import re
 import threading
 import time
 import uuid
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from reahl.ptongue import GemstoneApiError, GemstoneError
 
@@ -43,6 +43,7 @@ from reahl.swordfish.mcp.session_registry import (
     has_connection,
     remove_connection,
 )
+from reahl.swordfish.mcp.session_serialization import session_operation
 from reahl.swordfish.mcp.tracer_assets import (
     TRACER_VERSION,
     tracer_source,
@@ -138,17 +139,26 @@ def register_tools(
         def coordinated_tool_decorator(function):
             @functools.wraps(function)
             def coordinated_tool(*function_arguments, **function_keywords):
-                integrated_session_state.begin_mcp_operation(function.__name__)
-                try:
-                    tool_result = function(*function_arguments, **function_keywords)
-                    if should_refresh_model(function.__name__, tool_result):
-                        integrated_session_state.request_model_refresh("transaction")
-                    notices = integrated_session_state.consume_config_change_notices()
-                    if notices and isinstance(tool_result, dict):
-                        tool_result = dict(tool_result, config_change_notices=notices)
-                    return tool_result
-                finally:
-                    integrated_session_state.end_mcp_operation()
+                connection_id = function_keywords.get("connection_id")
+                operation_token = ("mcp", function.__name__, uuid.uuid4().hex)
+                with session_operation(connection_id, operation_token):
+                    integrated_session_state.begin_mcp_operation(function.__name__)
+                    try:
+                        tool_result = function(
+                            *function_arguments, **function_keywords
+                        )
+                        if should_refresh_model(function.__name__, tool_result):
+                            integrated_session_state.request_model_refresh("transaction")
+                        notices = (
+                            integrated_session_state.consume_config_change_notices()
+                        )
+                        if notices and isinstance(tool_result, dict):
+                            tool_result = dict(
+                                tool_result, config_change_notices=notices
+                            )
+                        return tool_result
+                    finally:
+                        integrated_session_state.end_mcp_operation()
 
             return tool_decorator(coordinated_tool)
 
@@ -561,6 +571,40 @@ def register_tools(
             if normalized_input_value == "false":
                 return False
         raise DomainException("%s must be a boolean." % argument_name)
+
+    def validated_compile_method_specs(methods):
+        if not isinstance(methods, list):
+            raise DomainException("methods must be a list.")
+        if not methods:
+            raise DomainException("methods cannot be empty.")
+        method_specs = []
+        for index, entry in enumerate(methods):
+            if not isinstance(entry, dict):
+                raise DomainException("methods[%s] must be an object." % index)
+            class_name = validated_identifier(
+                entry.get("class_name"), "methods[%s].class_name" % index
+            )
+            source = validated_non_empty_string(
+                entry.get("source"), "methods[%s].source" % index
+            )
+            show_instance_side = validated_boolean_like(
+                entry.get("show_instance_side", True),
+                "methods[%s].show_instance_side" % index,
+            )
+            method_category = entry.get("method_category")
+            if method_category is not None:
+                method_category = validated_non_empty_string(
+                    method_category, "methods[%s].method_category" % index
+                )
+            in_dictionary = entry.get("in_dictionary")
+            if in_dictionary is not None:
+                in_dictionary = validated_non_empty_string_stripped(
+                    in_dictionary, "methods[%s].in_dictionary" % index
+                )
+            method_specs.append(
+                (class_name, show_instance_side, source, method_category, in_dictionary)
+            )
+        return method_specs
 
     def validated_sender_granularity(input_value):
         if input_value in ('identifier', 'send_site', 'method'):
@@ -2443,6 +2487,7 @@ def register_tools(
                     "gs_create_dictionary",
                     "gs_install_package",
                     "gs_compile_method",
+                    "gs_compile_methods",
                     "gs_create_class",
                     "gs_create_class_in_package",
                     "gs_create_test_case_class",
@@ -4433,6 +4478,64 @@ def register_tools(
                 "show_instance_side": show_instance_side,
                 "method_category": method_category,
                 "in_dictionary": in_dictionary,
+            }
+        except GemstoneError as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": gemstone_error_payload(error),
+            }
+        except GemstoneApiError as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
+            }
+        except DomainException as error:
+            return {
+                "ok": False,
+                "connection_id": connection_id,
+                "error": {"message": str(error)},
+            }
+
+    @mcp_server.tool()
+    def gs_compile_methods(
+        connection_id,
+        methods: List[Dict[str, Any]],
+    ):
+        """Compile many methods into classes in a single batched round-trip
+        instead of one call per method. `methods` is a non-empty list of entries,
+        each {class_name, source, show_instance_side?, method_category?,
+        in_dictionary?}. The class hierarchy is rebuilt once after the whole
+        batch. When method_category is omitted an existing method keeps its
+        current protocol and a brand-new method is filed under 'as yet
+        unclassified'. A compile error or missing class in one entry leaves the
+        others installed and is reported in that entry's result row rather than
+        aborting the batch. Prefer this over repeated gs_compile_method calls when
+        editing several methods at once. Requires --allow-source-write and an
+        active transaction."""
+        if not get_permissions()['allow_source_write']:
+            return disabled_tool_response(
+                connection_id,
+                (
+                    "gs_compile_methods is disabled. "
+                    "Start swordfish --headless-mcp with --allow-source-write to enable."
+                ),
+            )
+        gemstone_session, error_response = get_active_session(connection_id)
+        if error_response:
+            return error_response
+        transaction_error_response = require_active_transaction(connection_id)
+        if transaction_error_response:
+            return transaction_error_response
+        browser_session = browser_session_for_policy(gemstone_session)
+        try:
+            method_specs = validated_compile_method_specs(methods)
+            results = browser_session.compile_methods(method_specs)
+            return {
+                "ok": all(row["ok"] for row in results),
+                "connection_id": connection_id,
+                "results": results,
             }
         except GemstoneError as error:
             return {

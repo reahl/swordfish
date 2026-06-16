@@ -1,3 +1,5 @@
+from typing import Any, Dict, List
+
 from reahl.tofu import Fixture, NoException, expected, set_up, tear_down, with_fixtures
 
 from reahl.swordfish.mcp.debug_registry import add_debug_session, clear_debug_sessions
@@ -770,6 +772,30 @@ def test_gs_capabilities_safe_write_includes_package_tools(tools_fixture):
     assert "gs_install_package" in safe_write_tools
     assert "gs_create_class_in_package" in safe_write_tools
     assert "gs_create_test_case_class" in safe_write_tools
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_capabilities_safe_write_advertises_batched_compile(tools_fixture):
+    """AI: An agent that learns the write tools from the gs_capabilities catalog (the
+    recommended bootstrap) must find the batched compile there, or it will loop
+    gs_compile_method - the exact round-trip storm gs_compile_methods exists to prevent.
+    This gap was found by dog-fooding against a fresh connection."""
+    capabilities_result = tools_fixture.gs_capabilities()
+    assert capabilities_result["ok"], capabilities_result
+    safe_write_tools = capabilities_result["tool_groups"]["safe_write"]
+    assert "gs_compile_methods" in safe_write_tools
+
+
+@with_fixtures(AllowedToolsFixture)
+def test_gs_compile_methods_advertises_an_array_parameter(tools_fixture):
+    """AI: FastMCP derives the advertised JSON schema from the Python signature; an
+    unannotated methods parameter is advertised as type 'string', leaving a strict MCP
+    client to guess at JSON-in-a-string coercion or fall back to looping the singular
+    tool. The annotation makes the schema say what the validator demands: a list of
+    objects."""
+    gs_compile_methods = tools_fixture.registered_mcp_tools["gs_compile_methods"]
+    methods_annotation = gs_compile_methods.__annotations__["methods"]
+    assert methods_annotation == List[Dict[str, Any]]
 
 
 @with_fixtures(AllowedToolsFixture)

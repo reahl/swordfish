@@ -128,13 +128,34 @@ class GemstoneBrowserSession:
                 return False
         return True
 
+    def fetch_joined_names(self, smalltalk_source):
+        # AI: One GCI round-trip per listing: the server joins the names with lf and we
+        # split here, so the cost of a listing no longer scales with the number of
+        # elements (iterating a collection proxy costs ~2 round trips per element).
+        result_string = self.run_code(smalltalk_source).to_py
+        if not result_string:
+            return []
+        return result_string.split('\n')
+
+    def class_side_expression(self, class_name, show_instance_side):
+        # AI: Server-side twin of class_to_query: resolves the class via the symbol list
+        # and addresses the metaclass when the class side is asked for. A missing class
+        # yields nil, so the subsequent send raises GemstoneError just as sends to the
+        # phantom proxy returned by resolve_symbol do.
+        show_instance_side = self.validated_show_instance_side(show_instance_side)
+        class_expression = self.target_class_expression(class_name, None)
+        if show_instance_side:
+            return class_expression
+        return '%s class' % class_expression
+
     def list_categories(self):
-        category_names = []
+        smalltalk_source = (
+            '| names |\n'
+            'names := ClassOrganizer new categories keys asArray collect: [:each | each asString].\n'
+            '(String with: Character lf) join: names'
+        )
         try:
-            category_names = [
-                gemstone_package.to_py
-                for gemstone_package in self.class_organizer.categories().keys()
-            ]
+            category_names = self.fetch_joined_names(smalltalk_source)
         except GemstoneError:
             category_names = []
         except GemstoneApiError:
@@ -142,17 +163,16 @@ class GemstoneBrowserSession:
         return sorted(category_names)
 
     def list_dictionaries(self):
-        dictionary_names = self.run_code(
+        return self.fetch_joined_names(
             (
                 "| names |\n"
                 "names := OrderedCollection new.\n"
                 "System myUserProfile symbolList do: [:each |\n"
                 "    names add: each name asString\n"
                 "].\n"
-                "(names asSortedCollection) asArray"
+                "(String with: Character lf) join: (names asSortedCollection) asArray"
             )
         )
-        return [dictionary_name.to_py for dictionary_name in dictionary_names]
 
     def create_package(self, package_name):
         package_name_literal = self.smalltalk_string_literal(package_name)
@@ -251,16 +271,18 @@ class GemstoneBrowserSession:
     def list_classes_in_category(self, category_name):
         if not category_name:
             return []
+        category_literal = self.smalltalk_string_literal(category_name)
+        smalltalk_source = (
+            '| classes |\n'
+            'classes := ClassOrganizer new categories at: %s ifAbsent: [#()].\n'
+            '(String with: Character lf) join: '
+            '(classes asArray collect: [:each | each name asString])'
+        ) % category_literal
         try:
-            gemstone_classes = self.class_organizer.categories().at(category_name)
-            class_names = [
-                gemstone_class.name().to_py for gemstone_class in gemstone_classes
-            ]
+            class_names = self.fetch_joined_names(smalltalk_source)
         except GemstoneError:
             class_names = []
         except GemstoneApiError:
-            class_names = []
-        except KeyError:
             class_names = []
         return sorted(class_names)
 
@@ -268,7 +290,7 @@ class GemstoneBrowserSession:
         if not dictionary_name:
             return []
         dictionary_name_literal = self.smalltalk_string_literal(dictionary_name)
-        class_names = self.run_code(
+        return self.fetch_joined_names(
             (
                 "| dictionaryName dictionary classNames |\n"
                 "dictionaryName := %s.\n"
@@ -285,11 +307,10 @@ class GemstoneBrowserSession:
                 "    ].\n"
                 "    classNames := (classNames asSortedCollection) asArray\n"
                 "].\n"
-                "classNames"
+                "(String with: Character lf) join: classNames"
             )
             % dictionary_name_literal
         )
-        return [class_name.to_py for class_name in class_names]
 
     def dictionary_name_for_class(self, class_name):
         class_name_literal = self.smalltalk_string_literal(class_name)
@@ -383,12 +404,12 @@ class GemstoneBrowserSession:
     def list_method_categories(self, class_name, show_instance_side):
         if not class_name:
             return []
-        class_to_query = self.class_to_query(class_name, show_instance_side)
-        categories = [
-            gemstone_category.to_py
-            for gemstone_category in class_to_query.categoryNames().asSortedCollection()
-        ]
-        return ["all"] + categories
+        class_expression = self.class_side_expression(class_name, show_instance_side)
+        smalltalk_source = (
+            '(String with: Character lf) join: '
+            '(%s categoryNames asSortedCollection asArray collect: [:each | each asString])'
+        ) % class_expression
+        return ['all'] + self.fetch_joined_names(smalltalk_source)
 
     def list_methods(
         self,
@@ -398,19 +419,31 @@ class GemstoneBrowserSession:
     ):
         if not class_name or not method_category:
             return []
-        class_to_query = self.class_to_query(class_name, show_instance_side)
-        if method_category == "all":
-            selectors = class_to_query.selectors().asSortedCollection()
-        else:
-            try:
-                selectors = class_to_query.selectorsIn(
-                    method_category
-                ).asSortedCollection()
-            except GemstoneError:
-                return (
-                    []
-                )  # AI: category exists in categoryNames() but selectorsIn: cannot query it (e.g. *bootstrap-caching)
-        return [gemstone_selector.to_py for gemstone_selector in selectors]
+        class_expression = self.class_side_expression(class_name, show_instance_side)
+        if method_category == 'all':
+            selectors_expression = '%s selectors' % class_expression
+            return self.fetch_joined_names(
+                self.joined_selector_names_source(selectors_expression)
+            )
+        category_literal = self.smalltalk_string_literal(method_category)
+        selectors_expression = '%s selectorsIn: %s' % (
+            class_expression,
+            category_literal,
+        )
+        try:
+            return self.fetch_joined_names(
+                self.joined_selector_names_source(selectors_expression)
+            )
+        except GemstoneError:
+            return (
+                []
+            )  # AI: category exists in categoryNames() but selectorsIn: cannot query it (e.g. *bootstrap-caching)
+
+    def joined_selector_names_source(self, selectors_expression):
+        return (
+            '(String with: Character lf) join: '
+            '((%s) asSortedCollection asArray collect: [:each | each asString])'
+        ) % selectors_expression
 
     def get_compiled_method(self, class_name, method_selector, show_instance_side):
         class_to_query = self.class_to_query(class_name, show_instance_side)
@@ -2104,32 +2137,196 @@ class GemstoneBrowserSession:
         in_dictionary,
         show_instance_side,
         source,
-        method_category="as yet unclassified",
+        method_category=None,
     ):
-        class_literal = self.smalltalk_string_literal(class_name)
-        source_literal = self.smalltalk_string_literal(source)
-        method_category_literal = self.smalltalk_string_literal(method_category)
-        dictionary_expression = self.dictionary_reference_expression(in_dictionary)
-        class_side_suffix = "" if show_instance_side else " class"
-        return self.run_code(
-            (
-                "| classToQuery symbolList |\n"
-                "classToQuery := (%s at: (%s asSymbol)).\n"
-                "symbolList := System myUserProfile symbolList.\n"
-                "classToQuery%s\n"
-                "    compileMethod: %s\n"
-                "    dictionaries: symbolList\n"
-                "    category: %s\n"
-                "    environmentId: 0"
-            )
-            % (
-                dictionary_expression,
-                class_literal,
-                class_side_suffix,
-                source_literal,
-                method_category_literal,
-            )
+        '''AI: A dictionary-scoped compile is just a one-element batch whose class is resolved via
+        the named dictionary rather than the whole symbol list. Routing it through compile_methods
+        removes the duplicate compile implementation and, unlike the old standalone version which
+        always filed an omitted category under "as yet unclassified", now preserves an existing
+        method's protocol when no category is named.'''
+        rows = self.compile_methods(
+            [(class_name, show_instance_side, source, method_category, in_dictionary)]
         )
+        return rows[0]
+
+    def compile_methods(self, method_specs, chunk_size=50):
+        '''AI: Compile many methods in as few GCI round-trips as possible - one per chunk of
+        chunk_size, instead of three per method (category lookup, symbol-list fetch, compile).
+        Each spec is (class_name, show_instance_side, source, method_category-or-None,
+        in_dictionary-or-None). The selector is parsed here in pure Python so the gem can keep an
+        existing method's protocol when no category is named, and so a source that does not parse
+        becomes an error row rather than reaching the gem. Chunking bounds both the size of each
+        Smalltalk program and the per-round-trip allocation that pressures the gem's garbage
+        collector. A compile error or a missing class becomes that row's error and leaves the rest
+        of the batch installed. Returns one result row per input spec, in input order:
+        {class_name, selector, show_instance_side, method_category, ok, error}.'''
+        mirroring = current_working_copy().active
+        results = [None] * len(method_specs)
+        sendable = []
+        for index, spec in enumerate(method_specs):
+            class_name, show_instance_side, source, method_category, in_dictionary = spec
+            selector = self.mirrored_selector(source)
+            if selector is None:
+                results[index] = self.compile_result_row(
+                    class_name, '', show_instance_side, '', False,
+                    'Source does not define a parseable method.',
+                )
+            else:
+                previous_source = (
+                    self.existing_method_source(class_name, selector, show_instance_side)
+                    if mirroring
+                    else None
+                )
+                sendable.append(
+                    (index, class_name, show_instance_side, selector, source,
+                     method_category, in_dictionary, previous_source)
+                )
+        for chunk in self.chunked(sendable, chunk_size):
+            for entry, row in zip(chunk, self.run_compile_chunk(chunk)):
+                index = entry[0]
+                results[index] = row
+                if mirroring and row['ok']:
+                    self.mirror_compiled_method(
+                        entry[1], entry[2], entry[4], row['method_category'],
+                        entry[3], entry[7],
+                    )
+        return results
+
+    def chunked(self, items, chunk_size):
+        '''AI: Split items into successive lists of at most chunk_size, preserving order, so a
+        large batch is sent as several bounded programs rather than one unbounded one.'''
+        return [items[start:start + chunk_size] for start in range(0, len(items), chunk_size)]
+
+    def run_compile_chunk(self, chunk):
+        '''AI: Compile one chunk of specs in a single GCI call and return its result rows in the
+        same order the specs were sent.'''
+        elements = [
+            self.compile_spec_element(
+                class_name, show_instance_side, selector, source, method_category, in_dictionary
+            )
+            for (index, class_name, show_instance_side, selector, source,
+                 method_category, in_dictionary, previous_source) in chunk
+        ]
+        raw = self.run_code(self.batch_compile_program('.\n'.join(elements)))
+        return self.parsed_compile_chunk_results(raw)
+
+    def compile_spec_element(
+        self, class_name, show_instance_side, selector, source, method_category, in_dictionary
+    ):
+        '''AI: One element of the dynamic array sent to the gem:
+        { classNameStr. targetClassOrNil. selectorStr. sideBool. sourceStr. categoryOrNil }.
+        A dynamic array (curly braces) is used rather than a literal array so each element is a
+        real evaluated object - the booleans and nils are genuine, and the second slot is the
+        resolved class itself, looked up at array-build time via the same expression
+        dictionary_reference_expression builds for the dictionary-scoped path.'''
+        return '{ %s. %s. %s. %s. %s. %s }' % (
+            self.smalltalk_string_literal(class_name),
+            self.target_class_expression(class_name, in_dictionary),
+            self.smalltalk_string_literal(selector),
+            'true' if show_instance_side else 'false',
+            self.smalltalk_string_literal(source),
+            self.smalltalk_string_literal(method_category) if method_category is not None else 'nil',
+        )
+
+    def target_class_expression(self, class_name, in_dictionary):
+        '''AI: A Smalltalk expression that resolves the class to compile into - via the whole
+        symbol list when no dictionary is named, or via the named dictionary (reusing
+        dictionary_reference_expression) when one is. Both yield nil rather than raising when the
+        class is absent, so a missing class becomes a per-row error, not a chunk-wide failure.'''
+        class_literal = self.smalltalk_string_literal(class_name)
+        if in_dictionary is None:
+            return '(System myUserProfile symbolList objectNamed: %s asSymbol)' % class_literal
+        dictionary_expression = self.dictionary_reference_expression(in_dictionary)
+        return '(%s at: %s asSymbol otherwise: nil)' % (dictionary_expression, class_literal)
+
+    def batch_compile_program(self, elements_source):
+        '''AI: A program that fetches the symbol list once, then compiles every spec, resolving an
+        omitted category to the method's current protocol (or "as yet unclassified" for a new
+        method) inside the loop so the whole chunk stays one round-trip. compileMethod:... returns
+        a GsNMethod on success or an Array of compiler errors on failure - it does not raise - so a
+        bad spec is recorded and the loop continues.'''
+        return (
+            "| symbolList results |\n"
+            "symbolList := System myUserProfile symbolList.\n"
+            "results := OrderedCollection new.\n"
+            "{\n"
+            "%s\n"
+            "} do: [:spec | | className target selector onInstanceSide source category "
+            "catToUse compiled okFlag errorText |\n"
+            "    className := spec at: 1.\n"
+            "    target := spec at: 2.\n"
+            "    selector := (spec at: 3) asSymbol.\n"
+            "    onInstanceSide := spec at: 4.\n"
+            "    source := spec at: 5.\n"
+            "    category := spec at: 6.\n"
+            "    target isNil\n"
+            "        ifTrue: [results add: { className. selector asString. onInstanceSide. "
+            "''. false. 'Class not found.' }]\n"
+            "        ifFalse: [\n"
+            "            onInstanceSide ifFalse: [target := target class].\n"
+            "            catToUse := category ifNil: [\n"
+            "                (target includesSelector: selector)\n"
+            "                    ifTrue: [(target categoryOfSelector: selector) ifNil: ['as yet unclassified']]\n"
+            "                    ifFalse: ['as yet unclassified']].\n"
+            "            compiled := target\n"
+            "                compileMethod: source\n"
+            "                dictionaries: symbolList\n"
+            "                category: catToUse\n"
+            "                environmentId: 0.\n"
+            "            okFlag := compiled isKindOf: GsNMethod.\n"
+            "            errorText := okFlag ifTrue: [''] ifFalse: [compiled printString].\n"
+            "            results add: { className. selector asString. onInstanceSide. "
+            "catToUse asString. okFlag. errorText }]].\n"
+            "results"
+        ) % elements_source
+
+    def parsed_compile_chunk_results(self, raw):
+        '''AI: Turn the gem's OrderedCollection of six-element Arrays into result rows, traversing
+        with size/at: rather than a bulk to_py so each leaf converts predictably.'''
+        rows = []
+        for position in range(1, raw.size().to_py + 1):
+            entry = raw.at(position)
+            rows.append(
+                self.compile_result_row(
+                    entry.at(1).to_py,
+                    entry.at(2).to_py,
+                    entry.at(3).to_py,
+                    entry.at(4).to_py,
+                    entry.at(5).to_py,
+                    entry.at(6).to_py,
+                )
+            )
+        return rows
+
+    def compile_result_row(
+        self, class_name, selector, show_instance_side, method_category, ok, error
+    ):
+        '''AI: One per-method outcome of a batch compile, shaped the same whether it came back from
+        the gem or was decided here (an unparseable source never sent).'''
+        return {
+            'class_name': class_name,
+            'selector': selector,
+            'show_instance_side': show_instance_side,
+            'method_category': method_category,
+            'ok': ok,
+            'error': error,
+        }
+
+    def compile_planned_changes(self, planned_changes):
+        '''AI: Compile every method a refactoring plan rewrites in one batched round-trip rather
+        than one per sender - the difference between a smooth rename and the compile storm that can
+        crash a linked gem. Each planned change already carries the class, side, rewritten source
+        and category, so it maps straight onto a batch spec with no dictionary scoping.'''
+        return self.compile_methods([
+            (
+                planned_change['class_name'],
+                planned_change['show_instance_side'],
+                planned_change['updated_source'],
+                planned_change['method_category'],
+                None,
+            )
+            for planned_change in planned_changes
+        ])
 
     def create_class(
         self,
@@ -3759,32 +3956,33 @@ class GemstoneBrowserSession:
         moved_selector,
         helper_receiver_source,
     ):
-        """AI: Rewrite every static call site of moved_selector in
-        same-class senders so its receiver becomes helper_receiver_source.
-        Walks each sender's parser AST, slices the receiver range, and
-        recompiles. Returns the count of senders that were rewritten."""
+        """AI: Rewrite every static call site of moved_selector in same-class senders so its
+        receiver becomes helper_receiver_source. Walks each sender's parser AST, slices the
+        receiver range, and recompiles every rewritten sender in one batched round-trip rather than
+        one per sender. The category is left to the batch's server-side preserve-or-default, which
+        keeps each recompiled sender's protocol without a per-sender category lookup. Returns the
+        count of senders that were rewritten."""
         sender_summaries = self.selector_occurrence_summaries(
             moved_selector,
             "senders",
         )
-        same_class_sender_summaries = [
-            sender_summary
-            for sender_summary in sender_summaries
-            if (
-                sender_summary["class_name"] == source_class_name
-                and sender_summary["show_instance_side"]
-                == source_show_instance_side
-            )
-        ]
-        rewritten_count = 0
+        candidate_selectors = []
         seen_sender_selectors = set()
-        for sender_summary in same_class_sender_summaries:
+        for sender_summary in sender_summaries:
             sender_selector = sender_summary["method_selector"]
-            if sender_selector == moved_selector:
-                continue
-            if sender_selector in seen_sender_selectors:
-                continue
-            seen_sender_selectors.add(sender_selector)
+            is_same_class = (
+                sender_summary["class_name"] == source_class_name
+                and sender_summary["show_instance_side"] == source_show_instance_side
+            )
+            is_unseen_other_selector = (
+                sender_selector != moved_selector
+                and sender_selector not in seen_sender_selectors
+            )
+            if is_same_class and is_unseen_other_selector:
+                seen_sender_selectors.add(sender_selector)
+                candidate_selectors.append(sender_selector)
+        rewrite_specs = []
+        for sender_selector in candidate_selectors:
             rewritten_source = self.sender_source_with_receiver_replaced(
                 source_class_name,
                 source_show_instance_side,
@@ -3792,21 +3990,12 @@ class GemstoneBrowserSession:
                 moved_selector,
                 helper_receiver_source,
             )
-            if rewritten_source is None:
-                continue
-            sender_category = self.get_method_category(
-                source_class_name,
-                sender_selector,
-                source_show_instance_side,
-            )
-            self.compile_method(
-                class_name=source_class_name,
-                show_instance_side=source_show_instance_side,
-                source=rewritten_source,
-                method_category=sender_category,
-            )
-            rewritten_count = rewritten_count + 1
-        return rewritten_count
+            if rewritten_source is not None:
+                rewrite_specs.append(
+                    (source_class_name, source_show_instance_side, rewritten_source, None, None)
+                )
+        self.compile_methods(rewrite_specs)
+        return len(rewrite_specs)
 
     def sender_source_with_receiver_replaced(
         self,
@@ -4045,18 +4234,14 @@ class GemstoneBrowserSession:
             parameter_name,
             default_argument_source,
         )
-        self.compile_method(
-            class_name=class_name,
-            show_instance_side=show_instance_side,
-            source=add_parameter_plan["new_method_source"],
-            method_category=add_parameter_plan["method_category"],
-        )
-        self.compile_method(
-            class_name=class_name,
-            show_instance_side=show_instance_side,
-            source=add_parameter_plan["compatibility_wrapper_source"],
-            method_category=add_parameter_plan["method_category"],
-        )
+        # AI: The widened method and its compatibility wrapper install into the same class with no
+        # compile-order dependency, so both go in one batched round-trip.
+        self.compile_methods([
+            (class_name, show_instance_side, add_parameter_plan["new_method_source"],
+             add_parameter_plan["method_category"], None),
+            (class_name, show_instance_side, add_parameter_plan["compatibility_wrapper_source"],
+             add_parameter_plan["method_category"], None),
+        ])
         summary = self.method_add_parameter_summary(add_parameter_plan)
         summary["applied"] = True
         return summary
@@ -4263,28 +4448,21 @@ class GemstoneBrowserSession:
                     "instance" if show_instance_side else "class",
                 )
             )
-        self.compile_method(
-            class_name=class_name,
-            show_instance_side=show_instance_side,
-            source=remove_parameter_plan["new_method_source"],
-            method_category=remove_parameter_plan["method_category"],
-        )
-        self.compile_method(
-            class_name=class_name,
-            show_instance_side=show_instance_side,
-            source=remove_parameter_plan["compatibility_wrapper_source"],
-            method_category=remove_parameter_plan["method_category"],
-        )
+        # AI: The new method, its compatibility wrapper and any source-sender rewrites all install
+        # into the same class with no compile-order dependency, so they go in one batched round-trip.
+        compile_specs = [
+            (class_name, show_instance_side, remove_parameter_plan["new_method_source"],
+             remove_parameter_plan["method_category"], None),
+            (class_name, show_instance_side, remove_parameter_plan["compatibility_wrapper_source"],
+             remove_parameter_plan["method_category"], None),
+        ]
         if rewrite_source_senders:
-            for caller_rewrite_plan in remove_parameter_plan[
-                "source_sender_rewrite_plans"
-            ]:
-                self.compile_method(
-                    class_name=class_name,
-                    show_instance_side=show_instance_side,
-                    source=caller_rewrite_plan["updated_source"],
-                    method_category=caller_rewrite_plan["method_category"],
-                )
+            compile_specs += [
+                (class_name, show_instance_side, caller_rewrite_plan["updated_source"],
+                 caller_rewrite_plan["method_category"], None)
+                for caller_rewrite_plan in remove_parameter_plan["source_sender_rewrite_plans"]
+            ]
+        self.compile_methods(compile_specs)
         summary = self.method_remove_parameter_summary(remove_parameter_plan)
         summary["applied"] = True
         summary["overwrite_new_method"] = overwrite_new_method
@@ -5760,13 +5938,7 @@ class GemstoneBrowserSession:
             old_selector,
             new_selector,
         )
-        for planned_change in planned_changes:
-            self.compile_method(
-                class_name=planned_change["class_name"],
-                show_instance_side=planned_change["show_instance_side"],
-                source=planned_change["updated_source"],
-                method_category=planned_change["method_category"],
-            )
+        self.compile_planned_changes(planned_changes)
         if old_selector != new_selector:
             deleted_implementors = set()
             for planned_change in planned_changes:
@@ -5826,13 +5998,7 @@ class GemstoneBrowserSession:
             old_selector,
             new_selector,
         )
-        for planned_change in planned_changes:
-            self.compile_method(
-                class_name=planned_change["class_name"],
-                show_instance_side=planned_change["show_instance_side"],
-                source=planned_change["updated_source"],
-                method_category=planned_change["method_category"],
-            )
+        self.compile_planned_changes(planned_changes)
         has_implementor_change = any(
             planned_change["change_type"] == "implementor"
             for planned_change in planned_changes

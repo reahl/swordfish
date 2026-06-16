@@ -1757,6 +1757,62 @@ def test_method_inheritance_hierarchy_refreshes_on_method_selection_change(fixtu
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_method_hierarchy_sync_is_not_mistaken_for_a_user_jump(fixture):
+    """AI: Selecting a method programmatically syncs the hierarchy tree selection, which makes
+    ttk queue <<TreeviewSelect>> events for later delivery. Those echoes must not be treated
+    as the user jumping to a class: the selection already matches the session state, so no
+    jump (and none of its GemStone lookups) may be triggered."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    methods_widget = fixture.browser_window.methods_widget
+    methods_widget.show_method_hierarchy_var.set(True)
+    methods_widget.toggle_method_hierarchy()
+    fixture.root.update()
+    fixture.mock_browser.get_method_category.reset_mock()
+
+    methods_listbox = methods_widget.selection_list.selection_listbox
+    methods_listbox.selection_clear(0, "end")
+    fixture.select_in_listbox(
+        methods_listbox,
+        "description",
+    )
+    fixture.root.update()
+
+    fixture.mock_browser.get_method_category.assert_not_called()
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_selecting_a_method_preserves_the_all_category_selection(fixture):
+    """AI: Clicking a method while browsing the 'all' pseudo-category must not narrow the
+    category selection to the method's home category."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        "Kernel",
+    )
+    fixture.select_in_listbox(
+        fixture.browser_window.classes_widget.selection_list.selection_listbox,
+        "OrderLine",
+    )
+    fixture.select_in_listbox(
+        fixture.browser_window.categories_widget.selection_list.selection_listbox,
+        "all",
+    )
+    assert fixture.session_record.selected_method_category == "all"
+    methods_widget = fixture.browser_window.methods_widget
+    methods_widget.show_method_hierarchy_var.set(True)
+    methods_widget.toggle_method_hierarchy()
+    fixture.root.update()
+
+    fixture.select_in_listbox(
+        methods_widget.selection_list.selection_listbox,
+        "total",
+    )
+    fixture.root.update()
+
+    assert fixture.session_record.selected_method_symbol == "total"
+    assert fixture.session_record.selected_method_category == "all"
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_method_list_can_show_inherited_methods_in_grey(fixture):
     """AI: Enabling inherited methods should add inherited selectors to the current class method list and render them in grey."""
 
