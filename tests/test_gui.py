@@ -3670,6 +3670,86 @@ def test_run_context_menu_graph_inspect_opens_graph_for_selected_result(fixture)
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_run_source_context_menu_includes_implementors_senders_and_references(fixture):
+    """AI: The workspace source menu should expose the same navigation group
+    (Implementors, Senders, References) as the method editor, so a selector or
+    class can be explored from any source window."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete("1.0", "end")
+    run_tab.source_text.insert("1.0", "anArray do: aBlock")
+    run_tab.source_text.tag_add(tk.SEL, "1.0", "1.6")
+
+    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    labels = menu_command_labels(run_tab.current_text_menu)
+    assert "Implementors" in labels
+    assert "Senders" in labels
+    assert "References" in labels
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_source_context_menu_implementors_opens_dialog_for_selected_selector(
+    fixture,
+):
+    """AI: Implementors from the workspace should resolve the selected selector and
+    open the implementors dialog for it."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete("1.0", "end")
+    run_tab.source_text.insert("1.0", "total\n5 + 6")
+    run_tab.source_text.tag_add(tk.SEL, "1.0", "1.5")
+
+    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    with patch.object(fixture.app, "open_implementors_dialog") as open_dialog:
+        invoke_menu_command_by_label(run_tab.current_text_menu, "Implementors")
+    open_dialog.assert_called_once_with(method_symbol="total")
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_source_context_menu_senders_opens_dialog_for_selected_selector(
+    fixture,
+):
+    """AI: Senders from the workspace should resolve the selected selector and open
+    the senders dialog for it."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete("1.0", "end")
+    run_tab.source_text.insert("1.0", "total\n5 + 6")
+    run_tab.source_text.tag_add(tk.SEL, "1.0", "1.5")
+
+    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    with patch.object(fixture.app, "open_senders_dialog") as open_dialog:
+        invoke_menu_command_by_label(run_tab.current_text_menu, "Senders")
+    open_dialog.assert_called_once_with(method_symbol="total")
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_source_context_menu_references_opens_class_reference_search(
+    fixture,
+):
+    """AI: References from the workspace should resolve the class name under the
+    cursor and open an exact class-reference search for it."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete("1.0", "end")
+    run_tab.source_text.insert("1.0", "OrderLine new")
+    run_tab.source_text.tag_add(tk.SEL, "1.0", "1.9")
+
+    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    with patch.object(fixture.app, "open_find_dialog_for_class") as open_dialog:
+        invoke_menu_command_by_label(run_tab.current_text_menu, "References")
+    open_dialog.assert_called_once_with("OrderLine")
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_run_source_context_menu_includes_debug_for_selected_text(fixture):
     """AI: The Run source context menu must offer Debug wherever it already offers Run and Inspect."""
     fixture.simulate_login()
