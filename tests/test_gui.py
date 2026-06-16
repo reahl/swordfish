@@ -21,6 +21,7 @@ from reahl.tofu import (
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.main import (
+    GEMSTONE_EXE_CONF_CONFIG_NAME,
     BreakpointsDialog,
     BrowserWindow,
     CoveringTestsBrowseDialog,
@@ -29,7 +30,6 @@ from reahl.swordfish.main import (
     EventQueue,
     Explorer,
     FindDialog,
-    GEMSTONE_EXE_CONF_CONFIG_NAME,
     GemstoneSessionRecord,
     GlobalNavigationEntry,
     GlobalNavigationHistory,
