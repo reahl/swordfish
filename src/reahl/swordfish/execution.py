@@ -929,10 +929,10 @@ class RunTab(ttk.Frame):
         self.application.begin_foreground_activity('Debugging source...')
         try:
             try:
-                result = self.gemstone_session_record.run_code(selected_text)
+                result = self.gemstone_session_record.debug_source(selected_text)
                 self.on_run_complete(result)
                 self.status_label.config(
-                    text='Completed successfully; no debugger context',
+                    text='Completed; no step point to stop at',
                 )
                 self.application.event_queue.publish(
                     'RunTabDebugSucceeded',
