@@ -3,7 +3,6 @@ from reahl.tofu import Fixture, expected, with_fixtures
 
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 
-
 # AI: "Debug" should always drop you into the debugger on the FIRST STATEMENT of the code you
 # AI: asked to debug - as if an implicit breakpoint sat there - rather than only stopping when
 # AI: the code happens to raise. The mechanism (verified against a live gem) is a transient
