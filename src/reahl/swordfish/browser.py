@@ -2452,6 +2452,25 @@ class MethodEditor(FramedWidget):
         for tab_path in tab_paths[after_index + 1:]:
             self.close_tab(self.editor_notebook.nametowidget(tab_path))
 
+    def close_tabs_in_same_class(self, reference_tab):
+        # AI: Close every open method that belongs to the same class as
+        # reference_tab (including reference_tab itself). tab_key[0] is the
+        # class name. Iterate a snapshot because close_tab mutates the tab set.
+        reference_class = reference_tab.tab_key[0]
+        for tab_path in list(self.editor_notebook.tabs()):
+            tab_widget = self.editor_notebook.nametowidget(tab_path)
+            if tab_widget.tab_key[0] == reference_class:
+                self.close_tab(tab_widget)
+
+    def close_tabs_in_other_classes(self, reference_tab):
+        # AI: Close every open method that belongs to a different class than
+        # reference_tab, leaving the tabs for reference_tab's class open.
+        reference_class = reference_tab.tab_key[0]
+        for tab_path in list(self.editor_notebook.tabs()):
+            tab_widget = self.editor_notebook.nametowidget(tab_path)
+            if tab_widget.tab_key[0] != reference_class:
+                self.close_tab(tab_widget)
+
     def close_editor_tab_at_index(self, notebook, tab_index):
         # AI: Adapter that the closable_notebook helper calls when the user
         # clicks the 'x' on a tab. Routes through the existing close_tab to

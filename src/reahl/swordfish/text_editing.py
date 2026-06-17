@@ -2017,6 +2017,17 @@ class EditorTab(tk.Frame):
             label='Close All to the Right',
             command=lambda: self.method_editor.close_tabs_to_right(self),
         )
+        # AI: tab_key is (class_name, instance_side, selector); name the actual
+        # class in the labels so the scope of each bulk close is unambiguous.
+        tab_class_name = self.tab_key[0]
+        menu.add_command(
+            label=f'Close All in {tab_class_name}',
+            command=lambda: self.method_editor.close_tabs_in_same_class(self),
+        )
+        menu.add_command(
+            label=f'Close All not in {tab_class_name}',
+            command=lambda: self.method_editor.close_tabs_in_other_classes(self),
+        )
         menu.bind(
             '<Escape>',
             lambda popup_event: close_popup_menu(menu),
