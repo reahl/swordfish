@@ -1030,6 +1030,9 @@ def test_tab_context_menu_lists_expected_tab_actions(fixture):
     assert "Close" in command_labels
     assert "Close Others" in command_labels
     assert "Close All to the Right" in command_labels
+    # AI: The class-scoped bulk closes name the actual class (tab_key[0]).
+    assert "Close All in OrderLine" in command_labels
+    assert "Close All not in OrderLine" in command_labels
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -1066,6 +1069,47 @@ def test_close_tabs_to_right_preserves_left_of_clicked_tab(fixture):
 
     menu = fixture.open_tab_context_menu_for_tab(middle_tab)
     fixture.invoke_menu_command(menu, "Close All to the Right")
+
+    assert list(editor.open_tabs.keys()) == [
+        ("OrderLine", True, "total"),
+        ("OrderLine", True, "description"),
+    ]
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_close_all_in_same_class_closes_only_that_classes_tabs(fixture):
+    """AI: 'Close All in <class>' closes every open method of the clicked tab's
+    class and leaves methods of other classes open."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total", pin=True)
+    fixture.select_down_to_method(
+        "Kernel", "OrderLine", "accessing", "description", pin=True
+    )
+    fixture.select_down_to_method("Kernel", "Order", "accessing", "total", pin=True)
+
+    editor = fixture.browser_window.editor_area_widget
+    order_line_tab = editor.open_tabs[("OrderLine", True, "total")]
+
+    menu = fixture.open_tab_context_menu_for_tab(order_line_tab)
+    fixture.invoke_menu_command(menu, "Close All in OrderLine")
+
+    assert list(editor.open_tabs.keys()) == [("Order", True, "total")]
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_close_all_not_in_class_keeps_only_that_classes_tabs(fixture):
+    """AI: 'Close All not in <class>' closes methods of every other class and
+    keeps the clicked tab's class open."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total", pin=True)
+    fixture.select_down_to_method(
+        "Kernel", "OrderLine", "accessing", "description", pin=True
+    )
+    fixture.select_down_to_method("Kernel", "Order", "accessing", "total", pin=True)
+
+    editor = fixture.browser_window.editor_area_widget
+    order_line_tab = editor.open_tabs[("OrderLine", True, "total")]
+
+    menu = fixture.open_tab_context_menu_for_tab(order_line_tab)
+    fixture.invoke_menu_command(menu, "Close All not in OrderLine")
 
     assert list(editor.open_tabs.keys()) == [
         ("OrderLine", True, "total"),
