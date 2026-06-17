@@ -52,6 +52,7 @@ from reahl.swordfish.main import (
 )
 from reahl.swordfish.mcp.integration_state import IntegratedSessionState
 from reahl.swordfish.object_diagram import UmlObjectDiagramNodeDetailDialog
+from reahl.swordfish.text_editing import PINNED_TAB_MARKER
 
 
 class FakeApplication:
@@ -310,8 +311,13 @@ class SwordfishGuiFixture(Fixture):
         selection_list.handle_selection(types.SimpleNamespace(widget=listbox))
         self.root.update()
 
-    def select_down_to_method(self, package, class_name, category, method):
-        """AI: Navigate all four selection columns to open an editor tab for a method."""
+    def select_down_to_method(self, package, class_name, category, method, pin=False):
+        """AI: Navigate all four selection columns to open an editor tab for a method.
+
+        A single selection opens the method in a transient *preview* tab; pass
+        pin=True to also pin it (as a user would by double-clicking), so it
+        survives opening other methods.
+        """
         self.select_in_listbox(
             self.browser_window.packages_widget.selection_list.selection_listbox,
             package,
@@ -328,6 +334,9 @@ class SwordfishGuiFixture(Fixture):
             self.browser_window.methods_widget.selection_list.selection_listbox,
             method,
         )
+        if pin:
+            self.browser_window.methods_widget.pin_selected_method_tab()
+            self.root.update()
 
     def open_text_context_menu_for_tab(self, tab):
         menu_event = types.SimpleNamespace(
@@ -816,14 +825,86 @@ def test_method_editor_source_shows_line_numbers(fixture):
 def test_selecting_already_open_method_brings_its_tab_to_fore(fixture):
     """Re-selecting a method that already has an open tab switches to that
     tab rather than opening a duplicate."""
-    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
-    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "description")
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total", pin=True)
+    fixture.select_down_to_method(
+        "Kernel", "OrderLine", "accessing", "description", pin=True
+    )
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
 
     notebook = fixture.browser_window.editor_area_widget.editor_notebook
     assert len(notebook.tabs()) == 2
     selected_tab = notebook.select()
-    assert notebook.tab(selected_tab, "text") == "total"
+    assert notebook.tab(selected_tab, "text") == PINNED_TAB_MARKER + "total"
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_selecting_another_method_recycles_the_preview_tab(fixture):
+    """AI: A method opened from the list lives in a single transient preview
+    tab. Selecting a different method reuses that one tab rather than piling
+    up tabs, so an unpinned tab is never left behind."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "description")
+
+    editor = fixture.browser_window.editor_area_widget
+    assert list(editor.open_tabs.keys()) == [("OrderLine", True, "description")]
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_double_clicking_a_method_pins_its_tab(fixture):
+    """AI: Double-clicking a method pins its tab, so it is no longer the
+    recyclable preview tab and survives opening another method."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total", pin=True)
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "description")
+
+    editor = fixture.browser_window.editor_area_widget
+    assert ("OrderLine", True, "total") in editor.open_tabs
+    assert ("OrderLine", True, "description") in editor.open_tabs
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_pinned_tab_label_carries_the_pin_marker(fixture):
+    """AI: A pinned tab is distinguished from a preview tab by a marker on its
+    label; the preview tab shows the bare selector."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    editor = fixture.browser_window.editor_area_widget
+    preview_tab = editor.open_tabs[("OrderLine", True, "total")]
+    assert editor.editor_notebook.tab(preview_tab, "text") == "total"
+
+    fixture.browser_window.methods_widget.pin_selected_method_tab()
+    fixture.root.update()
+    assert (
+        editor.editor_notebook.tab(preview_tab, "text") == PINNED_TAB_MARKER + "total"
+    )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_pin_tab_command_keeps_the_tab_when_another_method_opens(fixture):
+    """AI: The 'Pin Tab' action on the tab menu promotes the preview tab to a
+    permanent one, exactly like double-clicking the method."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    editor = fixture.browser_window.editor_area_widget
+    tab = editor.open_tabs[("OrderLine", True, "total")]
+
+    menu = fixture.open_tab_context_menu_for_tab(tab)
+    fixture.invoke_menu_command(menu, "Pin Tab")
+
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "description")
+    assert ("OrderLine", True, "total") in editor.open_tabs
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_editing_a_preview_tab_pins_it(fixture):
+    """AI: Starting to edit a preview tab pins it, so a user's unsaved work is
+    never silently discarded when the next method is opened."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    editor = fixture.browser_window.editor_area_widget
+    tab = editor.open_tabs[("OrderLine", True, "total")]
+
+    tab.code_panel.text_editor.insert("end", "\n    ^42")
+    fixture.root.update()
+
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "description")
+    assert ("OrderLine", True, "total") in editor.open_tabs
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -949,15 +1030,20 @@ def test_tab_context_menu_lists_expected_tab_actions(fixture):
     assert "Close" in command_labels
     assert "Close Others" in command_labels
     assert "Close All to the Right" in command_labels
+    # AI: The class-scoped bulk closes name the actual class (tab_key[0]).
+    assert "Close All in OrderLine" in command_labels
+    assert "Close All not in OrderLine" in command_labels
 
 
 @with_fixtures(SwordfishGuiFixture)
 def test_close_others_closes_only_other_tabs(fixture):
     """AI: Invoking 'Close Others' from a tab keeps that one tab open and
     closes every other tab in the editor notebook."""
-    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
-    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "description")
-    fixture.select_down_to_method("Kernel", "Order", "accessing", "total")
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total", pin=True)
+    fixture.select_down_to_method(
+        "Kernel", "OrderLine", "accessing", "description", pin=True
+    )
+    fixture.select_down_to_method("Kernel", "Order", "accessing", "total", pin=True)
 
     editor = fixture.browser_window.editor_area_widget
     middle_tab = editor.open_tabs[("OrderLine", True, "description")]
@@ -972,15 +1058,58 @@ def test_close_others_closes_only_other_tabs(fixture):
 def test_close_tabs_to_right_preserves_left_of_clicked_tab(fixture):
     """AI: 'Close All to the Right' closes only the tabs positioned after the
     clicked tab, leaving the clicked tab and everything left of it open."""
-    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
-    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "description")
-    fixture.select_down_to_method("Kernel", "Order", "accessing", "total")
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total", pin=True)
+    fixture.select_down_to_method(
+        "Kernel", "OrderLine", "accessing", "description", pin=True
+    )
+    fixture.select_down_to_method("Kernel", "Order", "accessing", "total", pin=True)
 
     editor = fixture.browser_window.editor_area_widget
     middle_tab = editor.open_tabs[("OrderLine", True, "description")]
 
     menu = fixture.open_tab_context_menu_for_tab(middle_tab)
     fixture.invoke_menu_command(menu, "Close All to the Right")
+
+    assert list(editor.open_tabs.keys()) == [
+        ("OrderLine", True, "total"),
+        ("OrderLine", True, "description"),
+    ]
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_close_all_in_same_class_closes_only_that_classes_tabs(fixture):
+    """AI: 'Close All in <class>' closes every open method of the clicked tab's
+    class and leaves methods of other classes open."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total", pin=True)
+    fixture.select_down_to_method(
+        "Kernel", "OrderLine", "accessing", "description", pin=True
+    )
+    fixture.select_down_to_method("Kernel", "Order", "accessing", "total", pin=True)
+
+    editor = fixture.browser_window.editor_area_widget
+    order_line_tab = editor.open_tabs[("OrderLine", True, "total")]
+
+    menu = fixture.open_tab_context_menu_for_tab(order_line_tab)
+    fixture.invoke_menu_command(menu, "Close All in OrderLine")
+
+    assert list(editor.open_tabs.keys()) == [("Order", True, "total")]
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_close_all_not_in_class_keeps_only_that_classes_tabs(fixture):
+    """AI: 'Close All not in <class>' closes methods of every other class and
+    keeps the clicked tab's class open."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total", pin=True)
+    fixture.select_down_to_method(
+        "Kernel", "OrderLine", "accessing", "description", pin=True
+    )
+    fixture.select_down_to_method("Kernel", "Order", "accessing", "total", pin=True)
+
+    editor = fixture.browser_window.editor_area_widget
+    order_line_tab = editor.open_tabs[("OrderLine", True, "total")]
+
+    menu = fixture.open_tab_context_menu_for_tab(order_line_tab)
+    fixture.invoke_menu_command(menu, "Close All not in OrderLine")
 
     assert list(editor.open_tabs.keys()) == [
         ("OrderLine", True, "total"),
@@ -1404,8 +1533,10 @@ def test_editor_notebook_uses_closable_style(fixture):
 def test_close_editor_tab_at_index_removes_that_tab(fixture):
     """AI: Closing a tab via the close-button dispatch removes that tab from
     the editor's open_tabs registry (and only that one)."""
-    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
-    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "description")
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total", pin=True)
+    fixture.select_down_to_method(
+        "Kernel", "OrderLine", "accessing", "description", pin=True
+    )
 
     editor = fixture.browser_window.editor_area_widget
     editor.editor_notebook.close_tab_at_index(0)
