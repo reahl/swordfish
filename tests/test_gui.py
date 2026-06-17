@@ -21,6 +21,7 @@ from reahl.tofu import (
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.main import (
+    GEMSTONE_EXE_CONF_CONFIG_NAME,
     BreakpointsDialog,
     BrowserWindow,
     CoveringTestsBrowseDialog,
@@ -29,7 +30,6 @@ from reahl.swordfish.main import (
     EventQueue,
     Explorer,
     FindDialog,
-    GEMSTONE_EXE_CONF_CONFIG_NAME,
     GemstoneSessionRecord,
     GlobalNavigationEntry,
     GlobalNavigationHistory,
@@ -169,6 +169,18 @@ def select_find_result(dialog, label):
     dialog.results_tree.selection_set(find_result_iid_for_label(dialog, label))
 
 
+def route_debug_source_through_real_session(mock_browser):
+    # AI: The Debug button/menu calls debug_source, which (see its own unit tests) wraps the
+    # selection in a block and runs it through run_code, stopping at its first step point.
+    # GUI tests only need the debugger-opening flow, so route debug_source to a single
+    # run_code: that lets tests arming run_code (the GemStone leaf) drive the debugger while
+    # debug_source still records the unwrapped selection it was asked to debug.
+    def debug_selection(source):
+        return mock_browser.run_code(source)
+
+    mock_browser.debug_source.side_effect = debug_selection
+
+
 class SwordfishGuiFixture(Fixture):
     @set_up
     def create_app(self):
@@ -176,6 +188,7 @@ class SwordfishGuiFixture(Fixture):
         self.root.withdraw()
 
         self.mock_browser = Mock(spec=GemstoneBrowserSession)
+        route_debug_source_through_real_session(self.mock_browser)
         self.mock_browser.list_categories.return_value = ["Kernel", "Collections"]
         self.mock_browser.list_dictionaries.return_value = [
             "Kernel",
@@ -1224,7 +1237,7 @@ def test_debug_command_from_method_source_context_menu_opens_debugger_for_runtim
     menu = fixture.open_text_context_menu_for_tab(tab)
     fixture.invoke_menu_command(menu, "Debug")
 
-    fixture.mock_browser.run_code.assert_called_with("1/0")
+    fixture.mock_browser.debug_source.assert_called_with("1/0")
     tab.code_panel.application.open_debugger.assert_called_once_with(runtime_error)
 
 
@@ -2036,6 +2049,7 @@ class SwordfishAppFixture(Fixture):
     def create_app(self):
         self.mock_gemstone_session = Mock()
         self.mock_browser = Mock(spec=GemstoneBrowserSession)
+        route_debug_source_through_real_session(self.mock_browser)
         self.mock_browser.list_categories.return_value = ["Kernel", "Collections"]
         self.mock_browser.list_dictionaries.return_value = [
             "Kernel",
@@ -3828,7 +3842,7 @@ def test_run_context_menu_debug_opens_debugger_for_selected_text_only(fixture):
     invoke_menu_command_by_label(run_tab.current_text_menu, "Debug")
     fixture.app.update()
 
-    fixture.mock_browser.run_code.assert_called_with("1/0")
+    fixture.mock_browser.debug_source.assert_called_with("1/0")
     tab_labels = [
         fixture.app.notebook.tab(t, "text") for t in fixture.app.notebook.tabs()
     ]
@@ -5677,11 +5691,10 @@ def test_debug_button_uses_current_source_text_not_stale_prior_error(fixture):
     run_tab.debug_button.invoke()
     fixture.app.update()
 
-    assert fixture.mock_browser.run_code.call_args_list[-1] == call("2 + 2")
+    assert fixture.mock_browser.debug_source.call_args_list[-1] == call("2 + 2")
     assert fixture.app.debugger_tab is None
     assert (
-        run_tab.status_label.cget("text")
-        == "Completed successfully; no debugger context"
+        run_tab.status_label.cget("text") == "Completed; no step point to stop at"
     )
 
 
@@ -5713,7 +5726,7 @@ def test_debug_button_does_not_open_debugger_for_compile_error(fixture):
     ]
     assert "Debugger" not in tab_labels
     expected_source = run_tab.source_text.get("1.0", "end-1c")
-    assert fixture.mock_browser.run_code.call_args_list[-1] == call(expected_source)
+    assert fixture.mock_browser.debug_source.call_args_list[-1] == call(expected_source)
     assert "line 2, column 40" in run_tab.status_label.cget("text")
 
 

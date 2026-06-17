@@ -2619,14 +2619,70 @@ class GemstoneBrowserSession:
         return self.summarized_test_result(test_result)
 
     def debug_test_method(self, test_case_class_name, test_method_selector):
+        # AI: Debugging a test stops at the first step point of the test method itself,
+        # AI: as if an implicit breakpoint sat there: we install a transient break at
+        # AI: step point 1 of the instance-side test method, then run the test via runCase
+        # AI: so setUp has happened and the trap lands in the test body.
         selector_literal = self.smalltalk_string_literal(test_method_selector)
-        self.run_code(
-            (
-                "| testCase |\n"
-                "testCase := %s selector: (%s asSymbol).\n"
-                "testCase runCase"
-            )
-            % (test_case_class_name, selector_literal)
+        compiled_method = self.get_compiled_method(
+            test_case_class_name,
+            test_method_selector,
+            True,
+        )
+        source = (
+            "| testCase |\n"
+            "testCase := %s selector: (%s asSymbol).\n"
+            "testCase runCase"
+        ) % (test_case_class_name, selector_literal)
+        return self.run_stopping_at_first_statement(compiled_method, source)
+
+    def debug_source(self, source):
+        # AI: Selected source has no named method to break on. Wrapping it in a block and
+        # AI: breaking would put the marker ahead of execution (a block's prologue - its first
+        # AI: two step points - has no breakable IP). A METHOD maps its entry to step point 1,
+        # AI: so we compile the selection as an UNINSTALLED doit-method (self is nil) via
+        # AI: _compileMethod:symbolList: and break at the FIRST STATEMENT - step point 2, since
+        # AI: step point 1 is the synthetic "doIt" header - guarding selections too small to
+        # AI: have a second step point. It is run through _executeInContext: inside a single
+        # AI: run_code execute (a step-point break only traps during an execute, not a perform).
+        # AI: The method is never installed in any dictionary, so there is nothing to clean up;
+        # AI: the debugger shows it as a "doIt" header over the selection.
+        doit_method_source = self.smalltalk_string_literal("doIt\n" + source)
+        return self.run_code(
+            "| swordfishDebugMethod |\n"
+            "swordfishDebugMethod := UndefinedObject\n"
+            "  _compileMethod: %s\n"
+            "  symbolList: System myUserProfile symbolList.\n"
+            "swordfishDebugMethod setBreakAtStepPoint: "
+            "(swordfishDebugMethod _sourceOffsets size min: 2).\n"
+            "swordfishDebugMethod _executeInContext: nil" % doit_method_source
+        )
+
+    def run_stopping_at_first_statement(self, compiled_method, source):
+        step_point = self.first_statement_step_point(compiled_method)
+        self.set_step_point_break(compiled_method, step_point)
+        try:
+            return self.run_code(source)
+        finally:
+            self.clear_step_point_break(compiled_method, step_point)
+
+    def first_statement_step_point(self, compiled_method):
+        # AI: Step point 1 of a method is its entry (the header line); step point 2 is the
+        # AI: first real statement - the first place worth stopping. Methods without a second
+        # AI: step point fall back to the one they have.
+        step_point_count = compiled_method.perform("_sourceOffsets").size().to_py
+        return min(2, step_point_count)
+
+    def set_step_point_break(self, compiled_method, step_point):
+        compiled_method.perform(
+            "setBreakAtStepPoint:",
+            self.gemstone_session.from_py(step_point),
+        )
+
+    def clear_step_point_break(self, compiled_method, step_point):
+        compiled_method.perform(
+            "disableBreakAtStepPoint:",
+            self.gemstone_session.from_py(step_point),
         )
 
     def summarized_test_result(self, test_result):
