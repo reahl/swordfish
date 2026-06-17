@@ -5,4 +5,4 @@ This package provides a Python-based IDE that offers a classic Smalltalk develop
 experience for GemStone/Smalltalk systems.
 """
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"
