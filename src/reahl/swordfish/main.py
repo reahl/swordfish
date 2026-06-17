@@ -2718,7 +2718,6 @@ class MainMenu(tk.Menu):
         super().__init__(parent, **kwargs)
         self.parent = parent
         self.event_queue = event_queue
-        self.file_menu = tk.Menu(self, tearoff=0)
         self.find_menu = tk.Menu(self, tearoff=0)
         self.debug_menu = tk.Menu(self, tearoff=0)
         self.session_menu = tk.Menu(self, tearoff=0)
@@ -2729,21 +2728,19 @@ class MainMenu(tk.Menu):
         self._subscribe_events()
 
     def _create_menus(self):
-        # File Menu
-        self.add_cascade(label="File", menu=self.file_menu)
-        self.update_file_menu()
+        # AI: Session comes first and now owns Exit (moved off the old File menu,
+        # which held nothing else and is gone).
+        self.add_cascade(label="Session", menu=self.session_menu)
+        self.update_session_menu()
 
         # Find Menu
         self.add_cascade(label="Find", menu=self.find_menu)
         self.update_find_menu()
 
-        # Debug Menu
-        self.add_cascade(label="Debug", menu=self.debug_menu)
+        # AI: The former Debug menu, renamed Code.
+        self.add_cascade(label="Code", menu=self.debug_menu)
         self.update_debug_menu()
 
-        # Session Menu
-        self.add_cascade(label="Session", menu=self.session_menu)
-        self.update_session_menu()
         self.add_cascade(label="MCP", menu=self.mcp_menu)
         self.update_mcp_menu()
         self.add_cascade(label="FileTree", menu=self.filetree_menu)
@@ -2757,7 +2754,6 @@ class MainMenu(tk.Menu):
 
     def update_menus(self, gemstone_session_record=None, **kwargs):
         self.update_session_menu()
-        self.update_file_menu()
         self.update_find_menu()
         self.update_debug_menu()
         self.update_mcp_menu()
@@ -2787,6 +2783,10 @@ class MainMenu(tk.Menu):
             self.session_menu.add_command(
                 label="Login", command=self.parent.show_login_screen
             )
+        # AI: Exit lives here now (it used to be the sole File-menu entry) and is
+        # always available, logged in or not.
+        self.session_menu.add_separator()
+        self.session_menu.add_command(label="Exit", command=self.parent.quit)
 
     def update_mcp_menu(self):
         self.mcp_menu.delete(0, tk.END)
@@ -2873,10 +2873,6 @@ class MainMenu(tk.Menu):
 
     def file_out_class_categories(self):
         self.parent.file_out_class_categories_from_menu()
-
-    def update_file_menu(self):
-        self.file_menu.delete(0, tk.END)
-        self.file_menu.add_command(label="Exit", command=self.parent.quit)
 
     def update_find_menu(self):
         self.find_menu.delete(0, tk.END)

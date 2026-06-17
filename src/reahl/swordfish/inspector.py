@@ -7,6 +7,7 @@ from reahl.ptongue import GemstoneError
 from reahl.swordfish.closable_notebook import install_close_buttons
 from reahl.swordfish.navigation import NavigationHistory
 from reahl.swordfish.tab_registry import DeduplicatedTabRegistry
+from reahl.swordfish.text_editing import Workspace
 from reahl.swordfish.ui_support import popup_menu
 
 
@@ -20,9 +21,11 @@ class ObjectInspector(ttk.Frame):
         graph_inspect_action=None,
         browse_class_action=None,
         event_queue=None,
+        application=None,
     ):
         super().__init__(parent)
         self.inspected_object = an_object
+        self.application = application
         self.external_inspect_action = external_inspect_action
         self.graph_inspect_action = graph_inspect_action
         self.browse_class_action = browse_class_action
@@ -44,6 +47,15 @@ class ObjectInspector(ttk.Frame):
         self.treeview.heading('Class', text='Class')
         self.treeview.heading('Value', text='Value')
         self.treeview.grid(row=0, column=0, sticky='nsew')
+
+        # AI: Scalar objects with no inspectable attributes are shown in this
+        # Workspace as their printString rather than an empty row list: an
+        # editable, evaluable scratch pane with the same context menu as every
+        # other source pane. It shares the treeview's grid cell; only one of the
+        # two is mapped.
+        self.value_workspace = Workspace(self, application=self.application)
+        self.value_workspace.grid(row=0, column=0, sticky='nsew')
+        self.value_workspace.grid_remove()
 
         self.footer = ttk.Frame(self)
         self.footer.grid(row=1, column=0, sticky='ew', pady=(4, 0))
@@ -114,6 +126,35 @@ class ObjectInspector(ttk.Frame):
             return self.normalized_text(an_object.printString().to_py)
         except GemstoneError:
             return ''
+
+    def print_string_text(self, an_object):
+        # AI: Unlike value_label this keeps the printString verbatim (including
+        # newlines), since the text view has room to show a faithful representation.
+        if an_object is None:
+            return ''
+        try:
+            return an_object.printString().to_py
+        except GemstoneError:
+            return ''
+
+    def show_attribute_rows(self):
+        # AI: Reveal the attribute treeview and hide the scalar value workspace.
+        self.value_workspace.grid_remove()
+        self.treeview.grid()
+
+    def show_value_text(self, an_object):
+        # AI: Reveal the scalar value workspace, seeded with the object's
+        # printString, and hide the attribute treeview.
+        self.pagination_mode = None
+        self.total_items = 0
+        self.treeview.grid_remove()
+        self.value_workspace.grid()
+        self.value_workspace.set_text(self.print_string_text(an_object))
+        # AI: A scalar has no rows to page through, so the pagination footer
+        # is cleared rather than reporting a misleading "0 items".
+        self.status_label.configure(text='')
+        self.previous_button.configure(state=tk.DISABLED)
+        self.next_button.configure(state=tk.DISABLED)
 
     def oop_label_of(self, an_object):
         if an_object is None:
@@ -253,7 +294,14 @@ class ObjectInspector(ttk.Frame):
 
         self.pagination_mode = None
         inspected_values = self.inspect_instance(an_object)
-        self.load_rows(list(inspected_values.items()), 'Name', len(inspected_values))
+        if inspected_values:
+            self.load_rows(
+                list(inspected_values.items()), 'Name', len(inspected_values)
+            )
+        else:
+            # AI: No inspectable attributes means a scalar value (Integer, String,
+            # Symbol, ...); show its printString as text rather than an empty list.
+            self.show_value_text(an_object)
 
     def configure_dictionary_rows(self, an_object):
         try:
@@ -381,6 +429,7 @@ class ObjectInspector(ttk.Frame):
         return values
 
     def load_rows(self, rows, first_column_title, total_items):
+        self.show_attribute_rows()
         self.treeview_heading = first_column_title
         self.total_items = total_items
         self.treeview.heading('Name', text=self.treeview_heading)
@@ -573,8 +622,10 @@ class Explorer(ttk.Notebook):
         graph_inspect_action=None,
         browse_class_action=None,
         event_queue=None,
+        application=None,
     ):
         super().__init__(parent)
+        self.application = application
         self.tab_registry = DeduplicatedTabRegistry(self)
         # AI: Each inspector tab gets an 'x' close affordance. Closing the
         # root tab is allowed — the surrounding InspectorTab manages whether
@@ -593,6 +644,7 @@ class Explorer(ttk.Notebook):
             graph_inspect_action=self.graph_inspect_action,
             browse_class_action=self.browse_class_action,
             event_queue=self.event_queue,
+            application=self.application,
         )
         tab_label = root_tab_label
         if tab_label is None:
@@ -641,6 +693,7 @@ class Explorer(ttk.Notebook):
                 external_inspect_action=self.external_inspect_action,
                 graph_inspect_action=self.graph_inspect_action,
                 browse_class_action=self.browse_class_action,
+                application=self.application,
             )
         except GemstoneError as e:
             messagebox.showerror('Inspector', f'Cannot inspect this object:\n{e}')
@@ -726,6 +779,7 @@ class InspectorTab(ttk.Frame):
             graph_inspect_action=graph_inspect_action,
             browse_class_action=self.application.browse_object_class,
             event_queue=self.application.event_queue,
+            application=self.application,
         )
         self.explorer.grid(row=1, column=0, sticky='nsew', padx=10, pady=(0, 10))
         self.explorer.bind(
