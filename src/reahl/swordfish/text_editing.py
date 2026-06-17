@@ -14,7 +14,9 @@ from reahl.swordfish.gemstone.smalltalk_source_scanner import (
     SmalltalkTokenKind,
 )
 from reahl.swordfish.ui_support import (
-    add_source_code_commands,
+    add_diagram_commands,
+    add_navigation_commands,
+    add_run_commands,
     class_name_at_widget_cursor,
     class_name_for_class_diagram,
     close_popup_menu,
@@ -497,28 +499,14 @@ class Workspace(ttk.Frame):
         )
         if self.application is not None:
             selected_text = self.selected_text()
+            enabled = not self.is_read_only()
             self.current_context_menu.add_separator()
-            add_source_code_commands(
-                self.current_context_menu,
-                self,
-                selected_text,
-                enabled=not self.is_read_only(),
-            )
-            self.current_context_menu.add_command(
-                label='Implementors', command=self.open_implementors_from_source
-            )
-            self.current_context_menu.add_command(
-                label='Senders', command=self.open_senders_from_source
-            )
-            self.current_context_menu.add_command(
-                label='References', command=self.find_references_from_source
-            )
-            self.current_context_menu.add_command(
-                label='Browse Class', command=self.browse_class_from_source
-            )
-            self.current_context_menu.add_command(
-                label='Add to Class Diagram',
-                command=self.add_class_to_class_diagram_from_source,
+            add_run_commands(self.current_context_menu, self, selected_text, enabled)
+            self.current_context_menu.add_separator()
+            add_navigation_commands(self.current_context_menu, self)
+            self.current_context_menu.add_separator()
+            add_diagram_commands(
+                self.current_context_menu, self, selected_text, enabled
             )
         popup_menu(self.current_context_menu, event)
 
@@ -884,33 +872,15 @@ class CodePanel(tk.Frame):
             )
             self.current_context_menu.add_separator()
         selected_text = self.selected_text()
-        if selected_text:
-            add_source_code_commands(
-                self.current_context_menu,
-                self,
-                selected_text,
-                enabled=run_command_state == tk.NORMAL,
-            )
-            self.current_context_menu.add_separator()
-        self.current_context_menu.add_command(
-            label='Implementors',
-            command=self.open_implementors_from_source,
+        run_enabled = run_command_state == tk.NORMAL
+        add_run_commands(
+            self.current_context_menu, self, selected_text, run_enabled
         )
-        self.current_context_menu.add_command(
-            label='Senders',
-            command=self.open_senders_from_source,
-        )
-        self.current_context_menu.add_command(
-            label='References',
-            command=self.find_references_from_source,
-        )
-        self.current_context_menu.add_command(
-            label='Browse Class',
-            command=self.browse_class_from_source,
-        )
-        self.current_context_menu.add_command(
-            label='Add to Class Diagram',
-            command=self.add_class_to_class_diagram_from_source,
+        self.current_context_menu.add_separator()
+        add_navigation_commands(self.current_context_menu, self)
+        self.current_context_menu.add_separator()
+        add_diagram_commands(
+            self.current_context_menu, self, selected_text, run_enabled
         )
         if self.application.experimental_features_enabled:
             self.current_context_menu.add_separator()

@@ -3268,17 +3268,25 @@ def test_find_menu_contains_find_implementors_senders_and_references_shortcuts(
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_file_menu_no_longer_carries_find_or_debug_shortcuts(fixture):
-    """AI: The File menu sheds the search and debug actions once they move to dedicated menus."""
+def test_session_menu_owns_exit_and_leads_the_menubar_with_a_code_menu(fixture):
+    """AI: Exit now lives on the Session menu (the File menu, which held nothing
+    else, is gone), Session leads the menubar, and the former Debug menu is Code."""
     fixture.simulate_login()
     fixture.app.menu_bar.update_menus()
+    menu_bar = fixture.app.menu_bar
 
-    file_menu_labels = menu_command_labels(fixture.app.menu_bar.file_menu)
-    assert "Find" not in file_menu_labels
-    assert "Implementors" not in file_menu_labels
-    assert "Senders" not in file_menu_labels
-    assert "Breakpoints" not in file_menu_labels
-    assert "Workspace" not in file_menu_labels
+    assert "Exit" in menu_command_labels(menu_bar.session_menu)
+
+    cascade_labels = []
+    entry_count = int(menu_bar.index("end")) + 1
+    for entry_index in range(entry_count):
+        if menu_bar.type(entry_index) == "cascade":
+            cascade_labels.append(menu_bar.entrycget(entry_index, "label"))
+
+    assert cascade_labels[0] == "Session"
+    assert "Code" in cascade_labels
+    assert "File" not in cascade_labels
+    assert "Debug" not in cascade_labels
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -3914,6 +3922,51 @@ def test_run_source_context_menu_add_to_class_diagram_uses_class_name_without_ev
     fixture.mock_browser.run_code.assert_not_called()
     assert fixture.app.class_diagram_tab is not None
     assert fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("OrderLine")
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_source_context_menu_groups_actions_with_dividers(fixture):
+    """AI: The source menu groups its actions - evaluate (Run/Inspect/Debug),
+    navigate (Implementors/Senders/References/Browse Class) and diagram (Show in
+    Object/Class Diagram, Add to Class Diagram) - in that order, with Add to Class
+    Diagram stacked directly under Show in Class Diagram and separators dividing the
+    groups."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete("1.0", "end")
+    run_tab.source_text.insert("1.0", "OrderLine new")
+    run_tab.source_text.tag_add(tk.SEL, "1.0", "1.9")
+
+    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    menu = run_tab.current_text_menu
+    labels = menu_command_labels(menu)
+    expected_order = [
+        "Run",
+        "Inspect",
+        "Debug",
+        "Implementors",
+        "Senders",
+        "References",
+        "Browse Class",
+        "Show in Object Diagram",
+        "Show in Class Diagram",
+        "Add to Class Diagram",
+    ]
+    positions = [labels.index(label) for label in expected_order]
+    assert positions == sorted(positions)
+    assert (
+        labels.index("Add to Class Diagram")
+        == labels.index("Show in Class Diagram") + 1
+    )
+
+    separator_count = sum(
+        1
+        for entry_index in range(int(menu.index("end")) + 1)
+        if menu.type(entry_index) == "separator"
+    )
+    assert separator_count >= 3
 
 
 @with_fixtures(SwordfishAppFixture)
