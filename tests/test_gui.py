@@ -3862,6 +3862,94 @@ def test_run_context_menu_graph_inspect_opens_graph_for_selected_result(fixture)
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_run_source_context_menu_show_in_class_diagram_opens_class_diagram(fixture):
+    """AI: 'Show in Class Diagram' is part of the shared source-panel protocol, so
+    the workspace source menu evaluates the selection and opens the Class Diagram tab
+    on the class of the resulting object (here the selected class itself)."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete("1.0", "end")
+    run_tab.source_text.insert("1.0", "OrderLine")
+    run_tab.source_text.tag_add(tk.SEL, "1.0", "1.9")
+
+    evaluated_class = make_mock_gemstone_object("OrderLine class", "OrderLine")
+    evaluated_class.isBehavior.return_value.to_py = True
+    evaluated_class.name.return_value.to_py = "OrderLine"
+    fixture.mock_browser.run_code.return_value = evaluated_class
+
+    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    assert "Show in Class Diagram" in menu_command_labels(run_tab.current_text_menu)
+    invoke_menu_command_by_label(run_tab.current_text_menu, "Show in Class Diagram")
+    fixture.app.update()
+
+    fixture.mock_browser.run_code.assert_called_with("OrderLine")
+    assert fixture.app.class_diagram_tab is not None
+    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    assert selected_tab_text == "Class Diagram"
+    assert fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("OrderLine")
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_run_source_context_menu_add_to_class_diagram_uses_class_name_without_eval(
+    fixture,
+):
+    """AI: 'Add to Class Diagram' is the class-name sibling of Browse Class: it adds
+    the class named under the cursor/selection to the Class Diagram WITHOUT evaluating
+    anything, so it works on a bare class name in a larger expression."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.source_text.delete("1.0", "end")
+    run_tab.source_text.insert("1.0", "OrderLine new foo")
+    run_tab.source_text.tag_add(tk.SEL, "1.0", "1.9")
+
+    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
+    assert "Add to Class Diagram" in menu_command_labels(run_tab.current_text_menu)
+    invoke_menu_command_by_label(run_tab.current_text_menu, "Add to Class Diagram")
+    fixture.app.update()
+
+    fixture.mock_browser.run_code.assert_not_called()
+    assert fixture.app.class_diagram_tab is not None
+    assert fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("OrderLine")
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_inspector_scalar_value_pane_is_an_evaluable_workspace(fixture):
+    """AI: The scalar inspector pane is a Workspace seeded with the printString and
+    carrying the full evaluable context menu (Run / Inspect / Object & Class Diagram /
+    References / Browse Class), so an attribute-less value is no dead end."""
+    fixture.simulate_login()
+    scalar = make_mock_gemstone_object("Integer", "42")
+    fixture.app.open_inspector_for_object(scalar)
+    fixture.app.update()
+
+    explorer = fixture.app.inspector_tab.explorer
+    context_inspector = fixture.app.nametowidget(explorer.tabs()[0])
+    value_workspace = context_inspector.value_workspace
+
+    assert value_workspace.grid_info() != {}
+    assert value_workspace.text.get("1.0", "end-1c") == "42"
+
+    value_workspace.open_context_menu(
+        types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1)
+    )
+    labels = menu_command_labels(value_workspace.current_context_menu)
+    for expected_label in (
+        "Run",
+        "Inspect",
+        "Show in Object Diagram",
+        "Show in Class Diagram",
+        "References",
+        "Browse Class",
+        "Add to Class Diagram",
+    ):
+        assert expected_label in labels
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_run_source_context_menu_includes_implementors_senders_and_references(fixture):
     """AI: The workspace source menu should expose the same navigation group
     (Implementors, Senders, References) as the method editor, so a selector or
@@ -5691,7 +5779,9 @@ def test_global_back_skips_replaced_debugger_session_entries(fixture):
 
 @with_fixtures(SwordfishAppFixture)
 def test_run_result_text_supports_copy_and_has_result_context_menu(fixture):
-    """Run result text supports selecting/copying output via shortcuts and context menu actions."""
+    """The run result pane is now a Workspace: an editable scratch pane whose
+    context menu offers the full evaluable action set (Select All / Copy / Paste /
+    Undo plus Run), so a run's output can itself be copied, edited and re-run."""
     fixture.simulate_login()
     mock_result = Mock()
     mock_result.asString.return_value.to_py = "42"
@@ -5704,16 +5794,19 @@ def test_run_result_text_supports_copy_and_has_result_context_menu(fixture):
     assert run_tab.result_text.bind("<Control-a>")
     assert run_tab.result_text.bind("<Control-c>")
 
-    run_tab.select_all_result_text()
-    run_tab.copy_result_selection()
+    run_tab.result_workspace.select_all()
+    run_tab.result_workspace.copy_selection()
     assert fixture.app.clipboard_get() == "42"
 
-    run_tab.open_result_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
-    labels = menu_command_labels(run_tab.current_text_menu)
+    run_tab.result_workspace.open_context_menu(
+        types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1)
+    )
+    labels = menu_command_labels(run_tab.result_workspace.current_context_menu)
     assert "Select All" in labels
     assert "Copy" in labels
-    assert "Paste" not in labels
-    assert "Undo" not in labels
+    assert "Paste" in labels
+    assert "Undo" in labels
+    assert "Run" in labels
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -8227,6 +8320,38 @@ def test_array_inspector_shows_size_and_pages_through_values(fixture):
     assert len(next_rows) == 5
     assert array_inspector.status_label.cget("text") == "Items 101-105 of 105"
     assert array_inspector.treeview.item(next_rows[0], "values")[0] == "[101]"
+
+
+@with_fixtures(ObjectInspectorFixture)
+def test_attribute_less_object_shows_print_string_as_text(fixture):
+    """An object with no inspectable attributes (a scalar such as an Integer or
+    String) is best understood by its printed form, so the inspector replaces the
+    empty attribute list with a read-only text view of its printString."""
+    integer = make_mock_gemstone_object("Integer", "42")
+    scalar_inspector = ObjectInspector(fixture.root, an_object=integer)
+    scalar_inspector.pack()
+    fixture.root.update()
+
+    assert scalar_inspector.treeview.grid_info() == {}
+    assert scalar_inspector.value_workspace.grid_info() != {}
+    assert scalar_inspector.value_workspace.text.get("1.0", "end-1c") == "42"
+
+
+@with_fixtures(ObjectInspectorFixture)
+def test_object_with_attributes_keeps_the_attribute_list(fixture):
+    """An object that does expose instance variables still shows the attribute
+    treeview, never the scalar text view, so structured objects are unaffected."""
+    instance = make_mock_instance_with_inst_vars(
+        "OrderLine", "anOrderLine", {"quantity": fixture.mock_x}
+    )
+    instance_inspector = ObjectInspector(fixture.root, an_object=instance)
+    instance_inspector.pack()
+    fixture.root.update()
+
+    assert instance_inspector.treeview.grid_info() != {}
+    assert instance_inspector.value_workspace.grid_info() == {}
+    rows = instance_inspector.treeview.get_children()
+    assert instance_inspector.treeview.item(rows[0], "values")[0] == "quantity"
 
 
 @with_fixtures(SwordfishGuiFixture)

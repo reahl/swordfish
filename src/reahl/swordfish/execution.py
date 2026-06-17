@@ -14,12 +14,14 @@ from reahl.swordfish.text_editing import (
     CodePanel,
     EditableText,
     TextCursorPositionIndicator,
+    Workspace,
     configure_widget_if_alive,
 )
 from reahl.swordfish.ui_context import UiContext
 from reahl.swordfish.ui_support import (
     add_source_code_commands,
     class_name_at_widget_cursor,
+    class_name_for_class_diagram,
     is_compile_error,
     popup_menu,
     selector_at_widget_cursor,
@@ -122,9 +124,16 @@ class RunTab(ttk.Frame):
         self.result_label = ttk.Label(self, text='Result:')
         self.result_label.grid(row=4, column=0, sticky='nw', padx=10, pady=(10, 0))
 
-        self.result_text = tk.Text(self, height=7, state='disabled')
-        self.editable_result = EditableText(self.result_text, self)
-        self.result_text.grid(row=5, column=0, sticky='nsew', padx=10, pady=(0, 10))
+        # AI: The result pane is a Workspace too: an editable, evaluable scratch
+        # pane so a run's printString can itself be selected and re-run/inspected/
+        # browsed. result_text/editable_result alias its internals so the existing
+        # result-writing and clipboard code keeps working unchanged.
+        self.result_workspace = Workspace(self, application=self.application)
+        self.result_workspace.grid(
+            row=5, column=0, sticky='nsew', padx=10, pady=(0, 10)
+        )
+        self.result_text = self.result_workspace.text
+        self.editable_result = self.result_workspace.editable
         self.configure_text_actions()
         self.source_cursor_position_indicator = TextCursorPositionIndicator(
             self.source_text,
@@ -151,14 +160,7 @@ class RunTab(ttk.Frame):
         )
         self.source_text.bind('<Button-3>', self.open_source_text_menu)
 
-        self.result_text.bind('<Control-a>', self.select_all_result_text)
-        self.result_text.bind('<Control-A>', self.select_all_result_text)
-        self.result_text.bind('<Control-c>', self.copy_result_selection)
-        self.result_text.bind('<Control-C>', self.copy_result_selection)
-        self.result_text.bind('<Button-3>', self.open_result_text_menu)
-
         self.source_text.bind('<Button-1>', self.close_text_menu, add='+')
-        self.result_text.bind('<Button-1>', self.close_text_menu, add='+')
 
     def is_read_only(self):
         is_busy = self.application.integrated_session_state.is_mcp_busy()
@@ -210,14 +212,6 @@ class RunTab(ttk.Frame):
     def replace_selected_source_text_before_typing(self, event):
         self.editable_source.delete_selection_before_typing(event)
 
-    def select_all_result_text(self, event=None):
-        self.editable_result.select_all()
-        return 'break'
-
-    def copy_result_selection(self, event=None):
-        self.editable_result.copy_selection()
-        return 'break'
-
     def open_source_text_menu(self, event):
         self.source_text.mark_set(tk.INSERT, f'@{event.x},{event.y}')
         self.show_text_menu_for_widget(
@@ -226,16 +220,6 @@ class RunTab(ttk.Frame):
             allow_paste=True,
             allow_undo=True,
             include_run_actions=True,
-        )
-
-    def open_result_text_menu(self, event):
-        self.result_text.mark_set(tk.INSERT, f'@{event.x},{event.y}')
-        self.show_text_menu_for_widget(
-            event,
-            self.result_text,
-            allow_paste=False,
-            allow_undo=False,
-            include_run_actions=False,
         )
 
     def selected_source_text(self):
@@ -268,6 +252,28 @@ class RunTab(ttk.Frame):
             )
             return
         self.application.browse_class(class_name, show_instance_side=True)
+
+    def add_class_to_class_diagram_from_source(self):
+        # AI: The class-name sibling of Browse Class: add the class named under the
+        # cursor (or the selection) straight to the Class Diagram, no evaluation.
+        class_name = class_name_at_widget_cursor(
+            self.source_text, self.selected_source_text()
+        )
+        if class_name is None:
+            messagebox.showwarning(
+                'No Class Name',
+                'Place the cursor on a class name or select one before '
+                'running this.',
+            )
+            return
+        if not class_name[0].isupper():
+            messagebox.showwarning(
+                'Not a Class Name',
+                f'{class_name!r} does not look like a class name. '
+                'Class names start with a capital letter.',
+            )
+            return
+        self.application.open_class_diagram_for_class(class_name)
 
     def open_implementors_from_source(self):
         # AI: Implementors from the Run tab's source editor. Mirrors the CodePanel
@@ -325,8 +331,6 @@ class RunTab(ttk.Frame):
     def editable_text_for_widget(self, text_widget):
         if text_widget is self.source_text:
             return self.editable_source
-        if text_widget is self.result_text:
-            return self.editable_result
         return EditableText(text_widget, self)
 
     def run_selected_source(self, selected_text):
@@ -476,6 +480,60 @@ class RunTab(ttk.Frame):
         finally:
             self.application.end_foreground_activity()
 
+    def show_selected_source_in_class_diagram(self, selected_text):
+        if self.is_read_only():
+            self.status_label.config(text='MCP is busy. Class diagram is disabled.')
+            return
+        if not selected_text.strip():
+            self.status_label.config(
+                text='Select source text to show in Class Diagram'
+            )
+            return
+        self.application.event_queue.publish(
+            'ClassDiagramSelectionRun', log_context={'code': selected_text}
+        )
+        self.status_label.config(text='Showing selection in Class Diagram...')
+        self.last_exception = None
+        self.clear_source_error_highlight()
+        self.application.begin_foreground_activity(
+            'Showing selected source in Class Diagram...'
+        )
+        try:
+            try:
+                result = self.gemstone_session_record.run_code(selected_text)
+                self.on_run_complete(result)
+                self.application.open_class_diagram_for_class(
+                    class_name_for_class_diagram(result)
+                )
+                self.application.event_queue.publish(
+                    'ClassDiagramSelectionSucceeded',
+                    log_context={
+                        'code': selected_text,
+                        'result': result.asString().to_py,
+                    },
+                )
+            except (DomainException, GemstoneDomainException) as domain_exception:
+                self.status_label.config(text=str(domain_exception))
+                self.show_error_in_result_panel(str(domain_exception), None, None)
+                self.application.event_queue.publish(
+                    'ClassDiagramSelectionFailed',
+                    log_context={
+                        'code': selected_text,
+                        'error': str(domain_exception),
+                    },
+                )
+            except GemstoneError as gemstone_exception:
+                self.on_run_error(gemstone_exception)
+                self.application.event_queue.publish(
+                    'ClassDiagramSelectionFailed',
+                    log_context={
+                        'code': selected_text,
+                        'error': str(gemstone_exception),
+                    },
+                )
+        finally:
+            self.application.end_foreground_activity()
+
     def show_text_menu_for_widget(
         self,
         event,
@@ -539,6 +597,10 @@ class RunTab(ttk.Frame):
             self.current_text_menu.add_command(
                 label='Browse Class',
                 command=self.browse_class_from_source,
+            )
+            self.current_text_menu.add_command(
+                label='Add to Class Diagram',
+                command=self.add_class_to_class_diagram_from_source,
             )
         self.current_text_menu.bind(
             '<Escape>',
@@ -668,10 +730,11 @@ class RunTab(ttk.Frame):
     def on_run_complete(self, result):
         self.status_label.config(text='Completed successfully')
         self.clear_source_error_highlight()
+        # AI: Leave the result pane editable (it is a Workspace scratch buffer);
+        # only refresh its content with the run's printString.
         self.result_text.config(state='normal')
         self.result_text.delete('1.0', tk.END)
         self.result_text.insert(tk.END, result.asString().to_py)
-        self.result_text.config(state='disabled')
 
     def on_run_error(self, exception):
         self.last_exception = exception
@@ -741,7 +804,6 @@ class RunTab(ttk.Frame):
             )
             self.result_text.insert(tk.END, f'{source_line}\n')
             self.result_text.insert(tk.END, f'{caret_padding}^\n')
-        self.result_text.config(state='disabled')
 
     def error_status_text(self, error_text, line_number, column_number):
         if line_number is not None and column_number is not None:
@@ -1111,6 +1173,7 @@ class DebuggerWindow(ttk.PanedWindow):
             root_tab_label='Context',
             external_inspect_action=self.application.open_inspector_for_object,
             graph_inspect_action=self.application.open_object_diagram_for_object,
+            application=self.application,
         )
         self.explorer = explorer
         explorer.grid(row=0, column=0, sticky='nsew')
