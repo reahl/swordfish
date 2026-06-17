@@ -79,6 +79,24 @@ def add_source_code_commands(menu, source_code_editor, selected_text, enabled):
         'Show in Object Diagram',
         source_code_editor.show_selected_source_in_object_diagram,
     )
+    add_command(
+        'Show in Class Diagram',
+        source_code_editor.show_selected_source_in_class_diagram,
+    )
+
+
+def class_name_for_class_diagram(gem_object):
+    # AI: The class to diagram for an evaluated result: the object's class, or the
+    # object itself when it already is a class/metaclass (a Behavior). Mirrors how
+    # 'Show in Object Diagram' graphs the live result, but at the class level.
+    target = gem_object
+    try:
+        is_class = gem_object.isBehavior().to_py
+    except GemstoneError:
+        is_class = False
+    if not is_class:
+        target = gem_object.gemstone_class()
+    return target.name().to_py
 
 
 def word_under_text_cursor(text_widget):

@@ -15,8 +15,12 @@ from reahl.swordfish.gemstone.smalltalk_source_scanner import (
 )
 from reahl.swordfish.ui_support import (
     add_source_code_commands,
+    class_name_at_widget_cursor,
+    class_name_for_class_diagram,
     close_popup_menu,
     is_compile_error,
+    popup_menu,
+    selector_at_widget_cursor,
 )
 from reahl.swordfish.ui_support import selector_token as resolve_selector_token
 
@@ -234,6 +238,294 @@ class CodeLineNumberColumn:
         )
         self.line_numbers_text.configure(state='disabled')
         self.sync_scroll_position()
+
+
+class Workspace(ttk.Frame):
+    """AI: An editable, evaluable scratch pane. It is seeded with text (a doit, or
+    the printString of an inspected object) and offers the same Run / Inspect /
+    Debug / Show in Object Diagram / Implementors / Senders / References / Browse
+    Class context menu as the method editor and the run window's source pane, acting
+    on whatever the reader selects. Edits are a scratch buffer: they never write back
+    to whatever seeded the text. When no application is supplied (e.g. the object
+    diagram's embedded inspector) it degrades to a plain editable text pane without
+    the live-evaluation menu."""
+
+    def __init__(self, parent, application=None, initial_text=''):
+        super().__init__(parent)
+        self.application = application
+        self.current_context_menu = None
+
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(1, weight=1)
+
+        self.text = tk.Text(self, undo=True, wrap='word')
+        self.editable = EditableText(self.text, self)
+        self.line_number_column = CodeLineNumberColumn(self, self.text)
+        self.line_number_column.line_numbers_text.grid(row=0, column=0, sticky='ns')
+        self.text.grid(row=0, column=1, sticky='nsew')
+
+        if initial_text:
+            self.set_text(initial_text)
+
+        self.text.bind('<Control-a>', self.select_all)
+        self.text.bind('<Control-A>', self.select_all)
+        self.text.bind('<Control-c>', self.copy_selection)
+        self.text.bind('<Control-C>', self.copy_selection)
+        self.text.bind('<Control-v>', self.paste)
+        self.text.bind('<Control-V>', self.paste)
+        self.text.bind('<Control-z>', self.undo)
+        self.text.bind('<Control-Z>', self.undo)
+        self.text.bind('<KeyPress>', self.replace_selection_before_typing, add='+')
+        self.text.bind('<Button-3>', self.open_context_menu)
+        self.text.bind('<Button-1>', self.close_context_menu, add='+')
+
+    @property
+    def gemstone_session_record(self):
+        return self.application.gemstone_session_record
+
+    def set_text(self, content):
+        self.text.configure(state=tk.NORMAL)
+        self.text.delete('1.0', tk.END)
+        self.text.insert('1.0', content)
+
+    def selected_text(self):
+        start_index, end_index = self.editable.selected_range()
+        if start_index is None:
+            return ''
+        return self.text.get(start_index, end_index)
+
+    def is_read_only(self):
+        if self.application is None:
+            return False
+        return self.application.integrated_session_state.is_mcp_busy()
+
+    def select_all(self, event=None):
+        self.editable.select_all()
+        return 'break'
+
+    def copy_selection(self, event=None):
+        self.editable.copy_selection()
+        return 'break'
+
+    def paste(self, event=None):
+        self.editable.paste()
+        return 'break'
+
+    def undo(self, event=None):
+        self.editable.undo()
+        return 'break'
+
+    def replace_selection_before_typing(self, event):
+        self.editable.delete_selection_before_typing(event)
+
+    def run_selected_source(self, selected_text):
+        if self.is_read_only():
+            messagebox.showwarning(
+                'Read Only', 'MCP is busy. Run is disabled until MCP finishes.'
+            )
+            return
+        self.application.event_queue.publish(
+            'SourceTextRun', log_context={'code': selected_text}
+        )
+        self.application.run_code(selected_text)
+
+    def inspect_selected_source(self, selected_text):
+        if self.is_read_only():
+            messagebox.showwarning(
+                'Read Only', 'MCP is busy. Inspect is disabled until MCP finishes.'
+            )
+            return
+        self.application.event_queue.publish(
+            'SourceTextInspected', log_context={'code': selected_text}
+        )
+        try:
+            inspected_object = self.gemstone_session_record.run_code(selected_text)
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            messagebox.showerror('Inspect Selection', str(domain_exception))
+            return
+        except GemstoneError as gemstone_exception:
+            messagebox.showerror('Inspect Selection', str(gemstone_exception))
+            return
+        self.application.open_inspector_for_object(inspected_object)
+
+    def show_selected_source_in_object_diagram(self, selected_text):
+        if self.is_read_only():
+            messagebox.showwarning(
+                'Read Only',
+                'MCP is busy. Object diagram is disabled until MCP finishes.',
+            )
+            return
+        try:
+            inspected_object = self.gemstone_session_record.run_code(selected_text)
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            messagebox.showerror('Show in Object Diagram', str(domain_exception))
+            return
+        except GemstoneError as gemstone_exception:
+            messagebox.showerror('Show in Object Diagram', str(gemstone_exception))
+            return
+        self.application.open_object_diagram_for_object(inspected_object)
+
+    def show_selected_source_in_class_diagram(self, selected_text):
+        if self.is_read_only():
+            messagebox.showwarning(
+                'Read Only',
+                'MCP is busy. Class diagram is disabled until MCP finishes.',
+            )
+            return
+        try:
+            evaluated_object = self.gemstone_session_record.run_code(selected_text)
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            messagebox.showerror('Show in Class Diagram', str(domain_exception))
+            return
+        except GemstoneError as gemstone_exception:
+            messagebox.showerror('Show in Class Diagram', str(gemstone_exception))
+            return
+        self.application.open_class_diagram_for_class(
+            class_name_for_class_diagram(evaluated_object)
+        )
+
+    def debug_selected_source(self, selected_text):
+        if self.is_read_only():
+            messagebox.showwarning(
+                'Read Only', 'MCP is busy. Debug is disabled until MCP finishes.'
+            )
+            return
+        self.application.event_queue.publish(
+            'SourceTextDebug', log_context={'code': selected_text}
+        )
+        try:
+            self.gemstone_session_record.debug_source(selected_text)
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            messagebox.showerror('Debug Selection', str(domain_exception))
+            return
+        except GemstoneError as gemstone_exception:
+            if is_compile_error(gemstone_exception):
+                messagebox.showerror('Debug Selection', str(gemstone_exception))
+                return
+            self.application.open_debugger(gemstone_exception)
+
+    def open_implementors_from_source(self):
+        selector = selector_at_widget_cursor(self.text, self.selected_text())
+        if selector is None:
+            messagebox.showwarning(
+                'No Selector',
+                'Place the cursor on a selector or select one before running this.',
+            )
+            return
+        self.application.event_queue.publish(
+            'ImplementorsOpened', log_context={'selector': selector}
+        )
+        self.application.open_implementors_dialog(method_symbol=selector)
+
+    def open_senders_from_source(self):
+        selector = selector_at_widget_cursor(self.text, self.selected_text())
+        if selector is None:
+            messagebox.showwarning(
+                'No Selector',
+                'Place the cursor on a selector or select one before running this.',
+            )
+            return
+        self.application.event_queue.publish(
+            'SendersOpened', log_context={'selector': selector}
+        )
+        self.application.open_senders_dialog(method_symbol=selector)
+
+    def find_references_from_source(self):
+        class_name = class_name_at_widget_cursor(self.text, self.selected_text())
+        if class_name is None:
+            messagebox.showwarning(
+                'No Class Name',
+                'Place the cursor on a class name or select one before '
+                'running this.',
+            )
+            return
+        self.application.open_find_dialog_for_class(class_name)
+
+    def browse_class_from_source(self):
+        class_name = class_name_at_widget_cursor(self.text, self.selected_text())
+        if class_name is None:
+            messagebox.showwarning(
+                'No Class Name',
+                'Place the cursor on a class name or select one before '
+                'running this.',
+            )
+            return
+        if not class_name[0].isupper():
+            messagebox.showwarning(
+                'Not a Class Name',
+                f'{class_name!r} does not look like a class name. '
+                'Class names start with a capital letter.',
+            )
+            return
+        self.application.browse_class(class_name, show_instance_side=True)
+
+    def add_class_to_class_diagram_from_source(self):
+        # AI: The class-name sibling of Browse Class: add the class named under the
+        # cursor (or the selection) straight to the Class Diagram, no evaluation.
+        class_name = class_name_at_widget_cursor(self.text, self.selected_text())
+        if class_name is None:
+            messagebox.showwarning(
+                'No Class Name',
+                'Place the cursor on a class name or select one before '
+                'running this.',
+            )
+            return
+        if not class_name[0].isupper():
+            messagebox.showwarning(
+                'Not a Class Name',
+                f'{class_name!r} does not look like a class name. '
+                'Class names start with a capital letter.',
+            )
+            return
+        self.application.open_class_diagram_for_class(class_name)
+
+    def open_context_menu(self, event):
+        self.text.mark_set(tk.INSERT, f'@{event.x},{event.y}')
+        self.close_context_menu()
+        self.current_context_menu = tk.Menu(self, tearoff=0)
+        self.current_context_menu.add_command(
+            label='Select All', command=self.editable.select_all
+        )
+        self.current_context_menu.add_command(
+            label='Copy', command=self.editable.copy_selection
+        )
+        self.current_context_menu.add_command(
+            label='Paste', command=self.editable.paste
+        )
+        self.current_context_menu.add_command(
+            label='Undo', command=self.editable.undo
+        )
+        if self.application is not None:
+            selected_text = self.selected_text()
+            self.current_context_menu.add_separator()
+            add_source_code_commands(
+                self.current_context_menu,
+                self,
+                selected_text,
+                enabled=not self.is_read_only(),
+            )
+            self.current_context_menu.add_command(
+                label='Implementors', command=self.open_implementors_from_source
+            )
+            self.current_context_menu.add_command(
+                label='Senders', command=self.open_senders_from_source
+            )
+            self.current_context_menu.add_command(
+                label='References', command=self.find_references_from_source
+            )
+            self.current_context_menu.add_command(
+                label='Browse Class', command=self.browse_class_from_source
+            )
+            self.current_context_menu.add_command(
+                label='Add to Class Diagram',
+                command=self.add_class_to_class_diagram_from_source,
+            )
+        popup_menu(self.current_context_menu, event)
+
+    def close_context_menu(self, event=None):
+        if self.current_context_menu is not None:
+            close_popup_menu(self.current_context_menu)
+            self.current_context_menu = None
 
 
 class TextCursorPositionIndicator:
@@ -616,6 +908,10 @@ class CodePanel(tk.Frame):
             label='Browse Class',
             command=self.browse_class_from_source,
         )
+        self.current_context_menu.add_command(
+            label='Add to Class Diagram',
+            command=self.add_class_to_class_diagram_from_source,
+        )
         if self.application.experimental_features_enabled:
             self.current_context_menu.add_separator()
             self.current_context_menu.add_command(
@@ -945,6 +1241,26 @@ class CodePanel(tk.Frame):
         if hasattr(self.application, 'open_object_diagram_for_object'):
             self.application.open_object_diagram_for_object(inspected_object)
 
+    def show_selected_source_in_class_diagram(self, selected_text):
+        if self.is_read_only():
+            messagebox.showwarning(
+                'Read Only',
+                'MCP is busy. Class diagram is disabled until MCP finishes.',
+            )
+            return
+        try:
+            evaluated_object = self.gemstone_session_record.run_code(selected_text)
+        except (DomainException, GemstoneDomainException) as domain_exception:
+            messagebox.showerror('Show in Class Diagram', str(domain_exception))
+            return
+        except GemstoneError as gemstone_exception:
+            messagebox.showerror('Show in Class Diagram', str(gemstone_exception))
+            return
+        if hasattr(self.application, 'open_class_diagram_for_class'):
+            self.application.open_class_diagram_for_class(
+                class_name_for_class_diagram(evaluated_object)
+            )
+
     def debug_selected_source(self, selected_text):
         if self.is_read_only():
             messagebox.showwarning(
@@ -1039,6 +1355,27 @@ class CodePanel(tk.Frame):
             )
             return
         self.application.browse_class(class_name, show_instance_side=True)
+
+    def add_class_to_class_diagram_from_source(self):
+        # AI: The class-name sibling of Browse Class: add the class named under the
+        # cursor (or the selection) straight to the Class Diagram, no evaluation.
+        class_name = self.class_name_for_reference_lookup()
+        if class_name is None:
+            messagebox.showwarning(
+                'No Class Name',
+                'Place the cursor on a class name or select one before '
+                'running this.',
+            )
+            return
+        if not class_name[0].isupper():
+            messagebox.showwarning(
+                'Not a Class Name',
+                f'{class_name!r} does not look like a class name. '
+                'Class names start with a capital letter.',
+            )
+            return
+        if hasattr(self.application, 'open_class_diagram_for_class'):
+            self.application.open_class_diagram_for_class(class_name)
 
     def run_method_analysis(self, analysis_function, title):
         method_context = self.method_context()
