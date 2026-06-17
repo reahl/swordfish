@@ -956,7 +956,7 @@ class CodePanel(tk.Frame):
             'SourceTextDebug', log_context={'code': selected_text}
         )
         try:
-            self.gemstone_session_record.run_code(selected_text)
+            self.gemstone_session_record.debug_source(selected_text)
         except (DomainException, GemstoneDomainException) as domain_exception:
             messagebox.showerror('Debug Selection', str(domain_exception))
             return

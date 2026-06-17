@@ -1027,6 +1027,10 @@ class GemstoneSessionRecord:
             class_name, method_selector
         )
 
+    def debug_source(self, source):
+        self.require_write_access("debug_source")
+        return self.gemstone_browser_session.debug_source(source)
+
     def set_breakpoint(
         self,
         class_name,
