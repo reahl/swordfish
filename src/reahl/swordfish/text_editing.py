@@ -1941,6 +1941,11 @@ class CodePanel(tk.Frame):
             self.is_refreshing = False
 
 
+# AI: Leading marker shown on a pinned (permanent) editor tab. Preview tabs
+# show the bare selector; this distinguishes the tab that will not be recycled.
+PINNED_TAB_MARKER = '★ '
+
+
 class EditorTab(tk.Frame):
     def __init__(self, parent, browser_window, method_editor, tab_key):
         super().__init__(parent)
@@ -1989,6 +1994,17 @@ class EditorTab(tk.Frame):
             state=write_command_state,
         )
         menu.add_separator()
+        # AI: Pinning is only meaningful for the transient preview tab; an
+        # already-pinned tab disables the command rather than hiding it.
+        pin_command_state = (
+            tk.DISABLED if self.method_editor.tab_is_pinned(self) else tk.NORMAL
+        )
+        menu.add_command(
+            label='Pin Tab',
+            command=lambda: self.method_editor.pin_tab(self),
+            state=pin_command_state,
+        )
+        menu.add_separator()
         menu.add_command(
             label='Close',
             command=lambda: self.method_editor.close_tab(self),
@@ -2010,11 +2026,18 @@ class EditorTab(tk.Frame):
     def mark_dirty(self):
         if not self.is_dirty:
             self.is_dirty = True
+            # AI: Editing a preview tab makes it permanent so the user's work
+            # is never silently discarded when another method is opened.
+            self.method_editor.pin_tab(self)
             self.update_tab_label()
 
     def update_tab_label(self):
         _, _, method_symbol = self.tab_key
-        label = ('*' + method_symbol) if self.is_dirty else method_symbol
+        label = method_symbol
+        if self.method_editor.tab_is_pinned(self):
+            label = PINNED_TAB_MARKER + label
+        if self.is_dirty:
+            label = '*' + label
         try:
             self.method_editor.editor_notebook.tab(self, text=label)
         except tk.TclError:

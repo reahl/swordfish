@@ -1729,6 +1729,11 @@ class MethodSelection(FramedWidget):
         self.event_queue.subscribe('Aborted', self.repopulate)
 
         self.selection_list.selection_listbox.bind('<Button-3>', self.show_context_menu)
+        # AI: A single click opens the method in a transient preview tab; a
+        # double click pins that tab so it is no longer recycled.
+        self.selection_list.selection_listbox.bind(
+            '<Double-Button-1>', self.pin_selected_method_tab
+        )
 
     def populate_text_editor(self, event):
         selected_listbox = event.widget
@@ -1815,6 +1820,13 @@ class MethodSelection(FramedWidget):
         self.event_queue.publish(
             'MethodSelected', origin=self, log_context={'method': selected_method}
         )
+
+    def pin_selected_method_tab(self, event=None):
+        # AI: Double-clicking a method promotes its preview editor tab to a
+        # permanent one (mirrors VS Code's double-click-to-keep behaviour).
+        # The preceding single click already opened the preview tab, so the
+        # MethodEditor just needs to pin the current selection.
+        self.event_queue.publish('MethodTabPinRequested', origin=self)
 
     def select_inherited_method(self, selected_method, owner_class_name):
         show_instance_side = self.gemstone_session_record.show_instance_side
@@ -2374,8 +2386,12 @@ class MethodEditor(FramedWidget):
 
         self.open_tab_registry = DeduplicatedTabRegistry(self.editor_notebook)
         self.open_tabs = self.open_tab_registry.tabs_by_key
+        # AI: Key of the single transient "preview" tab, or None. Opening a
+        # method in preview mode recycles this tab instead of adding a new one.
+        self.preview_tab_key = None
 
         self.event_queue.subscribe('MethodSelected', self.open_method)
+        self.event_queue.subscribe('MethodTabPinRequested', self.pin_current_method_tab)
         self.event_queue.subscribe(
             'MethodSelected',
             self.record_method_navigation,
@@ -2420,6 +2436,8 @@ class MethodEditor(FramedWidget):
             return
         self.editor_notebook.forget(self.open_tabs[tab.tab_key])
         self.open_tab_registry.remove_key(tab.tab_key)
+        if self.preview_tab_key == tab.tab_key:
+            self.preview_tab_key = None
 
     def close_other_tabs(self, except_tab):
         # AI: Iterate a snapshot of tab paths because close_tab mutates the set.
@@ -2540,6 +2558,13 @@ class MethodEditor(FramedWidget):
         if self.open_tab_registry.select_key(method_context):
             return
 
+        # AI: A method opened from the list starts life as a transient "preview"
+        # tab. At most one preview tab exists at a time, so opening another
+        # method recycles this slot instead of accumulating tabs. The tab
+        # becomes permanent ("pinned") when the user edits it, pins it from the
+        # tab menu, or double-clicks the method in the list (see pin_tab).
+        self.discard_preview_tab()
+
         new_tab = EditorTab(
             self.editor_notebook,
             self.browser_window,
@@ -2553,9 +2578,42 @@ class MethodEditor(FramedWidget):
             new_tab,
             selected_method_symbol,
         )
+        self.preview_tab_key = method_context
+        new_tab.update_tab_label()
         new_tab.code_panel.set_read_only(
             self.browser_window.application.integrated_session_state.is_mcp_busy()
         )
+
+    def discard_preview_tab(self):
+        # AI: Close the current preview (unpinned) tab, if any. A preview tab
+        # never holds unsaved edits because the first edit pins it, so closing
+        # it here is always safe.
+        if self.preview_tab_key is None:
+            return
+        if self.preview_tab_key in self.open_tabs:
+            self.editor_notebook.forget(self.open_tabs[self.preview_tab_key])
+            self.open_tab_registry.remove_key(self.preview_tab_key)
+        self.preview_tab_key = None
+
+    def tab_is_pinned(self, tab):
+        # AI: A tab is pinned (permanent) unless it is the single preview tab.
+        return tab.tab_key != self.preview_tab_key
+
+    def pin_tab(self, tab):
+        # AI: Promote the preview tab to a permanent one so it survives opening
+        # other methods. Already-pinned tabs are left untouched.
+        if self.preview_tab_key == tab.tab_key:
+            self.preview_tab_key = None
+            tab.update_tab_label()
+
+    def pin_current_method_tab(self, origin=None):
+        # AI: Driven by MethodTabPinRequested (a double-click in the method
+        # list). Pins the tab for the currently selected method.
+        method_context = self.current_method_context()
+        if method_context is None:
+            return
+        if method_context in self.open_tabs:
+            self.pin_tab(self.open_tabs[method_context])
 
     def set_read_only(self, read_only):
         for open_tab in self.open_tabs.values():
