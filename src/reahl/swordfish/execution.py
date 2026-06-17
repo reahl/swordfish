@@ -19,7 +19,9 @@ from reahl.swordfish.text_editing import (
 )
 from reahl.swordfish.ui_context import UiContext
 from reahl.swordfish.ui_support import (
-    add_source_code_commands,
+    add_diagram_commands,
+    add_navigation_commands,
+    add_run_commands,
     class_name_at_widget_cursor,
     class_name_for_class_diagram,
     is_compile_error,
@@ -575,32 +577,14 @@ class RunTab(ttk.Frame):
             )
         if include_run_actions:
             selected_text = self.selected_source_text()
+            enabled = not self.is_read_only()
             self.current_text_menu.add_separator()
-            add_source_code_commands(
-                self.current_text_menu,
-                self,
-                selected_text,
-                enabled=not self.is_read_only(),
-            )
-            self.current_text_menu.add_command(
-                label='Implementors',
-                command=self.open_implementors_from_source,
-            )
-            self.current_text_menu.add_command(
-                label='Senders',
-                command=self.open_senders_from_source,
-            )
-            self.current_text_menu.add_command(
-                label='References',
-                command=self.find_references_from_source,
-            )
-            self.current_text_menu.add_command(
-                label='Browse Class',
-                command=self.browse_class_from_source,
-            )
-            self.current_text_menu.add_command(
-                label='Add to Class Diagram',
-                command=self.add_class_to_class_diagram_from_source,
+            add_run_commands(self.current_text_menu, self, selected_text, enabled)
+            self.current_text_menu.add_separator()
+            add_navigation_commands(self.current_text_menu, self)
+            self.current_text_menu.add_separator()
+            add_diagram_commands(
+                self.current_text_menu, self, selected_text, enabled
             )
         self.current_text_menu.bind(
             '<Escape>',

@@ -60,9 +60,10 @@ def is_compile_error(exception):
     return 'compileerror' in error_text or 'compile error' in error_text
 
 
-def add_source_code_commands(menu, source_code_editor, selected_text, enabled):
-    # AI: Shared Run/Inspect/Debug/Show in Object Diagram group for every live code
-    # AI: editor, so the action set stays identical wherever code is selected.
+def add_run_commands(menu, source_code_editor, selected_text, enabled):
+    # AI: The 'evaluate the selection' group - Run / Inspect / Debug - shared by
+    # every live code editor so the action set stays identical wherever code is
+    # selected. Disabled when there is nothing to evaluate.
     command_state = tk.NORMAL if enabled and selected_text.strip() else tk.DISABLED
 
     def add_command(label, action):
@@ -75,13 +76,56 @@ def add_source_code_commands(menu, source_code_editor, selected_text, enabled):
     add_command('Run', source_code_editor.run_selected_source)
     add_command('Inspect', source_code_editor.inspect_selected_source)
     add_command('Debug', source_code_editor.debug_selected_source)
-    add_command(
-        'Show in Object Diagram',
-        source_code_editor.show_selected_source_in_object_diagram,
+
+
+def add_navigation_commands(menu, source_code_editor):
+    # AI: The 'find the code behind a name' group - Implementors / Senders /
+    # References / Browse Class - which act on the selector or class name under the
+    # cursor, so they need no selection and are always enabled.
+    menu.add_command(
+        label='Implementors',
+        command=source_code_editor.open_implementors_from_source,
     )
-    add_command(
-        'Show in Class Diagram',
-        source_code_editor.show_selected_source_in_class_diagram,
+    menu.add_command(
+        label='Senders',
+        command=source_code_editor.open_senders_from_source,
+    )
+    menu.add_command(
+        label='References',
+        command=source_code_editor.find_references_from_source,
+    )
+    menu.add_command(
+        label='Browse Class',
+        command=source_code_editor.browse_class_from_source,
+    )
+
+
+def add_diagram_commands(menu, source_code_editor, selected_text, enabled):
+    # AI: The diagram group. The two 'Show in ...' entries evaluate the selection
+    # (so share its enablement); 'Add to Class Diagram' acts on the class name under
+    # the cursor, paired directly under 'Show in Class Diagram'.
+    eval_state = tk.NORMAL if enabled and selected_text.strip() else tk.DISABLED
+    menu.add_command(
+        label='Show in Object Diagram',
+        command=(
+            lambda code=selected_text: (
+                source_code_editor.show_selected_source_in_object_diagram(code)
+            )
+        ),
+        state=eval_state,
+    )
+    menu.add_command(
+        label='Show in Class Diagram',
+        command=(
+            lambda code=selected_text: (
+                source_code_editor.show_selected_source_in_class_diagram(code)
+            )
+        ),
+        state=eval_state,
+    )
+    menu.add_command(
+        label='Add to Class Diagram',
+        command=source_code_editor.add_class_to_class_diagram_from_source,
     )
 
 
