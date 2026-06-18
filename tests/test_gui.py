@@ -20,6 +20,7 @@ from reahl.tofu import (
 
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
+from reahl.swordfish.browser import MethodEditor
 from reahl.swordfish.main import (
     GEMSTONE_EXE_CONF_CONFIG_NAME,
     BreakpointsDialog,
@@ -897,6 +898,19 @@ def test_editor_displays_the_method_the_event_carries(fixture, scenario):
         fixture.application.gemstone_session_record.selected_method_symbol
         == scenario.selected_method_after_request
     )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_editor_is_a_standalone_tool_built_from_the_application(fixture):
+    """AI: The editor is a placeable tool in its own right -- constructed from
+    only the application (its gem session and busy state) and the event queue,
+    with no BrowserWindow -- and it still follows MethodDisplayRequested to show
+    the chosen method."""
+    editor = MethodEditor(
+        fixture.root, fixture.application, fixture.event_queue, 0, 0
+    )
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    assert list(editor.open_tabs.keys()) == [('OrderLine', True, 'total')]
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -8492,7 +8506,8 @@ def test_method_context_menu_covering_tests_opens_browse_dialog(fixture):
         methods_widget.open_covering_tests()
 
     dialog_class.assert_called_once_with(
-        fixture.browser_window,
+        fixture.root,
+        fixture.application,
         "total",
     )
 
@@ -8502,7 +8517,7 @@ def test_method_context_menu_show_in_uml_routes_selected_method(fixture):
     """AI: The method context menu should route the selected method to the UML pin action."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
     methods_widget = fixture.browser_window.methods_widget
-    methods_widget.browser_window.application.pin_method_in_class_diagram = Mock()
+    methods_widget.application.pin_method_in_class_diagram = Mock()
 
     methods_widget.show_context_menu(
         types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1),
@@ -8517,7 +8532,7 @@ def test_method_context_menu_show_in_uml_routes_selected_method(fixture):
         methods_widget.current_context_menu, "Show in Class Diagram"
     )
 
-    methods_widget.browser_window.application.pin_method_in_class_diagram.assert_called_once_with(
+    methods_widget.application.pin_method_in_class_diagram.assert_called_once_with(
         "OrderLine",
         True,
         "total",
@@ -8542,6 +8557,7 @@ def test_covering_tests_browse_dialog_navigates_to_selected_test_method(fixture)
             ):
                 dialog = CoveringTestsBrowseDialog(
                     fixture.browser_window,
+                    fixture.application,
                     "total",
                 )
                 dialog.add_or_update_candidate_test(
@@ -8858,7 +8874,7 @@ def test_class_list_context_menu_find_references_uses_selected_class_name(
         "Kernel",
     )
     classes_widget = fixture.browser_window.classes_widget
-    classes_widget.browser_window.application.open_find_dialog_for_class = Mock()
+    classes_widget.application.open_find_dialog_for_class = Mock()
     class_listbox = classes_widget.selection_list.selection_listbox
     class_index = list(class_listbox.get(0, "end")).index("OrderLine")
     class_item_box = class_listbox.bbox(class_index)
@@ -8877,7 +8893,7 @@ def test_class_list_context_menu_find_references_uses_selected_class_name(
     assert "References" in command_labels
     fixture.invoke_menu_command(menu, "References")
 
-    classes_widget.browser_window.application.open_find_dialog_for_class.assert_called_once_with(
+    classes_widget.application.open_find_dialog_for_class.assert_called_once_with(
         "OrderLine",
     )
 
@@ -8896,7 +8912,7 @@ def test_class_hierarchy_context_menu_find_references_uses_selected_class_name(
         "OrderLine",
     )
     classes_widget = fixture.browser_window.classes_widget
-    classes_widget.browser_window.application.open_find_dialog_for_class = Mock()
+    classes_widget.application.open_find_dialog_for_class = Mock()
     classes_widget.classes_notebook.select(classes_widget.hierarchy_frame)
     fixture.root.update()
     tree = classes_widget.hierarchy_tree
@@ -8933,7 +8949,7 @@ def test_class_hierarchy_context_menu_find_references_uses_selected_class_name(
     assert "References" in command_labels
     fixture.invoke_menu_command(menu, "References")
 
-    classes_widget.browser_window.application.open_find_dialog_for_class.assert_called_once_with(
+    classes_widget.application.open_find_dialog_for_class.assert_called_once_with(
         "OrderLine",
     )
 
@@ -8948,7 +8964,7 @@ def test_class_hierarchy_context_menu_add_selected_to_uml_routes_all_selected_cl
         "Kernel",
     )
     classes_widget = fixture.browser_window.classes_widget
-    classes_widget.browser_window.application.open_class_diagram_for_class = Mock()
+    classes_widget.application.open_class_diagram_for_class = Mock()
     classes_widget.classes_notebook.select(classes_widget.hierarchy_frame)
     fixture.root.update()
     tree = classes_widget.hierarchy_tree
@@ -8988,7 +9004,7 @@ def test_class_hierarchy_context_menu_add_selected_to_uml_routes_all_selected_cl
 
     fixture.invoke_menu_command(menu, "Add Selected to Class Diagram")
 
-    classes_widget.browser_window.application.open_class_diagram_for_class.assert_has_calls(
+    classes_widget.application.open_class_diagram_for_class.assert_has_calls(
         [
             call("Order"),
             call("OrderLine"),
@@ -9004,7 +9020,7 @@ def test_class_list_context_menu_add_to_uml_routes_selected_class(fixture):
         "Kernel",
     )
     classes_widget = fixture.browser_window.classes_widget
-    classes_widget.browser_window.application.open_class_diagram_for_class = Mock()
+    classes_widget.application.open_class_diagram_for_class = Mock()
     class_listbox = classes_widget.selection_list.selection_listbox
     class_index = list(class_listbox.get(0, "end")).index("OrderLine")
     class_item_box = class_listbox.bbox(class_index)
@@ -9025,7 +9041,7 @@ def test_class_list_context_menu_add_to_uml_routes_selected_class(fixture):
 
     fixture.invoke_menu_command(menu, "Add to Class Diagram")
 
-    classes_widget.browser_window.application.open_class_diagram_for_class.assert_called_once_with(
+    classes_widget.application.open_class_diagram_for_class.assert_called_once_with(
         "OrderLine",
     )
 
