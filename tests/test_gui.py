@@ -85,7 +85,10 @@ class FakeApplication:
             self.gemstone_session_record.select_method_symbol(method_symbol)
         self.event_queue.publish("SelectedClassChanged")
         self.event_queue.publish("SelectedCategoryChanged")
-        self.event_queue.publish("MethodSelected")
+        self.event_queue.publish(
+            'MethodDisplayRequested',
+            (class_name, show_instance_side, method_symbol),
+        )
 
     def begin_foreground_activity(self, message):
         pass

@@ -1876,7 +1876,11 @@ class MethodSelection(FramedWidget):
         self.event_queue.publish('SelectedPackageChanged', origin=self)
         self.event_queue.publish('SelectedClassChanged', origin=self)
         self.event_queue.publish('SelectedCategoryChanged', origin=self)
-        self.event_queue.publish('MethodSelected', origin=self)
+        self.event_queue.publish(
+            'MethodDisplayRequested',
+            (owner_class_name, show_instance_side, selected_method),
+            origin=self,
+        )
 
     def new_method_argument_names(self, method_selector):
         selector_tokens = self.keyword_selector_tokens(method_selector)
@@ -1954,7 +1958,11 @@ class MethodSelection(FramedWidget):
                 self.refresh_method_hierarchy()
             self.event_queue.publish('SelectedClassChanged', origin=self)
             self.event_queue.publish('SelectedCategoryChanged', origin=self)
-            self.event_queue.publish('MethodSelected', origin=self)
+            self.event_queue.publish(
+                'MethodDisplayRequested',
+                (selected_class, show_instance_side, method_selector),
+                origin=self,
+            )
             return method_selector
         except (GemstoneDomainException, GemstoneError) as error:
             messagebox.showerror('Add Method', str(error))
@@ -2116,7 +2124,11 @@ class MethodSelection(FramedWidget):
             self.gemstone_session_record.select_method_symbol(selected_method)
         self.event_queue.publish('SelectedClassChanged', origin=self)
         self.event_queue.publish('SelectedCategoryChanged', origin=self)
-        self.event_queue.publish('MethodSelected', origin=self)
+        self.event_queue.publish(
+            'MethodDisplayRequested',
+            (selected_class, show_instance_side, selected_method),
+            origin=self,
+        )
 
     def show_context_menu(self, event):
         listbox = self.selection_list.selection_listbox
