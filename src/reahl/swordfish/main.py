@@ -31,7 +31,7 @@ from reahl.swordfish.browser import (
     ClassSelection,
     CoveringTestsBrowseDialog,
     CoveringTestsDiscoveryWorkflow,
-    FramedWidget,
+    Pane,
     MethodEditor,
     MethodSelection,
     PackageSelection,

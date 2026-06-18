@@ -907,7 +907,7 @@ def test_method_editor_is_a_standalone_tool_built_from_the_application(fixture):
     with no BrowserWindow -- and it still follows MethodDisplayRequested to show
     the chosen method."""
     editor = MethodEditor(
-        fixture.root, fixture.application, fixture.event_queue, 0, 0
+        fixture.root, fixture.application, fixture.event_queue
     )
     fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
     assert list(editor.open_tabs.keys()) == [('OrderLine', True, 'total')]
