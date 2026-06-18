@@ -53,6 +53,7 @@ from reahl.swordfish.main import (
 )
 from reahl.swordfish.mcp.integration_state import IntegratedSessionState
 from reahl.swordfish.object_diagram import UmlObjectDiagramNodeDetailDialog
+from reahl.swordfish.pane_area import PaneArea
 from reahl.swordfish.text_editing import PINNED_TAB_MARKER
 
 
@@ -7470,6 +7471,18 @@ def test_single_clicking_a_find_method_result_peeks_it_without_moving_the_browse
         ('OrderLine', True, 'recalculateTotal'), origin=dialog
     )
     assert fixture.session_record.selected_class == selection_before_peek
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_main_window_centre_is_a_splittable_pane_area(fixture):
+    """AI: The IDE centre is a PaneArea (a splittable arrangement of tab
+    groups). Today's tools live in its primary group -- self.notebook points at
+    that group -- so the familiar top-level tab strip is unchanged, while the
+    area can later be split to place a tool beside them."""
+    fixture.simulate_login()
+
+    assert isinstance(fixture.app.pane_area, PaneArea)
+    assert fixture.app.notebook is fixture.app.pane_area.group(0)
 
 
 @with_fixtures(SwordfishAppFixture)
