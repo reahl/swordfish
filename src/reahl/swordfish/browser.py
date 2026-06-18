@@ -580,14 +580,15 @@ class CoveringTestsBrowseDialog(tk.Toplevel):
         )
 
 
-class FramedWidget(ttk.Frame):
-    def __init__(self, parent, application, event_queue, row, column, colspan=1):
+class Pane(ttk.Frame):
+    def __init__(self, parent, application, event_queue):
+        # AI: A Pane is an app-wired component that resides in the IDE: it holds
+        # the application and event queue and clears its event subscriptions when
+        # destroyed. It does NOT place itself -- whoever owns it (BrowserWindow's
+        # grid, a notebook tab, a split pane) decides where it goes.
         super().__init__(parent, borderwidth=2, relief='sunken')
         self.application = application
         self.event_queue = event_queue
-        self.grid(
-            row=row, column=column, columnspan=colspan, sticky='nsew', padx=1, pady=1
-        )
 
     @property
     def gemstone_session_record(self):
@@ -609,10 +610,10 @@ class FramedWidget(ttk.Frame):
             messagebox.showerror('Test Result', '\n'.join(lines))
 
 
-class PackageSelection(FramedWidget):
-    def __init__(self, parent, application, event_queue, row, column, colspan=1):
+class PackageSelection(Pane):
+    def __init__(self, parent, application, event_queue):
         super().__init__(
-            parent, application, event_queue, row, column, colspan=colspan
+            parent, application, event_queue
         )
 
         self.selection_list = InteractiveSelectionList(
@@ -775,10 +776,10 @@ class PackageSelection(FramedWidget):
             self.selection_list.repopulate()
 
 
-class ClassSelection(FramedWidget):
-    def __init__(self, parent, application, event_queue, row, column, colspan=1):
+class ClassSelection(Pane):
+    def __init__(self, parent, application, event_queue):
         super().__init__(
-            parent, application, event_queue, row, column, colspan=colspan
+            parent, application, event_queue
         )
 
         self.class_content_paned = ttk.PanedWindow(self, orient=tk.VERTICAL)
@@ -1470,10 +1471,10 @@ class ClassSelection(FramedWidget):
             self.application.end_foreground_activity()
 
 
-class CategorySelection(FramedWidget):
-    def __init__(self, parent, application, event_queue, row, column, colspan=1):
+class CategorySelection(Pane):
+    def __init__(self, parent, application, event_queue):
         super().__init__(
-            parent, application, event_queue, row, column, colspan=colspan
+            parent, application, event_queue
         )
 
         self.selection_list = InteractiveSelectionList(
@@ -1655,10 +1656,10 @@ class CategorySelection(FramedWidget):
             messagebox.showerror('Delete Category', str(error))
 
 
-class MethodSelection(FramedWidget):
-    def __init__(self, parent, application, event_queue, row, column, colspan=1):
+class MethodSelection(Pane):
+    def __init__(self, parent, application, event_queue):
         super().__init__(
-            parent, application, event_queue, row, column, colspan=colspan
+            parent, application, event_queue
         )
 
         self.method_content_paned = ttk.PanedWindow(self, orient=tk.VERTICAL)
@@ -2353,10 +2354,10 @@ class MethodSelection(FramedWidget):
         )
 
 
-class MethodEditor(FramedWidget):
-    def __init__(self, parent, application, event_queue, row, column, colspan=1):
+class MethodEditor(Pane):
+    def __init__(self, parent, application, event_queue):
         super().__init__(
-            parent, application, event_queue, row, column, colspan=colspan
+            parent, application, event_queue
         )
 
         self.current_menu = None
@@ -2722,21 +2723,31 @@ class BrowserWindow(ttk.PanedWindow):
         self.add(self.top_frame)
         self.add(self.bottom_frame)
 
+        # AI: BrowserWindow owns the placement of its panes -- the panes no
+        # longer grid themselves -- so the four selection columns sit in a row
+        # and the editor spans beneath them.
         self.packages_widget = PackageSelection(
-            self.top_frame, self.application, self.event_queue, 0, 0
+            self.top_frame, self.application, self.event_queue
         )
+        self.packages_widget.grid(row=0, column=0, sticky='nsew', padx=1, pady=1)
         self.classes_widget = ClassSelection(
-            self.top_frame, self.application, self.event_queue, 0, 1
+            self.top_frame, self.application, self.event_queue
         )
+        self.classes_widget.grid(row=0, column=1, sticky='nsew', padx=1, pady=1)
         self.categories_widget = CategorySelection(
-            self.top_frame, self.application, self.event_queue, 0, 2
+            self.top_frame, self.application, self.event_queue
         )
+        self.categories_widget.grid(row=0, column=2, sticky='nsew', padx=1, pady=1)
         self.methods_widget = MethodSelection(
-            self.top_frame, self.application, self.event_queue, 0, 3
+            self.top_frame, self.application, self.event_queue
         )
+        self.methods_widget.grid(row=0, column=3, sticky='nsew', padx=1, pady=1)
 
         self.editor_area_widget = MethodEditor(
-            self.bottom_frame, self.application, self.event_queue, 0, 0, colspan=4
+            self.bottom_frame, self.application, self.event_queue
+        )
+        self.editor_area_widget.grid(
+            row=0, column=0, columnspan=4, sticky='nsew', padx=1, pady=1
         )
 
         self.top_frame.columnconfigure(0, weight=1)
