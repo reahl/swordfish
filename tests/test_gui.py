@@ -849,6 +849,53 @@ def test_selecting_another_method_recycles_the_preview_tab(fixture):
     assert list(editor.open_tabs.keys()) == [("OrderLine", True, "description")]
 
 
+class MethodDisplayOriginScenarios(Fixture):
+    """AI: The two kinds of origin that can ask the editor to display a
+    method. Both hand the method to the editor through the
+    MethodDisplayRequested event; they differ only in whether the origin
+    also owns and moves the browser's own selection."""
+
+    @scenario
+    def chosen_from_the_browser_list(self):
+        """AI: The method list owns the browser selection, so choosing a
+        method moves that selection and asks the editor to display it."""
+        self.move_browser_selection = True
+        self.selected_method_after_request = 'description'
+
+    @scenario
+    def peeked_from_a_search_result(self):
+        """AI: A search result only asks the editor to display a method; it
+        must leave the browser's selection alone (an editor-only peek)."""
+        self.move_browser_selection = False
+        self.selected_method_after_request = 'total'
+
+
+@with_fixtures(SwordfishGuiFixture, MethodDisplayOriginScenarios)
+def test_editor_displays_the_method_the_event_carries(fixture, scenario):
+    """AI: The method to display travels inside the MethodDisplayRequested
+    event, so any origin can drive the single editor. Because the editor no
+    longer reads 'which method' from the shared browser selection, a search
+    result can peek a method into the editor without moving the browser --
+    only the origin that owns the selection moves it."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+
+    requested_method = ('OrderLine', True, 'description')
+    if scenario.move_browser_selection:
+        fixture.application.gemstone_session_record.select_method_symbol(
+            'description'
+        )
+    fixture.event_queue.publish(
+        'MethodDisplayRequested', requested_method, origin=None
+    )
+
+    editor = fixture.browser_window.editor_area_widget
+    assert list(editor.open_tabs.keys()) == [requested_method]
+    assert (
+        fixture.application.gemstone_session_record.selected_method_symbol
+        == scenario.selected_method_after_request
+    )
+
+
 @with_fixtures(SwordfishGuiFixture)
 def test_double_clicking_a_method_pins_its_tab(fixture):
     """AI: Double-clicking a method pins its tab, so it is no longer the
