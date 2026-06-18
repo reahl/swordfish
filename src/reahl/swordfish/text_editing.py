@@ -2254,9 +2254,9 @@ PINNED_TAB_MARKER = '★ '
 
 
 class EditorTab(tk.Frame):
-    def __init__(self, parent, browser_window, method_editor, tab_key):
+    def __init__(self, parent, application, method_editor, tab_key):
         super().__init__(parent)
-        self.browser_window = browser_window
+        self.application = application
         self.method_editor = method_editor
         self.tab_key = tab_key
         self.is_dirty = False
@@ -2266,7 +2266,7 @@ class EditorTab(tk.Frame):
 
         self.code_panel = CodePanel(
             self,
-            self.browser_window.application,
+            self.application,
             tab_key=tab_key,
             on_text_changed=self.mark_dirty,
         )
@@ -2363,13 +2363,13 @@ class EditorTab(tk.Frame):
 
     def save(self):
         selected_class, show_instance_side, method_symbol = self.tab_key
-        self.browser_window.gemstone_session_record.update_method_source(
+        self.application.gemstone_session_record.update_method_source(
             selected_class,
             show_instance_side,
             method_symbol,
             self.code_panel.text_editor.get('1.0', 'end-1c'),
         )
-        self.browser_window.event_queue.publish('MethodSelected', origin=self)
+        self.application.event_queue.publish('MethodSelected', origin=self)
         self.repopulate()
 
     def cancel(self):
@@ -2379,7 +2379,7 @@ class EditorTab(tk.Frame):
             self.repopulate()
 
     def repopulate(self):
-        gemstone_method = self.browser_window.gemstone_session_record.get_method(
+        gemstone_method = self.application.gemstone_session_record.get_method(
             *self.tab_key
         )
         if gemstone_method:
