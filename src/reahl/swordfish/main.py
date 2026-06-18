@@ -78,6 +78,7 @@ from reahl.swordfish.object_diagram import (
     UmlObjectNode,
     UmlObjectRelationship,
 )
+from reahl.swordfish.pane_area import PaneArea
 from reahl.swordfish.selection_list import InteractiveSelectionList
 from reahl.swordfish.tab_registry import DeduplicatedTabRegistry
 from reahl.swordfish.text_editing import (
@@ -5346,6 +5347,7 @@ class Swordfish(tk.Tk):
         self.geometry('800x600')
         self.default_stone_name = default_stone_name
 
+        self.pane_area = None
         self.notebook = None
         self.browser_tab = None
         self.debugger_tab = None
@@ -5927,8 +5929,14 @@ class Swordfish(tk.Tk):
             self.refresh_collaboration_status()
 
     def create_notebook(self):
-        self.notebook = ttk.Notebook(self)
-        self.notebook.grid(row=0, column=0, sticky="nsew")
+        # AI: The IDE centre is a PaneArea -- a splittable arrangement of tab
+        # groups. Its primary group plays the role of the old top-level
+        # notebook, so self.notebook points at it and the existing openers,
+        # navigation and close handling keep working unchanged. The area can
+        # later be split to place a tool (e.g. an embedded Find) beside the rest.
+        self.pane_area = PaneArea(self)
+        self.pane_area.grid(row=0, column=0, sticky="nsew")
+        self.notebook = self.pane_area.group(0)
         self.notebook.bind(
             "<<NotebookTabChanged>>",
             self.record_selected_tab_in_global_history,
