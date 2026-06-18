@@ -7424,6 +7424,55 @@ def test_senders_dialog_double_click_navigates_browser_to_selected_sender(fixtur
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_single_clicking_a_find_method_result_peeks_it_without_moving_the_browser(
+    fixture,
+):
+    """AI: Single-clicking a method result in Find asks the editor to display
+    that method (via MethodDisplayRequested) but leaves the browser's column
+    selection untouched -- an editor-only peek, unlike the double-click that
+    navigates the browser to the method."""
+    fixture.simulate_login()
+    fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
+        'Kernel'
+    )
+    fixture.mock_browser.get_method_category.return_value = 'accessing'
+    fixture.mock_browser.find_senders.return_value = {
+        'senders': [
+            {
+                'class_name': 'OrderLine',
+                'show_instance_side': True,
+                'method_selector': 'recalculateTotal',
+            },
+        ],
+        'total_count': 1,
+        'returned_count': 1,
+    }
+
+    with patch.object(FindDialog, 'wait_visibility'):
+        dialog = FindDialog(
+            fixture.app,
+            search_type='reference',
+            search_query='total',
+            run_search=True,
+            match_mode='exact',
+            reference_target='method',
+        )
+
+    selection_before_peek = fixture.session_record.selected_class
+    peeked_method = Mock()
+    fixture.app.event_queue.subscribe('MethodDisplayRequested', peeked_method)
+
+    select_find_result(dialog, 'OrderLine>>recalculateTotal')
+    dialog.peek_selected_result(None)
+    fixture.app.update()
+
+    peeked_method.assert_called_once_with(
+        ('OrderLine', True, 'recalculateTotal'), origin=dialog
+    )
+    assert fixture.session_record.selected_class == selection_before_peek
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_senders_dialog_narrow_with_tracing_filters_to_observed_senders(fixture):
     """AI: Narrowing sender results with tracing should keep only observed runtime callers."""
     fixture.simulate_login()
