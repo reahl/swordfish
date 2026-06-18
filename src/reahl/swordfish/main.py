@@ -1377,6 +1377,7 @@ class EventQueue:
             'SelectedClassChanged',
             'SelectedCategoryChanged',
             'MethodSelected',
+            'MethodDisplayRequested',
         }
         if event_name not in selection_events:
             return {}
@@ -5398,6 +5399,10 @@ class Swordfish(tk.Tk):
             'MethodSelected',
             self.record_current_browser_place_in_global_history,
         )
+        self.event_queue.subscribe(
+            'MethodDisplayRequested',
+            self.record_current_browser_place_in_global_history,
+        )
         self.integrated_session_state.subscribe_mcp_busy_state(
             self.publish_mcp_busy_state_event,
         )
@@ -6159,7 +6164,9 @@ class Swordfish(tk.Tk):
         self.global_navigation_history.record(entry)
         self.refresh_global_navigation_controls()
 
-    def record_current_browser_place_in_global_history(self, origin=None):
+    def record_current_browser_place_in_global_history(
+        self, method_context=None, origin=None
+    ):
         browser_entry = self.current_browser_place_entry()
         if browser_entry is None:
             self.refresh_global_navigation_controls()

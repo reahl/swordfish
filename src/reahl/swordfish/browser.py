@@ -1743,7 +1743,15 @@ class MethodSelection(FramedWidget):
 
             self.gemstone_session_record.select_method_symbol(selected_method)
             self.selection_changed = False
-            self.event_queue.publish('MethodSelected', origin=self)
+            self.event_queue.publish(
+                'MethodDisplayRequested',
+                (
+                    self.gemstone_session_record.selected_class,
+                    self.gemstone_session_record.show_instance_side,
+                    selected_method,
+                ),
+                origin=self,
+            )
 
         except IndexError:
             pass
@@ -1818,7 +1826,13 @@ class MethodSelection(FramedWidget):
         if self.show_method_hierarchy_var.get():
             self.refresh_method_hierarchy()
         self.event_queue.publish(
-            'MethodSelected', origin=self, log_context={'method': selected_method}
+            'MethodDisplayRequested',
+            (
+                self.gemstone_session_record.selected_class,
+                self.gemstone_session_record.show_instance_side,
+                selected_method,
+            ),
+            origin=self,
         )
 
     def pin_selected_method_tab(self, event=None):
@@ -2391,9 +2405,14 @@ class MethodEditor(FramedWidget):
         self.preview_tab_key = None
 
         self.event_queue.subscribe('MethodSelected', self.open_method)
+        self.event_queue.subscribe('MethodDisplayRequested', self.open_method)
         self.event_queue.subscribe('MethodTabPinRequested', self.pin_current_method_tab)
         self.event_queue.subscribe(
             'MethodSelected',
+            self.record_method_navigation,
+        )
+        self.event_queue.subscribe(
+            'MethodDisplayRequested',
             self.record_method_navigation,
         )
         self.event_queue.subscribe('MethodsChanged', self.repopulate)
@@ -2497,8 +2516,10 @@ class MethodEditor(FramedWidget):
             return f'{class_name}>>{method_symbol}'
         return f'{class_name} class>>{method_symbol}'
 
-    def record_method_navigation(self, origin=None):
-        self.method_navigation_history.record(self.current_method_context())
+    def record_method_navigation(self, method_context=None, origin=None):
+        if method_context is None:
+            method_context = self.current_method_context()
+        self.method_navigation_history.record(method_context)
         self.refresh_navigation_controls()
 
     def refresh_navigation_controls(self):
@@ -2568,8 +2589,9 @@ class MethodEditor(FramedWidget):
         method_context = self.method_navigation_history.jump_to(history_index)
         self.jump_to_method_context(method_context)
 
-    def open_method(self, origin=None):
-        method_context = self.current_method_context()
+    def open_method(self, method_context=None, origin=None):
+        if method_context is None:
+            method_context = self.current_method_context()
         if method_context is None:
             return
         selected_method_symbol = method_context[2]
