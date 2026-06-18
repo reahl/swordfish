@@ -7810,7 +7810,10 @@ class Swordfish(tk.Tk):
         )
         self.event_queue.publish("SelectedClassChanged")
         self.event_queue.publish("SelectedCategoryChanged")
-        self.event_queue.publish("MethodSelected")
+        self.event_queue.publish(
+            'MethodDisplayRequested',
+            (class_name, show_instance_side, method_symbol),
+        )
 
     def handle_sender_selection(self, class_name, show_instance_side, method_symbol):
         self.gemstone_session_record.jump_to_method(
@@ -7823,7 +7826,8 @@ class Swordfish(tk.Tk):
         )
         self.event_queue.publish('SelectedCategoryChanged')
         self.event_queue.publish(
-            'MethodSelected', log_context={'method': method_symbol}
+            'MethodDisplayRequested',
+            (class_name, show_instance_side, method_symbol),
         )
 
     def open_run_tab(self):
