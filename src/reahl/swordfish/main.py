@@ -3284,6 +3284,7 @@ class FindDialog(tk.Toplevel):
             sticky='nsew',
         )
         self.results_tree.bind('<Double-Button-1>', self.on_result_double_click)
+        self.results_tree.bind('<ButtonRelease-1>', self.peek_selected_result)
         self.configure_result_columns('method')
 
         self.status_label = ttk.Label(
@@ -4637,6 +4638,27 @@ class FindDialog(tk.Toplevel):
                 selected_row['show_instance_side'],
                 selected_row['method_selector'],
             )
+
+
+    def peek_selected_result(self, event):
+        # AI: Single-click previews a method result in the editor via the
+        # MethodDisplayRequested event, without navigating the browser -- an
+        # editor-only peek. Double-click still navigates (on_result_double_click).
+        selected_iids = self.results_tree.selection()
+        if not selected_iids:
+            return
+        selected_row = self.result_rows_by_iid.get(selected_iids[0])
+        if selected_row is None:
+            return
+        class_name = selected_row.get('class_name')
+        method_selector = selected_row.get('method_selector')
+        if class_name is None or method_selector is None:
+            return
+        self.parent.event_queue.publish(
+            'MethodDisplayRequested',
+            (class_name, selected_row['show_instance_side'], method_selector),
+            origin=self,
+        )
 
 
 class CoveringTestsSearchDialog(tk.Toplevel):
