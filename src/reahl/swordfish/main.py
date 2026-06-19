@@ -6009,12 +6009,12 @@ class Swordfish(tk.Tk):
             self.close_object_diagram_tab()
         elif tab_widget is self.class_diagram_tab:
             self.close_class_diagram_tab()
+        elif tab_widget is self.run_tab:
+            tab_widget.close_tab()
+        elif tab_widget is self.debugger_tab:
+            tab_widget.dismiss()
         else:
             notebook.forget(tab_widget)
-            if tab_widget is self.debugger_tab:
-                self.debugger_tab = None
-            if tab_widget is self.run_tab:
-                self.run_tab = None
             tab_widget.destroy()
         # AI: Same collapse as a pane's own Close button -- if this was the last
         # tab in a non-primary (right-hand) group, drop the split so the space is
