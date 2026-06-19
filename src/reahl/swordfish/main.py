@@ -7734,10 +7734,17 @@ class Swordfish(tk.Tk):
         super().destroy()
 
     def add_browser_tab(self):
-        if self.browser_tab:
-            self.browser_tab.destroy()
-        self.browser_tab = BrowserWindow(self.notebook, self)
-        self.notebook.add(self.browser_tab, text="Browser")
+        # AI: Re-opening the Browser focuses the existing tab rather than
+        # destroying and rebuilding it (which would discard its state). At login
+        # clear_widgets has already reset browser_tab to None, so a fresh one is
+        # built there; the menu's repeat-open just brings the open tab forward.
+        browser_is_open = (
+            self.browser_tab is not None and self.browser_tab.winfo_exists()
+        )
+        if not browser_is_open:
+            self.browser_tab = BrowserWindow(self.notebook, self)
+            self.notebook.add(self.browser_tab, text="Browser")
+        self.notebook.select(self.browser_tab)
 
     def open_debugger(self, exception):
         if self.integrated_session_state.is_mcp_busy():

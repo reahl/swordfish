@@ -3389,6 +3389,21 @@ def test_uml_object_diagram_opens_an_empty_canvas(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_opening_the_browser_when_already_open_focuses_it_without_replacing(fixture):
+    """AI: Re-opening the Browser (e.g. from the Code menu) must keep the
+    existing browser tab and its state -- it just comes to the front, rather
+    than being destroyed and rebuilt under the user."""
+    fixture.simulate_login()
+    existing_browser = fixture.app.browser_tab
+    assert existing_browser is not None
+
+    fixture.app.add_browser_tab()
+
+    assert fixture.app.browser_tab is existing_browser
+    assert str(fixture.app.notebook.select()) == str(existing_browser)
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_session_menu_owns_exit_and_leads_the_menubar_with_a_code_menu(fixture):
     """AI: Exit now lives on the Session menu (the File menu, which held nothing
     else, is gone), Session leads the menubar, and the former Debug menu is Code."""
