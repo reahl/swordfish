@@ -23,7 +23,7 @@ from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainEx
 from reahl.swordfish.browser import MethodEditor
 from reahl.swordfish.main import (
     GEMSTONE_EXE_CONF_CONFIG_NAME,
-    BreakpointsDialog,
+    BreakpointsPane,
     BrowserWindow,
     CoveringTestsBrowseDialog,
     CoveringTestsSearchDialog,
@@ -3631,7 +3631,8 @@ def test_debug_menu_workspace_command_opens_run_tab(
 
 @with_fixtures(SwordfishAppFixture)
 def test_open_breakpoints_dialog_lists_active_breakpoints(fixture):
-    """AI: Opening Breakpoints dialog should list the active breakpoints from session record."""
+    """AI: Opening Breakpoints lists the active breakpoints in a pane that opens
+    in the right-hand notebook (beside Find), not a modal popup."""
     fixture.simulate_login()
     fixture.session_record.list_breakpoints = Mock(
         return_value=[
@@ -3646,32 +3647,25 @@ def test_open_breakpoints_dialog_lists_active_breakpoints(fixture):
         ]
     )
 
-    fixture.app.open_breakpoints_dialog()
+    breakpoints_pane = fixture.app.open_breakpoints_dialog()
     fixture.app.update()
-    dialogs = [
-        child
-        for child in fixture.app.winfo_children()
-        if isinstance(child, BreakpointsDialog)
-    ]
-    assert dialogs
-    dialog = dialogs[0]
-    dialog_rows = dialog.breakpoint_list.get_children()
-    assert len(dialog_rows) == 1
-    row_values = dialog.breakpoint_list.item(dialog_rows[0], "values")
+
+    assert breakpoints_pane is fixture.app.active_breakpoints_pane()
+    assert str(breakpoints_pane.master) == str(fixture.app.pane_area.group(1))
+    pane_rows = breakpoints_pane.breakpoint_list.get_children()
+    assert len(pane_rows) == 1
+    row_values = breakpoints_pane.breakpoint_list.item(pane_rows[0], "values")
     assert row_values[0] == "OrderLine"
     assert row_values[1] == "instance"
     assert row_values[2] == "total"
-    dialog.destroy()
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_breakpoints_dialog_double_click_navigates_to_selected_method(
-    fixture,
-):
-    """AI: Double-clicking a breakpoint should navigate browser selection to that method and focus Browser tab."""
+def test_breakpoints_double_click_pins_the_method(fixture):
+    """AI: Double-clicking a breakpoint pins its method in the editor -- preview,
+    then promote the tab to permanent, like the Find pane -- without moving the
+    browser's column selection."""
     fixture.simulate_login()
-    fixture.app.run_code()
-    fixture.app.update()
     fixture.session_record.list_breakpoints = Mock(
         return_value=[
             {
@@ -3684,30 +3678,86 @@ def test_breakpoints_dialog_double_click_navigates_to_selected_method(
             }
         ]
     )
-
-    fixture.app.open_breakpoints_dialog()
-    fixture.app.update()
-    dialogs = [
-        child
-        for child in fixture.app.winfo_children()
-        if isinstance(child, BreakpointsDialog)
-    ]
-    assert dialogs
-    dialog = dialogs[0]
-
-    dialog.breakpoint_list.focus("bp-1")
-    dialog.breakpoint_list.selection_set("bp-1")
-    dialog.on_breakpoint_double_click(None)
+    breakpoints_pane = fixture.app.open_breakpoints_dialog()
     fixture.app.update()
 
-    assert fixture.session_record.selected_class == "OrderLine"
-    assert fixture.session_record.selected_method_symbol == "total"
-    assert fixture.session_record.show_instance_side
-    selected_tab_text = fixture.app.notebook.tab(
-        fixture.app.notebook.select(),
-        "text",
+    shown = Mock()
+    pinned = Mock()
+    fixture.app.event_queue.subscribe('MethodDisplayRequested', shown)
+    fixture.app.event_queue.subscribe('MethodTabPinRequested', pinned)
+    selection_before = fixture.session_record.selected_class
+
+    breakpoints_pane.breakpoint_list.selection_set("bp-1")
+    breakpoints_pane.pin_selected_breakpoint(None)
+    fixture.app.update()
+
+    shown.assert_called_once_with(("OrderLine", True, "total"), origin=ANY)
+    pinned.assert_called_once_with(("OrderLine", True, "total"), origin=ANY)
+    assert fixture.session_record.selected_class == selection_before
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_breakpoints_single_click_peeks_the_method(fixture):
+    """AI: Single-clicking a breakpoint previews its method in the editor via
+    MethodDisplayRequested, without pinning and without moving the browser."""
+    fixture.simulate_login()
+    fixture.session_record.list_breakpoints = Mock(
+        return_value=[
+            {
+                "breakpoint_id": "bp-1",
+                "class_name": "OrderLine",
+                "show_instance_side": True,
+                "method_selector": "total",
+                "source_offset": 42,
+                "step_point": 3,
+            }
+        ]
     )
-    assert selected_tab_text == "Browser"
+    breakpoints_pane = fixture.app.open_breakpoints_dialog()
+    fixture.app.update()
+
+    shown = Mock()
+    pinned = Mock()
+    fixture.app.event_queue.subscribe('MethodDisplayRequested', shown)
+    fixture.app.event_queue.subscribe('MethodTabPinRequested', pinned)
+    selection_before = fixture.session_record.selected_class
+
+    breakpoints_pane.breakpoint_list.selection_set("bp-1")
+    breakpoints_pane.peek_selected_breakpoint(None)
+    fixture.app.update()
+
+    shown.assert_called_once_with(("OrderLine", True, "total"), origin=ANY)
+    pinned.assert_not_called()
+    assert fixture.session_record.selected_class == selection_before
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_breakpoints_pane_refreshes_when_a_breakpoint_is_set(fixture):
+    """AI: An open breakpoints pane listens for breakpoint changes -- placing a
+    breakpoint elsewhere (the BreakpointSet event) re-lists the active
+    breakpoints in place, without reopening the pane."""
+    fixture.simulate_login()
+    fixture.session_record.list_breakpoints = Mock(return_value=[])
+    breakpoints_pane = fixture.app.open_breakpoints_dialog()
+    fixture.app.update()
+    assert len(breakpoints_pane.breakpoint_list.get_children()) == 0
+
+    fixture.session_record.list_breakpoints = Mock(
+        return_value=[
+            {
+                "breakpoint_id": "bp-1",
+                "class_name": "OrderLine",
+                "show_instance_side": True,
+                "method_selector": "total",
+                "source_offset": 42,
+                "step_point": 3,
+            }
+        ]
+    )
+    fixture.app.event_queue.publish('BreakpointSet')
+    fixture.app.update()
+
+    assert len(breakpoints_pane.breakpoint_list.get_children()) == 1
 
 
 @with_fixtures(SwordfishAppFixture)

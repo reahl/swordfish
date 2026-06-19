@@ -5034,18 +5034,10 @@ class CoveringTestsSearchDialog(tk.Toplevel):
         self.destroy()
 
 
-class BreakpointsDialog(tk.Toplevel):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.parent = parent
-        self.gemstone_session_record = parent.gemstone_session_record
+class BreakpointsPane(Pane):
+    def __init__(self, parent, application, event_queue):
+        super().__init__(parent, application, event_queue)
         self.breakpoint_entries_by_id = {}
-        self.title("Breakpoints")
-        self.geometry("760x320")
-        self.transient(parent)
-        if parent.winfo_viewable():
-            self.wait_visibility()
-        self.grab_set()
 
         self.breakpoint_list = ttk.Treeview(
             self,
@@ -5063,7 +5055,10 @@ class BreakpointsDialog(tk.Toplevel):
         self.breakpoint_list.column("Selector", width=220, anchor="w")
         self.breakpoint_list.column("Offset", width=100, anchor="e")
         self.breakpoint_list.column("Step Point", width=100, anchor="e")
-        self.breakpoint_list.bind("<Double-1>", self.on_breakpoint_double_click)
+        # AI: Single-click previews the breakpoint's method in the editor; a
+        # double-click pins that tab -- exactly like the Find pane's results.
+        self.breakpoint_list.bind("<ButtonRelease-1>", self.peek_selected_breakpoint)
+        self.breakpoint_list.bind("<Double-1>", self.pin_selected_breakpoint)
         self.breakpoint_list.grid(
             row=0,
             column=0,
@@ -5100,7 +5095,7 @@ class BreakpointsDialog(tk.Toplevel):
         self.close_button = ttk.Button(
             self,
             text="Close",
-            command=self.destroy,
+            command=self.close,
         )
         self.close_button.grid(
             row=1,
@@ -5114,9 +5109,13 @@ class BreakpointsDialog(tk.Toplevel):
         self.columnconfigure(2, weight=0)
         self.rowconfigure(0, weight=1)
 
+        # AI: Keep the list live -- setting or clearing a breakpoint elsewhere
+        # (e.g. from the editor) refreshes the pane while it is open.
+        self.event_queue.subscribe('BreakpointSet', self.refresh_breakpoints)
+        self.event_queue.subscribe('BreakpointCleared', self.refresh_breakpoints)
         self.refresh_breakpoints()
 
-    def refresh_breakpoints(self):
+    def refresh_breakpoints(self, origin=None):
         self.breakpoint_entries_by_id = {}
         for row_id in self.breakpoint_list.get_children():
             self.breakpoint_list.delete(row_id)
@@ -5141,26 +5140,48 @@ class BreakpointsDialog(tk.Toplevel):
                 ),
             )
 
-    def on_breakpoint_double_click(self, event):
+    def close(self):
+        self.application.pane_area.close_pane(self)
+
+    def selected_breakpoint_entry(self):
         breakpoint_id = self.selected_breakpoint_id()
         if breakpoint_id is None:
-            return
-        breakpoint_entry = self.breakpoint_entries_by_id.get(breakpoint_id)
+            return None
+        return self.breakpoint_entries_by_id.get(breakpoint_id)
+
+    def peek_selected_breakpoint(self, event):
+        # AI: Single-click previews the breakpoint's method in the editor via
+        # MethodDisplayRequested, without navigating the browser.
+        breakpoint_entry = self.selected_breakpoint_entry()
         if breakpoint_entry is None:
             return
-        try:
-            self.parent.handle_sender_selection(
+        self.application.event_queue.publish(
+            'MethodDisplayRequested',
+            (
                 breakpoint_entry["class_name"],
                 breakpoint_entry["show_instance_side"],
                 breakpoint_entry["method_selector"],
-            )
-            if self.parent.browser_tab:
-                self.parent.notebook.select(self.parent.browser_tab)
-            self.destroy()
-        except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror("Breakpoints", str(domain_exception))
-        except GemstoneError as error:
-            messagebox.showerror("Breakpoints", str(error))
+            ),
+            origin=self,
+        )
+
+    def pin_selected_breakpoint(self, event):
+        # AI: Double-click pins the breakpoint's method in the editor -- preview
+        # then promote the tab to permanent -- exactly like the Find pane.
+        breakpoint_entry = self.selected_breakpoint_entry()
+        if breakpoint_entry is None:
+            return
+        method_context = (
+            breakpoint_entry["class_name"],
+            breakpoint_entry["show_instance_side"],
+            breakpoint_entry["method_selector"],
+        )
+        self.application.event_queue.publish(
+            'MethodDisplayRequested', method_context, origin=self
+        )
+        self.application.event_queue.publish(
+            'MethodTabPinRequested', method_context, origin=self
+        )
 
     def selected_breakpoint_id(self):
         selection = self.breakpoint_list.selection()
@@ -5175,7 +5196,7 @@ class BreakpointsDialog(tk.Toplevel):
         try:
             self.gemstone_session_record.clear_breakpoint(breakpoint_id)
             self.refresh_breakpoints()
-            self.parent.event_queue.publish("MethodsChanged")
+            self.application.event_queue.publish("MethodsChanged")
         except (DomainException, GemstoneDomainException) as domain_exception:
             messagebox.showerror("Breakpoints", str(domain_exception))
         except GemstoneError as error:
@@ -5185,7 +5206,7 @@ class BreakpointsDialog(tk.Toplevel):
         try:
             self.gemstone_session_record.clear_all_breakpoints()
             self.refresh_breakpoints()
-            self.parent.event_queue.publish("MethodsChanged")
+            self.application.event_queue.publish("MethodsChanged")
         except (DomainException, GemstoneDomainException) as domain_exception:
             messagebox.showerror("Breakpoints", str(domain_exception))
         except GemstoneError as error:
@@ -8211,10 +8232,34 @@ class Swordfish(tk.Tk):
             reference_target='class',
         )
 
+    def active_breakpoints_pane(self):
+        # AI: Breakpoints is an embeddable BreakpointsPane nested in the PaneArea
+        # -- walk the widget tree to find a live one.
+        pending = list(self.winfo_children())
+        while pending:
+            widget = pending.pop()
+            if isinstance(widget, BreakpointsPane):
+                try:
+                    if widget.winfo_exists():
+                        return widget
+                except tk.TclError:
+                    pass
+            pending.extend(widget.winfo_children())
+        return None
+
     def open_breakpoints_dialog(self):
         if self.gemstone_session_record is None:
             return
-        BreakpointsDialog(self)
+        existing_breakpoints_pane = self.active_breakpoints_pane()
+        if existing_breakpoints_pane is not None:
+            target_group = existing_breakpoints_pane.master
+            existing_breakpoints_pane.destroy()
+        else:
+            target_group = self.auxiliary_notebook()
+        breakpoints_pane = BreakpointsPane(target_group, self, self.event_queue)
+        target_group.add(breakpoints_pane, text='Breakpoints')
+        target_group.select(breakpoints_pane)
+        return breakpoints_pane
 
 
 class LoginFrame(ttk.Frame):
