@@ -1469,11 +1469,16 @@ class DebuggerWindow(ttk.PanedWindow):
             )
         if self.application.debugger_tab is self:
             self.application.debugger_tab = None
+        notebook = self.master
         try:
-            self.master.forget(self)
+            notebook.forget(self)
         except tk.TclError:
             pass
         self.destroy()
+        # AI: Collapse the now-empty right group, like the tab 'x' does, so
+        # dismissing the debugger (Stop or the finished view) doesn't leave a
+        # blank hole.
+        self.application.pane_area.remove_group_if_empty(notebook)
 
     def finish(self, result):
         self.stack_frames = None

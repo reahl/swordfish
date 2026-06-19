@@ -3791,6 +3791,26 @@ def test_find_tab_is_closable_via_its_x_and_collapses_the_group(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_debugger_dismiss_collapses_the_right_group(fixture):
+    """AI: Dismissing the debugger (e.g. via Stop, or its finished Close) collapses
+    its right-hand group like the tab 'x' does, rather than leaving a blank hole."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+    debugger_tab = fixture.app.debugger_tab
+    assert len(fixture.app.pane_area.groups) == 2
+
+    debugger_tab.dismiss()
+    fixture.app.update()
+
+    assert fixture.app.debugger_tab is None
+    assert len(fixture.app.pane_area.groups) == 1
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_mcp_menu_commands_delegate_to_swordfish_handlers(fixture):
     """AI: Selecting MCP menu actions should call corresponding Swordfish command handlers."""
     fixture.simulate_login()
