@@ -382,6 +382,20 @@ class SwordfishGuiFixture(Fixture):
         return listbox.get(selected_index)
 
 
+def visible_tab_title(notebook):
+    """AI: Title of the currently selected tab in the given notebook group."""
+    return notebook.tab(notebook.select(), 'text')
+
+
+def all_open_tab_texts(app):
+    """AI: Titles of every open top-level tab across both notebook groups -- the
+    left browser/workspace group and the right auxiliary (tools) group."""
+    texts = []
+    for group in app.pane_area.groups:
+        texts.extend(group.tab(tab_id, 'text') for tab_id in group.tabs())
+    return texts
+
+
 def menu_command_labels(menu):
     labels = []
     entry_count = int(menu.index("end")) + 1
@@ -3404,6 +3418,47 @@ def test_opening_the_browser_when_already_open_focuses_it_without_replacing(fixt
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_auxiliary_tools_open_in_the_right_notebook(fixture):
+    """AI: The diagrams (and, by the same path, inspector/debugger) are
+    auxiliary views -- they open in the right-hand notebook (the split group
+    where Find opens), not in the primary left group."""
+    fixture.simulate_login()
+
+    fixture.app.ensure_class_diagram_tab()
+    fixture.app.ensure_object_diagram_tab()
+
+    right = fixture.app.pane_area.group(1)
+    assert str(fixture.app.class_diagram_tab.master) == str(right)
+    assert str(fixture.app.object_diagram_tab.master) == str(right)
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_browser_and_workspace_stay_in_the_left_notebook(fixture):
+    """AI: Browser and Workspace are the primary working surface and stay in the
+    left group -- they are not pushed to the auxiliary right notebook."""
+    fixture.simulate_login()
+    fixture.app.open_run_tab()
+
+    left = fixture.app.pane_area.group(0)
+    assert str(fixture.app.browser_tab.master) == str(left)
+    assert str(fixture.app.run_tab.master) == str(left)
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_and_tools_share_one_right_notebook(fixture):
+    """AI: Find and the auxiliary tools open into the SAME right-hand group --
+    opening a diagram and then Find does not stack up extra split groups."""
+    fixture.simulate_login()
+
+    fixture.app.ensure_class_diagram_tab()
+    fixture.app.open_find_dialog()
+
+    assert len(fixture.app.pane_area.groups) == 2
+    right = fixture.app.pane_area.group(1)
+    assert str(fixture.app.class_diagram_tab.master) == str(right)
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_session_menu_owns_exit_and_leads_the_menubar_with_a_code_menu(fixture):
     """AI: Exit now lives on the Session menu (the File menu, which held nothing
     else, is gone), Session leads the menubar, and the former Debug menu is Code."""
@@ -3974,7 +4029,7 @@ def test_run_context_menu_inspect_opens_inspector_for_selected_result(fixture):
     assert fixture.app.inspector_tab is not None
     assert isinstance(fixture.app.inspector_tab, InspectorTab)
     assert isinstance(fixture.app.inspector_tab.explorer, Explorer)
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.pane_area.group(1))
     assert selected_tab_text == "Inspect"
 
 
@@ -3998,7 +4053,7 @@ def test_run_context_menu_graph_inspect_opens_graph_for_selected_result(fixture)
 
     fixture.mock_browser.run_code.assert_called_with("3 + 4")
     assert fixture.app.object_diagram_tab is not None
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.pane_area.group(1))
     assert selected_tab_text == "Object Diagram"
     assert fixture.app.object_diagram_tab.graph_canvas.registry.contains_object(
         inspected_result
@@ -4030,7 +4085,7 @@ def test_run_source_context_menu_show_in_class_diagram_opens_class_diagram(fixtu
 
     fixture.mock_browser.run_code.assert_called_with("OrderLine")
     assert fixture.app.class_diagram_tab is not None
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.pane_area.group(1))
     assert selected_tab_text == "Class Diagram"
     assert fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("OrderLine")
 
@@ -4251,9 +4306,7 @@ def test_run_context_menu_debug_opens_debugger_for_selected_text_only(fixture):
     fixture.app.update()
 
     fixture.mock_browser.debug_source.assert_called_with("1/0")
-    tab_labels = [
-        fixture.app.notebook.tab(t, "text") for t in fixture.app.notebook.tabs()
-    ]
+    tab_labels = all_open_tab_texts(fixture.app)
     assert "Debugger" in tab_labels
 
 
@@ -4356,7 +4409,7 @@ def test_open_class_diagram_for_class_creates_uml_tab_and_adds_class(fixture):
     fixture.app.update()
 
     assert fixture.app.class_diagram_tab is not None
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.pane_area.group(1))
     assert selected_tab_text == "Class Diagram"
     assert (
         fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("OrderLine")
@@ -5607,7 +5660,7 @@ def test_global_forward_revisits_live_inspector_session(fixture):
     fixture.app.open_inspector_for_object(inspected_object)
     fixture.app.update()
 
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Inspect'
+    assert visible_tab_title(fixture.app.pane_area.group(1)) == 'Inspect'
 
     fixture.app.global_back_button.invoke()
     fixture.app.update()
@@ -5618,7 +5671,7 @@ def test_global_forward_revisits_live_inspector_session(fixture):
     fixture.app.global_forward_button.invoke()
     fixture.app.update()
 
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Inspect'
+    assert visible_tab_title(fixture.app.pane_area.group(1)) == 'Inspect'
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -5631,7 +5684,7 @@ def test_global_forward_revisits_live_graph_session(fixture):
     fixture.app.update()
 
     assert (
-        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+        visible_tab_title(fixture.app.pane_area.group(1))
         == 'Object Diagram'
     )
 
@@ -5645,7 +5698,7 @@ def test_global_forward_revisits_live_graph_session(fixture):
     fixture.app.update()
 
     assert (
-        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+        visible_tab_title(fixture.app.pane_area.group(1))
         == 'Object Diagram'
     )
 
@@ -5787,7 +5840,7 @@ def test_global_forward_revisits_live_uml_session(fixture):
     fixture.app.update()
 
     assert (
-        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+        visible_tab_title(fixture.app.pane_area.group(1))
         == 'Class Diagram'
     )
 
@@ -5801,7 +5854,7 @@ def test_global_forward_revisits_live_uml_session(fixture):
     fixture.app.update()
 
     assert (
-        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+        visible_tab_title(fixture.app.pane_area.group(1))
         == 'Class Diagram'
     )
 
@@ -5815,7 +5868,7 @@ def test_global_back_restores_browser_class_selection_without_open_method(fixtur
     fixture.app.update()
 
     assert (
-        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+        visible_tab_title(fixture.app.pane_area.group(1))
         == 'Class Diagram'
     )
 
@@ -5848,7 +5901,7 @@ def test_browsing_more_in_browser_after_global_back_keeps_forward_history(fixtur
     fixture.app.global_forward_button.invoke()
     fixture.app.update()
     assert (
-        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+        visible_tab_title(fixture.app.pane_area.group(1))
         == 'Class Diagram'
     )
 
@@ -5878,7 +5931,7 @@ def test_global_history_dropdown_jumps_to_selected_place(fixture):
     fixture.app.update()
 
     assert (
-        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
+        visible_tab_title(fixture.app.pane_area.group(1))
         == 'Class Diagram'
     )
 
@@ -5952,12 +6005,13 @@ def test_global_back_skips_replaced_debugger_session_entries(fixture):
         fixture.app.run_tab.debug_button.invoke()
         fixture.app.update()
 
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Debugger'
+    assert visible_tab_title(fixture.app.pane_area.group(1)) == 'Debugger'
 
-    fixture.app.global_back_button.invoke()
-    fixture.app.update()
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Workspace'
-
+    # AI: With tools in the right notebook, re-running code in the already-open
+    # workspace adds no new history entry, so the back sequence is: the latest
+    # browser place (description); then -- skipping the STALE replaced debugger --
+    # the workspace; then the original browser place (total). The insight stands:
+    # Back never revisits the replaced debugger.
     fixture.app.global_back_button.invoke()
     fixture.app.update()
     assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
@@ -5966,6 +6020,11 @@ def test_global_back_skips_replaced_debugger_session_entries(fixture):
     fixture.app.global_back_button.invoke()
     fixture.app.update()
     assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Workspace'
+
+    fixture.app.global_back_button.invoke()
+    fixture.app.update()
+    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
+    assert fixture.session_record.selected_method_symbol == 'total'
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -6080,9 +6139,7 @@ def test_debug_button_opens_debugger_tab_in_notebook(fixture):
     run_tab.debug_button.invoke()
     fixture.app.update()
 
-    tab_labels = [
-        fixture.app.notebook.tab(t, "text") for t in fixture.app.notebook.tabs()
-    ]
+    tab_labels = all_open_tab_texts(fixture.app)
     assert "Debugger" in tab_labels
 
 
@@ -6136,9 +6193,7 @@ def test_debug_button_does_not_open_debugger_for_compile_error(fixture):
     run_tab.debug_button.invoke()
     fixture.app.update()
 
-    tab_labels = [
-        fixture.app.notebook.tab(t, "text") for t in fixture.app.notebook.tabs()
-    ]
+    tab_labels = all_open_tab_texts(fixture.app)
     assert "Debugger" not in tab_labels
     expected_source = run_tab.source_text.get("1.0", "end-1c")
     assert fixture.mock_browser.debug_source.call_args_list[-1] == call(expected_source)
@@ -6158,7 +6213,7 @@ def test_debug_button_selects_debugger_tab_as_visible(fixture):
     run_tab.debug_button.invoke()
     fixture.app.update()
 
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.pane_area.group(1))
     assert selected_tab_text == "Debugger"
 
 
@@ -6706,7 +6761,7 @@ def test_debugger_variable_inspect_opens_main_inspector_tab(fixture):
     fixture.app.update()
 
     assert fixture.app.inspector_tab is not None
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.pane_area.group(1))
     assert selected_tab_text == "Inspect"
     root_tab_id = fixture.app.inspector_tab.explorer.tabs()[0]
     root_tab_label = fixture.app.inspector_tab.explorer.tab(root_tab_id, "text")
@@ -6763,7 +6818,7 @@ def test_debugger_source_context_menu_inspect_evaluates_selected_expression_in_f
         context=mock_var_context,
     )
     assert fixture.app.inspector_tab is not None
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.pane_area.group(1))
     assert selected_tab_text == "Inspect"
     root_tab_id = fixture.app.inspector_tab.explorer.tabs()[0]
     root_tab_label = fixture.app.inspector_tab.explorer.tab(root_tab_id, "text")
@@ -6821,7 +6876,7 @@ def test_debugger_source_context_menu_inspect_reads_self_instance_variable(
 
     mock_gemstone_session.execute.assert_not_called()
     assert fixture.app.inspector_tab is not None
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.pane_area.group(1))
     assert selected_tab_text == "Inspect"
     root_tab_id = fixture.app.inspector_tab.explorer.tabs()[0]
     root_tab_label = fixture.app.inspector_tab.explorer.tab(root_tab_id, "text")
@@ -6841,7 +6896,7 @@ def test_file_run_command_opens_run_tab_in_notebook(fixture):
         for tab_id in fixture.app.notebook.tabs()
     ]
     assert "Workspace" in tab_labels
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.notebook)
     assert selected_tab_text == "Workspace"
 
 
@@ -9243,9 +9298,7 @@ def test_run_test_method_opens_debugger_on_gemstone_error(fixture):
     fixture.app.browser_tab.methods_widget.run_test()
     fixture.app.update()
 
-    tab_labels = [
-        fixture.app.notebook.tab(t, "text") for t in fixture.app.notebook.tabs()
-    ]
+    tab_labels = all_open_tab_texts(fixture.app)
     assert "Debugger" in tab_labels
 
 
@@ -9267,9 +9320,7 @@ def test_run_all_tests_opens_debugger_on_gemstone_error(fixture):
     fixture.app.browser_tab.classes_widget.run_all_tests()
     fixture.app.update()
 
-    tab_labels = [
-        fixture.app.notebook.tab(t, "text") for t in fixture.app.notebook.tabs()
-    ]
+    tab_labels = all_open_tab_texts(fixture.app)
     assert "Debugger" in tab_labels
 
 
@@ -9294,9 +9345,7 @@ def test_debug_test_opens_debugger_even_for_assertion_failures(fixture):
     fixture.app.browser_tab.methods_widget.debug_test()
     fixture.app.update()
 
-    tab_labels = [
-        fixture.app.notebook.tab(t, "text") for t in fixture.app.notebook.tabs()
-    ]
+    tab_labels = all_open_tab_texts(fixture.app)
     assert "Debugger" in tab_labels
 
 
