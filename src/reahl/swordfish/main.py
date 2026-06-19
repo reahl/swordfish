@@ -2722,6 +2722,7 @@ class MainMenu(tk.Menu):
         self.event_queue = event_queue
         self.find_menu = tk.Menu(self, tearoff=0)
         self.debug_menu = tk.Menu(self, tearoff=0)
+        self.uml_menu = tk.Menu(self, tearoff=0)
         self.session_menu = tk.Menu(self, tearoff=0)
         self.mcp_menu = tk.Menu(self, tearoff=0)
         self.filetree_menu = tk.Menu(self, tearoff=0)
@@ -2743,6 +2744,10 @@ class MainMenu(tk.Menu):
         self.add_cascade(label="Code", menu=self.debug_menu)
         self.update_debug_menu()
 
+        # AI: UML gathers the two diagram tools as deliberately openable canvases.
+        self.add_cascade(label="UML", menu=self.uml_menu)
+        self.update_uml_menu()
+
         self.add_cascade(label="MCP", menu=self.mcp_menu)
         self.update_mcp_menu()
         self.add_cascade(label="FileTree", menu=self.filetree_menu)
@@ -2758,6 +2763,7 @@ class MainMenu(tk.Menu):
         self.update_session_menu()
         self.update_find_menu()
         self.update_debug_menu()
+        self.update_uml_menu()
         self.update_mcp_menu()
         self.update_filetree_menu()
 
@@ -2905,6 +2911,10 @@ class MainMenu(tk.Menu):
                 is_busy=is_busy,
             )
             self.debug_menu.add_command(
+                label="Browser",
+                command=self.show_browser,
+            )
+            self.debug_menu.add_command(
                 label="Workspace",
                 command=self.show_run_dialog,
                 state=run_command_state,
@@ -2914,6 +2924,27 @@ class MainMenu(tk.Menu):
                 command=self.show_breakpoints_dialog,
                 state=breakpoints_state,
             )
+
+    def update_uml_menu(self):
+        self.uml_menu.delete(0, tk.END)
+        if self.parent.is_logged_in:
+            self.uml_menu.add_command(
+                label="Class Diagram",
+                command=self.show_class_diagram,
+            )
+            self.uml_menu.add_command(
+                label="Object Diagram",
+                command=self.show_object_diagram,
+            )
+
+    def show_browser(self):
+        self.parent.add_browser_tab()
+
+    def show_class_diagram(self):
+        self.parent.ensure_class_diagram_tab()
+
+    def show_object_diagram(self):
+        self.parent.ensure_object_diagram_tab()
 
     def show_find_dialog(self):
         self.event_queue.publish('MenuCommandInvoked', command='Find')
@@ -7895,8 +7926,7 @@ class Swordfish(tk.Tk):
         self.notebook.add(self.inspector_tab, text="Inspect")
         self.notebook.select(self.inspector_tab)
 
-    def open_object_diagram_for_object(self, inspected_object):
-        self.ensure_current_browser_place_in_global_history()
+    def ensure_object_diagram_tab(self):
         tab_is_missing = (
             self.object_diagram_tab is None
             or not self.object_diagram_tab.winfo_exists()
@@ -7908,6 +7938,11 @@ class Swordfish(tk.Tk):
             )
             self.notebook.add(self.object_diagram_tab, text="Object Diagram")
         self.notebook.select(self.object_diagram_tab)
+        return self.object_diagram_tab
+
+    def open_object_diagram_for_object(self, inspected_object):
+        self.ensure_current_browser_place_in_global_history()
+        self.ensure_object_diagram_tab()
         self.object_diagram_tab.add_object(inspected_object)
 
     def browse_object_class(self, inspected_object):
