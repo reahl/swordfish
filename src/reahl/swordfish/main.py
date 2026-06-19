@@ -6019,10 +6019,10 @@ class Swordfish(tk.Tk):
         return self.pane_area.group(1)
 
     def top_level_tab_is_closable(self, notebook, tab_index):
-        # AI: The Browser tab is the main IDE surface — closing it would leave
-        # the window empty. The Find tab carries its own Close button, so it is
-        # not given a tab 'x' as well. Every other top-level tab is transient.
-        return notebook.tab(tab_index, 'text') not in ('Browser', 'Find')
+        # AI: The Browser tab is the main IDE surface -- closing it would leave
+        # the window empty. Every other top-level tab, on either notebook, is
+        # transient and closable via its 'x'.
+        return notebook.tab(tab_index, 'text') != 'Browser'
 
     def close_top_level_tab_at_index(self, notebook, tab_index):
         # AI: Dispatch by tab widget identity so the existing per-window
@@ -6033,18 +6033,21 @@ class Swordfish(tk.Tk):
         tab_widget = notebook.nametowidget(notebook.tabs()[tab_index])
         if tab_widget is self.inspector_tab:
             self.close_inspector_tab()
-            return
-        if tab_widget is self.object_diagram_tab:
+        elif tab_widget is self.object_diagram_tab:
             self.close_object_diagram_tab()
-            return
-        if tab_widget is self.class_diagram_tab:
+        elif tab_widget is self.class_diagram_tab:
             self.close_class_diagram_tab()
-            return
-        notebook.forget(tab_widget)
-        if tab_widget is self.debugger_tab:
-            self.debugger_tab = None
-        if tab_widget is self.run_tab:
-            self.run_tab = None
+        else:
+            notebook.forget(tab_widget)
+            if tab_widget is self.debugger_tab:
+                self.debugger_tab = None
+            if tab_widget is self.run_tab:
+                self.run_tab = None
+            tab_widget.destroy()
+        # AI: Same collapse as a pane's own Close button -- if this was the last
+        # tab in a non-primary (right-hand) group, drop the split so the space is
+        # reclaimed instead of leaving a blank hole.
+        self.pane_area.remove_group_if_empty(notebook)
 
     def create_collaboration_status_bar(self):
         self.collaboration_status_frame = ttk.Frame(self)

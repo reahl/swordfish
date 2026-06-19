@@ -51,12 +51,18 @@ class PaneArea(ttk.PanedWindow):
             )
 
     def close_pane(self, pane):
-        # AI: Remove a pane; if that empties a non-primary group, drop the group
-        # and collapse the split so the remaining groups reclaim the space.
+        # AI: Remove a pane and collapse its group if that empties it.
         group = pane.master
         if group in self.groups:
             group.forget(pane)
         pane.destroy()
+        self.remove_group_if_empty(group)
+
+    def remove_group_if_empty(self, group):
+        # AI: Drop a non-primary group that has no tabs left, collapsing the
+        # split so the remaining groups reclaim the space. Shared by every close
+        # path (the tab 'x' and a pane's own Close button), so closing anything
+        # on the right-hand side behaves identically -- no blank hole left.
         if group in self.groups and group is not self.groups[0] and not group.tabs():
             self.forget(group)
             self.groups.remove(group)

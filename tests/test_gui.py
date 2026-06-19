@@ -3762,6 +3762,35 @@ def test_breakpoints_pane_refreshes_when_a_breakpoint_is_set(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_closing_the_last_right_hand_tab_collapses_the_group(fixture):
+    """AI: Closing the last tab of the right-hand group via its tab 'x' drops the
+    split so the left group reclaims the space -- the same collapse Find's Close
+    does -- for any auxiliary tool, here a class diagram. No blank hole left."""
+    fixture.simulate_login()
+    fixture.app.ensure_class_diagram_tab()
+    right = fixture.app.pane_area.group(1)
+    assert len(fixture.app.pane_area.groups) == 2
+
+    fixture.app.close_top_level_tab_at_index(right, 0)
+
+    assert len(fixture.app.pane_area.groups) == 1
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_tab_is_closable_via_its_x_and_collapses_the_group(fixture):
+    """AI: The Find tab closes via its tab 'x' like every other right-hand pane
+    -- it is closable and collapses the group when it was the last tab there."""
+    fixture.simulate_login()
+    fixture.app.open_find_dialog()
+    right = fixture.app.pane_area.group(1)
+    assert fixture.app.top_level_tab_is_closable(right, 0)
+
+    fixture.app.close_top_level_tab_at_index(right, 0)
+
+    assert len(fixture.app.pane_area.groups) == 1
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_mcp_menu_commands_delegate_to_swordfish_handlers(fixture):
     """AI: Selecting MCP menu actions should call corresponding Swordfish command handlers."""
     fixture.simulate_login()
