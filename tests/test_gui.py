@@ -3459,6 +3459,16 @@ def test_find_and_tools_share_one_right_notebook(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_method_selected_event_is_retired(fixture):
+    """AI: The legacy MethodSelected event is retired -- method display now flows
+    through MethodDisplayRequested and list refresh through MethodsChanged, so
+    nothing subscribes to MethodSelected anymore."""
+    fixture.simulate_login()
+
+    assert 'MethodSelected' not in fixture.app.event_queue.events
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_session_menu_owns_exit_and_leads_the_menubar_with_a_code_menu(fixture):
     """AI: Exit now lives on the Session menu (the File menu, which held nothing
     else, is gone), Session leads the menubar, and the former Debug menu is Code."""

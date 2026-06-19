@@ -1377,7 +1377,6 @@ class EventQueue:
             'SelectedPackageChanged',
             'SelectedClassChanged',
             'SelectedCategoryChanged',
-            'MethodSelected',
             'MethodDisplayRequested',
         }
         if event_name not in selection_events:
@@ -5455,10 +5454,6 @@ class Swordfish(tk.Tk):
             self.handle_open_run_window,
         )
         self.event_queue.subscribe(
-            'MethodSelected',
-            self.record_current_browser_place_in_global_history,
-        )
-        self.event_queue.subscribe(
             'MethodDisplayRequested',
             self.record_current_browser_place_in_global_history,
         )
@@ -5952,7 +5947,7 @@ class Swordfish(tk.Tk):
         if change_kind == "methods":
             self.event_queue.publish("MethodsChanged")
             self.event_queue.publish("SelectedCategoryChanged")
-            self.event_queue.publish("MethodSelected")
+            self.event_queue.publish("MethodDisplayRequested")
             return
         if change_kind == "transaction_dirty":
             self.refresh_collaboration_status()
@@ -6491,7 +6486,7 @@ class Swordfish(tk.Tk):
             self.event_queue.publish('BrowseModeChanged')
             self.event_queue.publish('SelectedClassChanged')
             self.event_queue.publish('SelectedCategoryChanged')
-            self.event_queue.publish('MethodSelected')
+            self.event_queue.publish('MethodDisplayRequested')
             if self.browser_tab is not None and self.browser_tab.winfo_exists():
                 self.notebook.select(self.browser_tab)
             return True

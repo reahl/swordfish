@@ -693,7 +693,7 @@ class PackageSelection(Pane):
         self.event_queue.publish('SelectedPackageChanged', origin=self)
         self.event_queue.publish('SelectedClassChanged', origin=self)
         self.event_queue.publish('SelectedCategoryChanged', origin=self)
-        self.event_queue.publish('MethodSelected', origin=self)
+        self.event_queue.publish('MethodDisplayRequested', origin=self)
 
     def handle_browse_mode_changed(self, origin=None):
         if origin is self:
@@ -1351,7 +1351,7 @@ class ClassSelection(Pane):
             self.refresh_class_definition()
             self.event_queue.publish('SelectedClassChanged', origin=self)
             self.event_queue.publish('SelectedCategoryChanged', origin=self)
-            self.event_queue.publish('MethodSelected', origin=self)
+            self.event_queue.publish('MethodDisplayRequested', origin=self)
         except (DomainException, GemstoneDomainException, GemstoneError) as error:
             messagebox.showerror('Delete Class', str(error))
 
@@ -1726,7 +1726,6 @@ class MethodSelection(Pane):
         self.event_queue.subscribe('ClassesChanged', self.repopulate)
         self.event_queue.subscribe('MethodsChanged', self.repopulate)
         self.event_queue.subscribe('Committed', self.repopulate)
-        self.event_queue.subscribe('MethodSelected', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
 
         self.selection_list.selection_listbox.bind('<Button-3>', self.show_context_menu)
@@ -2263,7 +2262,7 @@ class MethodSelection(Pane):
             if self.show_method_hierarchy_var.get():
                 self.refresh_method_hierarchy()
             self.event_queue.publish('SelectedCategoryChanged', origin=self)
-            self.event_queue.publish('MethodSelected', origin=self)
+            self.event_queue.publish('MethodDisplayRequested', origin=self)
         except (DomainException, GemstoneDomainException, GemstoneError) as error:
             messagebox.showerror('Delete Method', str(error))
 
@@ -2418,13 +2417,8 @@ class MethodEditor(Pane):
         # method in preview mode recycles this tab instead of adding a new one.
         self.preview_tab_key = None
 
-        self.event_queue.subscribe('MethodSelected', self.open_method)
         self.event_queue.subscribe('MethodDisplayRequested', self.open_method)
         self.event_queue.subscribe('MethodTabPinRequested', self.pin_current_method_tab)
-        self.event_queue.subscribe(
-            'MethodSelected',
-            self.record_method_navigation,
-        )
         self.event_queue.subscribe(
             'MethodDisplayRequested',
             self.record_method_navigation,
