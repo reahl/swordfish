@@ -902,6 +902,25 @@ def test_editor_displays_the_method_the_event_carries(fixture, scenario):
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_pinning_a_displayed_method_promotes_its_preview_tab(fixture):
+    """AI: MethodTabPinRequested carries the method to pin, so a double-click
+    from Find -- which previews a method then pins it WITHOUT touching the
+    browser's selection -- actually promotes that method's preview tab to a
+    permanent one. (The bug: pin read the browser selection, which Find, by
+    design, never sets.)"""
+    editor = fixture.browser_window.editor_area_widget
+    method = ('OrderLine', True, 'total')
+
+    fixture.event_queue.publish('MethodDisplayRequested', method, origin=None)
+    assert editor.preview_tab_key == method
+
+    fixture.event_queue.publish('MethodTabPinRequested', method, origin=None)
+
+    assert method in editor.open_tabs
+    assert editor.preview_tab_key is None
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_method_editor_is_a_standalone_tool_built_from_the_application(fixture):
     """AI: The editor is a placeable tool in its own right -- constructed from
     only the application (its gem session and busy state) and the event queue,
