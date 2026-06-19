@@ -3212,8 +3212,8 @@ class FindPane(Pane):
 
         self.cancel_button = ttk.Button(
             self.button_frame,
-            text="Cancel",
-            command=self.destroy,
+            text="Close",
+            command=self.close,
         )
         self.cancel_button.grid(row=0, column=4, padx=5)
 
@@ -4659,6 +4659,11 @@ class FindPane(Pane):
             (class_name, selected_row['show_instance_side'], method_selector),
             origin=self,
         )
+
+    def close(self):
+        # AI: Close the Find pane and collapse its split group via the PaneArea,
+        # so closing Find doesn't leave an empty space behind.
+        self.application.pane_area.close_pane(self)
 
 
 class CoveringTestsSearchDialog(tk.Toplevel):
@@ -8058,8 +8063,6 @@ class Swordfish(tk.Tk):
         except tk.TclError:
             pass
         self.class_diagram_tab.destroy()
-        self.class_diagram_tab = None
-
     def open_find_dialog(
         self,
         search_type='class',
@@ -8069,12 +8072,16 @@ class Swordfish(tk.Tk):
         reference_target=None,
         sender_source_class_name=None,
     ):
-        # AI: Find opens as a pane beside the browser -- split off a second
-        # group in the PaneArea and place it there -- not a modal dialog.
-        # Single-click peeks a method into the editor; double-click pins it.
-        group = self.pane_area.split()
+        # AI: Find is a single reusable pane beside the browser. If one is open,
+        # replace its contents in place; otherwise split off a group for it.
+        existing_find_pane = self.active_find_dialog()
+        if existing_find_pane is not None:
+            target_group = existing_find_pane.master
+            existing_find_pane.destroy()
+        else:
+            target_group = self.pane_area.group(self.pane_area.split())
         find_pane = FindPane(
-            self.pane_area.group(group),
+            target_group,
             self,
             search_type=search_type,
             search_query=search_query,
@@ -8083,7 +8090,8 @@ class Swordfish(tk.Tk):
             reference_target=reference_target,
             sender_source_class_name=sender_source_class_name,
         )
-        self.pane_area.place_pane(find_pane, 'Find', group=group)
+        target_group.add(find_pane, text='Find')
+        target_group.select(find_pane)
         return find_pane
 
     def open_find_dialog_for_class(self, class_name):

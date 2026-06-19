@@ -7520,6 +7520,18 @@ def test_single_clicking_a_find_method_result_peeks_it_without_moving_the_browse
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_opening_find_twice_reuses_one_pane(fixture):
+    """AI: Find is a single reusable pane -- opening it a second time replaces
+    its contents in place rather than splitting another group beside it."""
+    fixture.simulate_login()
+
+    fixture.app.open_find_dialog()
+    fixture.app.open_find_dialog()
+
+    assert len(fixture.app.pane_area.groups) == 2
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_main_window_centre_is_a_splittable_pane_area(fixture):
     """AI: The IDE centre is a PaneArea (a splittable arrangement of tab
     groups). Today's tools live in its primary group -- self.notebook points at
