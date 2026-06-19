@@ -4628,17 +4628,26 @@ class FindDialog(tk.Toplevel):
             self.find_text()
             self.update_search_context_fields()
             return
-        parent = self.parent
-        self.destroy()
+        application = self.parent
         if search_type == 'class':
-            parent.handle_find_selection(True, selected_row['class_name'])
+            self.destroy()
+            application.handle_find_selection(True, selected_row['class_name'])
             return
         if selected_row['method_selector'] is not None:
-            parent.handle_sender_selection(
+            # AI: Double-click pins the method in the editor -- preview it, then
+            # promote the tab to permanent -- exactly like double-clicking in
+            # the browser's method list. It does NOT move the browser; "Jump to
+            # class" stays the explicit navigate-the-browser action.
+            method_context = (
                 selected_row['class_name'],
                 selected_row['show_instance_side'],
                 selected_row['method_selector'],
             )
+            application.event_queue.publish(
+                'MethodDisplayRequested', method_context, origin=self
+            )
+            application.event_queue.publish('MethodTabPinRequested', origin=self)
+            self.destroy()
 
 
     def peek_selected_result(self, event):
