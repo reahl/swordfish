@@ -30,7 +30,7 @@ from reahl.swordfish.main import (
     DomainException,
     EventQueue,
     Explorer,
-    FindDialog,
+    FindPane,
     GemstoneSessionRecord,
     GlobalNavigationEntry,
     GlobalNavigationHistory,
@@ -129,7 +129,7 @@ class FakeApplication:
 
 
 def find_result_label_for_row(row):
-    # AI: Reconstruct the legacy single-string label for a FindDialog result row
+    # AI: Reconstruct the legacy single-string label for a FindPane result row
     # ("Class>>selector" / "Class class>>selector" for method rows, the class name
     # for class rows, or the bare selector for a 'contains' search), so tests can
     # assert which results appear independently of the new columns and indentation.
@@ -144,7 +144,7 @@ def find_result_label_for_row(row):
 
 
 def find_result_labels(dialog):
-    # AI: Flatten the FindDialog results Treeview (depth-first, parents before
+    # AI: Flatten the FindPane results Treeview (depth-first, parents before
     # their nested overrides) into the list of labels in display order.
     labels = []
 
@@ -5079,8 +5079,9 @@ def test_mcp_ide_navigation_action_reports_sender_find_dialog_state(fixture):
         "total_count": 2,
         "returned_count": 2,
     }
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="reference",
             search_query="total",
@@ -5137,8 +5138,9 @@ def test_mcp_ide_navigation_action_filters_sender_find_dialog_by_class_category(
         "total_count": 2,
         "returned_count": 2,
     }
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="reference",
             search_query="total",
@@ -6774,13 +6776,13 @@ def test_file_run_command_opens_run_tab_in_notebook(fixture):
 
 @with_fixtures(SwordfishAppFixture)
 def test_find_dialog_class_search_populates_result_list(fixture):
-    """Searching for a class name in the FindDialog calls GemStone and
+    """Searching for a class name in the FindPane calls GemStone and
     populates the results listbox with the matching class names."""
     fixture.simulate_login()
     fixture.mock_browser.find_classes.return_value = ["OrderLine", "OrderHistory"]
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(fixture.app)
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
 
     dialog.find_entry.insert(0, "Order")
     dialog.find_text()
@@ -6814,8 +6816,9 @@ def test_find_dialog_class_mode_supports_contains_and_exact_matching(
 
     fixture.mock_browser.existing_class_named.side_effect = class_named
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="class",
             search_query="Order",
@@ -6838,8 +6841,9 @@ def test_find_dialog_can_stop_a_running_class_search(fixture):
     """AI: Stop should cancel class search and keep partial results."""
     fixture.simulate_login()
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="class",
             search_query="Order",
@@ -6885,8 +6889,9 @@ def test_find_dialog_method_mode_supports_contains_and_exact_matching(
         {"class_name": "OrderLine", "show_instance_side": True},
     ]
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="method",
             search_query="total",
@@ -6914,8 +6919,9 @@ def test_find_dialog_method_search_shows_class_and_method_category_columns(fixtu
         {"class_name": "OrderLine", "show_instance_side": True},
     ]
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="method",
             search_query="total",
@@ -6947,8 +6953,9 @@ def test_find_dialog_nests_override_under_the_implementor_it_overrides(fixture):
         {"class_name": "OrderLine", "show_instance_side": True},
     ]
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="method",
             search_query="total",
@@ -6974,8 +6981,9 @@ def test_find_dialog_class_search_shows_category_column_and_nests_subclasses(fix
 
     fixture.mock_browser.find_classes.side_effect = classes_for_pattern
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="class",
             search_query="Order",
@@ -6998,8 +7006,9 @@ def test_find_dialog_selector_contains_search_shows_only_a_method_column(fixture
     fixture.simulate_login()
     fixture.mock_browser.find_selectors.return_value = ["subtotal", "total"]
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="method",
             search_query="total",
@@ -7025,8 +7034,9 @@ def test_find_dialog_shows_search_intent_and_result_action_text(fixture):
         {"class_name": "OrderLine", "show_instance_side": True},
     ]
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="method",
             search_query="total",
@@ -7060,8 +7070,9 @@ def test_method_contains_double_click_pivots_to_exact_search_in_place(fixture):
         {"class_name": "OrderLine", "show_instance_side": True},
     ]
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="method",
             search_query="tot",
@@ -7101,8 +7112,9 @@ def test_find_dialog_reference_method_search_is_always_exact(
         "returned_count": 1,
     }
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="reference",
             search_query="total",
@@ -7140,8 +7152,9 @@ def test_find_dialog_reference_class_search_is_always_exact(
         "returned_count": 1,
     }
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="reference",
             search_query="Or",
@@ -7183,7 +7196,7 @@ def test_open_find_dialog_for_class_prefills_and_executes_reference_search(
 
     with patch.object(fixture.app, "begin_foreground_activity") as begin_activity:
         with patch.object(fixture.app, "end_foreground_activity") as end_activity:
-            with patch.object(FindDialog, "wait_visibility"):
+            with patch.object(FindPane, "wait_visibility"):
                 dialog = fixture.app.open_find_dialog_for_class("OrderLine")
 
     assert dialog is not None
@@ -7211,8 +7224,8 @@ def test_find_dialog_double_click_pins_class_reference_method(fixture):
     )
     fixture.mock_browser.get_method_category.return_value = 'accessing'
 
-    with patch.object(FindDialog, 'wait_visibility'):
-        dialog = FindDialog(fixture.app)
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = FindPane(fixture.app, fixture.app)
 
     dialog.search_type.set('reference')
     dialog.reference_target.set('class')
@@ -7236,7 +7249,7 @@ def test_find_dialog_double_click_pins_class_reference_method(fixture):
 
 @with_fixtures(SwordfishAppFixture)
 def test_find_dialog_double_click_navigates_browser_to_selected_class(fixture):
-    """Double-clicking a class name in the FindDialog results navigates the
+    """Double-clicking a class name in the FindPane results navigates the
     browser to that class by selecting its package and class in the columns."""
     fixture.simulate_login()
     fixture.app.browser_tab.packages_widget.browse_mode_var.set("categories")
@@ -7248,8 +7261,8 @@ def test_find_dialog_double_click_navigates_browser_to_selected_class(fixture):
         "Kernel"
     )
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(fixture.app)
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
 
     dialog.display_class_results(["OrderLine"])
     select_find_result(dialog, "OrderLine")
@@ -7285,8 +7298,8 @@ def test_find_dialog_double_click_in_dictionary_mode_updates_dictionary_and_clas
     fixture.app.event_queue.publish("SelectedClassChanged")
     fixture.app.update()
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(fixture.app)
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
 
     dialog.display_class_results(["OrderLine"])
     select_find_result(dialog, "OrderLine")
@@ -7333,8 +7346,8 @@ def test_find_dialog_double_click_in_dictionary_mode_uses_class_membership_not_s
     fixture.app.event_queue.publish("SelectedClassChanged")
     fixture.app.update()
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(fixture.app)
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
 
     dialog.display_class_results(["OrderLine"])
     select_find_result(dialog, "OrderLine")
@@ -7353,7 +7366,7 @@ def test_find_dialog_double_click_in_dictionary_mode_uses_class_membership_not_s
 
 @with_fixtures(SwordfishAppFixture)
 def test_senders_dialog_method_search_populates_result_list(fixture):
-    """Searching for senders in the FindDialog shows sender methods with class/side labels."""
+    """Searching for senders in the FindPane shows sender methods with class/side labels."""
     fixture.simulate_login()
     fixture.mock_browser.find_senders.return_value = {
         "senders": [
@@ -7372,8 +7385,9 @@ def test_senders_dialog_method_search_populates_result_list(fixture):
         "returned_count": 2,
     }
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="reference",
             search_query="total",
@@ -7408,8 +7422,9 @@ def test_senders_dialog_double_click_pins_the_method(fixture):
         'returned_count': 1,
     }
 
-    with patch.object(FindDialog, 'wait_visibility'):
-        dialog = FindDialog(
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type='reference',
             search_query='total',
@@ -7460,8 +7475,9 @@ def test_single_clicking_a_find_method_result_peeks_it_without_moving_the_browse
         'returned_count': 1,
     }
 
-    with patch.object(FindDialog, 'wait_visibility'):
-        dialog = FindDialog(
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type='reference',
             search_query='total',
@@ -7573,7 +7589,7 @@ def test_senders_dialog_narrow_with_tracing_filters_to_observed_senders(fixture)
         if dialog.selected_tests is None:
             dialog.run_selected_tests()
 
-    with patch.object(FindDialog, "wait_visibility"):
+    with patch.object(FindPane, "wait_visibility"):
         with patch.object(CoveringTestsSearchDialog, "wait_visibility"):
             with patch.object(
                 CoveringTestsSearchDialog,
@@ -7581,7 +7597,8 @@ def test_senders_dialog_narrow_with_tracing_filters_to_observed_senders(fixture)
                 autospec=True,
                 side_effect=set_ready_then_run,
             ):
-                dialog = FindDialog(
+                dialog = FindPane(
+                    fixture.app,
                     fixture.app,
                     search_type="reference",
                     search_query="total",
@@ -7648,7 +7665,7 @@ def test_senders_dialog_narrow_with_tracing_stops_when_no_candidate_tests(
         )
         dialog.cancel_dialog()
 
-    with patch.object(FindDialog, "wait_visibility"):
+    with patch.object(FindPane, "wait_visibility"):
         with patch.object(CoveringTestsSearchDialog, "wait_visibility"):
             with patch.object(
                 CoveringTestsSearchDialog,
@@ -7656,7 +7673,8 @@ def test_senders_dialog_narrow_with_tracing_stops_when_no_candidate_tests(
                 autospec=True,
                 side_effect=set_ready_then_cancel,
             ):
-                dialog = FindDialog(
+                dialog = FindPane(
+                    fixture.app,
                     fixture.app,
                     search_type="reference",
                     search_query="total",
@@ -7792,7 +7810,7 @@ def test_senders_dialog_narrow_with_tracing_can_search_more_after_timeout(
         if not timed_out:
             dialog.run_selected_tests()
 
-    with patch.object(FindDialog, "wait_visibility"):
+    with patch.object(FindPane, "wait_visibility"):
         with patch.object(CoveringTestsSearchDialog, "wait_visibility"):
             with patch.object(
                 CoveringTestsSearchDialog,
@@ -7800,7 +7818,8 @@ def test_senders_dialog_narrow_with_tracing_can_search_more_after_timeout(
                 autospec=True,
                 side_effect=set_ready_then_search_more_or_run,
             ):
-                dialog = FindDialog(
+                dialog = FindPane(
+                    fixture.app,
                     fixture.app,
                     search_type="reference",
                     search_query="total",
@@ -7854,7 +7873,7 @@ def test_senders_dialog_stop_search_cancels_narrowing_instead_of_using_partial_r
         original_set_searching_state(dialog)
         dialog.request_stop_search()
 
-    with patch.object(FindDialog, "wait_visibility"):
+    with patch.object(FindPane, "wait_visibility"):
         with patch.object(CoveringTestsSearchDialog, "wait_visibility"):
             with patch.object(
                 CoveringTestsSearchDialog,
@@ -7862,7 +7881,8 @@ def test_senders_dialog_stop_search_cancels_narrowing_instead_of_using_partial_r
                 autospec=True,
                 side_effect=set_searching_then_stop,
             ):
-                dialog = FindDialog(
+                dialog = FindPane(
+                    fixture.app,
                     fixture.app,
                     search_type="reference",
                     search_query="total",
@@ -8020,13 +8040,14 @@ def test_senders_dialog_narrow_with_tracing_reloads_static_senders_after_selecto
     def selected_tests_for_method(method_name):
         return selected_tests_by_method[method_name]
 
-    with patch.object(FindDialog, "wait_visibility"):
+    with patch.object(FindPane, "wait_visibility"):
         with patch.object(
-            FindDialog,
+            FindPane,
             "choose_tests_for_tracing",
             side_effect=selected_tests_for_method,
         ):
-            dialog = FindDialog(
+            dialog = FindPane(
+                fixture.app,
                 fixture.app,
                 search_type="reference",
                 search_query="total",
