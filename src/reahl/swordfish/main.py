@@ -3240,13 +3240,6 @@ class FindPane(Pane):
             )
             self.narrow_button.grid(row=0, column=2, padx=5)
 
-        self.cancel_button = ttk.Button(
-            self.button_frame,
-            text="Close",
-            command=self.close,
-        )
-        self.cancel_button.grid(row=0, column=4, padx=5)
-
         self.filter_frame = ttk.Frame(self)
         self.filter_frame.grid(
             row=7,
@@ -3446,7 +3439,6 @@ class FindPane(Pane):
         self.find_operation_running = is_running
         self.find_button.config(state=tk.DISABLED if is_running else tk.NORMAL)
         self.stop_button.config(state=tk.NORMAL if is_running else tk.DISABLED)
-        self.cancel_button.config(state=tk.DISABLED if is_running else tk.NORMAL)
         mode_control_state = tk.DISABLED if is_running else tk.NORMAL
         self.find_entry.config(state=mode_control_state)
         self.class_radio.config(state=mode_control_state)
@@ -4690,11 +4682,6 @@ class FindPane(Pane):
             origin=self,
         )
 
-    def close(self):
-        # AI: Close the Find pane and collapse its split group via the PaneArea,
-        # so closing Find doesn't leave an empty space behind.
-        self.application.pane_area.close_pane(self)
-
 
 class CoveringTestsSearchDialog(tk.Toplevel):
     def __init__(self, parent, method_name, max_elapsed_ms):
@@ -5092,18 +5079,6 @@ class BreakpointsPane(Pane):
             pady=(0, 10),
             sticky="w",
         )
-        self.close_button = ttk.Button(
-            self,
-            text="Close",
-            command=self.close,
-        )
-        self.close_button.grid(
-            row=1,
-            column=2,
-            padx=(5, 10),
-            pady=(0, 10),
-            sticky="e",
-        )
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=0)
         self.columnconfigure(2, weight=0)
@@ -5139,9 +5114,6 @@ class BreakpointsPane(Pane):
                     breakpoint_entry["step_point"],
                 ),
             )
-
-    def close(self):
-        self.application.pane_area.close_pane(self)
 
     def selected_breakpoint_entry(self):
         breakpoint_id = self.selected_breakpoint_id()
