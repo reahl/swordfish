@@ -1317,10 +1317,12 @@ def test_clear_breakpoint_command_from_text_context_menu_uses_method_context(
 
 
 @with_fixtures(SwordfishGuiFixture)
-def test_set_breakpoint_reports_nearest_executable_location_when_snapped(
+def test_set_breakpoint_does_not_pop_up_a_dialog_when_snapped(
     fixture,
 ):
-    """AI: Setting a breakpoint should explain when the cursor location is snapped to a nearby executable offset."""
+    """AI: Setting a breakpoint is silent -- even when the cursor offset snaps to
+    a nearby executable location, no dialog pops up; the gutter marker already
+    shows where the breakpoint landed."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
     tab = fixture.browser_window.editor_area_widget.open_tabs[
         ("OrderLine", True, "total")
@@ -1339,9 +1341,8 @@ def test_set_breakpoint_reports_nearest_executable_location_when_snapped(
     with patch("reahl.swordfish.text_editing.messagebox") as mock_messagebox:
         tab.code_panel.set_breakpoint_at_cursor()
 
-    mock_messagebox.showinfo.assert_called_once()
-    showinfo_message = mock_messagebox.showinfo.call_args.args[1]
-    assert "nearest executable location" in showinfo_message
+    mock_messagebox.showinfo.assert_not_called()
+    fixture.session_record.set_breakpoint.assert_called_once()
 
 
 @with_fixtures(SwordfishGuiFixture)

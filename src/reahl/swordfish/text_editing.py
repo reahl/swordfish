@@ -1057,28 +1057,6 @@ class CodePanel(tk.Frame):
             )
             current_source = self.text_editor.get('1.0', 'end-1c')
             self.apply_breakpoint_markers(current_source)
-            resolved_source_offset = breakpoint_entry['source_offset']
-            if resolved_source_offset != requested_source_offset:
-                requested_line, requested_column = (
-                    self.line_and_column_for_source_offset(requested_source_offset)
-                )
-                resolved_line, resolved_column = self.line_and_column_for_source_offset(
-                    resolved_source_offset
-                )
-                messagebox.showinfo(
-                    'Breakpoint Set',
-                    (
-                        'Requested line %s, column %s. '
-                        'Breakpoint set at nearest executable location '
-                        'line %s, column %s.'
-                    )
-                    % (
-                        requested_line,
-                        requested_column,
-                        resolved_line,
-                        resolved_column,
-                    ),
-                )
         except (DomainException, GemstoneDomainException) as domain_exception:
             messagebox.showerror('Set Breakpoint', str(domain_exception))
         except GemstoneError as error:
