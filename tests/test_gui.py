@@ -3850,6 +3850,57 @@ def test_debugger_save_recompiles_method_and_restarts_the_caller(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_debugger_source_menu_has_save_and_cancel(fixture):
+    """AI: The debugger source pane is a full editor, so its right-click menu
+    carries Save and Cancel (acting on the selected frame's method), like the
+    editor's source menu."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+    debugger_tab = fixture.app.debugger_tab
+
+    menu_event = types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1)
+    debugger_tab.code_panel.open_text_menu(menu_event)
+    fixture.app.update()
+
+    labels = menu_command_labels(debugger_tab.code_panel.current_context_menu)
+    assert "Save" in labels
+    assert "Cancel" in labels
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugger_source_menu_cancel_reloads_frame_source(fixture):
+    """AI: Cancel in the debugger source pane discards edits by reloading the
+    selected frame's method source."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+    debugger_tab = fixture.app.debugger_tab
+
+    frame = types.SimpleNamespace(
+        level=1,
+        class_name="OrderLine",
+        method_name="total",
+        method_source="total\n\t^ 0",
+        step_point_offset=1,
+    )
+    debugger_tab.code_panel.text_editor.delete("1.0", "end")
+    debugger_tab.code_panel.text_editor.insert("1.0", "total\n\t^ 999")
+
+    with patch.object(debugger_tab, "get_selected_stack_frame", return_value=frame):
+        debugger_tab.cancel_current_frame_method()
+    fixture.app.update()
+
+    assert debugger_tab.code_panel.text_editor.get("1.0", "end-1c") == "total\n\t^ 0"
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_mcp_menu_commands_delegate_to_swordfish_handlers(fixture):
     """AI: Selecting MCP menu actions should call corresponding Swordfish command handlers."""
     fixture.simulate_login()

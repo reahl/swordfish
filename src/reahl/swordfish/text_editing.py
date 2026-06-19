@@ -871,6 +871,22 @@ class CodePanel(tk.Frame):
                 state=write_command_state,
             )
             self.current_context_menu.add_separator()
+        elif self.is_debugger_source_panel():
+            # AI: The debugger source pane saves/cancels the SELECTED frame's
+            # method: Save recompiles and restarts the caller; Cancel reloads the
+            # frame source.
+            debugger_tab = self.application.debugger_tab
+            self.current_context_menu.add_command(
+                label='Save',
+                command=debugger_tab.save_current_frame_method,
+                state=write_command_state,
+            )
+            self.current_context_menu.add_command(
+                label='Cancel',
+                command=debugger_tab.cancel_current_frame_method,
+                state=write_command_state,
+            )
+            self.current_context_menu.add_separator()
         selected_text = self.selected_text()
         run_enabled = run_command_state == tk.NORMAL
         add_run_commands(

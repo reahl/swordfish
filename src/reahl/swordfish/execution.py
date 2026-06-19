@@ -1485,6 +1485,14 @@ class DebuggerWindow(ttk.PanedWindow):
         )
         return 'break'
 
+    def cancel_current_frame_method(self, event=None):
+        # AI: Discard edits in the debugger source pane by reloading the selected
+        # frame's method source (with its step-point highlight).
+        frame = self.get_selected_stack_frame()
+        if frame is not None:
+            self.code_panel.refresh(frame.method_source, mark=frame.step_point_offset)
+        return 'break'
+
     def stop(self):
         frame_level = self.selected_frame_level()
         if frame_level:
