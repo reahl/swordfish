@@ -7201,34 +7201,37 @@ def test_open_find_dialog_for_class_prefills_and_executes_reference_search(
     ]
     dialog.destroy()
 
-
 @with_fixtures(SwordfishAppFixture)
-def test_find_dialog_double_click_navigates_to_selected_class_reference_method(
-    fixture,
-):
-    """AI: Double-clicking a class-reference match should navigate to the referenced method context."""
+def test_find_dialog_double_click_pins_class_reference_method(fixture):
+    """AI: Double-clicking a class-reference match (a method) pins that method
+    in the editor rather than navigating the browser to it."""
     fixture.simulate_login()
     fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
-        "Kernel"
+        'Kernel'
     )
-    fixture.mock_browser.get_method_category.return_value = "accessing"
+    fixture.mock_browser.get_method_category.return_value = 'accessing'
 
-    with patch.object(FindDialog, "wait_visibility"):
+    with patch.object(FindDialog, 'wait_visibility'):
         dialog = FindDialog(fixture.app)
 
-    dialog.search_type.set("reference")
-    dialog.reference_target.set("class")
-    dialog.match_mode.set("exact")
-    dialog.populate_navigation_results([("Order", False, "defaultLineClass")])
-    select_find_result(dialog, "Order class>>defaultLineClass")
+    dialog.search_type.set('reference')
+    dialog.reference_target.set('class')
+    dialog.match_mode.set('exact')
+    dialog.populate_navigation_results([('Order', False, 'defaultLineClass')])
+
+    shown = Mock()
+    pinned = Mock()
+    fixture.app.event_queue.subscribe('MethodDisplayRequested', shown)
+    fixture.app.event_queue.subscribe('MethodTabPinRequested', pinned)
+    selection_before = fixture.session_record.selected_class
+
+    select_find_result(dialog, 'Order class>>defaultLineClass')
     dialog.on_result_double_click(None)
     fixture.app.update()
 
-    assert fixture.session_record.selected_package == "Kernel"
-    assert fixture.session_record.selected_class == "Order"
-    assert fixture.session_record.show_instance_side is False
-    assert fixture.session_record.selected_method_symbol == "defaultLineClass"
-    assert fixture.session_record.selected_method_category == "accessing"
+    shown.assert_called_once_with(('Order', False, 'defaultLineClass'), origin=ANY)
+    pinned.assert_called_once()
+    assert fixture.session_record.selected_class == selection_before
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -7383,45 +7386,53 @@ def test_senders_dialog_method_search_populates_result_list(fixture):
     assert results == ["Order class>>default", "OrderLine>>recalculateTotal"]
     dialog.destroy()
 
-
 @with_fixtures(SwordfishAppFixture)
-def test_senders_dialog_double_click_navigates_browser_to_selected_sender(fixture):
-    """Double-clicking a sender result jumps the browser to that sender method context."""
+def test_senders_dialog_double_click_pins_the_method(fixture):
+    """AI: Double-clicking a sender (method) result pins that method in the
+    editor -- preview, then promote the tab to permanent, like the browser's
+    method list -- without moving the browser's column selection."""
     fixture.simulate_login()
     fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
-        "Kernel"
+        'Kernel'
     )
-    fixture.mock_browser.get_method_category.return_value = "accessing"
+    fixture.mock_browser.get_method_category.return_value = 'accessing'
     fixture.mock_browser.find_senders.return_value = {
-        "senders": [
+        'senders': [
             {
-                "class_name": "OrderLine",
-                "show_instance_side": True,
-                "method_selector": "recalculateTotal",
+                'class_name': 'OrderLine',
+                'show_instance_side': True,
+                'method_selector': 'recalculateTotal',
             },
         ],
-        "total_count": 1,
-        "returned_count": 1,
+        'total_count': 1,
+        'returned_count': 1,
     }
 
-    with patch.object(FindDialog, "wait_visibility"):
+    with patch.object(FindDialog, 'wait_visibility'):
         dialog = FindDialog(
             fixture.app,
-            search_type="reference",
-            search_query="total",
+            search_type='reference',
+            search_query='total',
             run_search=True,
-            match_mode="exact",
-            reference_target="method",
+            match_mode='exact',
+            reference_target='method',
         )
 
-    select_find_result(dialog, "OrderLine>>recalculateTotal")
+    shown = Mock()
+    pinned = Mock()
+    fixture.app.event_queue.subscribe('MethodDisplayRequested', shown)
+    fixture.app.event_queue.subscribe('MethodTabPinRequested', pinned)
+    selection_before = fixture.session_record.selected_class
+
+    select_find_result(dialog, 'OrderLine>>recalculateTotal')
     dialog.on_result_double_click(None)
     fixture.app.update()
 
-    assert fixture.session_record.selected_class == "OrderLine"
-    assert fixture.session_record.selected_package == "Kernel"
-    assert fixture.session_record.show_instance_side is True
-    assert fixture.session_record.selected_method_symbol == "recalculateTotal"
+    shown.assert_called_once_with(
+        ('OrderLine', True, 'recalculateTotal'), origin=ANY
+    )
+    pinned.assert_called_once()
+    assert fixture.session_record.selected_class == selection_before
 
 
 @with_fixtures(SwordfishAppFixture)
