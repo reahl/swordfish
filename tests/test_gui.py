@@ -1235,6 +1235,18 @@ def test_close_all_named_closes_every_tab_with_that_selector(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_browser_selection_columns_are_resizable(fixture):
+    """AI: The four selection columns sit in a horizontal PanedWindow so the user
+    can drag the borders between them to resize, rather than being locked to
+    equal-width grid cells."""
+    columns_pane = fixture.browser_window.top_frame
+
+    assert columns_pane.winfo_class() == 'TPanedwindow'
+    assert str(columns_pane.cget('orient')) == 'horizontal'
+    assert len(columns_pane.panes()) == 4
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_set_breakpoint_command_from_text_context_menu_uses_method_context(
     fixture,
 ):

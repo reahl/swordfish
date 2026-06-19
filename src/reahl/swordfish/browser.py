@@ -2723,31 +2723,32 @@ class BrowserWindow(ttk.PanedWindow):
 
         self.application = application
 
-        self.top_frame = ttk.Frame(self)
+        # AI: The four selection columns live in a horizontal PanedWindow so the
+        # user can drag the borders between them to resize each column; the
+        # vertical BrowserWindow sash resizes the columns row against the editor
+        # beneath. Panes no longer grid themselves -- BrowserWindow places them.
+        self.top_frame = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         self.bottom_frame = ttk.Frame(self)
 
         self.add(self.top_frame)
         self.add(self.bottom_frame)
 
-        # AI: BrowserWindow owns the placement of its panes -- the panes no
-        # longer grid themselves -- so the four selection columns sit in a row
-        # and the editor spans beneath them.
         self.packages_widget = PackageSelection(
             self.top_frame, self.application, self.event_queue
         )
-        self.packages_widget.grid(row=0, column=0, sticky='nsew', padx=1, pady=1)
+        self.top_frame.add(self.packages_widget, weight=1)
         self.classes_widget = ClassSelection(
             self.top_frame, self.application, self.event_queue
         )
-        self.classes_widget.grid(row=0, column=1, sticky='nsew', padx=1, pady=1)
+        self.top_frame.add(self.classes_widget, weight=1)
         self.categories_widget = CategorySelection(
             self.top_frame, self.application, self.event_queue
         )
-        self.categories_widget.grid(row=0, column=2, sticky='nsew', padx=1, pady=1)
+        self.top_frame.add(self.categories_widget, weight=1)
         self.methods_widget = MethodSelection(
             self.top_frame, self.application, self.event_queue
         )
-        self.methods_widget.grid(row=0, column=3, sticky='nsew', padx=1, pady=1)
+        self.top_frame.add(self.methods_widget, weight=1)
 
         self.editor_area_widget = MethodEditor(
             self.bottom_frame, self.application, self.event_queue
@@ -2755,12 +2756,6 @@ class BrowserWindow(ttk.PanedWindow):
         self.editor_area_widget.grid(
             row=0, column=0, columnspan=4, sticky='nsew', padx=1, pady=1
         )
-
-        self.top_frame.columnconfigure(0, weight=1)
-        self.top_frame.columnconfigure(1, weight=1)
-        self.top_frame.columnconfigure(2, weight=1)
-        self.top_frame.columnconfigure(3, weight=1)
-        self.top_frame.rowconfigure(0, weight=1)
 
         self.bottom_frame.columnconfigure(0, weight=1)
         self.bottom_frame.rowconfigure(0, weight=1)
