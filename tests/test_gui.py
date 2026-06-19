@@ -3352,6 +3352,43 @@ def test_find_menu_contains_find_implementors_senders_and_references_shortcuts(
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_code_menu_offers_opening_the_browser(fixture):
+    """AI: The Code menu can deliberately (re)open a Browser tab, listed ahead
+    of the Workspace so the primary navigation tool leads the menu."""
+    fixture.simulate_login()
+    fixture.app.menu_bar.update_menus()
+
+    code_menu_labels = menu_command_labels(fixture.app.menu_bar.debug_menu)
+    assert "Browser" in code_menu_labels
+    assert code_menu_labels.index("Browser") < code_menu_labels.index("Workspace")
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_menu_holds_the_class_and_object_diagrams(fixture):
+    """AI: A dedicated UML menu gathers the two diagram tools -- class diagram
+    and object diagram -- as deliberately openable canvases, separate from the
+    contextual inspector/debugger which need a subject."""
+    fixture.simulate_login()
+    fixture.app.menu_bar.update_menus()
+
+    uml_menu_labels = menu_command_labels(fixture.app.menu_bar.uml_menu)
+    assert uml_menu_labels == ["Class Diagram", "Object Diagram"]
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_object_diagram_opens_an_empty_canvas(fixture):
+    """AI: Opening the object diagram from the menu needs no subject object --
+    ensure_object_diagram_tab brings up a blank canvas you add objects to,
+    mirroring ensure_class_diagram_tab."""
+    fixture.simulate_login()
+
+    fixture.app.ensure_object_diagram_tab()
+
+    assert fixture.app.object_diagram_tab is not None
+    assert fixture.app.object_diagram_tab.winfo_exists()
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_session_menu_owns_exit_and_leads_the_menubar_with_a_code_menu(fixture):
     """AI: Exit now lives on the Session menu (the File menu, which held nothing
     else, is gone), Session leads the menubar, and the former Debug menu is Code."""
