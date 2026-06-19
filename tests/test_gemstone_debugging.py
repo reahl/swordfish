@@ -131,7 +131,9 @@ class FakeRestartFrameException:
 
 
 def test_restart_frame_result_trims_stack_to_requested_level():
-    """AI: Restart frame should trim the stack at the selected level using keyword perform with converted level."""
+    """AI: Restart frame trims the suspended stack to the selected level via the
+    PUBLIC trimStackToLevel: (the deprecated _trimStackToLevel: skips ensure-block
+    unwinding); the level is converted through the session."""
     session = FakeRestartFrameSession()
     context = FakeRestartFrameContext(session)
     debug_session = GemstoneDebugSession(FakeRestartFrameException(context))
@@ -141,7 +143,7 @@ def test_restart_frame_result_trims_stack_to_requested_level():
     assert result == "trimmed"
     assert session.from_py_calls == [3]
     assert context.perform_calls == [
-        ("_trimStackToLevel:", ("wrapped-level", 3)),
+        ("trimStackToLevel:", ("wrapped-level", 3)),
     ]
 
 
