@@ -17,7 +17,7 @@ class PaneArea(ttk.PanedWindow):
         # AI: A group is a notebook of panes shown as tabs. Returns the new
         # group's index so callers can place panes into it.
         group = ttk.Notebook(self)
-        self.add(group)
+        self.add(group, weight=1)
         self.groups.append(group)
         return len(self.groups) - 1
 
@@ -31,5 +31,21 @@ class PaneArea(ttk.PanedWindow):
 
     def split(self):
         # AI: Add another tab group beside the current one(s) -- a horizontal
-        # split -- and return its index so panes can be placed into it.
-        return self.add_group()
+        # split -- and rebalance so the new group is actually visible (otherwise
+        # it gets squeezed to zero width at the right edge). Returns its index.
+        index = self.add_group()
+        self.distribute_groups_evenly()
+        return index
+
+    def distribute_groups_evenly(self):
+        # AI: Give every group an equal share of the current width, so opening a
+        # pane visibly rearranges the layout instead of hiding off to the right.
+        self.update_idletasks()
+        total_width = self.winfo_width()
+        group_count = len(self.groups)
+        if total_width <= 1 or group_count < 2:
+            return
+        for sash_index in range(group_count - 1):
+            self.sashpos(
+                sash_index, total_width * (sash_index + 1) // group_count
+            )

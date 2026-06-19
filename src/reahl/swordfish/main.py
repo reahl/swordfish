@@ -4635,7 +4635,9 @@ class FindPane(Pane):
             application.event_queue.publish(
                 'MethodDisplayRequested', method_context, origin=self
             )
-            application.event_queue.publish('MethodTabPinRequested', origin=self)
+            application.event_queue.publish(
+                'MethodTabPinRequested', method_context, origin=self
+            )
 
 
     def peek_selected_result(self, event):

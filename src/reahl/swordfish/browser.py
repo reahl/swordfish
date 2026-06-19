@@ -2661,10 +2661,13 @@ class MethodEditor(Pane):
             self.preview_tab_key = None
             tab.update_tab_label()
 
-    def pin_current_method_tab(self, origin=None):
-        # AI: Driven by MethodTabPinRequested (a double-click in the method
-        # list). Pins the tab for the currently selected method.
-        method_context = self.current_method_context()
+    def pin_current_method_tab(self, method_context=None, origin=None):
+        # AI: Driven by MethodTabPinRequested. Pins the tab for the carried
+        # method; when none is carried, fall back to the browser selection
+        # (the method list sets that on the preceding single click). Find passes
+        # the method explicitly -- a peek/pin never moves the browser selection.
+        if method_context is None:
+            method_context = self.current_method_context()
         if method_context is None:
             return
         if method_context in self.open_tabs:
