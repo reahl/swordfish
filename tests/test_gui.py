@@ -3811,6 +3811,45 @@ def test_debugger_dismiss_collapses_the_right_group(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_debugger_save_recompiles_method_and_restarts_the_caller(fixture):
+    """AI: Saving an edited method in the debugger recompiles it, then restarts
+    the CALLER frame (selected level + 1). A live frame stays bound to the old
+    method version, so re-sending the selector from the caller is what runs the
+    new code (verified against a live gem). Editor views refresh via
+    MethodsChanged + MethodDisplayRequested."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    debugger_tab = fixture.app.debugger_tab
+    frame = types.SimpleNamespace(level=1, class_name="OrderLine", method_name="total")
+    debugger_tab.code_panel.text_editor.delete("1.0", "end")
+    debugger_tab.code_panel.text_editor.insert("1.0", "total\n\t^ 42")
+
+    fixture.session_record.update_method_source = Mock()
+    methods_changed = Mock()
+    displayed = Mock()
+    fixture.app.event_queue.subscribe("MethodsChanged", methods_changed)
+    fixture.app.event_queue.subscribe("MethodDisplayRequested", displayed)
+
+    with patch.object(debugger_tab, "get_selected_stack_frame", return_value=frame):
+        with patch.object(debugger_tab.debug_session, "restart_frame") as restart_frame:
+            with patch.object(debugger_tab, "apply_debug_action_outcome"):
+                debugger_tab.save_current_frame_method()
+    fixture.app.update()
+
+    fixture.session_record.update_method_source.assert_called_once_with(
+        "OrderLine", True, "total", "total\n\t^ 42"
+    )
+    restart_frame.assert_called_once_with(2)
+    methods_changed.assert_called_once()
+    displayed.assert_called_once_with(("OrderLine", True, "total"), origin=ANY)
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_mcp_menu_commands_delegate_to_swordfish_handlers(fixture):
     """AI: Selecting MCP menu actions should call corresponding Swordfish command handlers."""
     fixture.simulate_login()
