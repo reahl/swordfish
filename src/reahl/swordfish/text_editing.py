@@ -2340,6 +2340,12 @@ class EditorTab(tk.Frame):
             label=f'Close All not in {tab_class_name}',
             command=lambda: self.method_editor.close_tabs_in_other_classes(self),
         )
+        # AI: tab_key[2] is the selector; close every open tab with that name.
+        tab_method_name = self.tab_key[2]
+        menu.add_command(
+            label=f'Close All named {tab_method_name}',
+            command=lambda: self.method_editor.close_tabs_with_same_name(self),
+        )
         menu.bind(
             '<Escape>',
             lambda popup_event: close_popup_menu(menu),
