@@ -1082,6 +1082,11 @@ class DebuggerWindow(ttk.PanedWindow):
 
         self.code_panel = CodePanel(self.code_panel_frame, application=application)
         self.code_panel.grid(row=0, column=0, sticky='nsew')
+        # AI: In the debugger the source pane is a full editor: Ctrl-S saves the
+        # SELECTED FRAME's method (not the browser selection CodePanel's own
+        # Ctrl-S targets), recompiling and restarting the caller.
+        self.code_panel.text_editor.bind('<Control-s>', self.save_current_frame_method)
+        self.code_panel.text_editor.bind('<Control-S>', self.save_current_frame_method)
 
         self.call_stack_frame.columnconfigure(0, weight=1)
         self.call_stack_frame.rowconfigure(1, weight=1)
@@ -1449,6 +1454,36 @@ class DebuggerWindow(ttk.PanedWindow):
         if frame_level:
             outcome = self.debug_session.restart_frame(frame_level)
             self.apply_debug_action_outcome(outcome)
+
+    def save_current_frame_method(self, event=None):
+        # AI: Save an edit made in the debugger's source pane. Recompile the
+        # SELECTED frame's method, then restart its CALLER (frame.level + 1): a
+        # live frame is bound to the method version it entered with, so re-running
+        # the edited frame would run the OLD code -- restarting the caller re-sends
+        # the selector, which re-resolves to the new method version (verified on a
+        # live gem). Editor tabs of the method refresh via the published events.
+        frame = self.get_selected_stack_frame()
+        method_context = self.frame_method_context(frame)
+        if method_context is None:
+            return 'break'
+        class_name, show_instance_side, method_name = method_context
+        new_source = self.code_panel.text_editor.get('1.0', 'end-1c')
+        try:
+            self.application.gemstone_session_record.update_method_source(
+                class_name, show_instance_side, method_name, new_source
+            )
+        except (DomainException, GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror('Save Method', str(error))
+            return 'break'
+        outcome = self.debug_session.restart_frame(frame.level + 1)
+        self.apply_debug_action_outcome(outcome)
+        self.application.event_queue.publish('MethodsChanged')
+        self.application.event_queue.publish(
+            'MethodDisplayRequested',
+            (class_name, show_instance_side, method_name),
+            origin=self,
+        )
+        return 'break'
 
     def stop(self):
         frame_level = self.selected_frame_level()
