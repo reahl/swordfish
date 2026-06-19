@@ -2952,10 +2952,11 @@ class MainMenu(tk.Menu):
         self.parent.configure_mcp_server_from_menu()
 
 
-class FindDialog(tk.Toplevel):
+class FindPane(Pane):
     def __init__(
         self,
         parent,
+        application,
         search_type="class",
         search_query="",
         run_search=False,
@@ -2963,14 +2964,7 @@ class FindDialog(tk.Toplevel):
         reference_target=None,
         sender_source_class_name=None,
     ):
-        super().__init__(parent)
-        self.title("Find")
-        self.geometry("720x560")
-        self.transient(parent)
-        self.wait_visibility()
-        self.grab_set()
-
-        self.parent = parent
+        super().__init__(parent, application, application.event_queue)
         self.sender_source_class_name = sender_source_class_name
         self.method_reference_results = []
         self.navigation_method_results = []
@@ -3208,7 +3202,7 @@ class FindDialog(tk.Toplevel):
         self.stop_button.grid(row=0, column=1, padx=5)
 
         self.narrow_button = None
-        if self.parent.experimental_features_enabled:
+        if self.application.experimental_features_enabled:
             self.narrow_button = ttk.Button(
                 self.button_frame,
                 text="Narrow With Tracing",
@@ -3330,10 +3324,6 @@ class FindDialog(tk.Toplevel):
         self.update_search_context_fields()
         if run_search:
             self.find_text()
-
-    @property
-    def gemstone_session_record(self):
-        return self.parent.gemstone_session_record
 
     def resolved_search_configuration(
         self,
@@ -4205,7 +4195,7 @@ class FindDialog(tk.Toplevel):
         self.find_stop_requested = False
         self.set_find_operation_state(should_run_search)
         if should_run_search:
-            self.parent.begin_foreground_activity(
+            self.application.begin_foreground_activity(
                 self.activity_message_for_search(
                     search_type,
                     match_mode,
@@ -4332,7 +4322,7 @@ class FindDialog(tk.Toplevel):
             )
         finally:
             if should_run_search:
-                self.parent.end_foreground_activity()
+                self.application.end_foreground_activity()
             self.set_find_operation_state(False)
             self.update_search_context_fields()
 
@@ -4628,9 +4618,8 @@ class FindDialog(tk.Toplevel):
             self.find_text()
             self.update_search_context_fields()
             return
-        application = self.parent
+        application = self.application
         if search_type == 'class':
-            self.destroy()
             application.handle_find_selection(True, selected_row['class_name'])
             return
         if selected_row['method_selector'] is not None:
@@ -4647,7 +4636,6 @@ class FindDialog(tk.Toplevel):
                 'MethodDisplayRequested', method_context, origin=self
             )
             application.event_queue.publish('MethodTabPinRequested', origin=self)
-            self.destroy()
 
 
     def peek_selected_result(self, event):
@@ -4664,7 +4652,7 @@ class FindDialog(tk.Toplevel):
         method_selector = selected_row.get('method_selector')
         if class_name is None or method_selector is None:
             return
-        self.parent.event_queue.publish(
+        self.application.event_queue.publish(
             'MethodDisplayRequested',
             (class_name, selected_row['show_instance_side'], method_selector),
             origin=self,
@@ -7088,19 +7076,19 @@ class Swordfish(tk.Tk):
         }
 
     def active_find_dialog(self):
-        find_dialog = None
-        child_windows = list(self.winfo_children())
-        for child_window in child_windows:
-            child_is_find_dialog = isinstance(child_window, FindDialog)
-            child_window_exists = False
-            if child_is_find_dialog:
+        # AI: Find is now an embeddable FindPane nested in the PaneArea, not a
+        # child Toplevel -- walk the widget tree to find a live one.
+        pending = list(self.winfo_children())
+        while pending:
+            widget = pending.pop()
+            if isinstance(widget, FindPane):
                 try:
-                    child_window_exists = bool(child_window.winfo_exists())
+                    if widget.winfo_exists():
+                        return widget
                 except tk.TclError:
-                    child_window_exists = False
-            if child_is_find_dialog and child_window_exists:
-                find_dialog = child_window
-        return find_dialog
+                    pass
+            pending.extend(widget.winfo_children())
+        return None
 
     def find_dialog_state_for_mcp(self):
         find_dialog = self.active_find_dialog()
@@ -8079,7 +8067,12 @@ class Swordfish(tk.Tk):
         reference_target=None,
         sender_source_class_name=None,
     ):
-        return FindDialog(
+        # AI: Find opens as a pane beside the browser -- split off a second
+        # group in the PaneArea and place it there -- not a modal dialog.
+        # Single-click peeks a method into the editor; double-click pins it.
+        group = self.pane_area.split()
+        find_pane = FindPane(
+            self.pane_area.group(group),
             self,
             search_type=search_type,
             search_query=search_query,
@@ -8088,6 +8081,8 @@ class Swordfish(tk.Tk):
             reference_target=reference_target,
             sender_source_class_name=sender_source_class_name,
         )
+        self.pane_area.place_pane(find_pane, 'Find', group=group)
+        return find_pane
 
     def open_find_dialog_for_class(self, class_name):
         selected_class_name = (class_name or "").strip()
