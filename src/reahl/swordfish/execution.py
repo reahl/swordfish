@@ -1493,15 +1493,14 @@ class DebuggerWindow(ttk.PanedWindow):
             self.code_panel.refresh(frame.method_source, mark=frame.step_point_offset)
         return 'break'
 
-    def stop(self):
-        frame_level = self.selected_frame_level()
-        if frame_level:
-            action_outcome = self.debug_session.stop()
-            if action_outcome.has_completed:
-                self.dismiss()
-            else:
-                self.stack_frames = self.debug_session.call_stack()
-                self.refresh()
+    def close_from_tab(self):
+        # AI: The tab 'x' takes over the old Stop button: end a live debug by
+        # resuming the suspended process (an unhandled error then unwinds), then
+        # close. A finished debug has no live frames (finish nulls stack_frames),
+        # so there is nothing to resume -- just close.
+        if self.stack_frames:
+            self.debug_session.stop()
+        self.dismiss()
 
     def dismiss(self):
         self.stack_frames = None
@@ -1571,11 +1570,8 @@ class DebuggerControls(ttk.Frame):
         )
         self.restart_button.grid(row=0, column=4, padx=5, pady=5)
 
-        self.stop_button = ttk.Button(self, text='Stop', command=self.handle_stop)
-        self.stop_button.grid(row=0, column=5, padx=5, pady=5)
-
         # AI: The spring column absorbs space at the right of the stepping
-        # cluster. (The Close action moved to the tab 'x'.)
+        # cluster. (Stop and Close both moved to the tab 'x'.)
         self.columnconfigure(6, weight=1)
 
     def handle_continue(self):
@@ -1597,7 +1593,3 @@ class DebuggerControls(ttk.Frame):
     def handle_restart(self):
         self.event_queue.publish('DebuggerFrameRestarted')
         self.debugger.restart_frame()
-
-    def handle_stop(self):
-        self.event_queue.publish('DebuggerStopped')
-        self.debugger.stop()
