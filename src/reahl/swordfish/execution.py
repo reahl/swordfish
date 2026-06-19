@@ -67,13 +67,6 @@ class RunTab(ttk.Frame):
         )
         self.debug_button.grid(row=0, column=2, sticky='w', padx=(0, 5))
 
-        self.close_button = ttk.Button(
-            self.button_frame,
-            text='Close',
-            command=self.close_tab,
-        )
-        self.close_button.grid(row=0, column=4, sticky='e')
-
         self.source_label = ttk.Label(self, text='Source Code:')
         self.source_label.grid(row=1, column=0, sticky='w', padx=10, pady=(5, 0))
 
@@ -1058,7 +1051,6 @@ class DebuggerWindow(ttk.PanedWindow):
             self.call_stack_frame, self, self.event_queue
         )
         self.debugger_controls.grid(row=0, column=0, sticky='nsew', padx=5, pady=5)
-        self.close_button = self.debugger_controls.close_button
 
         self.listbox = ttk.Treeview(
             self.call_stack_frame,
@@ -1499,13 +1491,6 @@ class DebuggerWindow(ttk.PanedWindow):
         self.finished_actions.grid(row=0, column=0, sticky='ew', padx=5, pady=(5, 0))
         self.finished_actions.columnconfigure(0, weight=1)
 
-        self.close_button = ttk.Button(
-            self.finished_actions,
-            text='Close',
-            command=self.dismiss,
-        )
-        self.close_button.grid(row=0, column=1, sticky='e')
-
         self.result_text = tk.Text(self.finished_frame)
         self.result_text.insert('1.0', result.asString().to_py)
         self.result_text.grid(row=1, column=0, sticky='nsew', padx=5, pady=(5, 5))
@@ -1541,16 +1526,9 @@ class DebuggerControls(ttk.Frame):
         self.stop_button = ttk.Button(self, text='Stop', command=self.handle_stop)
         self.stop_button.grid(row=0, column=5, padx=5, pady=5)
 
-        # AI: Browse Method moved to the stack-frame right-click menu (issue
-        # #13); the spring column absorbs space between the stepping cluster
-        # and the right-aligned Close button.
+        # AI: The spring column absorbs space at the right of the stepping
+        # cluster. (The Close action moved to the tab 'x'.)
         self.columnconfigure(6, weight=1)
-        self.close_button = ttk.Button(
-            self,
-            text='Close',
-            command=self.handle_close,
-        )
-        self.close_button.grid(row=0, column=7, padx=5, pady=5, sticky='e')
 
     def handle_continue(self):
         self.event_queue.publish('DebuggerContinued')
@@ -1575,9 +1553,3 @@ class DebuggerControls(ttk.Frame):
     def handle_stop(self):
         self.event_queue.publish('DebuggerStopped')
         self.debugger.stop()
-
-    
-
-    def handle_close(self):
-        self.event_queue.publish('DebuggerClosed')
-        self.debugger.dismiss()
