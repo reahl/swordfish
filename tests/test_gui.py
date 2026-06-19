@@ -1216,6 +1216,25 @@ def test_close_all_not_in_class_keeps_only_that_classes_tabs(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_close_all_named_closes_every_tab_with_that_selector(fixture):
+    """AI: 'Close All named <selector>' closes every open tab whose method has
+    that name, across classes, leaving differently-named methods open."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total", pin=True)
+    fixture.select_down_to_method(
+        "Kernel", "OrderLine", "accessing", "description", pin=True
+    )
+    fixture.select_down_to_method("Kernel", "Order", "accessing", "total", pin=True)
+
+    editor = fixture.browser_window.editor_area_widget
+    order_line_total_tab = editor.open_tabs[("OrderLine", True, "total")]
+
+    menu = fixture.open_tab_context_menu_for_tab(order_line_total_tab)
+    fixture.invoke_menu_command(menu, "Close All named total")
+
+    assert list(editor.open_tabs.keys()) == [("OrderLine", True, "description")]
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_set_breakpoint_command_from_text_context_menu_uses_method_context(
     fixture,
 ):

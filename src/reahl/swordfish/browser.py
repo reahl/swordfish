@@ -2498,6 +2498,15 @@ class MethodEditor(Pane):
             if tab_widget.tab_key[0] != reference_class:
                 self.close_tab(tab_widget)
 
+    def close_tabs_with_same_name(self, reference_tab):
+        # AI: Close every open method that shares reference_tab's selector
+        # (tab_key[2] is the method name), regardless of class.
+        reference_selector = reference_tab.tab_key[2]
+        for tab_path in list(self.editor_notebook.tabs()):
+            tab_widget = self.editor_notebook.nametowidget(tab_path)
+            if tab_widget.tab_key[2] == reference_selector:
+                self.close_tab(tab_widget)
+
     def close_editor_tab_at_index(self, notebook, tab_index):
         # AI: Adapter that the closable_notebook helper calls when the user
         # clicks the 'x' on a tab. Routes through the existing close_tab to
