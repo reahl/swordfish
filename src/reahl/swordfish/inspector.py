@@ -766,13 +766,6 @@ class InspectorTab(ttk.Frame):
             self.jump_to_selected_history_entry,
         )
 
-        self.close_button = ttk.Button(
-            self.actions_frame,
-            text='Close',
-            command=self.application.close_inspector_tab,
-        )
-        self.close_button.grid(row=0, column=5, sticky='e')
-
         self.explorer = Explorer(
             self,
             an_object=an_object,

@@ -5517,8 +5517,9 @@ def test_run_inspector_uses_object_summary_as_first_tab_label(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_run_inspector_tab_can_be_closed_with_close_button(fixture):
-    """The inspector tab opened from Run can be dismissed using its Close Inspector button."""
+def test_run_inspector_tab_can_be_closed_via_its_tab_x(fixture):
+    """AI: The inspector tab opened from Run closes via its tab 'x' -- the single,
+    uniform close for any right-hand tab -- clearing the inspector reference."""
     fixture.simulate_login()
     fixture.app.run_code()
     fixture.app.update()
@@ -5536,62 +5537,12 @@ def test_run_inspector_tab_can_be_closed_with_close_button(fixture):
 
     inspector_tab = fixture.app.inspector_tab
     assert inspector_tab is not None
-    inspector_tab.close_button.invoke()
+    right = inspector_tab.master
+    fixture.app.close_top_level_tab_at_index(right, right.index(inspector_tab))
     fixture.app.update()
 
     assert fixture.app.inspector_tab is None
-    tab_labels = [
-        fixture.app.notebook.tab(tab_id, "text")
-        for tab_id in fixture.app.notebook.tabs()
-    ]
-    assert "Inspect" not in tab_labels
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_run_tab_places_close_button_to_the_right_of_primary_actions(fixture):
-    """AI: Run tab actions keep close on the right so tab controls align with other tabs."""
-    fixture.simulate_login()
-    fixture.app.run_code()
-    fixture.app.update()
-    run_tab = fixture.app.run_tab
-
-    assert int(run_tab.button_frame.grid_info()["row"]) == 0
-    assert int(run_tab.source_label.grid_info()["row"]) == 1
-    assert int(run_tab.source_editor_frame.grid_info()["row"]) == 2
-
-    run_column = int(run_tab.run_button.grid_info()["column"])
-    debug_column = int(run_tab.debug_button.grid_info()["column"])
-    close_column = int(run_tab.close_button.grid_info()["column"])
-
-    assert run_column < debug_column
-    assert debug_column < close_column
-    assert run_tab.close_button.cget("text") == "Close"
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_inspector_tab_uses_top_action_row_with_close_button(fixture):
-    """AI: Inspector tab places close control in the top action row above explorer content."""
-    fixture.simulate_login()
-    fixture.app.run_code()
-    fixture.app.update()
-    run_tab = fixture.app.run_tab
-    run_tab.source_text.delete("1.0", "end")
-    run_tab.source_text.insert("1.0", "3 + 4")
-    run_tab.source_text.tag_add(tk.SEL, "1.0", "1.5")
-
-    inspected_result = make_mock_gemstone_object("Integer", "7")
-    fixture.mock_browser.run_code.return_value = inspected_result
-
-    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
-    invoke_menu_command_by_label(run_tab.current_text_menu, "Inspect")
-    fixture.app.update()
-
-    inspector_tab = fixture.app.inspector_tab
-    assert inspector_tab is not None
-    assert int(inspector_tab.actions_frame.grid_info()["row"]) == 0
-    assert int(inspector_tab.explorer.grid_info()["row"]) == 1
-    assert int(inspector_tab.close_button.grid_info()["row"]) == 0
-    assert inspector_tab.close_button.cget("text") == "Close"
+    assert "Inspect" not in all_open_tab_texts(fixture.app)
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -6511,8 +6462,9 @@ def test_debugger_frame_list_shows_class_and_method_category_columns(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_completed_debugger_can_be_dismissed_with_close_button(fixture):
-    """AI: Once debugger execution completes, the UI should expose a close action that exits debugger mode."""
+def test_completed_debugger_can_be_closed_via_its_tab_x(fixture):
+    """AI: Once debugger execution completes, it closes via its tab 'x' -- the
+    single, uniform close for any right-hand tab -- exiting debugger mode."""
     fixture.simulate_login()
     fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
 
@@ -6528,42 +6480,12 @@ def test_completed_debugger_can_be_dismissed_with_close_button(fixture):
     debugger_tab.finish(completed_result)
     fixture.app.update()
 
-    assert debugger_tab.close_button.winfo_exists()
-    debugger_tab.close_button.invoke()
+    right = debugger_tab.master
+    fixture.app.close_top_level_tab_at_index(right, right.index(debugger_tab))
     fixture.app.update()
 
     assert fixture.app.debugger_tab is None
-    tab_labels = [
-        fixture.app.notebook.tab(tab_id, "text")
-        for tab_id in fixture.app.notebook.tabs()
-    ]
-    assert "Debugger" not in tab_labels
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_debugger_active_controls_keep_close_on_right(fixture):
-    """AI: Debugger control row keeps Close at the right edge, past the rightmost stepping action, so closing the debugger never sits next to the step buttons (Browse Method now lives on the stack-frame right-click menu, issue #13)."""
-    fixture.simulate_login()
-    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
-
-    fixture.app.run_code("1/0")
-    fixture.app.update()
-    run_tab = fixture.app.run_tab
-    run_tab.debug_button.invoke()
-    fixture.app.update()
-
-    debugger_tab = fixture.app.debugger_tab
-    assert debugger_tab is not None
-    assert debugger_tab.close_button is debugger_tab.debugger_controls.close_button
-
-    stop_column = int(
-        debugger_tab.debugger_controls.stop_button.grid_info()["column"]
-    )
-    close_column = int(
-        debugger_tab.debugger_controls.close_button.grid_info()["column"]
-    )
-    assert stop_column < close_column
-    assert debugger_tab.debugger_controls.close_button.cget("text") == "Close"
+    assert "Debugger" not in all_open_tab_texts(fixture.app)
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -6647,30 +6569,6 @@ def test_debugger_restart_frame_uses_selected_level_with_debug_session(
 
     restart_frame.assert_called_once_with(3)
     apply_debug_action_outcome.assert_called_once_with(action_outcome)
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_completed_debugger_keeps_close_in_top_action_row(fixture):
-    """AI: Completed debugger view keeps close action above result content for layout consistency."""
-    fixture.simulate_login()
-    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
-
-    fixture.app.run_code("1/0")
-    fixture.app.update()
-    run_tab = fixture.app.run_tab
-    run_tab.debug_button.invoke()
-    fixture.app.update()
-
-    debugger_tab = fixture.app.debugger_tab
-    completed_result = Mock()
-    completed_result.asString.return_value.to_py = "42"
-    debugger_tab.finish(completed_result)
-    fixture.app.update()
-
-    assert debugger_tab.close_button.master is debugger_tab.finished_actions
-    assert int(debugger_tab.finished_actions.grid_info()["row"]) == 0
-    assert int(debugger_tab.result_text.grid_info()["row"]) == 1
-    assert debugger_tab.close_button.cget("text") == "Close"
 
 
 @with_fixtures(SwordfishAppFixture)
