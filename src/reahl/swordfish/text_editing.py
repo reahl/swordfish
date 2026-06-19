@@ -1456,7 +1456,8 @@ class CodePanel(tk.Frame):
             rename_result,
         )
         if apply_change:
-            self.application.event_queue.publish('MethodSelected', origin=self)
+            self.application.event_queue.publish('MethodsChanged')
+            self.application.event_queue.publish('MethodDisplayRequested', origin=self)
 
     def preview_method_rename(self):
         self.run_method_rename(apply_change=False)
@@ -1568,7 +1569,7 @@ class CodePanel(tk.Frame):
         if apply_change:
             self.application.event_queue.publish('SelectedClassChanged')
             self.application.event_queue.publish('SelectedCategoryChanged')
-            self.application.event_queue.publish('MethodSelected')
+            self.application.event_queue.publish('MethodDisplayRequested')
 
     def preview_method_move(self):
         self.run_method_move(apply_change=False)
@@ -1667,7 +1668,8 @@ class CodePanel(tk.Frame):
             add_parameter_result,
         )
         if apply_change:
-            self.application.event_queue.publish('MethodSelected', origin=self)
+            self.application.event_queue.publish('MethodsChanged')
+            self.application.event_queue.publish('MethodDisplayRequested', origin=self)
 
     def preview_method_add_parameter(self):
         self.run_method_add_parameter(apply_change=False)
@@ -1751,7 +1753,8 @@ class CodePanel(tk.Frame):
             remove_parameter_result,
         )
         if apply_change:
-            self.application.event_queue.publish('MethodSelected', origin=self)
+            self.application.event_queue.publish('MethodsChanged')
+            self.application.event_queue.publish('MethodDisplayRequested', origin=self)
 
     def preview_method_remove_parameter(self):
         self.run_method_remove_parameter(apply_change=False)
@@ -2057,7 +2060,8 @@ class CodePanel(tk.Frame):
             extract_result,
         )
         if apply_change:
-            self.application.event_queue.publish('MethodSelected', origin=self)
+            self.application.event_queue.publish('MethodsChanged')
+            self.application.event_queue.publish('MethodDisplayRequested', origin=self)
 
     def preview_method_extract(self):
         self.run_method_extract(apply_change=False)
@@ -2130,7 +2134,8 @@ class CodePanel(tk.Frame):
             inline_result,
         )
         if apply_change:
-            self.application.event_queue.publish('MethodSelected', origin=self)
+            self.application.event_queue.publish('MethodsChanged')
+            self.application.event_queue.publish('MethodDisplayRequested', origin=self)
 
     def preview_method_inline(self):
         self.run_method_inline(apply_change=False)
@@ -2369,7 +2374,8 @@ class EditorTab(tk.Frame):
             method_symbol,
             self.code_panel.text_editor.get('1.0', 'end-1c'),
         )
-        self.application.event_queue.publish('MethodSelected', origin=self)
+        self.application.event_queue.publish('MethodsChanged')
+        self.application.event_queue.publish('MethodDisplayRequested', origin=self)
         self.repopulate()
 
     def cancel(self):
