@@ -5972,24 +5972,41 @@ class Swordfish(tk.Tk):
         self.pane_area = PaneArea(self)
         self.pane_area.grid(row=0, column=0, sticky="nsew")
         self.notebook = self.pane_area.group(0)
-        self.notebook.bind(
+        self.configure_top_level_notebook(self.notebook)
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+
+    def configure_top_level_notebook(self, notebook):
+        # AI: Give a notebook the standard top-level behaviour: tab-change
+        # history recording plus an 'x' on each tab (Browser/Find stay without
+        # one). Used for both the primary (left) group and the auxiliary (right)
+        # group so tools opened on either side behave alike.
+        notebook.bind(
             "<<NotebookTabChanged>>",
             self.record_selected_tab_in_global_history,
         )
-        self.rowconfigure(0, weight=1)
-        self.columnconfigure(0, weight=1)
-        # AI: Top-level Browser/Debugger/Run/Inspect/Diagram tabs gain an 'x'.
-        # The Browser tab is non-closable: closing it would empty the IDE.
         install_close_buttons(
-            self.notebook,
+            notebook,
             self.close_top_level_tab_at_index,
             is_closable=self.top_level_tab_is_closable,
         )
 
+    def auxiliary_notebook(self):
+        # AI: The right-hand group where auxiliary tools (Find, inspectors, the
+        # debugger, diagrams) open, beside Browser/Workspace on the left. It is
+        # split off and configured on first use; the browser/workspace stay in
+        # the primary group.
+        secondary_is_missing = len(self.pane_area.groups) < 2
+        if secondary_is_missing:
+            self.pane_area.split()
+            self.configure_top_level_notebook(self.pane_area.group(1))
+        return self.pane_area.group(1)
+
     def top_level_tab_is_closable(self, notebook, tab_index):
-        # AI: The Browser tab is the main IDE surface — closing it would
-        # leave the window empty. Every other top-level tab is transient.
-        return notebook.tab(tab_index, 'text') != 'Browser'
+        # AI: The Browser tab is the main IDE surface — closing it would leave
+        # the window empty. The Find tab carries its own Close button, so it is
+        # not given a tab 'x' as well. Every other top-level tab is transient.
+        return notebook.tab(tab_index, 'text') not in ('Browser', 'Find')
 
     def close_top_level_tab_at_index(self, notebook, tab_index):
         # AI: Dispatch by tab widget identity so the existing per-window
@@ -6263,14 +6280,30 @@ class Swordfish(tk.Tk):
             return
         if selected_tab_id != str(self.browser_tab):
             return
+        # AI: Tools now live in the right notebook, so the browser stays selected
+        # on the left even while a tool is the active place. Only snapshot the
+        # browser when we are actually at a browser place -- otherwise opening
+        # successive tools appends duplicate browser entries between them.
+        current_entry = self.global_navigation_history.current_entry()
+        current_is_browser = current_entry is not None and current_entry.kind in (
+            'browser_method',
+            'browser_selection',
+        )
+        if current_entry is not None and not current_is_browser:
+            return
         self.record_current_browser_place_in_global_history()
 
     def record_selected_tab_in_global_history(self, event=None):
-        if self.notebook is None or not self.notebook.winfo_exists():
+        # AI: Record the place for whichever notebook fired the tab change -- the
+        # left (browser/workspace) group or the right (auxiliary) group -- not
+        # always self.notebook, or a right-group tool would be mis-recorded as
+        # the left group's current selection.
+        notebook = event.widget if event is not None else self.notebook
+        if notebook is None or not notebook.winfo_exists():
             self.refresh_global_navigation_controls()
             return
         try:
-            selected_tab_id = self.notebook.select()
+            selected_tab_id = notebook.select()
         except tk.TclError:
             self.refresh_global_navigation_controls()
             return
@@ -6467,7 +6500,7 @@ class Swordfish(tk.Tk):
         if session_tab is None:
             self.mark_global_navigation_place_stale(entry.place_key)
             return False
-        self.notebook.select(session_tab)
+        session_tab.master.select(session_tab)
         return True
 
     def navigate_global_history(self, direction):
@@ -7827,8 +7860,9 @@ class Swordfish(tk.Tk):
         }
 
     def add_debugger_tab(self, exception):
+        notebook = self.auxiliary_notebook()
         self.debugger_tab = DebuggerWindow(
-            self.notebook,
+            notebook,
             self,
             self.gemstone_session_record,
             self.event_queue,
@@ -7837,10 +7871,10 @@ class Swordfish(tk.Tk):
         self.debugger_tab.global_navigation_session_key = (
             self.allocate_global_navigation_session_key('debugger')
         )
-        self.notebook.add(self.debugger_tab, text="Debugger")
+        notebook.add(self.debugger_tab, text="Debugger")
 
     def select_debugger_tab(self):
-        self.notebook.select(self.debugger_tab)
+        self.debugger_tab.master.select(self.debugger_tab)
         # if self.debugger_tab:
         #     self.notebook.select(self.debugger_tab)
         #     self.debugger_tab.top_frame.lift()
@@ -7921,8 +7955,9 @@ class Swordfish(tk.Tk):
     def open_inspector_for_object(self, inspected_object):
         self.ensure_current_browser_place_in_global_history()
         self.close_inspector_tab()
+        notebook = self.auxiliary_notebook()
         self.inspector_tab = InspectorTab(
-            self.notebook,
+            notebook,
             self,
             an_object=inspected_object,
             graph_inspect_action=self.open_object_diagram_for_object,
@@ -7930,21 +7965,22 @@ class Swordfish(tk.Tk):
         self.inspector_tab.global_navigation_session_key = (
             self.allocate_global_navigation_session_key('inspect')
         )
-        self.notebook.add(self.inspector_tab, text="Inspect")
-        self.notebook.select(self.inspector_tab)
+        notebook.add(self.inspector_tab, text="Inspect")
+        notebook.select(self.inspector_tab)
 
     def ensure_object_diagram_tab(self):
+        notebook = self.auxiliary_notebook()
         tab_is_missing = (
             self.object_diagram_tab is None
             or not self.object_diagram_tab.winfo_exists()
         )
         if tab_is_missing:
-            self.object_diagram_tab = UmlObjectDiagramTab(self.notebook, self)
+            self.object_diagram_tab = UmlObjectDiagramTab(notebook, self)
             self.object_diagram_tab.global_navigation_session_key = (
                 self.allocate_global_navigation_session_key('object_diagram')
             )
-            self.notebook.add(self.object_diagram_tab, text="Object Diagram")
-        self.notebook.select(self.object_diagram_tab)
+            notebook.add(self.object_diagram_tab, text="Object Diagram")
+        notebook.select(self.object_diagram_tab)
         return self.object_diagram_tab
 
     def open_object_diagram_for_object(self, inspected_object):
@@ -8000,16 +8036,17 @@ class Swordfish(tk.Tk):
         )
 
     def ensure_class_diagram_tab(self):
+        notebook = self.auxiliary_notebook()
         tab_is_missing = (
             self.class_diagram_tab is None or not self.class_diagram_tab.winfo_exists()
         )
         if tab_is_missing:
-            self.class_diagram_tab = UmlClassDiagramTab(self.notebook, self)
+            self.class_diagram_tab = UmlClassDiagramTab(notebook, self)
             self.class_diagram_tab.global_navigation_session_key = (
                 self.allocate_global_navigation_session_key('class_diagram')
             )
-            self.notebook.add(self.class_diagram_tab, text="Class Diagram")
-        self.notebook.select(self.class_diagram_tab)
+            notebook.add(self.class_diagram_tab, text="Class Diagram")
+        notebook.select(self.class_diagram_tab)
         return self.class_diagram_tab
 
     def class_diagram_state_for_mcp(self):
@@ -8026,9 +8063,10 @@ class Swordfish(tk.Tk):
                 },
             }
         selected_tab_id = None
-        if self.notebook is not None and self.notebook.winfo_exists():
+        diagram_notebook = self.class_diagram_tab.master
+        if diagram_notebook is not None and diagram_notebook.winfo_exists():
             try:
-                selected_tab_id = self.notebook.select()
+                selected_tab_id = diagram_notebook.select()
             except tk.TclError:
                 selected_tab_id = None
         return {
@@ -8054,7 +8092,7 @@ class Swordfish(tk.Tk):
                 ('inspector_session', inspector_session_key),
             )
         try:
-            self.notebook.forget(self.inspector_tab)
+            self.inspector_tab.master.forget(self.inspector_tab)
         except tk.TclError:
             pass
         self.inspector_tab.destroy()
@@ -8078,7 +8116,7 @@ class Swordfish(tk.Tk):
                 ('object_diagram_session', object_diagram_session_key),
             )
         try:
-            self.notebook.forget(self.object_diagram_tab)
+            self.object_diagram_tab.master.forget(self.object_diagram_tab)
         except tk.TclError:
             pass
         self.object_diagram_tab.destroy()
@@ -8101,7 +8139,7 @@ class Swordfish(tk.Tk):
                 ('class_diagram_session', class_diagram_session_key),
             )
         try:
-            self.notebook.forget(self.class_diagram_tab)
+            self.class_diagram_tab.master.forget(self.class_diagram_tab)
         except tk.TclError:
             pass
         self.class_diagram_tab.destroy()
@@ -8121,7 +8159,7 @@ class Swordfish(tk.Tk):
             target_group = existing_find_pane.master
             existing_find_pane.destroy()
         else:
-            target_group = self.pane_area.group(self.pane_area.split())
+            target_group = self.auxiliary_notebook()
         find_pane = FindPane(
             target_group,
             self,
