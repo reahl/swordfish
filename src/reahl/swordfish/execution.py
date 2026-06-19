@@ -1087,6 +1087,10 @@ class DebuggerWindow(ttk.PanedWindow):
         # Ctrl-S targets), recompiling and restarting the caller.
         self.code_panel.text_editor.bind('<Control-s>', self.save_current_frame_method)
         self.code_panel.text_editor.bind('<Control-S>', self.save_current_frame_method)
+        # AI: Editing the running method in the EDITOR re-runs it here too: react
+        # to its recompile by trimming this debugger to the caller of the frame
+        # running it.
+        self.event_queue.subscribe('MethodRecompiled', self.on_method_recompiled)
 
         self.call_stack_frame.columnconfigure(0, weight=1)
         self.call_stack_frame.rowconfigure(1, weight=1)
@@ -1492,6 +1496,33 @@ class DebuggerWindow(ttk.PanedWindow):
         if frame is not None:
             self.code_panel.refresh(frame.method_source, mark=frame.step_point_offset)
         return 'break'
+
+    def level_of_frame_running(self, method_context):
+        # AI: Level of the shallowest live frame whose method matches, or None.
+        if self.stack_frames is None:
+            return None
+        for frame in self.stack_frames:
+            if self.frame_method_context(frame) == method_context:
+                return frame.level
+        return None
+
+    def on_method_recompiled(self, method_context, origin=None):
+        # AI: A method on this stack was recompiled (in the editor, or here). Run
+        # the new code by restarting the CALLER of the shallowest frame running it
+        # (a live frame stays bound to the old method version, so re-sending from
+        # the caller is what re-resolves to the new version). Our own save already
+        # trimmed inline, so skip when we are the origin.
+        if origin is self:
+            return
+        target_level = self.level_of_frame_running(method_context)
+        if target_level is None:
+            return
+        outcome = self.debug_session.restart_frame(target_level + 1)
+        self.apply_debug_action_outcome(outcome)
+
+    def destroy(self):
+        self.application.event_queue.clear_subscribers(self)
+        super().destroy()
 
     def close_from_tab(self):
         # AI: The tab 'x' takes over the old Stop button: end a live debug by

@@ -2376,6 +2376,12 @@ class EditorTab(tk.Frame):
         )
         self.application.event_queue.publish('MethodsChanged')
         self.application.event_queue.publish('MethodDisplayRequested', origin=self)
+        # AI: Signal the precise method that was recompiled (MethodsChanged carries
+        # no identity) so a debugger running this method can re-run it with the new
+        # code by trimming to the caller.
+        self.application.event_queue.publish(
+            'MethodRecompiled', self.tab_key, origin=self
+        )
         self.repopulate()
 
     def cancel(self):
