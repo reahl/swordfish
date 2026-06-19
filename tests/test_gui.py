@@ -3901,6 +3901,31 @@ def test_debugger_source_menu_cancel_reloads_frame_source(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_debugger_tab_x_ends_the_live_debug_and_closes(fixture):
+    """AI: The debugger's tab 'x' takes over the old Stop button -- a still-live
+    debug is ended (the suspended process is resumed) and the debugger closes,
+    collapsing its group."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+    debugger_tab = fixture.app.debugger_tab
+    debugger_tab.stack_frames = [types.SimpleNamespace(level=1)]
+    right = debugger_tab.master
+    assert len(fixture.app.pane_area.groups) == 2
+
+    with patch.object(debugger_tab.debug_session, "stop") as stop:
+        fixture.app.close_top_level_tab_at_index(right, right.index(debugger_tab))
+    fixture.app.update()
+
+    stop.assert_called_once()
+    assert fixture.app.debugger_tab is None
+    assert len(fixture.app.pane_area.groups) == 1
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_mcp_menu_commands_delegate_to_swordfish_handlers(fixture):
     """AI: Selecting MCP menu actions should call corresponding Swordfish command handlers."""
     fixture.simulate_login()
@@ -6599,10 +6624,11 @@ def test_completed_debugger_can_be_closed_via_its_tab_x(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_debugger_active_controls_place_restart_between_through_and_stop(
+def test_debugger_active_controls_place_restart_after_through(
     fixture,
 ):
-    """AI: Restart action should be in stepping flow between Through and Stop."""
+    """AI: Restart action sits in the stepping flow after Through (Stop is gone --
+    the tab 'x' ends the debug)."""
     fixture.simulate_login()
     fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
 
@@ -6619,10 +6645,7 @@ def test_debugger_active_controls_place_restart_between_through_and_stop(
     restart_column = int(
         debugger_tab.debugger_controls.restart_button.grid_info()["column"]
     )
-    stop_column = int(debugger_tab.debugger_controls.stop_button.grid_info()["column"])
-
     assert through_column < restart_column
-    assert restart_column < stop_column
     assert debugger_tab.debugger_controls.restart_button.cget("text") == "Restart"
 
 

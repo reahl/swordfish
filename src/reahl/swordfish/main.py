@@ -6012,7 +6012,7 @@ class Swordfish(tk.Tk):
         elif tab_widget is self.run_tab:
             tab_widget.close_tab()
         elif tab_widget is self.debugger_tab:
-            tab_widget.dismiss()
+            tab_widget.close_from_tab()
         else:
             notebook.forget(tab_widget)
             tab_widget.destroy()
