@@ -1024,7 +1024,7 @@ class RunTab(ttk.Frame):
         if self.application.run_tab is self:
             self.application.run_tab = None
         try:
-            self.application.notebook.forget(self)
+            self.master.forget(self)
         except tk.TclError:
             pass
         self.destroy()
@@ -1478,7 +1478,7 @@ class DebuggerWindow(ttk.PanedWindow):
         if self.application.debugger_tab is self:
             self.application.debugger_tab = None
         try:
-            self.application.notebook.forget(self)
+            self.master.forget(self)
         except tk.TclError:
             pass
         self.destroy()
