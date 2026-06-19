@@ -53,3 +53,21 @@ def test_splitting_adds_a_side_by_side_group(fixture):
     first, second = area.group(0), area.group(second_group)
     assert [first.tab(t, 'text') for t in first.tabs()] == ['Editor']
     assert [second.tab(t, 'text') for t in second.tabs()] == ['Find']
+
+
+@with_fixtures(PaneAreaFixture)
+def test_closing_a_pane_collapses_its_empty_group(fixture):
+    """AI: Closing the last pane in a non-primary group removes that group and
+    collapses the split, so the remaining group reclaims the space rather than
+    leaving an empty leftover."""
+    area = PaneArea(fixture.root)
+    area.place_pane(ttk.Frame(area.group(0)), 'Browser')
+    second_group = area.split()
+    find = ttk.Frame(area.group(second_group))
+    area.place_pane(find, 'Find', group=second_group)
+    assert len(area.panes()) == 2
+
+    area.close_pane(find)
+
+    assert len(area.groups) == 1
+    assert len(area.panes()) == 1

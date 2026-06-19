@@ -49,3 +49,16 @@ class PaneArea(ttk.PanedWindow):
             self.sashpos(
                 sash_index, total_width * (sash_index + 1) // group_count
             )
+
+    def close_pane(self, pane):
+        # AI: Remove a pane; if that empties a non-primary group, drop the group
+        # and collapse the split so the remaining groups reclaim the space.
+        group = pane.master
+        if group in self.groups:
+            group.forget(pane)
+        pane.destroy()
+        if group in self.groups and group is not self.groups[0] and not group.tabs():
+            self.forget(group)
+            self.groups.remove(group)
+            group.destroy()
+            self.distribute_groups_evenly()
