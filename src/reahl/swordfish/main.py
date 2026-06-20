@@ -3261,7 +3261,10 @@ class FindPane(Pane):
         # AI: The filter row holds one regex box per visible result column, built
         # dynamically by rebuild_column_filter_entries (driven from
         # configure_result_columns) so every find type gets per-column filtering.
+        # The boxes are overlaid above the column headings and aligned to each
+        # column by sync_filter_entry_positions.
         self.column_filter_entries = {}
+        self.filter_column_order = []
 
         # AI: A Treeview (tree + headings) so results can carry the adaptive
         # AI: Class / Class Category / Method / Method Category columns and so
@@ -3281,6 +3284,14 @@ class FindPane(Pane):
         )
         self.results_tree.bind('<Double-Button-1>', self.on_result_double_click)
         self.results_tree.bind('<ButtonRelease-1>', self.peek_selected_result)
+        # AI: Keep the overlaid filter boxes aligned to the columns: <Configure>
+        # covers the widget being mapped/resized; B1-Motion/ButtonRelease cover a
+        # column being drag-resized (ttk emits no event for that).
+        self.results_tree.bind('<Configure>', self.sync_filter_entry_positions, add='+')
+        self.results_tree.bind('<B1-Motion>', self.sync_filter_entry_positions, add='+')
+        self.results_tree.bind(
+            '<ButtonRelease-1>', self.sync_filter_entry_positions, add='+'
+        )
         self.configure_result_columns('method')
 
         self.status_label = ttk.Label(
@@ -3681,40 +3692,70 @@ class FindPane(Pane):
         # AI: Category; a method/sender/reference search adds Method and Method
         # AI: Category; a 'contains' selector search has only bare selectors. The
         # AI: columns and the per-column filter boxes are both built from
-        # AI: result_column_specs so they always agree.
+        # AI: result_column_specs so they always agree. Inner columns are fixed
+        # AI: width and only the last column stretches, so the cumulative set
+        # AI: widths give the exact x-position of every column boundary -- which is
+        # AI: what the overlaid filter boxes are aligned to (sync_filter_entry_positions).
         specs = self.result_column_specs(column_kind)
         data_columns = tuple(
             column_id for column_id, _heading, _value in specs if column_id != '#0'
         )
         self.results_tree.configure(columns=data_columns)
-        self.results_tree.heading('#0', text=specs[0][1])
-        self.results_tree.column('#0', width=220, stretch=True)
+        last_column_id = specs[-1][0]
         for column_id, heading, _value in specs:
+            width = 220 if column_id == '#0' else 150
+            stretches = column_id == last_column_id
             if column_id != '#0':
                 self.results_tree.heading(column_id, text=heading)
-                self.results_tree.column(column_id, width=150, stretch=True)
+            else:
+                self.results_tree.heading('#0', text=heading)
+            self.results_tree.column(column_id, width=width, stretch=stretches)
         self.rebuild_column_filter_entries(specs)
 
     def rebuild_column_filter_entries(self, specs):
-        # AI: One regex filter box per visible column, rebuilt whenever the columns
-        # change so EVERY find type gets per-column filtering (not just senders).
-        # Typing re-renders the unfiltered baseline through the column filters.
+        # AI: One UNLABELLED regex box per visible column, overlaid in a row above
+        # the column headings and aligned to each column (see
+        # sync_filter_entry_positions). Rebuilt whenever the columns change so every
+        # find type gets per-column filtering. Typing re-renders the unfiltered
+        # baseline through the column filters.
         for child in self.filter_frame.winfo_children():
             child.destroy()
         self.column_filter_entries = {}
-        grid_column = 0
-        for column_id, heading, _value in specs:
-            ttk.Label(self.filter_frame, text='%s (regex):' % heading).grid(
-                row=0, column=grid_column, padx=(0, 4), pady=(0, 4), sticky='w'
-            )
+        self.filter_column_order = [column_id for column_id, _h, _v in specs]
+        for column_id in self.filter_column_order:
             entry = ttk.Entry(self.filter_frame)
-            entry.grid(
-                row=0, column=grid_column + 1, padx=(0, 12), pady=(0, 4), sticky='ew'
-            )
             entry.bind('<KeyRelease>', lambda *_: self.render_current_results())
-            self.filter_frame.columnconfigure(grid_column + 1, weight=1)
             self.column_filter_entries[column_id] = entry
-            grid_column += 2
+        # AI: place() children don't size their parent, so pin the row height to one
+        # entry and stop geometry propagation, else the frame collapses to nothing.
+        self.filter_frame.update_idletasks()
+        sample_entry = next(iter(self.column_filter_entries.values()))
+        self.filter_frame.configure(height=sample_entry.winfo_reqheight())
+        self.filter_frame.grid_propagate(False)
+        self.sync_filter_entry_positions()
+
+    def sync_filter_entry_positions(self, event=None):
+        # AI: Position each filter box exactly above its column. ttk.Treeview gives
+        # no column-resize event and stretched columns don't report their rendered
+        # width, so we accumulate the SET widths (inner columns are fixed; only the
+        # last stretches) to get each boundary, and give the last box the remaining
+        # tree width. Re-run on tree <Configure> and column-drag motion.
+        if not self.column_filter_entries:
+            return
+        if not self.results_tree.winfo_exists():
+            return
+        tree_width = self.results_tree.winfo_width()
+        cumulative_x = 0
+        last_index = len(self.filter_column_order) - 1
+        for index, column_id in enumerate(self.filter_column_order):
+            entry = self.column_filter_entries[column_id]
+            column_width = self.results_tree.column(column_id, 'width')
+            if index == last_index:
+                place_width = max(column_width, tree_width - cumulative_x)
+            else:
+                place_width = column_width
+            entry.place(x=cumulative_x, y=0, width=place_width)
+            cumulative_x += column_width
 
     def set_result_rows(self, rows, column_kind, class_definition_by_name=None):
         # AI: The one entry point every find-result path funnels through. Keeps an
@@ -3726,6 +3767,7 @@ class FindPane(Pane):
         self.baseline_class_definition_by_name = class_definition_by_name or {}
         self.configure_result_columns(column_kind)
         self.render_current_results()
+        self.sync_filter_entry_positions()
 
     def render_current_results(self):
         rows = self.rows_matching_column_filters(self.baseline_result_rows)

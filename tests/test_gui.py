@@ -7403,6 +7403,33 @@ def test_find_invalid_filter_regex_is_ignored_not_blanking_results(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_find_filter_boxes_are_overlaid_aligned_to_their_columns(fixture):
+    """AI: Each filter box is an unlabelled entry placed (overlaid) above its
+    column, aligned to that column's boundary: box order follows the columns and
+    each box's x-position is the cumulative width of the columns to its left, so it
+    sits exactly over its heading and follows when columns resize."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_classes.return_value = ["OrderLine"]
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+    dialog.find_entry.insert(0, "Order")
+    dialog.find_text()
+    dialog.update_idletasks()
+
+    assert dialog.filter_column_order == ["#0", "ClassCategory"]
+    first_box = dialog.column_filter_entries["#0"]
+    second_box = dialog.column_filter_entries["ClassCategory"]
+    # AI: placed via place(), so geometry manager is 'place' and x tracks the
+    # cumulative column width (#0 width) -- no label tuple, just the box.
+    assert first_box.winfo_manager() == "place"
+    assert first_box.place_info()["x"] == "0"
+    assert int(second_box.place_info()["x"]) == dialog.results_tree.column(
+        "#0", "width"
+    )
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_find_dialog_class_mode_supports_contains_and_exact_matching(
     fixture,
 ):
