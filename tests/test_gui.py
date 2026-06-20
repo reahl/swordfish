@@ -3905,6 +3905,72 @@ def test_open_editor_tab_reloads_its_source_on_methods_changed(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_refresh_publishes_generic_refresh_from_image_event(fixture):
+    """AI: refresh_from_image also fires a generic RefreshFromImage so the
+    snapshot tools (class diagram, inspector) -- which don't track the typed
+    change events -- can opt into the manual refresh and re-read in place."""
+    fixture.simulate_login()
+    refresh_requested = Mock()
+    fixture.app.event_queue.subscribe('RefreshFromImage', refresh_requested)
+
+    fixture.app.refresh_from_image()
+    fixture.app.update()
+
+    refresh_requested.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_class_diagram_refreshes_shown_class_contents_in_place(fixture):
+    """AI: A manual Refresh re-reads each shown class's contents (inst vars) from
+    the image and redraws it AT ITS CURRENT POSITION -- not a relayout/rebuild.
+    An in-image change to the class shape appears; the layout you arranged stays."""
+    fixture.simulate_login()
+    fixture.app.ensure_class_diagram_tab()
+    diagram = fixture.app.class_diagram_tab
+    node = diagram.uml_canvas.add_or_update_class_node(
+        {
+            "class_name": "OrderLine",
+            "superclass_name": "Object",
+            "inst_var_names": ["amount"],
+        }
+    )
+    node.x, node.y = 120, 80
+    diagram.uml_canvas.redraw_node(node)
+    assert node.inst_var_names == ["amount"]
+
+    fixture.mock_browser.get_class_definition.side_effect = None
+    fixture.mock_browser.get_class_definition.return_value = {
+        "class_name": "OrderLine",
+        "superclass_name": "Object",
+        "inst_var_names": ["amount", "quantity"],
+    }
+    fixture.app.refresh_from_image()
+    fixture.app.update()
+
+    assert node.inst_var_names == ["amount", "quantity"]
+    assert (node.x, node.y) == (120, 80)
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_inspector_re_reads_object_in_place_on_refresh(fixture):
+    """AI: A manual Refresh re-inspects each open inspector object so its current
+    state from the image replaces what's shown -- the snapshot tool opts in via
+    RefreshFromImage; the Explorer re-reads every tab (incl. navigated ones)."""
+    fixture.simulate_login()
+    an_object = make_mock_gemstone_object("OrderLine", "an OrderLine")
+    fixture.app.open_inspector_for_object(an_object)
+    fixture.app.update()
+    explorer = fixture.app.inspector_tab.explorer
+    context_inspector = fixture.app.nametowidget(explorer.tabs()[0])
+    context_inspector.inspect_object = Mock()
+
+    fixture.app.refresh_from_image()
+    fixture.app.update()
+
+    context_inspector.inspect_object.assert_called_once_with(an_object)
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_closing_the_last_right_hand_tab_collapses_the_group(fixture):
     """AI: Closing the last tab of the right-hand group via its tab 'x' drops the
     split so the left group reclaims the space -- the same collapse Find's Close
