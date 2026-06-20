@@ -5088,6 +5088,10 @@ class BreakpointsPane(Pane):
         # (e.g. from the editor) refreshes the pane while it is open.
         self.event_queue.subscribe('BreakpointSet', self.refresh_breakpoints)
         self.event_queue.subscribe('BreakpointCleared', self.refresh_breakpoints)
+        # AI: MCP-driven breakpoint changes reach the pane through the model-
+        # refresh bridge's 'breakpoints' kind -> BreakpointsChanged (the MCP
+        # doesn't publish the per-action BreakpointSet/BreakpointCleared events).
+        self.event_queue.subscribe('BreakpointsChanged', self.refresh_breakpoints)
         self.refresh_breakpoints()
 
     def refresh_breakpoints(self, origin=None):
@@ -5941,6 +5945,9 @@ class Swordfish(tk.Tk):
             self.event_queue.publish("MethodsChanged")
             self.event_queue.publish("SelectedCategoryChanged")
             self.event_queue.publish("MethodDisplayRequested")
+            return
+        if change_kind == "breakpoints":
+            self.event_queue.publish("BreakpointsChanged")
             return
         if change_kind == "transaction_dirty":
             self.refresh_collaboration_status()
