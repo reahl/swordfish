@@ -7329,6 +7329,80 @@ def test_find_dialog_class_search_populates_result_list(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_find_results_have_one_regex_filter_box_per_visible_column(fixture):
+    """AI: Every find type gets filtering: the filter row holds one regex box per
+    visible result column. A class search shows Class + Class Category columns, so
+    two filter boxes keyed by those columns."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_classes.return_value = ["OrderLine", "OrderHistory"]
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+    dialog.find_entry.insert(0, "Order")
+    dialog.find_text()
+
+    assert set(dialog.column_filter_entries.keys()) == {"#0", "ClassCategory"}
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_class_results_filter_by_class_column_regex(fixture):
+    """AI: Typing a regex in a column's filter box keeps only rows whose value in
+    that column matches (case-insensitive), re-rendering the unfiltered baseline
+    without re-querying GemStone."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_classes.return_value = ["OrderLine", "OrderHistory"]
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+    dialog.find_entry.insert(0, "Order")
+    dialog.find_text()
+    assert set(find_result_labels(dialog)) == {"OrderLine", "OrderHistory"}
+
+    dialog.column_filter_entries["#0"].insert(0, "Line$")
+    dialog.render_current_results()
+
+    assert find_result_labels(dialog) == ["OrderLine"]
+    fixture.mock_browser.find_classes.assert_called_once()
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_selector_results_filter_by_method_column_regex(fixture):
+    """AI: The bare-selector ('contains') search also gets a filter box -- on its
+    single Method column -- so even the simplest find type is filterable."""
+    fixture.simulate_login()
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+    dialog.display_selector_results(["printOn:", "printString", "addAll:"])
+    assert set(find_result_labels(dialog)) == {"printOn:", "printString", "addAll:"}
+    assert set(dialog.column_filter_entries.keys()) == {"#0"}
+
+    dialog.column_filter_entries["#0"].insert(0, "^print")
+    dialog.render_current_results()
+
+    assert set(find_result_labels(dialog)) == {"printOn:", "printString"}
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_invalid_filter_regex_is_ignored_not_blanking_results(fixture):
+    """AI: A half-typed/invalid regex in a filter box is ignored rather than
+    emptying the list, so filtering as-you-type never hides everything on an
+    incomplete pattern."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_classes.return_value = ["OrderLine", "OrderHistory"]
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+    dialog.find_entry.insert(0, "Order")
+    dialog.find_text()
+
+    dialog.column_filter_entries["#0"].insert(0, "Order(")
+    dialog.render_current_results()
+
+    assert set(find_result_labels(dialog)) == {"OrderLine", "OrderHistory"}
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_find_dialog_class_mode_supports_contains_and_exact_matching(
     fixture,
 ):
