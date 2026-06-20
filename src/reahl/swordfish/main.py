@@ -6684,6 +6684,11 @@ class Swordfish(tk.Tk):
             return
         self.publish_model_change_events('transaction')
         self.publish_model_change_events('breakpoints')
+        # AI: Snapshot tools (class diagram, inspector) opt into the manual refresh
+        # by subscribing to this generic event -- they re-read the contents they
+        # display IN PLACE rather than rebuilding their layout. Derived tools
+        # (browser, editor, breakpoints) already refresh via the typed events above.
+        self.event_queue.publish('RefreshFromImage')
 
     def apply_collaboration_read_only_state(self, read_only):
         if self.browser_tab is not None and self.browser_tab.winfo_exists():

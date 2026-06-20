@@ -783,6 +783,12 @@ class UmlClassDiagramTab(ttk.Frame):
         self.columnconfigure(0, weight=1)
         self.record_diagram_snapshot()
         self.refresh_undo_controls()
+        # AI: A manual Refresh re-reads each shown class's contents from the image
+        # in place (see refresh_displayed_classes). Weak-ref subscription, so a
+        # closed tab is dropped once GC'd; the handler also guards winfo_exists.
+        self.application.event_queue.subscribe(
+            'RefreshFromImage', self.refresh_displayed_classes
+        )
 
     def snapshot_diagram(self):
         nodes = []
@@ -877,6 +883,20 @@ class UmlClassDiagramTab(ttk.Frame):
             if show_errors:
                 messagebox.showerror("Class Diagram", str(error))
             return None
+
+    def refresh_displayed_classes(self, **kwargs):
+        # AI: Re-read each shown class's superclass + inst vars from the image and
+        # redraw it AT ITS CURRENT POSITION. Not a relayout/rebuild -- positions
+        # and pinned methods are preserved; a vanished class is left as-is.
+        if not self.winfo_exists():
+            return
+        for node in list(self.uml_canvas.registry.all_nodes()):
+            class_definition = self.class_definition_for(
+                node.class_name, show_errors=False
+            )
+            if class_definition is not None:
+                node.update_from_definition(class_definition)
+                self.uml_canvas.redraw_node(node)
 
     def add_class(self, class_name, record_history=True):
         class_definition = self.class_definition_for(class_name)
