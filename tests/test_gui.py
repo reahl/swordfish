@@ -3882,6 +3882,28 @@ def test_debounced_burst_re_reads_each_view_once(fixture):
     assert classes_changed.call_count == 1
 
 
+@with_fixtures(SwordfishGuiFixture)
+def test_open_editor_tab_reloads_its_source_on_methods_changed(fixture):
+    """AI: An open editor tab re-reads its method source from the gem on
+    MethodsChanged (which Refresh fans out), so an edit made in the image -- e.g.
+    an MCP recompile -- replaces the tab's contents. This is why 'each tool
+    re-reads itself' needs no special editor refresh wiring: the typed change
+    events already are that fan-out."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+    assert "amount * quantity" in tab.code_panel.text_editor.get("1.0", "end-1c")
+
+    fixture.mock_browser.get_compiled_method.return_value.sourceString.return_value.to_py = (
+        "total\n    ^42"
+    )
+    fixture.event_queue.publish("MethodsChanged")
+    fixture.root.update()
+
+    assert "^42" in tab.code_panel.text_editor.get("1.0", "end-1c")
+
+
 @with_fixtures(SwordfishAppFixture)
 def test_closing_the_last_right_hand_tab_collapses_the_group(fixture):
     """AI: Closing the last tab of the right-hand group via its tab 'x' drops the
