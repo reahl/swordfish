@@ -3258,49 +3258,18 @@ class FindPane(Pane):
             pady=(0, 4),
             sticky="ew",
         )
-        self.filter_frame.columnconfigure(1, weight=1)
-        self.filter_frame.columnconfigure(3, weight=1)
-        ttk.Label(self.filter_frame, text="Class (regex):").grid(
-            row=0, column=0, padx=(0, 4), pady=(0, 4), sticky="w"
-        )
-        self.class_regex_entry = ttk.Entry(self.filter_frame)
-        self.class_regex_entry.grid(
-            row=0, column=1, padx=(0, 12), pady=(0, 4), sticky="ew"
-        )
-        self.class_regex_entry.bind(
-            '<KeyRelease>', lambda *_: self.apply_filter_from_entries()
-        )
-        ttk.Label(self.filter_frame, text="Class category (regex):").grid(
-            row=0, column=2, padx=(0, 4), pady=(0, 4), sticky="w"
-        )
-        self.class_category_regex_entry = ttk.Entry(self.filter_frame)
-        self.class_category_regex_entry.grid(
-            row=0, column=3, padx=(0, 0), pady=(0, 4), sticky="ew"
-        )
-        self.class_category_regex_entry.bind(
-            '<KeyRelease>', lambda *_: self.apply_filter_from_entries()
-        )
-        ttk.Label(self.filter_frame, text="Method category (regex):").grid(
-            row=1, column=0, padx=(0, 4), sticky="w"
-        )
-        self.method_category_regex_entry = ttk.Entry(self.filter_frame)
-        self.method_category_regex_entry.grid(
-            row=1, column=1, padx=(0, 12), sticky="ew"
-        )
-        self.method_category_regex_entry.bind(
-            '<KeyRelease>', lambda *_: self.apply_filter_from_entries()
-        )
-        self.apply_regex_filter_button = ttk.Button(
-            self.filter_frame,
-            text="Apply Filter",
-            command=self.apply_regex_filter_button_clicked,
-        )
-        self.apply_regex_filter_button.grid(row=1, column=2, columnspan=2, sticky="w")
+        # AI: The filter row holds one regex box per visible result column, built
+        # dynamically by rebuild_column_filter_entries (driven from
+        # configure_result_columns) so every find type gets per-column filtering.
+        self.column_filter_entries = {}
 
         # AI: A Treeview (tree + headings) so results can carry the adaptive
         # AI: Class / Class Category / Method / Method Category columns and so
         # AI: column #0 can indent overrides under the method/class they override.
         self.result_rows_by_iid = {}
+        self.baseline_result_rows = []
+        self.result_column_kind = 'method'
+        self.baseline_class_definition_by_name = {}
         self.results_tree = ttk.Treeview(self, show='tree headings')
         self.results_tree.grid(
             row=8,
@@ -3414,19 +3383,20 @@ class FindPane(Pane):
         else:
             self.reference_target_label.grid_remove()
             self.reference_target_frame.grid_remove()
+        # AI: The per-column filter row is shown for ALL find types (not just the
+        # tracing/sender mode), so filter_frame is gridded once at construction and
+        # is not toggled here.
         if tracing_controls_visible:
             if self.narrow_button is not None:
                 self.narrow_button.grid()
             self.receiver_class_label.grid()
             self.receiver_class_entry.grid()
-            self.filter_frame.grid()
             self.status_label.grid()
         else:
             if self.narrow_button is not None:
                 self.narrow_button.grid_remove()
             self.receiver_class_label.grid_remove()
             self.receiver_class_entry.grid_remove()
-            self.filter_frame.grid_remove()
             self.status_label.grid_remove()
             self.status_var.set("")
         self.update_trace_narrow_state()
@@ -3675,34 +3645,140 @@ class FindPane(Pane):
             )
         )
 
-    def configure_result_columns(self, column_kind):
-        # AI: The find results are adaptive: a class search only needs Class and
-        # AI: Class Category; a method/sender/reference search adds Method and
-        # AI: Method Category; a 'contains' selector search has only bare
-        # AI: selectors, so it shows a single Method column with no nesting.
+    def result_column_specs(self, column_kind):
+        # AI: Single source of truth for the adaptive result columns: each spec is
+        # (tree_column_id, heading, row_value_fn). Drives the tree columns, the one
+        # filter box built per column, AND the value a column's regex filters
+        # against -- so columns and filters can never disagree. '#0' is the
+        # Treeview tree column (Class, or Method for a bare-selector search).
         if column_kind == 'method':
-            data_columns = ('ClassCategory', 'Method', 'MethodCategory')
-            headings = {
-                '#0': 'Class',
-                'ClassCategory': 'Class Category',
-                'Method': 'Method',
-                'MethodCategory': 'Method Category',
-            }
-            primary_heading = 'Class'
-        elif column_kind == 'class':
-            data_columns = ('ClassCategory',)
-            headings = {'#0': 'Class', 'ClassCategory': 'Class Category'}
-            primary_heading = 'Class'
-        else:
-            data_columns = ()
-            headings = {'#0': 'Method'}
-            primary_heading = 'Method'
+            return [
+                ('#0', 'Class', self.class_display_value),
+                ('ClassCategory', 'Class Category',
+                 lambda row: row.get('class_category') or ''),
+                ('Method', 'Method', lambda row: row.get('method_selector') or ''),
+                ('MethodCategory', 'Method Category',
+                 lambda row: row.get('method_category') or ''),
+            ]
+        if column_kind == 'class':
+            return [
+                ('#0', 'Class', self.class_display_value),
+                ('ClassCategory', 'Class Category',
+                 lambda row: row.get('class_category') or ''),
+            ]
+        return [
+            ('#0', 'Method', lambda row: row.get('method_selector') or ''),
+        ]
+
+    def class_display_value(self, row):
+        class_name = row.get('class_name') or ''
+        if row.get('show_instance_side') is False:
+            return '%s class' % class_name
+        return class_name
+
+    def configure_result_columns(self, column_kind):
+        # AI: The find results are adaptive: a class search needs Class and Class
+        # AI: Category; a method/sender/reference search adds Method and Method
+        # AI: Category; a 'contains' selector search has only bare selectors. The
+        # AI: columns and the per-column filter boxes are both built from
+        # AI: result_column_specs so they always agree.
+        specs = self.result_column_specs(column_kind)
+        data_columns = tuple(
+            column_id for column_id, _heading, _value in specs if column_id != '#0'
+        )
         self.results_tree.configure(columns=data_columns)
-        self.results_tree.heading('#0', text=primary_heading)
+        self.results_tree.heading('#0', text=specs[0][1])
         self.results_tree.column('#0', width=220, stretch=True)
-        for data_column in data_columns:
-            self.results_tree.heading(data_column, text=headings[data_column])
-            self.results_tree.column(data_column, width=150, stretch=True)
+        for column_id, heading, _value in specs:
+            if column_id != '#0':
+                self.results_tree.heading(column_id, text=heading)
+                self.results_tree.column(column_id, width=150, stretch=True)
+        self.rebuild_column_filter_entries(specs)
+
+    def rebuild_column_filter_entries(self, specs):
+        # AI: One regex filter box per visible column, rebuilt whenever the columns
+        # change so EVERY find type gets per-column filtering (not just senders).
+        # Typing re-renders the unfiltered baseline through the column filters.
+        for child in self.filter_frame.winfo_children():
+            child.destroy()
+        self.column_filter_entries = {}
+        grid_column = 0
+        for column_id, heading, _value in specs:
+            ttk.Label(self.filter_frame, text='%s (regex):' % heading).grid(
+                row=0, column=grid_column, padx=(0, 4), pady=(0, 4), sticky='w'
+            )
+            entry = ttk.Entry(self.filter_frame)
+            entry.grid(
+                row=0, column=grid_column + 1, padx=(0, 12), pady=(0, 4), sticky='ew'
+            )
+            entry.bind('<KeyRelease>', lambda *_: self.render_current_results())
+            self.filter_frame.columnconfigure(grid_column + 1, weight=1)
+            self.column_filter_entries[column_id] = entry
+            grid_column += 2
+
+    def set_result_rows(self, rows, column_kind, class_definition_by_name=None):
+        # AI: The one entry point every find-result path funnels through. Keeps an
+        # unfiltered baseline so the per-column filters can re-render without
+        # re-querying GemStone, and rebuilds the columns + filter boxes for the
+        # kind.
+        self.baseline_result_rows = list(rows)
+        self.result_column_kind = column_kind
+        self.baseline_class_definition_by_name = class_definition_by_name or {}
+        self.configure_result_columns(column_kind)
+        self.render_current_results()
+
+    def render_current_results(self):
+        rows = self.rows_matching_column_filters(self.baseline_result_rows)
+        if self.result_column_kind == 'selector':
+            self.render_flat_selector_rows(rows)
+        else:
+            self.render_hierarchy_rows(
+                rows,
+                self.result_column_kind,
+                self.baseline_class_definition_by_name,
+            )
+
+    def render_flat_selector_rows(self, rows):
+        self.clear_results()
+        for row in rows:
+            iid = self.results_tree.insert(
+                '', 'end', text=row.get('method_selector') or '', values=()
+            )
+            self.result_rows_by_iid[iid] = row
+
+    def rows_matching_column_filters(self, rows):
+        # AI: Keep a row only if, for every column whose box holds a VALID regex,
+        # that column's value matches (case-insensitive, AND across columns). An
+        # invalid/in-progress regex is ignored rather than blanking the list on a
+        # half-typed pattern.
+        value_by_column = {
+            column_id: value
+            for column_id, _heading, value in self.result_column_specs(
+                self.result_column_kind
+            )
+        }
+        active_filters = []
+        for column_id, entry in self.column_filter_entries.items():
+            pattern = entry.get()
+            if pattern:
+                try:
+                    compiled_pattern = re.compile(pattern, re.IGNORECASE)
+                except re.error:
+                    compiled_pattern = None
+                if compiled_pattern is not None:
+                    active_filters.append(
+                        (value_by_column[column_id], compiled_pattern)
+                    )
+        if not active_filters:
+            return list(rows)
+        return [
+            row
+            for row in rows
+            if all(
+                compiled_pattern.search(extract_value(row))
+                for extract_value, compiled_pattern in active_filters
+            )
+        ]
 
     def clear_results(self):
         for iid in self.results_tree.get_children():
@@ -3802,21 +3878,20 @@ class FindPane(Pane):
             }
             for class_name in class_names
         ]
-        self.configure_result_columns('class')
-        self.render_hierarchy_rows(rows, 'class', class_definition_by_name)
+        self.set_result_rows(rows, 'class', class_definition_by_name)
 
     def display_selector_results(self, selector_names):
-        self.configure_result_columns('selector')
-        self.clear_results()
-        for selector_name in selector_names:
-            iid = self.results_tree.insert('', 'end', text=selector_name, values=())
-            self.result_rows_by_iid[iid] = {
+        rows = [
+            {
                 'class_name': None,
                 'show_instance_side': True,
                 'method_selector': selector_name,
                 'class_category': None,
                 'method_category': None,
             }
+            for selector_name in selector_names
+        ]
+        self.set_result_rows(rows, 'selector', {})
 
     def method_category_for(self, class_name, method_selector, show_instance_side):
         try:
@@ -3873,8 +3948,7 @@ class FindPane(Pane):
             self.enriched_navigation_row(sender_entry, class_definition_by_name)
             for sender_entry in sender_entries
         ]
-        self.configure_result_columns('method')
-        self.render_hierarchy_rows(rows, 'method', class_definition_by_name)
+        self.set_result_rows(rows, 'method', class_definition_by_name)
 
     def record_sender_entries_for_navigation(self, sender_entries):
         sender_results = [
@@ -4093,94 +4167,6 @@ class FindPane(Pane):
             'sender_selector_query': self.last_reference_method_query,
             'sender_source_class_name': self.sender_source_class_name,
         }
-
-    def apply_filter_from_entries(self):
-        self.apply_regex_sender_filters(
-            class_regex=self.class_regex_entry.get(),
-            class_category_regex=self.class_category_regex_entry.get(),
-            method_category_regex=self.method_category_regex_entry.get(),
-        )
-
-    def apply_regex_filter_button_clicked(self):
-        result = self.apply_regex_sender_filters(
-            class_regex=self.class_regex_entry.get(),
-            class_category_regex=self.class_category_regex_entry.get(),
-            method_category_regex=self.method_category_regex_entry.get(),
-        )
-        if not result.get('ok'):
-            messagebox.showerror('Apply Filter', result['error']['message'])
-
-    def apply_regex_sender_filters(
-        self, class_regex='', class_category_regex='', method_category_regex=''
-    ):
-        if (
-            self.search_type.get() != 'reference'
-            or self.reference_target.get() != 'method'
-        ):
-            return {
-                'ok': False,
-                'error': {
-                    'message': 'Sender filtering requires Find in method-reference mode.'
-                },
-            }
-        baseline_sender_results = list(self.static_sender_results)
-        filtered_sender_results = []
-        for sender_result in baseline_sender_results:
-            sender_entry = self.sender_entry_for_result(sender_result)
-            if not self.sender_entry_matches_regex_filters(
-                sender_entry, class_regex, class_category_regex, method_category_regex
-            ):
-                continue
-            filtered_sender_results.append(sender_result)
-        self.populate_navigation_results(filtered_sender_results)
-        parts = []
-        if class_regex:
-            parts.append('class~/%s/' % class_regex)
-        if class_category_regex:
-            parts.append('class-category~/%s/' % class_category_regex)
-        if method_category_regex:
-            parts.append('method-category~/%s/' % method_category_regex)
-        filter_desc = ', '.join(parts) if parts else '(none)'
-        self.status_var.set(
-            'Filtered senders: %s of %s displayed. Filter: %s'
-            % (
-                len(filtered_sender_results),
-                len(baseline_sender_results),
-                filter_desc,
-            )
-        )
-        return {
-            'ok': True,
-            'displayed_sender_count': len(filtered_sender_results),
-            'filtered_out_sender_count': len(baseline_sender_results)
-            - len(filtered_sender_results),
-        }
-
-    def sender_entry_matches_regex_filters(
-        self, sender_entry, class_regex, class_category_regex, method_category_regex
-    ):
-        if class_regex:
-            class_name = sender_entry.get('class_name') or ''
-            try:
-                if not re.search(class_regex, class_name, re.IGNORECASE):
-                    return False
-            except re.error:
-                return False
-        if class_category_regex:
-            class_category = sender_entry.get('class_category') or ''
-            try:
-                if not re.search(class_category_regex, class_category, re.IGNORECASE):
-                    return False
-            except re.error:
-                return False
-        if method_category_regex:
-            method_category = sender_entry.get('method_category') or ''
-            try:
-                if not re.search(method_category_regex, method_category, re.IGNORECASE):
-                    return False
-            except re.error:
-                return False
-        return True
 
     def update_sender_status_for_method_references(
         self,
