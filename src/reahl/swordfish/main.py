@@ -2752,6 +2752,11 @@ class MainMenu(tk.Menu):
         self.add_cascade(label="FileTree", menu=self.filetree_menu)
         self.update_filetree_menu()
 
+        # AI: A refresh "button" in the menu bar itself -- a top-level command (no
+        # dropdown) rather than an item inside a menu, shown as a glyph so it reads
+        # as an icon. Forces a full re-read for changes the IDE can't auto-detect.
+        self.add_command(label="⟳", command=self.refresh_from_image)
+
     def _subscribe_events(self):
         self.event_queue.subscribe("LoggedInSuccessfully", self.update_menus)
         self.event_queue.subscribe("LoggedOut", self.update_menus)
@@ -2938,6 +2943,10 @@ class MainMenu(tk.Menu):
 
     def show_browser(self):
         self.parent.add_browser_tab()
+
+    def refresh_from_image(self):
+        # AI: Menu-bar refresh button -> immediate full re-read by the app.
+        self.parent.refresh_from_image()
 
     def show_class_diagram(self):
         self.parent.ensure_class_diagram_tab()
@@ -5190,6 +5199,11 @@ class BreakpointsPane(Pane):
 
 
 class Swordfish(tk.Tk):
+    # AI: Debounce window (ms) for collapsing a burst of MCP-driven model-refresh
+    # requests into one structural re-read -- see handle_model_refresh_requested.
+    model_refresh_debounce_ms = 200
+    pending_model_refresh_after_id = None
+
     @classmethod
     def new_argument_parser(cls, default_mode='ide'):
         argument_parser = argparse.ArgumentParser(
@@ -6650,13 +6664,26 @@ class Swordfish(tk.Tk):
         )
 
     def process_pending_model_refresh_requests(self):
+        self.pending_model_refresh_after_id = None
         pending_change_kinds = (
             self.integrated_session_state.consume_model_refresh_requests()
         )
         if not self.is_logged_in:
             return
-        for change_kind in pending_change_kinds:
+        # AI: Dedup so a settled burst re-reads each view once (dict.fromkeys
+        # preserves first-seen order) -- N 'transaction' requests -> one refresh.
+        for change_kind in dict.fromkeys(pending_change_kinds):
             self.publish_model_change_events(change_kind)
+
+    def refresh_from_image(self):
+        # AI: Manual catch-all re-read for image changes the IDE cannot detect
+        # (another client editing the image, debugger/sync state, MCP tools not on
+        # the model-write allowlist). Immediate (not debounced) and full:
+        # structural views + breakpoints. Wired to the menu-bar refresh button.
+        if not self.is_logged_in:
+            return
+        self.publish_model_change_events('transaction')
+        self.publish_model_change_events('breakpoints')
 
     def apply_collaboration_read_only_state(self, read_only):
         if self.browser_tab is not None and self.browser_tab.winfo_exists():
@@ -6805,7 +6832,16 @@ class Swordfish(tk.Tk):
         self.run_tab.present_source(source, run_immediately=False)
 
     def handle_model_refresh_requested(self, change_kind=""):
-        self.process_pending_model_refresh_requests()
+        # AI: Debounce -- a burst of MCP writes each requests a refresh; collapse
+        # them into one structural re-read once the burst settles, so a sequence
+        # of e.g. 50 compiles costs one refresh, not 50. The manual Refresh button
+        # (refresh_from_image) bypasses this for an immediate full re-read.
+        if self.pending_model_refresh_after_id is not None:
+            self.after_cancel(self.pending_model_refresh_after_id)
+        self.pending_model_refresh_after_id = self.after(
+            self.model_refresh_debounce_ms,
+            self.process_pending_model_refresh_requests,
+        )
         self.refresh_collaboration_status()
 
     def validated_oop_label_for_navigation(self, oop_value):

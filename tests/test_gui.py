@@ -3806,6 +3806,83 @@ def test_breakpoints_model_change_kind_publishes_breakpoints_changed(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_refresh_from_image_re_reads_structural_and_breakpoint_views(fixture):
+    """AI: The manual Refresh re-reads everything detectable -- structural views
+    (classes/methods) and breakpoints -- immediately, for image changes the IDE
+    cannot detect on its own (another client, debugger/sync state, MCP tools off
+    the model-write allowlist)."""
+    fixture.simulate_login()
+    classes_changed = Mock()
+    methods_changed = Mock()
+    breakpoints_changed = Mock()
+    fixture.app.event_queue.subscribe('ClassesChanged', classes_changed)
+    fixture.app.event_queue.subscribe('MethodsChanged', methods_changed)
+    fixture.app.event_queue.subscribe('BreakpointsChanged', breakpoints_changed)
+
+    fixture.app.refresh_from_image()
+    fixture.app.update()
+
+    classes_changed.assert_called()
+    methods_changed.assert_called()
+    breakpoints_changed.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_menu_bar_refresh_button_triggers_full_re_read(fixture):
+    """AI: The menu-bar refresh button -- a top-level command shown as a glyph
+    rather than a word, so it reads as an icon -- forces a full re-read on click."""
+    fixture.simulate_login()
+    methods_changed = Mock()
+    breakpoints_changed = Mock()
+    fixture.app.event_queue.subscribe('MethodsChanged', methods_changed)
+    fixture.app.event_queue.subscribe('BreakpointsChanged', breakpoints_changed)
+
+    menu_bar = fixture.app.menu_bar
+    menu_bar.invoke(menu_bar.index('⟳'))
+    fixture.app.update()
+
+    methods_changed.assert_called()
+    breakpoints_changed.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_model_refresh_requests_are_debounced_not_immediate(fixture):
+    """AI: A burst of MCP write refresh-requests must not each trigger a structural
+    re-read; handling defers (debounces) so the burst collapses -- otherwise a run
+    of compiles would re-query packages/classes/methods once per call."""
+    fixture.simulate_login()
+    classes_changed = Mock()
+    fixture.app.event_queue.subscribe('ClassesChanged', classes_changed)
+
+    fixture.app.integrated_session_state.request_model_refresh('transaction')
+    fixture.app.update()
+
+    assert classes_changed.call_count == 0
+    assert fixture.app.pending_model_refresh_after_id is not None
+
+    fixture.app.process_pending_model_refresh_requests()
+    fixture.app.update()
+    classes_changed.assert_called()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debounced_burst_re_reads_each_view_once(fixture):
+    """AI: A settled burst of identical refresh-requests re-reads the views once,
+    not once per request -- the dedup that makes auto-refresh affordable."""
+    fixture.simulate_login()
+    classes_changed = Mock()
+    fixture.app.event_queue.subscribe('ClassesChanged', classes_changed)
+
+    fixture.app.integrated_session_state.request_model_refresh('transaction')
+    fixture.app.integrated_session_state.request_model_refresh('transaction')
+    fixture.app.integrated_session_state.request_model_refresh('transaction')
+    fixture.app.process_pending_model_refresh_requests()
+    fixture.app.update()
+
+    assert classes_changed.call_count == 1
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_closing_the_last_right_hand_tab_collapses_the_group(fixture):
     """AI: Closing the last tab of the right-hand group via its tab 'x' drops the
     split so the left group reclaims the space -- the same collapse Find's Close
