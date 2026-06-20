@@ -421,11 +421,8 @@ class UmlObjectDiagramTab(ttk.Frame):
             column=1,
             padx=(6, 0),
         )
-        ttk.Button(
-            actions_frame,
-            text='Close',
-            command=self.application.close_object_diagram_tab,
-        ).grid(row=0, column=2, padx=(6, 0))
+        # AI: No in-tab Close button -- the tab 'x' closes the tab and collapses
+        # the pane group, consistent with the other right-hand tools.
 
         self.graph_canvas = UmlObjectDiagramCanvas(
             self,

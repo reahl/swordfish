@@ -764,11 +764,8 @@ class UmlClassDiagramTab(ttk.Frame):
             command=self.undo_diagram,
         )
         self.undo_button.grid(row=0, column=3, padx=(6, 0))
-        ttk.Button(
-            actions_frame,
-            text="Close",
-            command=self.application.close_class_diagram_tab,
-        ).grid(row=0, column=4, padx=(6, 0))
+        # AI: No in-tab Close button -- the tab 'x' closes the tab and collapses
+        # the pane group, consistent with the other right-hand tools.
 
         self.uml_canvas = UmlClassDiagramCanvas(
             self,
