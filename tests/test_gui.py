@@ -3762,6 +3762,50 @@ def test_breakpoints_pane_refreshes_when_a_breakpoint_is_set(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_breakpoints_pane_refreshes_on_breakpoints_changed(fixture):
+    """AI: The breakpoints pane refreshes on the generic BreakpointsChanged event
+    -- the one the MCP model-refresh bridge publishes for its 'breakpoints' kind
+    -- so a breakpoint set via the MCP shows up in the IDE pane."""
+    fixture.simulate_login()
+    fixture.session_record.list_breakpoints = Mock(return_value=[])
+    breakpoints_pane = fixture.app.open_breakpoints_dialog()
+    fixture.app.update()
+    assert len(breakpoints_pane.breakpoint_list.get_children()) == 0
+
+    fixture.session_record.list_breakpoints = Mock(
+        return_value=[
+            {
+                "breakpoint_id": "bp-1",
+                "class_name": "OrderLine",
+                "show_instance_side": True,
+                "method_selector": "total",
+                "source_offset": 42,
+                "step_point": 3,
+            }
+        ]
+    )
+    fixture.app.event_queue.publish('BreakpointsChanged')
+    fixture.app.update()
+
+    assert len(breakpoints_pane.breakpoint_list.get_children()) == 1
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_breakpoints_model_change_kind_publishes_breakpoints_changed(fixture):
+    """AI: The 'breakpoints' model-change kind (requested by the MCP breakpoint
+    tools through the refresh bridge) publishes BreakpointsChanged, so the IDE's
+    breakpoint views refresh."""
+    fixture.simulate_login()
+    changed = Mock()
+    fixture.app.event_queue.subscribe('BreakpointsChanged', changed)
+
+    fixture.app.publish_model_change_events('breakpoints')
+    fixture.app.update()
+
+    changed.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_closing_the_last_right_hand_tab_collapses_the_group(fixture):
     """AI: Closing the last tab of the right-hand group via its tab 'x' drops the
     split so the left group reclaims the space -- the same collapse Find's Close
