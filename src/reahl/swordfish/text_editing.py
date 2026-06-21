@@ -8,6 +8,7 @@ from tkinter import ttk
 from reahl.ptongue import GemstoneError
 
 from reahl.swordfish.exceptions import DomainException
+from reahl.swordfish.theme import active_theme
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.test_execution import TestExecution
 from reahl.swordfish.gemstone.smalltalk_source_scanner import (
@@ -141,8 +142,8 @@ class CodeLineNumberColumn:
             state='disabled',
             borderwidth=0,
             highlightthickness=0,
-            background='#f2f2f2',
-            foreground='#666666',
+            background=active_theme.current().color_for('line_number_background'),
+            foreground=active_theme.current().color_for('line_number_foreground'),
             cursor='arrow',
         )
         self.line_numbers_text.tag_configure(
@@ -643,18 +644,19 @@ class CodePanel(tk.Frame):
         self.grid_columnconfigure(1, weight=1)
 
         self.source_scanner = SmalltalkSourceScanner()
-        self.text_editor.tag_configure('smalltalk_keyword', foreground='blue')
-        self.text_editor.tag_configure('smalltalk_comment', foreground='green')
-        self.text_editor.tag_configure('smalltalk_string', foreground='orange')
-        self.text_editor.tag_configure('smalltalk_symbol', foreground='#008b8b')
-        self.text_editor.tag_configure('smalltalk_number', foreground='#800080')
-        self.text_editor.tag_configure('smalltalk_selector', foreground='#008080')
-        self.text_editor.tag_configure('smalltalk_character', foreground='#8b4513')
-        self.text_editor.tag_configure('highlight', background='darkgrey')
+        theme = active_theme.current()
+        self.text_editor.tag_configure('smalltalk_keyword', foreground=theme.color_for('syntax_keyword'))
+        self.text_editor.tag_configure('smalltalk_comment', foreground=theme.color_for('syntax_comment'))
+        self.text_editor.tag_configure('smalltalk_string', foreground=theme.color_for('syntax_string'))
+        self.text_editor.tag_configure('smalltalk_symbol', foreground=theme.color_for('syntax_symbol'))
+        self.text_editor.tag_configure('smalltalk_number', foreground=theme.color_for('syntax_number'))
+        self.text_editor.tag_configure('smalltalk_selector', foreground=theme.color_for('syntax_selector'))
+        self.text_editor.tag_configure('smalltalk_character', foreground=theme.color_for('syntax_character'))
+        self.text_editor.tag_configure('highlight', background=theme.color_for('selection_highlight'))
         self.text_editor.tag_configure(
             'breakpoint_marker',
-            background='#ff6b6b',
-            foreground='black',
+            background=theme.color_for('breakpoint_background'),
+            foreground=theme.color_for('breakpoint_foreground'),
         )
 
         self.text_editor.bind('<Control-a>', self.select_all_text_editor)

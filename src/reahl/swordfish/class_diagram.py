@@ -6,6 +6,7 @@ from tkinter import ttk
 from reahl.ptongue import GemstoneError
 
 from reahl.swordfish.exceptions import DomainException
+from reahl.swordfish.theme import active_theme
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.navigation import NavigationHistory
 from reahl.swordfish.selection_list import InteractiveSelectionList
@@ -337,7 +338,7 @@ class UmlClassDiagramCanvas(ttk.Frame):
 
         self.canvas = tk.Canvas(
             self,
-            bg="white",
+            bg=active_theme.current().color_for('diagram_canvas_background'),
             scrollregion=(0, 0, 2000, 2000),
         )
         horizontal_scrollbar = ttk.Scrollbar(
@@ -404,14 +405,15 @@ class UmlClassDiagramCanvas(ttk.Frame):
         self.redraw_all_relationships()
 
     def draw_node(self, node):
+        theme = active_theme.current()
         x1, y1, x2, y2 = node.bounding_box()
         rectangle_id = self.canvas.create_rectangle(
             x1,
             y1,
             x2,
             y2,
-            fill="#fff9e6",
-            outline="#8a6d1f",
+            fill=theme.color_for('class_node_fill'),
+            outline=theme.color_for('class_node_outline'),
             width=2,
         )
         divider_y = y1 + UML_HEADER_HEIGHT
@@ -420,7 +422,7 @@ class UmlClassDiagramCanvas(ttk.Frame):
             divider_y,
             x2,
             divider_y,
-            fill="#8a6d1f",
+            fill=theme.color_for('class_node_outline'),
             width=2,
         )
         class_text_id = self.canvas.create_text(
@@ -428,7 +430,7 @@ class UmlClassDiagramCanvas(ttk.Frame):
             y1 + 7,
             text=node.class_name,
             font=("TkDefaultFont", 10, "bold"),
-            fill="#533f05",
+            fill=theme.color_for('class_name_text'),
             anchor="n",
         )
         node.canvas_item_ids.extend([rectangle_id, divider_id, class_text_id])
@@ -440,7 +442,7 @@ class UmlClassDiagramCanvas(ttk.Frame):
                 method_y,
                 text=method_entry["label"],
                 font=("TkDefaultFont", 9),
-                fill="#222222",
+                fill=theme.color_for('method_text'),
                 anchor="nw",
             )
             node.canvas_item_ids.append(method_id)
@@ -460,13 +462,14 @@ class UmlClassDiagramCanvas(ttk.Frame):
 
     def draw_relationship(self, relationship):
         relationship.canvas_item_ids = []
-        fill = "#444444"
+        theme = active_theme.current()
+        fill = theme.color_for('relationship_line')
         width = 1.5
         if relationship.relationship_kind == "inheritance":
-            fill = "#2266aa"
+            fill = theme.color_for('inheritance_direct')
             width = 2
             if relationship.relationship_style == "inferred":
-                fill = "#9aa4b2"
+                fill = theme.color_for('inheritance_inferred')
         x1, y1 = self.edge_boundary_point(
             relationship.source_node,
             relationship.target_node,
@@ -495,7 +498,7 @@ class UmlClassDiagramCanvas(ttk.Frame):
                 midpoint_y - 10,
                 text=relationship.label,
                 font=("TkDefaultFont", 9),
-                fill="#222288",
+                fill=theme.color_for('relationship_label'),
                 anchor="s",
             )
             relationship.canvas_item_ids.append(label_id)
@@ -527,9 +530,10 @@ class UmlClassDiagramCanvas(ttk.Frame):
             relationship.relationship_style == 'direct'
             for relationship in ordered_relationships
         )
-        group_fill = '#9aa4b2'
+        theme = active_theme.current()
+        group_fill = theme.color_for('inheritance_inferred')
         if has_direct_relationship:
-            group_fill = '#2266aa'
+            group_fill = theme.color_for('inheritance_direct')
         shared_canvas_item_ids = []
         stem_id = self.canvas.create_line(
             parent_node.x,
@@ -555,9 +559,9 @@ class UmlClassDiagramCanvas(ttk.Frame):
             shared_canvas_item_ids.append(horizontal_id)
         for index, (child_x, child_top_y) in enumerate(child_top_points):
             relationship = ordered_relationships[index]
-            branch_fill = '#2266aa'
+            branch_fill = theme.color_for('inheritance_direct')
             if relationship.relationship_style == 'inferred':
-                branch_fill = '#9aa4b2'
+                branch_fill = theme.color_for('inheritance_inferred')
             child_line_id = self.canvas.create_line(
                 child_x,
                 branch_y,

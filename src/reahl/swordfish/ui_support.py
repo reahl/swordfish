@@ -3,6 +3,8 @@ import tkinter as tk
 
 from reahl.ptongue import GemstoneError
 
+from reahl.swordfish.theme import active_theme
+
 GRAPH_NODE_WIDTH = 200
 GRAPH_NODE_HEIGHT = 60
 GRAPH_NODE_PADDING_X = 40
@@ -64,7 +66,8 @@ class Tooltip:
             self.tip_window,
             text=self.text,
             justify='left',
-            background='#ffffe0',
+            background=active_theme.current().color_for('tooltip_background'),
+            foreground=active_theme.current().color_for('tooltip_foreground'),
             relief='solid',
             borderwidth=1,
             padx=4,

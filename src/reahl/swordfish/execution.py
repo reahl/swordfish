@@ -6,6 +6,7 @@ from tkinter import ttk
 from reahl.ptongue import GemstoneError
 
 from reahl.swordfish.exceptions import DomainException
+from reahl.swordfish.theme import active_theme
 from reahl.swordfish.gemstone import GemstoneDebugSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.inspector import Explorer
@@ -629,7 +630,7 @@ class RunTab(ttk.Frame):
 
         self.source_text.tag_configure(
             'compile_error_location',
-            background='#ffe4e4',
+            background=active_theme.current().color_for('compile_error_background'),
             underline=True,
         )
         self.source_text.tag_add('compile_error_location', start_index, end_index)
