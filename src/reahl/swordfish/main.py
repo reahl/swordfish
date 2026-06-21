@@ -1261,6 +1261,19 @@ class SessionOperationAdmission:
         leave_session_operation(self.connection_id, operation_token)
 
 
+# AI: Events whose handlers touch NO GemStone GCI, so they are safe to deliver even while
+# an MCP operation holds the shared session. The session-admission gate defers gem-touching
+# events to avoid a 2203 collision, but it must NOT block these pure-UI announcements --
+# otherwise the Stop button (and the MCP busy indicator's activity slot) could never reflect
+# the very MCP operation they exist to interrupt. Handlers of these events must stay gem-free.
+SESSION_SAFE_EVENT_NAMES = frozenset(
+    {
+        'SessionActivityChanged',
+        'McpActivityStateChanged',
+    }
+)
+
+
 class EventQueue:
     def __init__(self, root, activity_log=None):
         self.root = root
@@ -1397,51 +1410,62 @@ class EventQueue:
         if self.processing_events:
             return
         admission_token = None
+        session_is_admitted = True
         if self.session_admission is not None:
             admission_token = self.session_admission.try_admit()
-            if admission_token is None:
-                # AI: An MCP operation holds the session; defer this whole drain onto the event
-                # loop rather than blocking Tk or running IDE GCI that would collide with it.
-                self.schedule_deferred_processing()
-                return
+            session_is_admitted = admission_token is not None
         self.processing_events = True
+        deferred_events = deque()
         try:
             while True:
                 with self.queue_lock:
                     if not self.queue:
                         break
                     event_name, args, kwargs = self.queue.popleft()
-                if event_name in self.events:
-                    logging.getLogger(__name__).debug(f"Processing: {event_name}")
-                    retained_callbacks = []
-                    for (
-                        weak_callback,
-                        callback_args,
-                        ui_context,
-                        context_snapshot,
-                    ) in self.events[event_name]:
-                        callback = weak_callback()
-                        callback_is_live = callback is not None
-                        context_is_active = self.subscription_is_active(
-                            ui_context,
-                            context_snapshot,
-                        )
-                        if callback_is_live and context_is_active:
-                            retained_callbacks.append(
-                                (
-                                    weak_callback,
-                                    callback_args,
-                                    ui_context,
-                                    context_snapshot,
-                                )
-                            )
-                            logging.getLogger(__name__).debug(f"Calling: {callback}")
-                            callback(*callback_args, *args, **kwargs)
-                    self.events[event_name] = retained_callbacks
+                # AI: A gem-free (session-safe) event is delivered even when an MCP operation
+                # holds the session; a gem-touching event waits for the session to free, so
+                # its handlers cannot run IDE GCI that would collide (error 2203).
+                if session_is_admitted or event_name in SESSION_SAFE_EVENT_NAMES:
+                    self.deliver_queued_event(event_name, args, kwargs)
+                else:
+                    deferred_events.append((event_name, args, kwargs))
         finally:
             self.processing_events = False
             if admission_token is not None:
                 self.session_admission.release(admission_token)
+        if deferred_events:
+            with self.queue_lock:
+                self.queue.extendleft(reversed(deferred_events))
+            self.schedule_deferred_processing()
+
+    def deliver_queued_event(self, event_name, args, kwargs):
+        if event_name in self.events:
+            logging.getLogger(__name__).debug(f"Processing: {event_name}")
+            retained_callbacks = []
+            for (
+                weak_callback,
+                callback_args,
+                ui_context,
+                context_snapshot,
+            ) in self.events[event_name]:
+                callback = weak_callback()
+                callback_is_live = callback is not None
+                context_is_active = self.subscription_is_active(
+                    ui_context,
+                    context_snapshot,
+                )
+                if callback_is_live and context_is_active:
+                    retained_callbacks.append(
+                        (
+                            weak_callback,
+                            callback_args,
+                            ui_context,
+                            context_snapshot,
+                        )
+                    )
+                    logging.getLogger(__name__).debug(f"Calling: {callback}")
+                    callback(*callback_args, *args, **kwargs)
+            self.events[event_name] = retained_callbacks
 
     def schedule_deferred_processing(self):
         if self.deferred_processing_scheduled:
@@ -5527,6 +5551,12 @@ class Swordfish(tk.Tk):
             'McpBusyStateChanged',
             self.handle_mcp_busy_state_changed,
         )
+        # AI: The gem-free counterpart that drives the Stop button's activity slot. Subscribed
+        # separately so it reaches the UI even while an MCP operation holds the session.
+        self.event_queue.subscribe(
+            'McpActivityStateChanged',
+            self.reflect_mcp_activity_in_session,
+        )
         self.event_queue.subscribe(
             'McpServerStateChanged',
             self.handle_mcp_server_state_changed,
@@ -6298,6 +6328,14 @@ class Swordfish(tk.Tk):
             is_busy=is_busy,
             operation_name=operation_name,
         )
+        # AI: A gem-free announcement (driving the session-activity slot + Stop button) that is
+        # delivered even while the MCP operation holds the session -- it is session-safe, unlike
+        # McpBusyStateChanged whose handlers (status re-read, menu rebuild) may run GCI.
+        self.event_queue.publish(
+            "McpActivityStateChanged",
+            is_busy=is_busy,
+            operation_name=operation_name,
+        )
         self.event_queue.publish(
             "McpBusyStateChanged",
             is_busy=is_busy,
@@ -6447,7 +6485,6 @@ class Swordfish(tk.Tk):
                 self.refresh_collaboration_status()
             return
         self.last_mcp_busy_state = is_busy
-        self.reflect_mcp_activity_in_session(is_busy, operation_name)
         self.refresh_collaboration_status()
 
     def reflect_mcp_activity_in_session(self, is_busy, operation_name):
