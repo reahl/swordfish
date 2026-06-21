@@ -4272,6 +4272,69 @@ def test_a_stopped_resume_redisplays_the_re_suspended_process(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_stepping_in_the_debugger_runs_as_an_interruptible_activity(fixture):
+    """AI: A debugger step runs as a foreground activity too, sharing the resume path's runner and
+    outcome handling, so a step over a long method can be stopped with the menu-bar Stop."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+    debugger_tab = fixture.app.debugger_tab
+
+    launched = []
+    original_runner = fixture.app.run_foreground_activity
+
+    def spy(activity):
+        launched.append(activity)
+        return original_runner(activity)
+
+    fixture.app.run_foreground_activity = spy
+
+    with patch.object(debugger_tab, "selected_frame_level", return_value=1):
+        with patch.object(
+            debugger_tab.debug_session, "step_over", return_value=Mock()
+        ) as step_over:
+            with patch.object(debugger_tab, "apply_debug_action_outcome"):
+                debugger_tab.step_over()
+                fixture.app.update()
+
+    assert len(launched) == 1
+    assert launched[0].message == "Stepping over..."
+    step_over.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugging_source_runs_as_an_interruptible_activity(fixture):
+    """AI: The run-window Debug button runs the code to its first step point as a foreground
+    activity, so a long run-to-breakpoint can be stopped with the menu-bar Stop."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    result = Mock()
+    result.asString.return_value.to_py = "7"
+    fixture.session_record.debug_source = Mock(return_value=result)
+
+    launched = []
+    original_runner = fixture.app.run_foreground_activity
+
+    def spy(activity):
+        launched.append(activity)
+        return original_runner(activity)
+
+    fixture.app.run_foreground_activity = spy
+
+    run_tab.debug_selected_source("3 + 4")
+    fixture.app.update()
+
+    assert len(launched) == 1
+    assert launched[0].message == "Debugging source..."
+    fixture.session_record.debug_source.assert_called_once_with("3 + 4")
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_debugger_source_menu_has_save_and_cancel(fixture):
     """AI: The debugger source pane is a full editor, so its right-click menu
     carries Save and Cancel (acting on the selected frame's method), like the

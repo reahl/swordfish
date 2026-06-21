@@ -889,47 +889,48 @@ class RunTab(ttk.Frame):
         )
         self.last_exception = None
         self.clear_source_error_highlight()
-        self.application.begin_foreground_activity('Debugging source...')
-        try:
-            try:
-                result = self.gemstone_session_record.debug_source(selected_text)
-                self.on_run_complete(result)
-                self.status_label.config(
-                    text='Completed; no step point to stop at',
-                )
-                self.application.event_queue.publish(
-                    'RunTabDebugSucceeded',
-                    log_context={
-                        'code': selected_text,
-                        'result': result.asString().to_py,
-                    },
-                )
-                return
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                self.status_label.config(text=str(domain_exception))
-                self.show_error_in_result_panel(str(domain_exception), None, None)
+        activity = ForegroundActivity(
+            'Debugging source...',
+            work=lambda should_stop: self.gemstone_session_record.debug_source(
+                selected_text
+            ),
+            on_finished=lambda result: self.finish_debug_run(selected_text, result),
+            on_failed=lambda error: self.fail_debug_run(selected_text, error),
+            on_interrupted=lambda partial: self.interrupt_source_run(),
+        )
+        self.application.run_foreground_activity(activity)
+
+    def finish_debug_run(self, source, result):
+        # AI: debug_source returned without trapping -- the code completed with no step point to
+        # stop at, so there is no debugger to open.
+        self.on_run_complete(result)
+        self.status_label.config(text='Completed; no step point to stop at')
+        self.application.event_queue.publish(
+            'RunTabDebugSucceeded',
+            log_context={'code': source, 'result': result.asString().to_py},
+        )
+
+    def fail_debug_run(self, source, error):
+        # AI: A trap is the EXPECTED outcome of a debug run -- a non-compile GemstoneError carries
+        # the suspended process at the step point, so it opens the debugger. A compile error is
+        # reported in place; a user Stop is handled separately (interrupt_source_run), so it never
+        # reaches here.
+        if isinstance(error, GemstoneError):
+            self.on_run_error(error)
+            if is_compile_error(error):
                 self.application.event_queue.publish(
                     'RunTabDebugFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(domain_exception),
-                    },
+                    log_context={'code': source, 'error': str(error)},
                 )
-                return
-            except GemstoneError as gemstone_exception:
-                self.on_run_error(gemstone_exception)
-                if is_compile_error(gemstone_exception):
-                    self.application.event_queue.publish(
-                        'RunTabDebugFailed',
-                        log_context={
-                            'code': selected_text,
-                            'error': str(gemstone_exception),
-                        },
-                    )
-                    return
-                self.application.open_debugger(gemstone_exception)
-        finally:
-            self.application.end_foreground_activity()
+            else:
+                self.application.open_debugger(error)
+        else:
+            self.status_label.config(text=str(error))
+            self.show_error_in_result_panel(str(error), None, None)
+            self.application.event_queue.publish(
+                'RunTabDebugFailed',
+                log_context={'code': source, 'error': str(error)},
+            )
 
     def close_tab(self):
         self.ui_context.invalidate()
@@ -1381,26 +1382,34 @@ class DebuggerWindow(ttk.PanedWindow):
     def step_over(self):
         frame_level = self.selected_frame_level()
         if frame_level:
-            action_outcome = self.debug_session.step_over(frame_level)
-            self.apply_debug_action_outcome(action_outcome)
+            self.run_debug_action_as_activity(
+                'Stepping over...',
+                lambda: self.debug_session.step_over(frame_level),
+            )
 
     def step_into(self):
         frame_level = self.selected_frame_level()
         if frame_level:
-            action_outcome = self.debug_session.step_into(frame_level)
-            self.apply_debug_action_outcome(action_outcome)
+            self.run_debug_action_as_activity(
+                'Stepping into...',
+                lambda: self.debug_session.step_into(frame_level),
+            )
 
     def step_through(self):
         frame_level = self.selected_frame_level()
         if frame_level:
-            action_outcome = self.debug_session.step_through(frame_level)
-            self.apply_debug_action_outcome(action_outcome)
+            self.run_debug_action_as_activity(
+                'Stepping through...',
+                lambda: self.debug_session.step_through(frame_level),
+            )
 
     def restart_frame(self):
         frame_level = self.selected_frame_level()
         if frame_level:
-            outcome = self.debug_session.restart_frame(frame_level)
-            self.apply_debug_action_outcome(outcome)
+            self.run_debug_action_as_activity(
+                'Restarting frame...',
+                lambda: self.debug_session.restart_frame(frame_level),
+            )
 
     def save_current_frame_method(self, event=None):
         # AI: Save an edit made in the debugger's source pane. Recompile the
