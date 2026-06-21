@@ -10,6 +10,7 @@ from reahl.ptongue import GemstoneError
 
 from reahl.swordfish.closable_notebook import install_close_buttons
 from reahl.swordfish.exceptions import DomainException
+from reahl.swordfish.theme import active_theme
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.navigation import NavigationHistory
 from reahl.swordfish.test_execution import TestExecution
@@ -1807,7 +1808,7 @@ class MethodSelection(Pane):
 
     def style_method_entry(self, listbox, index, method_selector):
         if method_selector in self.inherited_method_selectors:
-            listbox.itemconfig(index, foreground='gray50')
+            listbox.itemconfig(index, foreground=active_theme.current().color_for('disabled_list_item'))
 
     def get_selected_method(self):
         return self.gemstone_session_record.selected_method_symbol
@@ -2386,6 +2387,7 @@ class MethodEditor(Pane):
             '<<ComboboxSelected>>',
             self.jump_to_selected_history_entry,
         )
+        self.apply_theme_to_history_dropdown()
 
         self.editor_notebook = ttk.Notebook(self)
         self.editor_notebook.grid(row=1, column=0, sticky='nsew')
@@ -2586,6 +2588,25 @@ class MethodEditor(Pane):
         )
         method_context = self.method_navigation_history.go_forward()
         self.jump_to_method_context(method_context)
+
+    def apply_theme_to_history_dropdown(self):
+        # AI: ttk colours a combobox's dropdown listbox itself, ignoring the Tk option database that
+        # themes ordinary listboxes, so the popdown list must be coloured directly. Reach into the
+        # combobox's popdown window and apply the active theme's editor colours. No-op for a
+        # native-look theme, whose dropdown already matches the host appearance.
+        theme = active_theme.current()
+        if theme.restyles_widgets:
+            popdown_window = self.history_combobox.tk.call(
+                'ttk::combobox::PopdownWindow', self.history_combobox
+            )
+            self.history_combobox.tk.call(
+                '%s.f.l' % popdown_window,
+                'configure',
+                '-background', theme.color_for('editor_background'),
+                '-foreground', theme.color_for('editor_foreground'),
+                '-selectbackground', theme.color_for('select_background'),
+                '-selectforeground', theme.color_for('select_foreground'),
+            )
 
     def jump_to_selected_history_entry(self, event):
         combobox_index = self.history_combobox.current()

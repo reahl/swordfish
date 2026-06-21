@@ -4,6 +4,7 @@ from tkinter import ttk
 from reahl.ptongue import GemstoneError
 
 from reahl.swordfish.inspector import ObjectInspector
+from reahl.swordfish.theme import active_theme
 from reahl.swordfish.ui_support import (
     GRAPH_NODE_HEIGHT,
     GRAPH_NODE_PADDING_X,
@@ -171,7 +172,7 @@ class UmlObjectDiagramCanvas(ttk.Frame):
 
         self.canvas = tk.Canvas(
             self,
-            bg='white',
+            bg=active_theme.current().color_for('diagram_canvas_background'),
             scrollregion=(0, 0, 2000, 2000),
         )
         horizontal_scrollbar = ttk.Scrollbar(
@@ -250,14 +251,15 @@ class UmlObjectDiagramCanvas(ttk.Frame):
         )
 
     def draw_node(self, node):
+        theme = active_theme.current()
         x1, y1, x2, y2 = node.bounding_box()
         rectangle_id = self.canvas.create_rectangle(
             x1,
             y1,
             x2,
             y2,
-            fill='#e8f0fe',
-            outline='#3366cc',
+            fill=theme.color_for('object_node_fill'),
+            outline=theme.color_for('object_node_outline'),
             width=2,
         )
         oop_string = node.oop_key[1] if node.oop_key[0] == 'oop' else '?'
@@ -266,14 +268,14 @@ class UmlObjectDiagramCanvas(ttk.Frame):
             y1 + 14,
             text=oop_string,
             font=('TkDefaultFont', 9, 'bold'),
-            fill='#3366cc',
+            fill=theme.color_for('object_oop_text'),
         )
         class_text_id = self.canvas.create_text(
             node.x,
             y1 + 32,
             text=node.class_name,
             font=('TkDefaultFont', 9),
-            fill='#222222',
+            fill=theme.color_for('object_class_text'),
         )
         node.canvas_item_ids = [rectangle_id, oop_text_id, class_text_id]
 
@@ -290,6 +292,7 @@ class UmlObjectDiagramCanvas(ttk.Frame):
         return from_node.x + delta_x * scale, from_node.y + delta_y * scale
 
     def draw_edge(self, edge):
+        theme = active_theme.current()
         x1, y1 = self.edge_boundary_point(edge.source_node, edge.target_node)
         x2, y2 = self.edge_boundary_point(edge.target_node, edge.source_node)
         midpoint_x = (x1 + x2) / 2
@@ -301,7 +304,7 @@ class UmlObjectDiagramCanvas(ttk.Frame):
             y2,
             arrow=tk.LAST,
             arrowshape=(10, 12, 5),
-            fill='#444444',
+            fill=theme.color_for('relationship_line'),
             width=1.5,
         )
         label_id = self.canvas.create_text(
@@ -309,7 +312,7 @@ class UmlObjectDiagramCanvas(ttk.Frame):
             midpoint_y - 10,
             text=edge.instvar_label,
             font=('TkDefaultFont', 9),
-            fill='#222288',
+            fill=theme.color_for('relationship_label'),
             anchor='s',
         )
         edge.canvas_item_ids = [line_id, label_id]
