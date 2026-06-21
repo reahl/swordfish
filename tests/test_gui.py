@@ -3841,9 +3841,9 @@ def test_refresh_from_image_re_reads_structural_and_breakpoint_views(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_toolbar_refresh_button_triggers_full_re_read(fixture):
-    """AI: The toolbar refresh button -- a small icon button at the top right, shown as a glyph
-    rather than a word -- forces a full re-read on click."""
+def test_status_bar_refresh_button_triggers_full_re_read(fixture):
+    """AI: The status-bar refresh button -- a small icon button at the bottom right, shown as a
+    glyph rather than a word -- forces a full re-read on click."""
     fixture.simulate_login()
     methods_changed = Mock()
     breakpoints_changed = Mock()
@@ -3858,8 +3858,8 @@ def test_toolbar_refresh_button_triggers_full_re_read(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_toolbar_icon_buttons_have_hover_tooltips(fixture):
-    """AI: The toolbar's icon buttons are glyphs, so they carry hover tooltips to stay
+def test_status_bar_icon_buttons_have_hover_tooltips(fixture):
+    """AI: The status-bar icon buttons are glyphs, so they carry hover tooltips to stay
     discoverable -- the binding that drives the tooltip is present on each."""
     fixture.simulate_login()
     assert fixture.app.status_refresh_button.bind('<Enter>')
@@ -3867,7 +3867,7 @@ def test_toolbar_icon_buttons_have_hover_tooltips(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_toolbar_stop_button_is_disabled_while_the_session_is_idle(fixture):
+def test_status_bar_stop_button_is_disabled_while_the_session_is_idle(fixture):
     """AI: With nothing running on the shared session there is nothing to interrupt, so the
     single Stop control offers no false affordance -- it sits disabled."""
     fixture.simulate_login()
@@ -3875,7 +3875,7 @@ def test_toolbar_stop_button_is_disabled_while_the_session_is_idle(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_toolbar_stop_button_enables_while_an_activity_holds_the_session(fixture):
+def test_status_bar_stop_button_enables_while_an_activity_holds_the_session(fixture):
     """AI: The one Stop control tracks the single session-activity slot: pressable exactly
     while an activity runs, disabled again the moment it ends."""
     fixture.simulate_login()
@@ -3891,7 +3891,7 @@ def test_toolbar_stop_button_enables_while_an_activity_holds_the_session(fixture
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_pressing_toolbar_stop_interrupts_the_current_activity(fixture):
+def test_pressing_status_bar_stop_interrupts_the_current_activity(fixture):
     """AI: One Stop gesture delegates to whatever holds the session, asking it to stop. The
     button knows nothing of Find versus MCP -- only the shared activity protocol."""
     fixture.simulate_login()
@@ -4720,6 +4720,36 @@ def test_stopping_a_run_reports_stopped_and_does_not_open_a_debugger(fixture):
 
     assert run_tab.status_label.cget("text") == "Stopped."
     run_tab.on_run_error.assert_not_called()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_showing_selected_source_in_a_diagram_runs_as_an_interruptible_activity(fixture):
+    """AI: Evaluating selected source to show it in a diagram is a foreground activity too, so a
+    long evaluation can be stopped with the menu-bar Stop -- consistent with Run/Inspect/Debug."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    result = Mock()
+    result.asString.return_value.to_py = "anOrder"
+    fixture.mock_browser.run_code.return_value = result
+    fixture.app.open_object_diagram_for_object = Mock()
+
+    launched = []
+    original_runner = fixture.app.run_foreground_activity
+
+    def spy(activity):
+        launched.append(activity)
+        return original_runner(activity)
+
+    fixture.app.run_foreground_activity = spy
+
+    run_tab.show_selected_source_in_object_diagram("anOrder")
+    fixture.app.update()
+
+    assert len(launched) == 1
+    assert launched[0].message == "Showing selected source in Object Diagram..."
+    fixture.app.open_object_diagram_for_object.assert_called_once_with(result)
 
 
 @with_fixtures(SwordfishAppFixture)

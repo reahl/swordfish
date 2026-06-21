@@ -429,44 +429,12 @@ class RunTab(ttk.Frame):
             'DiagramSelectionRun', log_context={'code': selected_text}
         )
         self.status_label.config(text='Showing selection in Object Diagram...')
-        self.last_exception = None
-        self.clear_source_error_highlight()
-        self.application.begin_foreground_activity(
-            'Showing selected source in Object Diagram...'
+        self.run_source_code_as_activity(
+            selected_text,
+            'Showing selected source in Object Diagram...',
+            'DiagramSelection',
+            lambda result: self.application.open_object_diagram_for_object(result),
         )
-        try:
-            try:
-                result = self.gemstone_session_record.run_code(selected_text)
-                self.on_run_complete(result)
-                self.application.open_object_diagram_for_object(result)
-                self.application.event_queue.publish(
-                    'DiagramSelectionSucceeded',
-                    log_context={
-                        'code': selected_text,
-                        'result': result.asString().to_py,
-                    },
-                )
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                self.status_label.config(text=str(domain_exception))
-                self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish(
-                    'DiagramSelectionFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(domain_exception),
-                    },
-                )
-            except GemstoneError as gemstone_exception:
-                self.on_run_error(gemstone_exception)
-                self.application.event_queue.publish(
-                    'DiagramSelectionFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(gemstone_exception),
-                    },
-                )
-        finally:
-            self.application.end_foreground_activity()
 
     def show_selected_source_in_class_diagram(self, selected_text):
         if self.is_read_only():
@@ -481,46 +449,14 @@ class RunTab(ttk.Frame):
             'ClassDiagramSelectionRun', log_context={'code': selected_text}
         )
         self.status_label.config(text='Showing selection in Class Diagram...')
-        self.last_exception = None
-        self.clear_source_error_highlight()
-        self.application.begin_foreground_activity(
-            'Showing selected source in Class Diagram...'
+        self.run_source_code_as_activity(
+            selected_text,
+            'Showing selected source in Class Diagram...',
+            'ClassDiagramSelection',
+            lambda result: self.application.open_class_diagram_for_class(
+                class_name_for_class_diagram(result)
+            ),
         )
-        try:
-            try:
-                result = self.gemstone_session_record.run_code(selected_text)
-                self.on_run_complete(result)
-                self.application.open_class_diagram_for_class(
-                    class_name_for_class_diagram(result)
-                )
-                self.application.event_queue.publish(
-                    'ClassDiagramSelectionSucceeded',
-                    log_context={
-                        'code': selected_text,
-                        'result': result.asString().to_py,
-                    },
-                )
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                self.status_label.config(text=str(domain_exception))
-                self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish(
-                    'ClassDiagramSelectionFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(domain_exception),
-                    },
-                )
-            except GemstoneError as gemstone_exception:
-                self.on_run_error(gemstone_exception)
-                self.application.event_queue.publish(
-                    'ClassDiagramSelectionFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(gemstone_exception),
-                    },
-                )
-        finally:
-            self.application.end_foreground_activity()
 
     def show_text_menu_for_widget(
         self,
