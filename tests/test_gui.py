@@ -6941,6 +6941,47 @@ def test_find_dialog_class_search_populates_result_list(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_find_pressing_enter_in_search_box_runs_the_search(fixture):
+    """AI: Pressing Enter in the search box runs the search, exactly like the find
+    (magnifying-glass) button -- so a search doesn't require reaching for a button."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_classes.return_value = ["OrderLine", "OrderHistory"]
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+    dialog.find_entry.insert(0, "Order")
+
+    # AI: A <Return> binding is installed on the search box (we assert the wire is
+    # present; Tk won't deliver a synthetic keystroke to an unmapped widget), and
+    # invoking that bound action runs the search and populates the results.
+    assert dialog.find_entry.bind("<Return>")
+    dialog.find_text()
+
+    assert set(find_result_labels(dialog)) == {"OrderLine", "OrderHistory"}
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_and_stop_are_icon_buttons_beside_the_search_box(fixture):
+    """AI: Find and Stop are compact icon buttons (glyphs, not wide text) placed on
+    the search-box row, to the right of the entry -- Stop starts disabled until a
+    search is running."""
+    fixture.simulate_login()
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    assert dialog.find_button.cget("text") not in ("Find", "")
+    assert dialog.stop_button.cget("text") not in ("Stop", "")
+    assert int(dialog.find_button.grid_info()["row"]) == int(
+        dialog.find_entry.grid_info()["row"]
+    )
+    assert int(dialog.find_button.grid_info()["column"]) > int(
+        dialog.find_entry.grid_info()["column"]
+    )
+    assert str(dialog.stop_button.cget("state")) == "disabled"
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_find_results_have_one_regex_filter_box_per_visible_column(fixture):
     """AI: Every find type gets filtering: the filter row holds one regex box per
     visible result column. A class search shows Class + Class Category columns, so

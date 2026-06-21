@@ -3139,8 +3139,8 @@ class FindPane(Pane):
         self.find_entry.grid(
             row=2,
             column=1,
-            columnspan=5,
-            padx=10,
+            columnspan=3,
+            padx=(10, 4),
             pady=10,
             sticky="ew",
         )
@@ -3148,6 +3148,28 @@ class FindPane(Pane):
             "<KeyRelease>",
             lambda *_: self.update_search_context_fields(),
         )
+        # AI: Enter in the search box runs the search, same as the find button.
+        self.find_entry.bind("<Return>", lambda *_: self.find_text())
+
+        # AI: Small icon buttons immediately to the right of the search box -- a
+        # magnifying glass to search and a stop square to interrupt -- instead of
+        # the old wide text buttons. BMP glyphs (Tk 8.6 doesn't render non-BMP
+        # emoji). update_find_running_state toggles their enabled state.
+        self.find_button = ttk.Button(
+            self,
+            text="⌕",
+            width=3,
+            command=self.find_text,
+        )
+        self.find_button.grid(row=2, column=4, padx=(0, 2), pady=10)
+        self.stop_button = ttk.Button(
+            self,
+            text="■",
+            width=3,
+            command=self.request_stop_find,
+            state=tk.DISABLED,
+        )
+        self.stop_button.grid(row=2, column=5, padx=(0, 10), pady=10)
 
         self.receiver_class_label = ttk.Label(self, text="Receiver class:")
         self.receiver_class_label.grid(
@@ -3215,37 +3237,19 @@ class FindPane(Pane):
             sticky="ew",
         )
 
+        # AI: Find/Stop are now icon buttons beside the search box (above). This
+        # frame survives only for the experimental Narrow button, and is gridded
+        # only when that button exists so it leaves no empty gap otherwise.
         self.button_frame = ttk.Frame(self)
-        self.button_frame.grid(row=6, column=0, columnspan=6, pady=10)
-        self.button_frame.grid_columnconfigure(0, weight=1)
-        self.button_frame.grid_columnconfigure(1, weight=1)
-        self.button_frame.grid_columnconfigure(2, weight=1)
-        self.button_frame.grid_columnconfigure(3, weight=1)
-        self.button_frame.grid_columnconfigure(4, weight=1)
-
-        self.find_button = ttk.Button(
-            self.button_frame,
-            text="Find",
-            command=self.find_text,
-        )
-        self.find_button.grid(row=0, column=0, padx=5)
-
-        self.stop_button = ttk.Button(
-            self.button_frame,
-            text="Stop",
-            command=self.request_stop_find,
-            state=tk.DISABLED,
-        )
-        self.stop_button.grid(row=0, column=1, padx=5)
-
         self.narrow_button = None
         if self.application.experimental_features_enabled:
+            self.button_frame.grid(row=6, column=0, columnspan=6, pady=10)
             self.narrow_button = ttk.Button(
                 self.button_frame,
                 text="Narrow With Tracing",
                 command=self.narrow_senders_with_tracing,
             )
-            self.narrow_button.grid(row=0, column=2, padx=5)
+            self.narrow_button.grid(row=0, column=0, padx=5)
 
         self.filter_frame = ttk.Frame(self)
         self.filter_frame.grid(
