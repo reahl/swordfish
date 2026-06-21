@@ -12,6 +12,7 @@ from reahl.swordfish.closable_notebook import install_close_buttons
 from reahl.swordfish.exceptions import DomainException
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.navigation import NavigationHistory
+from reahl.swordfish.test_execution import TestExecution
 from reahl.swordfish.selection_list import InteractiveSelectionList
 from reahl.swordfish.tab_registry import DeduplicatedTabRegistry
 from reahl.swordfish.text_editing import (
@@ -1456,19 +1457,15 @@ class ClassSelection(Pane):
         if not selection:
             return
         class_name = listbox.get(selection[0])
-        self.application.begin_foreground_activity(
-            'Running tests in %s...' % class_name
-        )
-        try:
-            try:
-                result = self.gemstone_session_record.run_gemstone_tests(class_name)
-                self.show_test_result(result)
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                messagebox.showerror('Run All Tests', str(domain_exception))
-            except GemstoneError as error:
-                self.application.open_debugger(error)
-        finally:
-            self.application.end_foreground_activity()
+        TestExecution(
+            self.application,
+            'Running tests in %s...' % class_name,
+            lambda should_stop: self.gemstone_session_record.run_gemstone_tests(
+                class_name
+            ),
+            self.show_test_result,
+            'Run All Tests',
+        ).start()
 
 
 class CategorySelection(Pane):
@@ -2273,22 +2270,16 @@ class MethodSelection(Pane):
             return
         class_name = self.gemstone_session_record.selected_class
         method_selector = listbox.get(selection[0])
-        self.application.begin_foreground_activity(
-            'Running test %s>>%s...' % (class_name, method_selector)
-        )
-        try:
-            try:
-                result = self.gemstone_session_record.run_test_method(
-                    class_name,
-                    method_selector,
-                )
-                self.show_test_result(result)
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                messagebox.showerror('Run Test', str(domain_exception))
-            except GemstoneError as error:
-                self.application.open_debugger(error)
-        finally:
-            self.application.end_foreground_activity()
+        TestExecution(
+            self.application,
+            'Running test %s>>%s...' % (class_name, method_selector),
+            lambda should_stop: self.gemstone_session_record.run_test_method(
+                class_name,
+                method_selector,
+            ),
+            self.show_test_result,
+            'Run Test',
+        ).start()
 
     def debug_test(self):
         listbox = self.selection_list.selection_listbox
