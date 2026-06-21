@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import time
 import tkinter as tk
 import tkinter.messagebox as messagebox
 import types
@@ -21,6 +22,7 @@ from reahl.tofu import (
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.browser import MethodEditor
+from reahl.swordfish.session_activity import ForegroundActivity, McpActivity
 from reahl.swordfish.main import (
     GEMSTONE_EXE_CONF_CONFIG_NAME,
     BreakpointsPane,
@@ -2406,6 +2408,10 @@ class SwordfishAppFixture(Fixture):
         self.session_record.transaction_is_dirty = False
 
         self.app = Swordfish(experimental=True)
+        # AI: Run foreground activities (searches) inline so they complete within the call
+        # that starts them -- deterministic, with no worker-thread/Tk-timing races. The
+        # threaded path is exercised by its own dedicated test, which opts back out.
+        self.app.run_activities_synchronously = True
         self.app.withdraw()
         self.app.mcp_server_controller.configuration_store.can_write_config = Mock(
             return_value=True
@@ -3841,6 +3847,98 @@ def test_menu_bar_refresh_button_triggers_full_re_read(fixture):
 
     methods_changed.assert_called()
     breakpoints_changed.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_menu_bar_stop_button_is_disabled_while_the_session_is_idle(fixture):
+    """AI: With nothing running on the shared session there is nothing to interrupt, so the
+    single Stop control offers no false affordance -- it sits disabled."""
+    fixture.simulate_login()
+    menu_bar = fixture.app.menu_bar
+    stop_index = menu_bar.index('■')
+    assert str(menu_bar.entrycget(stop_index, 'state')) == tk.DISABLED
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_menu_bar_stop_button_enables_while_an_activity_holds_the_session(fixture):
+    """AI: The one Stop control tracks the single session-activity slot: pressable exactly
+    while an activity runs, disabled again the moment it ends."""
+    fixture.simulate_login()
+    menu_bar = fixture.app.menu_bar
+    stop_index = menu_bar.index('■')
+    activity = types.SimpleNamespace(request_stop=Mock(), message='Searching...')
+
+    fixture.app.set_current_session_activity(activity)
+    fixture.app.update()
+    assert str(menu_bar.entrycget(stop_index, 'state')) == tk.NORMAL
+
+    fixture.app.set_current_session_activity(None)
+    fixture.app.update()
+    assert str(menu_bar.entrycget(stop_index, 'state')) == tk.DISABLED
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_pressing_menu_bar_stop_interrupts_the_current_activity(fixture):
+    """AI: One Stop gesture delegates to whatever holds the session, asking it to stop. The
+    button knows nothing of Find versus MCP -- only the shared activity protocol."""
+    fixture.simulate_login()
+    activity = types.SimpleNamespace(request_stop=Mock(), message='Searching...')
+    fixture.app.set_current_session_activity(activity)
+    fixture.app.update()
+
+    menu_bar = fixture.app.menu_bar
+    menu_bar.invoke(menu_bar.index('■'))
+
+    activity.request_stop.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_a_running_mcp_tool_becomes_the_stoppable_session_activity(fixture):
+    """AI: An MCP tool's work is the same kind of session activity as an IDE search: while it
+    runs the one Stop control is live, and pressing it hard-breaks the shared session so the
+    tool's blocked call is abandoned. The MCP busy lifecycle drives the slot."""
+    fixture.simulate_login()
+    menu_bar = fixture.app.menu_bar
+    stop_index = menu_bar.index('■')
+
+    fixture.app.integrated_session_state.begin_mcp_operation('gs_run_tests')
+    fixture.app.update()
+    assert isinstance(fixture.app.current_session_activity, McpActivity)
+    assert str(menu_bar.entrycget(stop_index, 'state')) == tk.NORMAL
+
+    menu_bar.invoke(stop_index)
+    fixture.mock_browser.hard_break.assert_called_once()
+
+    fixture.app.integrated_session_state.end_mcp_operation()
+    fixture.app.update()
+    assert fixture.app.current_session_activity is None
+    assert str(menu_bar.entrycget(stop_index, 'state')) == tk.DISABLED
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_running_a_foreground_activity_delivers_its_result_on_the_ui_thread(fixture):
+    """AI: A foreground activity runs off the UI thread; when its worker finishes the app
+    clears the session slot and hands the result back here on the UI thread. This is the
+    plumbing that keeps the UI responsive -- and thus interruptible -- during a search."""
+    fixture.simulate_login()
+    fixture.app.run_activities_synchronously = False
+    delivered = {}
+    activity = ForegroundActivity(
+        'Working...',
+        work=lambda should_stop: 'done',
+        on_finished=lambda result: delivered.update(result=result),
+    )
+
+    fixture.app.run_foreground_activity(activity)
+    deadline = time.monotonic() + 5
+    while (
+        fixture.app.current_session_activity is not None
+        and time.monotonic() < deadline
+    ):
+        fixture.app.update()
+
+    assert delivered['result'] == 'done'
+    assert fixture.app.current_session_activity is None
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -6961,23 +7059,22 @@ def test_find_pressing_enter_in_search_box_runs_the_search(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_find_and_stop_are_icon_buttons_beside_the_search_box(fixture):
-    """AI: Find and Stop are compact icon buttons (glyphs, not wide text) placed on
-    the search-box row, to the right of the entry -- Stop starts disabled until a
-    search is running."""
+def test_find_is_an_icon_button_beside_the_search_box_with_no_per_dialog_stop(fixture):
+    """AI: Find is a compact icon button (a glyph, not wide text) on the search-box row, to
+    the right of the entry. There is no per-dialog Stop button: interrupting is the job of
+    the single menu-bar Stop, which governs whichever activity holds the shared session."""
     fixture.simulate_login()
     with patch.object(FindPane, "wait_visibility"):
         dialog = FindPane(fixture.app, fixture.app)
 
     assert dialog.find_button.cget("text") not in ("Find", "")
-    assert dialog.stop_button.cget("text") not in ("Stop", "")
     assert int(dialog.find_button.grid_info()["row"]) == int(
         dialog.find_entry.grid_info()["row"]
     )
     assert int(dialog.find_button.grid_info()["column"]) > int(
         dialog.find_entry.grid_info()["column"]
     )
-    assert str(dialog.stop_button.cget("state")) == "disabled"
+    assert not hasattr(dialog, "stop_button")
     dialog.destroy()
 
 
@@ -7126,43 +7223,71 @@ def test_find_dialog_class_mode_supports_contains_and_exact_matching(
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_find_dialog_can_stop_a_running_class_search(fixture):
-    """AI: Stop should cancel class search and keep partial results."""
+def test_find_scan_returns_the_partial_results_gathered_before_a_stop(fixture):
+    """AI: The scan is cooperative: when the stop flag rises it returns exactly what it has
+    gathered so far, rather than the full result set. This is the worker-side half of Stop,
+    tested deterministically through the stop predicate without involving a real thread."""
     fixture.simulate_login()
-
     with patch.object(FindPane, "wait_visibility"):
-        dialog = FindPane(
-            fixture.app,
-            fixture.app,
-            search_type="class",
-            search_query="Order",
-            match_mode="contains",
-        )
+        dialog = FindPane(fixture.app, fixture.app)
 
     def classes_for_pattern(pattern, should_stop=None):
         class_names = []
-        class_index = 0
-        while class_index < 10:
+        for class_index in range(10):
             if should_stop is not None and should_stop():
                 return class_names
             class_names.append("Order%s" % class_index)
-            if class_index == 2:
-                dialog.request_stop_find()
-            class_index = class_index + 1
         return class_names
 
     fixture.mock_browser.find_classes.side_effect = classes_for_pattern
+    stop_after_two = {"checks": 0}
 
-    dialog.find_text()
+    def should_stop():
+        stop_after_two["checks"] = stop_after_two["checks"] + 1
+        return stop_after_two["checks"] > 2
+
+    payload = dialog.gather_find_results(
+        {"search_type": "class", "match_mode": "contains", "reference_target": "class"},
+        "Order",
+        should_stop,
+    )
+
+    assert payload["class_names"] == ["Order0", "Order1"]
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_renders_partial_results_and_a_stopped_status_when_interrupted(fixture):
+    """AI: The UI-side half of Stop: an interrupted find renders whatever the scan gathered
+    and tells the user these are partial results, so a stopped search is never mistaken for
+    a complete (empty-or-short) one."""
+    fixture.simulate_login()
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    dialog.finish_find_with_partial(
+        {"kind": "class", "class_names": ["Order0", "Order1", "Order2"]}
+    )
 
     assert dialog.status_var.get() == "Find stopped. Showing partial results."
-    assert find_result_labels(dialog) == [
-        "Order0",
-        "Order1",
-        "Order2",
-    ]
-    assert str(dialog.stop_button.cget("state")) == tk.DISABLED
+    assert find_result_labels(dialog) == ["Order0", "Order1", "Order2"]
     assert str(dialog.find_button.cget("state")) == tk.NORMAL
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_interrupted_with_no_partial_results_clears_and_reports_stopped(fixture):
+    """AI: When a forceful break aborts a single long call there is nothing partial to keep,
+    so the results clear and the status still reports the search was stopped -- one consistent
+    Stop semantics whether or not partial results exist."""
+    fixture.simulate_login()
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    dialog.finish_find_with_partial(None)
+
+    assert dialog.status_var.get() == "Find stopped. Showing partial results."
+    assert find_result_labels(dialog) == []
     dialog.destroy()
 
 

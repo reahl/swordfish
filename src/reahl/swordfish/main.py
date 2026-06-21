@@ -47,6 +47,7 @@ from reahl.swordfish.class_diagram import (
 )
 from reahl.swordfish.closable_notebook import install_close_buttons
 from reahl.swordfish.exceptions import DomainException
+from reahl.swordfish.session_activity import ForegroundActivity, McpActivity
 from reahl.swordfish.execution import DebuggerControls, DebuggerWindow, RunTab
 from reahl.swordfish.gemstone import GemstoneBrowserSession, GemstoneDebugSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
@@ -2754,12 +2755,24 @@ class MainMenu(tk.Menu):
         # dropdown) rather than an item inside a menu, shown as a glyph so it reads
         # as an icon. Forces a full re-read for changes the IDE can't auto-detect.
         self.add_command(label="⟳", command=self.refresh_from_image)
+        # AI: A single Stop "button" beside Refresh -- a top-level command shown as a glyph
+        # -- that interrupts whatever GemStone activity currently holds the shared session,
+        # be it an IDE search or an MCP tool's work. Disabled while the session is idle.
+        self.add_command(
+            label="■",
+            command=self.stop_current_session_activity,
+            state=tk.DISABLED,
+        )
+        self.stop_command_index = self.index("end")
 
     def _subscribe_events(self):
         self.event_queue.subscribe("LoggedInSuccessfully", self.update_menus)
         self.event_queue.subscribe("LoggedOut", self.update_menus)
         self.event_queue.subscribe("McpBusyStateChanged", self.update_menus)
         self.event_queue.subscribe("McpServerStateChanged", self.update_menus)
+        self.event_queue.subscribe(
+            "SessionActivityChanged", self.update_stop_command
+        )
 
     def update_menus(self, gemstone_session_record=None, **kwargs):
         self.update_session_menu()
@@ -2946,6 +2959,16 @@ class MainMenu(tk.Menu):
         # AI: Menu-bar refresh button -> immediate full re-read by the app.
         self.parent.refresh_from_image()
 
+    def update_stop_command(self, is_active=False, **kwargs):
+        """AI: The menu-bar Stop is live exactly while something holds the session, so the
+        user can press it only when there is a running activity to interrupt."""
+        new_state = tk.NORMAL if is_active else tk.DISABLED
+        self.entryconfigure(self.stop_command_index, state=new_state)
+
+    def stop_current_session_activity(self):
+        # AI: Menu-bar Stop button -> interrupt the current session activity.
+        self.parent.stop_current_session_activity()
+
     def show_class_diagram(self):
         self.parent.ensure_class_diagram_tab()
 
@@ -3016,7 +3039,6 @@ class FindPane(Pane):
         self.search_intent_var = tk.StringVar(value="")
         self.result_action_var = tk.StringVar(value="")
         self.find_operation_running = False
-        self.find_stop_requested = False
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(8, weight=1)
@@ -3151,25 +3173,17 @@ class FindPane(Pane):
         # AI: Enter in the search box runs the search, same as the find button.
         self.find_entry.bind("<Return>", lambda *_: self.find_text())
 
-        # AI: Small icon buttons immediately to the right of the search box -- a
-        # magnifying glass to search and a stop square to interrupt -- instead of
-        # the old wide text buttons. BMP glyphs (Tk 8.6 doesn't render non-BMP
-        # emoji). update_find_running_state toggles their enabled state.
+        # AI: A small magnifying-glass icon button immediately right of the search box
+        # runs the search (a BMP glyph -- Tk 8.6 cannot render non-BMP emoji). There is
+        # no per-dialog Stop: a single Stop control in the menu bar interrupts whatever
+        # GemStone activity holds the shared session, this search included.
         self.find_button = ttk.Button(
             self,
             text="⌕",
             width=3,
             command=self.find_text,
         )
-        self.find_button.grid(row=2, column=4, padx=(0, 2), pady=10)
-        self.stop_button = ttk.Button(
-            self,
-            text="■",
-            width=3,
-            command=self.request_stop_find,
-            state=tk.DISABLED,
-        )
-        self.stop_button.grid(row=2, column=5, padx=(0, 10), pady=10)
+        self.find_button.grid(row=2, column=4, padx=(0, 10), pady=10)
 
         self.receiver_class_label = ttk.Label(self, text="Receiver class:")
         self.receiver_class_label.grid(
@@ -3430,7 +3444,6 @@ class FindPane(Pane):
     def set_find_operation_state(self, is_running):
         self.find_operation_running = is_running
         self.find_button.config(state=tk.DISABLED if is_running else tk.NORMAL)
-        self.stop_button.config(state=tk.NORMAL if is_running else tk.DISABLED)
         mode_control_state = tk.DISABLED if is_running else tk.NORMAL
         self.find_entry.config(state=mode_control_state)
         self.class_radio.config(state=mode_control_state)
@@ -3445,21 +3458,6 @@ class FindPane(Pane):
         self.reference_target_method_radio.config(state=mode_control_state)
         self.update_trace_narrow_state()
         self.update_search_context_fields()
-
-    def request_stop_find(self):
-        if self.find_operation_running:
-            self.find_stop_requested = True
-            self.status_var.set("Stopping find...")
-
-    def find_should_stop(self):
-        if not self.find_operation_running:
-            return False
-        self.update_idletasks()
-        try:
-            self.update()
-        except tk.TclError:
-            return True
-        return self.find_stop_requested
 
     def finish_stopped_find(self):
         self.status_var.set("Find stopped. Showing partial results.")
@@ -4252,140 +4250,182 @@ class FindPane(Pane):
         self.reference_method_selectors = []
         self.sender_tracing_selector = None
         self.sender_entries_by_navigation_result = {}
-        should_run_search = bool(normalized_search_query)
-        self.find_stop_requested = False
-        self.set_find_operation_state(should_run_search)
-        if should_run_search:
-            self.application.begin_foreground_activity(
-                self.activity_message_for_search(
-                    search_type,
-                    match_mode,
-                    reference_target,
-                    normalized_search_query,
-                )
-            )
+        if not normalized_search_query:
+            self.static_sender_results = []
+            self.sender_entries_by_navigation_result = {}
+            self.last_reference_method_query = None
+            self.last_reference_method_match_mode = None
+            self.clear_results()
+            self.status_var.set('')
+            self.update_search_context_fields()
+            return
+        configuration = {
+            'search_type': search_type,
+            'match_mode': match_mode,
+            'reference_target': reference_target,
+        }
+        message = self.activity_message_for_search(
+            search_type,
+            match_mode,
+            reference_target,
+            normalized_search_query,
+        )
+        self.set_find_operation_state(True)
+        # AI: The heavy scan runs as a foreground activity on a worker thread, so the UI
+        # stays responsive and the menu-bar Stop can interrupt it. Its outcome is delivered
+        # back here on the UI thread, where the results are rendered.
+        activity = ForegroundActivity(
+            message,
+            work=lambda should_stop: self.gather_find_results(
+                configuration,
+                normalized_search_query,
+                should_stop,
+            ),
+            on_finished=self.finish_find_with_results,
+            on_interrupted=self.finish_find_with_partial,
+            on_failed=self.finish_find_with_error,
+        )
+        self.application.run_foreground_activity(activity)
 
-        try:
-            if not should_run_search:
-                self.static_sender_results = []
-                self.sender_entries_by_navigation_result = {}
-                self.last_reference_method_query = None
-                self.last_reference_method_match_mode = None
-                self.clear_results()
-                self.status_var.set('')
-                return
-            if search_type == 'class':
-                class_names = self.class_names_for_query(
-                    normalized_search_query,
-                    match_mode,
-                    should_stop=self.find_should_stop,
-                )
-                self.display_class_results(class_names)
-                self.static_sender_results = []
-                self.sender_entries_by_navigation_result = {}
-                self.last_reference_method_query = None
-                self.last_reference_method_match_mode = None
-                if self.find_stop_requested:
-                    self.finish_stopped_find()
-                else:
-                    self.status_var.set('')
-                return
-            if search_type == 'method':
-                if match_mode == 'exact':
-                    implementor_results = list(
-                        self.gemstone_session_record.find_implementors_of_method(
-                            normalized_search_query
-                        )
-                    )
-                    if self.find_should_stop():
-                        self.clear_results()
-                        self.finish_stopped_find()
-                        return
-                    self.navigation_method_results = [
-                        (
-                            class_name,
-                            not is_meta,
-                            normalized_search_query,
-                        )
-                        for class_name, is_meta in implementor_results
-                    ]
-                    self.static_sender_results = []
-                    self.sender_entries_by_navigation_result = {}
-                    self.populate_navigation_results(self.navigation_method_results)
-                    if self.find_stop_requested:
-                        self.finish_stopped_find()
-                    else:
-                        self.status_var.set('')
-                    return
-                selector_names = self.selector_names_for_query(
-                    normalized_search_query,
-                    match_mode,
-                    should_stop=self.find_should_stop,
-                )
-                self.display_selector_results(selector_names)
-                self.static_sender_results = []
-                self.sender_entries_by_navigation_result = {}
-                self.last_reference_method_query = None
-                self.last_reference_method_match_mode = None
-                if self.find_stop_requested:
-                    self.finish_stopped_find()
-                else:
-                    self.status_var.set('')
-                return
-            if reference_target == 'class':
-                class_reference_results = self.references_for_class_query(
-                    normalized_search_query,
-                    match_mode,
-                    should_stop=self.find_should_stop,
-                )
-                self.method_reference_results = list(class_reference_results)
-                self.populate_navigation_results(class_reference_results)
-                self.static_sender_results = []
-                self.sender_entries_by_navigation_result = {}
-                self.last_reference_method_query = None
-                self.last_reference_method_match_mode = None
-                if self.find_stop_requested:
-                    self.finish_stopped_find()
-                else:
-                    self.status_var.set('')
-                return
-            (
-                method_reference_results,
-                selector_names,
-                sender_entries_by_result,
-            ) = self.references_for_method_query(
+    def gather_find_results(self, configuration, normalized_search_query, should_stop):
+        """AI: Runs on the worker thread. Performs only the heavy GemStone scan for the
+        resolved search and returns the raw results as a payload. It touches no widgets and
+        no dialog state, so it is safe off the UI thread; rendering happens afterwards on the
+        UI thread. A cooperative stop lets the scan return what it has gathered so far."""
+        search_type = configuration['search_type']
+        match_mode = configuration['match_mode']
+        reference_target = configuration['reference_target']
+        if search_type == 'class':
+            class_names = self.class_names_for_query(
                 normalized_search_query,
                 match_mode,
-                should_stop=self.find_should_stop,
+                should_stop=should_stop,
             )
-            self.reference_method_selectors = selector_names
-            self.static_sender_results = list(method_reference_results)
-            self.sender_entries_by_navigation_result = dict(sender_entries_by_result)
-            self.last_reference_method_query = normalized_search_query
-            self.last_reference_method_match_mode = match_mode
-            if self.find_stop_requested:
-                self.sender_tracing_selector = None
-                self.populate_navigation_results(method_reference_results)
-                self.finish_stopped_find()
-                return
-            self.sender_tracing_selector = (
-                self.current_reference_method_selector_for_tracing(
-                    selector_names,
-                    normalized_search_query,
-                    match_mode,
+            return {'kind': 'class', 'class_names': list(class_names)}
+        if search_type == 'method' and match_mode == 'exact':
+            implementor_results = list(
+                self.gemstone_session_record.find_implementors_of_method(
+                    normalized_search_query
                 )
             )
-            self.populate_navigation_results(method_reference_results)
-            self.update_sender_status_for_method_references(
-                selector_names,
-                len(self.static_sender_results),
+            navigation_results = [
+                (class_name, not is_meta, normalized_search_query)
+                for class_name, is_meta in implementor_results
+            ]
+            return {'kind': 'implementors', 'navigation_results': navigation_results}
+        if search_type == 'method':
+            selector_names = self.selector_names_for_query(
+                normalized_search_query,
                 match_mode,
+                should_stop=should_stop,
             )
-        finally:
-            if should_run_search:
-                self.application.end_foreground_activity()
-            self.set_find_operation_state(False)
-            self.update_search_context_fields()
+            return {'kind': 'selectors', 'selector_names': list(selector_names)}
+        if reference_target == 'class':
+            class_reference_results = list(
+                self.references_for_class_query(
+                    normalized_search_query,
+                    match_mode,
+                    should_stop=should_stop,
+                )
+            )
+            return {'kind': 'class_references', 'results': class_reference_results}
+        (
+            method_reference_results,
+            selector_names,
+            sender_entries_by_result,
+        ) = self.references_for_method_query(
+            normalized_search_query,
+            match_mode,
+            should_stop=should_stop,
+        )
+        return {
+            'kind': 'method_references',
+            'method_reference_results': list(method_reference_results),
+            'selector_names': selector_names,
+            'sender_entries_by_result': dict(sender_entries_by_result),
+            'query': normalized_search_query,
+            'match_mode': match_mode,
+        }
+
+    def render_find_results(self, payload):
+        """AI: Runs on the UI thread once the scan returns. Sets the dialog's result state
+        and renders it; the lighter per-result category lookups happen here, after the heavy
+        scan, when the session is idle again. Each branch sets its own resting status."""
+        kind = payload['kind']
+        if kind == 'class':
+            self.display_class_results(payload['class_names'])
+            self.static_sender_results = []
+            self.sender_entries_by_navigation_result = {}
+            self.last_reference_method_query = None
+            self.last_reference_method_match_mode = None
+            self.status_var.set('')
+        elif kind == 'implementors':
+            self.navigation_method_results = payload['navigation_results']
+            self.static_sender_results = []
+            self.sender_entries_by_navigation_result = {}
+            self.populate_navigation_results(self.navigation_method_results)
+            self.status_var.set('')
+        elif kind == 'selectors':
+            self.display_selector_results(payload['selector_names'])
+            self.static_sender_results = []
+            self.sender_entries_by_navigation_result = {}
+            self.last_reference_method_query = None
+            self.last_reference_method_match_mode = None
+            self.status_var.set('')
+        elif kind == 'class_references':
+            self.method_reference_results = list(payload['results'])
+            self.populate_navigation_results(payload['results'])
+            self.static_sender_results = []
+            self.sender_entries_by_navigation_result = {}
+            self.last_reference_method_query = None
+            self.last_reference_method_match_mode = None
+            self.status_var.set('')
+        else:
+            self.reference_method_selectors = payload['selector_names']
+            self.static_sender_results = list(payload['method_reference_results'])
+            self.sender_entries_by_navigation_result = dict(
+                payload['sender_entries_by_result']
+            )
+            self.last_reference_method_query = payload['query']
+            self.last_reference_method_match_mode = payload['match_mode']
+            self.sender_tracing_selector = (
+                self.current_reference_method_selector_for_tracing(
+                    payload['selector_names'],
+                    payload['query'],
+                    payload['match_mode'],
+                )
+            )
+            self.populate_navigation_results(payload['method_reference_results'])
+            self.update_sender_status_for_method_references(
+                payload['selector_names'],
+                len(self.static_sender_results),
+                payload['match_mode'],
+            )
+
+    def finish_find_with_results(self, payload):
+        """AI: The search ran to completion: render the full results."""
+        self.render_find_results(payload)
+        self.complete_find_operation()
+
+    def finish_find_with_partial(self, payload):
+        """AI: The user stopped the search. Render whatever the scan gathered (None when a
+        forceful break left nothing partial) and report partial results."""
+        if payload is not None:
+            self.render_find_results(payload)
+        else:
+            self.clear_results()
+        self.finish_stopped_find()
+        self.complete_find_operation()
+
+    def finish_find_with_error(self, error):
+        """AI: The search failed (e.g. an invalid pattern). Clear results and report it."""
+        self.clear_results()
+        self.status_var.set('Find failed: %s' % error)
+        self.complete_find_operation()
+
+    def complete_find_operation(self):
+        self.set_find_operation_state(False)
+        self.update_search_context_fields()
 
     def choose_tests_for_tracing(self, method_name):
         test_selection_dialog = CoveringTestsSearchDialog(
@@ -5438,6 +5478,17 @@ class Swordfish(tk.Tk):
         self.mcp_activity_indicator = None
         self.mcp_activity_indicator_visible = False
         self.foreground_activity_message = ''
+        # AI: At most one activity uses the shared GemStone session at a time (it runs one
+        # call at a time). This holds that single running activity - a ForegroundActivity
+        # the IDE launched on a worker thread, or an McpActivity for an MCP tool's work -
+        # so one Stop control can interrupt whichever it is. None when the session is idle.
+        self.current_session_activity = None
+        self.foreground_activity_after_id = None
+        # AI: Production runs foreground activities on a worker thread so the UI stays
+        # responsive and interruptible. Tests flip this to run them inline, so a search
+        # completes synchronously within the call that started it (deterministic, no
+        # thread/Tk-timing races); the work and delivery code paths are identical.
+        self.run_activities_synchronously = False
 
         self.gemstone_session_record = None
         self.last_mcp_busy_state = None
@@ -6180,6 +6231,68 @@ class Swordfish(tk.Tk):
             pass
         self.refresh_collaboration_status()
 
+    def set_current_session_activity(self, activity):
+        """AI: Record (or clear, with None) the single activity currently using the shared
+        session and announce it, so the Stop control enables or disables itself. One slot,
+        because the session runs one call at a time."""
+        self.current_session_activity = activity
+        self.event_queue.publish(
+            "SessionActivityChanged",
+            is_active=activity is not None,
+        )
+
+    def stop_current_session_activity(self):
+        """AI: The single Stop gesture. Delegates to whatever is running: a ForegroundActivity
+        stops cooperatively and then breaks the session; an McpActivity breaks the session."""
+        activity = self.current_session_activity
+        if activity is not None:
+            activity.request_stop()
+
+    def hard_break_session(self):
+        """AI: Forcefully abandon whatever GemStone call is in flight on the shared session,
+        whichever thread launched it. A break that cannot be delivered (the gem is idle, or
+        the session is gone) must not crash the thread that asked to stop."""
+        session_record = self.gemstone_session_record
+        if session_record is not None:
+            try:
+                session_record.hard_break()
+            except GemstoneError:
+                pass
+
+    def run_foreground_activity(self, activity):
+        """AI: Launch a foreground activity, mark the session busy, and arrange for its
+        outcome to be delivered on the UI thread. In production the work runs on a worker
+        thread so the UI stays free to interrupt it; synchronously in tests."""
+        activity.interrupt_session = self.hard_break_session
+        self.set_current_session_activity(activity)
+        self.begin_foreground_activity(activity.message)
+        if self.run_activities_synchronously:
+            activity.run_work()
+            self.conclude_foreground_activity(activity)
+        else:
+            worker = threading.Thread(target=activity.run_work, daemon=True)
+            worker.start()
+            self.poll_foreground_activity(activity, worker)
+
+    def poll_foreground_activity(self, activity, worker):
+        """AI: Drive the worker from the UI thread without blocking it: re-check on the Tk
+        event loop until the worker finishes, then conclude on this (UI) thread."""
+        if worker.is_alive():
+            self.foreground_activity_after_id = self.after(
+                50,
+                lambda: self.poll_foreground_activity(activity, worker),
+            )
+        else:
+            self.foreground_activity_after_id = None
+            self.conclude_foreground_activity(activity)
+
+    def conclude_foreground_activity(self, activity):
+        """AI: Clear the busy state and deliver the outcome here on the UI thread, where
+        touching widgets is safe. Shared by the threaded and synchronous paths."""
+        self.set_current_session_activity(None)
+        self.end_foreground_activity()
+        activity.deliver_outcome()
+
     def publish_mcp_busy_state_event(self, is_busy=False, operation_name=""):
         busy_lease_token = self.busy_coordinator.lease_for_state(
             is_busy=is_busy,
@@ -6334,7 +6447,19 @@ class Swordfish(tk.Tk):
                 self.refresh_collaboration_status()
             return
         self.last_mcp_busy_state = is_busy
+        self.reflect_mcp_activity_in_session(is_busy, operation_name)
         self.refresh_collaboration_status()
+
+    def reflect_mcp_activity_in_session(self, is_busy, operation_name):
+        """AI: Make an in-flight MCP tool the current session activity so the one Stop control
+        can break it, and clear it when the tool ends. Guarded so it never clobbers a
+        foreground activity (the two cannot run at once, but the guard keeps that honest)."""
+        if is_busy:
+            self.set_current_session_activity(
+                McpActivity(operation_name, self.hard_break_session)
+            )
+        elif isinstance(self.current_session_activity, McpActivity):
+            self.set_current_session_activity(None)
 
     def note_mcp_activity(self, operation_name):
         self.activity_linger.note_activity()
