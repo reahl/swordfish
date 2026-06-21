@@ -9,6 +9,7 @@ from reahl.ptongue import GemstoneError
 
 from reahl.swordfish.exceptions import DomainException
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
+from reahl.swordfish.test_execution import TestExecution
 from reahl.swordfish.gemstone.smalltalk_source_scanner import (
     SmalltalkSourceScanner,
     SmalltalkTokenKind,
@@ -997,40 +998,30 @@ class CodePanel(tk.Frame):
         if method_context is None:
             return
         class_name, show_instance_side, method_selector = method_context
-        self.application.begin_foreground_activity(
-            'Running test %s>>%s...' % (class_name, method_selector)
-        )
-        try:
-            try:
-                result = self.gemstone_session_record.run_test_method(
-                    class_name, method_selector
-                )
-                self.display_test_result(result)
-            except (DomainException, GemstoneDomainException) as e:
-                messagebox.showerror('Run Test', str(e))
-            except GemstoneError as error:
-                self.application.open_debugger(error)
-        finally:
-            self.application.end_foreground_activity()
+        TestExecution(
+            self.application,
+            'Running test %s>>%s...' % (class_name, method_selector),
+            lambda should_stop: self.gemstone_session_record.run_test_method(
+                class_name, method_selector
+            ),
+            self.display_test_result,
+            'Run Test',
+        ).start()
 
     def run_all_tests_for_current_class(self):
         method_context = self.method_context()
         if method_context is None:
             return
         class_name = method_context[0]
-        self.application.begin_foreground_activity(
-            'Running tests in %s...' % class_name
-        )
-        try:
-            try:
-                result = self.gemstone_session_record.run_gemstone_tests(class_name)
-                self.display_test_result(result)
-            except (DomainException, GemstoneDomainException) as e:
-                messagebox.showerror('Run All Tests', str(e))
-            except GemstoneError as error:
-                self.application.open_debugger(error)
-        finally:
-            self.application.end_foreground_activity()
+        TestExecution(
+            self.application,
+            'Running tests in %s...' % class_name,
+            lambda should_stop: self.gemstone_session_record.run_gemstone_tests(
+                class_name
+            ),
+            self.display_test_result,
+            'Run All Tests',
+        ).start()
 
     def display_test_result(self, result):
         if result['has_passed']:

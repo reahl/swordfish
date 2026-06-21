@@ -98,6 +98,15 @@ class FakeApplication:
     def end_foreground_activity(self):
         pass
 
+    def run_foreground_activity(self, activity):
+        # AI: Run the activity inline so GUI tests observe its outcome within the call,
+        # mirroring Swordfish.run_activities_synchronously (the real app's test seam).
+        activity.run_work()
+        activity.deliver_outcome()
+
+    def open_debugger(self, error):
+        pass
+
     def open_class_diagram_for_class(self, class_name):
         pass
 
