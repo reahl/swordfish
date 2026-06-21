@@ -1009,11 +1009,6 @@ class RunTab(ttk.Frame):
 
     def close_tab(self):
         self.ui_context.invalidate()
-        run_session_key = getattr(self, 'global_navigation_session_key', None)
-        if run_session_key:
-            self.application.mark_global_navigation_place_stale(
-                ('run_session', run_session_key),
-            )
         if self.application.run_tab is self:
             self.application.run_tab = None
         try:
@@ -1535,11 +1530,6 @@ class DebuggerWindow(ttk.PanedWindow):
 
     def dismiss(self):
         self.stack_frames = None
-        debugger_session_key = getattr(self, 'global_navigation_session_key', None)
-        if debugger_session_key:
-            self.application.mark_global_navigation_place_stale(
-                ('debugger_session', debugger_session_key),
-            )
         if self.application.debugger_tab is self:
             self.application.debugger_tab = None
         notebook = self.master
