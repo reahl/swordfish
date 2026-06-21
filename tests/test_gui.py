@@ -3941,6 +3941,58 @@ def test_running_a_foreground_activity_delivers_its_result_on_the_ui_thread(fixt
     assert fixture.app.current_session_activity is None
 
 
+class DenyingSessionAdmission:
+    """AI: Stands in for the session-admission gate while an MCP operation holds the session:
+    every IDE attempt to take the session is refused."""
+
+    def try_admit(self):
+        return None
+
+    def release(self, operation_token):
+        pass
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_stop_button_enables_for_mcp_even_while_the_session_gate_is_closed(fixture):
+    """AI: The gem-free announcement of an MCP activity must reach the UI even while the MCP
+    operation holds the session -- otherwise the Stop button could never enable during the very
+    operation it exists to interrupt. The session-admission gate must not block pure-UI events."""
+    fixture.simulate_login()
+    fixture.app.event_queue.session_admission = DenyingSessionAdmission()
+    menu_bar = fixture.app.menu_bar
+    stop_index = menu_bar.index('■')
+
+    fixture.app.integrated_session_state.begin_mcp_operation('gs_run_tests')
+    fixture.app.update()
+
+    assert isinstance(fixture.app.current_session_activity, McpActivity)
+    assert str(menu_bar.entrycget(stop_index, 'state')) == tk.NORMAL
+
+    # AI: integrated_session_state is process-global; balance the begin so the busy state
+    # does not leak into the next test.
+    fixture.app.event_queue.session_admission = None
+    fixture.app.integrated_session_state.end_mcp_operation()
+    fixture.app.update()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_gem_touching_events_still_wait_for_the_session_gate_to_open(fixture):
+    """AI: The gate still protects gem-touching event handlers from colliding with a concurrent
+    MCP operation: such an event is held back while the session is taken, then delivered once it
+    frees. Only the pure-UI events jump the queue."""
+    fixture.simulate_login()
+    handled = Mock()
+    fixture.app.event_queue.subscribe('GemTouchingProbe', handled)
+    fixture.app.event_queue.session_admission = DenyingSessionAdmission()
+
+    fixture.app.event_queue.publish('GemTouchingProbe')
+    handled.assert_not_called()
+
+    fixture.app.event_queue.session_admission = None
+    fixture.app.event_queue.run_deferred_processing()
+    handled.assert_called_once()
+
+
 @with_fixtures(SwordfishAppFixture)
 def test_model_refresh_requests_are_debounced_not_immediate(fixture):
     """AI: A burst of MCP write refresh-requests must not each trigger a structural
