@@ -107,6 +107,7 @@ from reahl.swordfish.ui_support import (
     UML_NODES_PER_ROW,
     UML_ORIGIN_X,
     UML_ORIGIN_Y,
+    Tooltip,
     close_popup_menu,
     popup_menu,
 )
@@ -2775,28 +2776,11 @@ class MainMenu(tk.Menu):
         self.add_cascade(label="FileTree", menu=self.filetree_menu)
         self.update_filetree_menu()
 
-        # AI: A refresh "button" in the menu bar itself -- a top-level command (no
-        # dropdown) rather than an item inside a menu, shown as a glyph so it reads
-        # as an icon. Forces a full re-read for changes the IDE can't auto-detect.
-        self.add_command(label="⟳", command=self.refresh_from_image)
-        # AI: A single Stop "button" beside Refresh -- a top-level command shown as a glyph
-        # -- that interrupts whatever GemStone activity currently holds the shared session,
-        # be it an IDE search or an MCP tool's work. Disabled while the session is idle.
-        self.add_command(
-            label="■",
-            command=self.stop_current_session_activity,
-            state=tk.DISABLED,
-        )
-        self.stop_command_index = self.index("end")
-
     def _subscribe_events(self):
         self.event_queue.subscribe("LoggedInSuccessfully", self.update_menus)
         self.event_queue.subscribe("LoggedOut", self.update_menus)
         self.event_queue.subscribe("McpBusyStateChanged", self.update_menus)
         self.event_queue.subscribe("McpServerStateChanged", self.update_menus)
-        self.event_queue.subscribe(
-            "SessionActivityChanged", self.update_stop_command
-        )
 
     def update_menus(self, gemstone_session_record=None, **kwargs):
         self.update_session_menu()
@@ -2979,19 +2963,6 @@ class MainMenu(tk.Menu):
     def show_browser(self):
         self.parent.add_browser_tab()
 
-    def refresh_from_image(self):
-        # AI: Menu-bar refresh button -> immediate full re-read by the app.
-        self.parent.refresh_from_image()
-
-    def update_stop_command(self, is_active=False, **kwargs):
-        """AI: The menu-bar Stop is live exactly while something holds the session, so the
-        user can press it only when there is a running activity to interrupt."""
-        new_state = tk.NORMAL if is_active else tk.DISABLED
-        self.entryconfigure(self.stop_command_index, state=new_state)
-
-    def stop_current_session_activity(self):
-        # AI: Menu-bar Stop button -> interrupt the current session activity.
-        self.parent.stop_current_session_activity()
 
     def show_class_diagram(self):
         self.parent.ensure_class_diagram_tab()
@@ -3208,6 +3179,7 @@ class FindPane(Pane):
             command=self.find_text,
         )
         self.find_button.grid(row=2, column=4, padx=(0, 10), pady=10)
+        Tooltip(self.find_button, "Search")
 
         self.receiver_class_label = ttk.Label(self, text="Receiver class:")
         self.receiver_class_label.grid(
@@ -5501,6 +5473,8 @@ class Swordfish(tk.Tk):
         self.transaction_dirty_text = tk.StringVar(value='')
         self.mcp_activity_indicator = None
         self.mcp_activity_indicator_visible = False
+        self.status_refresh_button = None
+        self.status_stop_button = None
         self.foreground_activity_message = ''
         # AI: At most one activity uses the shared GemStone session at a time (it runs one
         # call at a time). This holds that single running activity - a ForegroundActivity
@@ -5560,6 +5534,10 @@ class Swordfish(tk.Tk):
         self.event_queue.subscribe(
             'McpServerStateChanged',
             self.handle_mcp_server_state_changed,
+        )
+        self.event_queue.subscribe(
+            'SessionActivityChanged',
+            self.update_status_stop_button,
         )
         self.event_queue.subscribe(
             'ModelRefreshRequested',
@@ -6003,6 +5981,8 @@ class Swordfish(tk.Tk):
         self.collaboration_status_label = None
         self.mcp_activity_indicator = None
         self.mcp_activity_indicator_visible = False
+        self.status_refresh_button = None
+        self.status_stop_button = None
 
     def show_login_screen(self):
         self.clear_widgets()
@@ -6147,6 +6127,14 @@ class Swordfish(tk.Tk):
         # reclaimed instead of leaving a blank hole.
         self.pane_area.remove_group_if_empty(notebook)
 
+    def update_status_stop_button(self, is_active=False, **kwargs):
+        # AI: The status-bar Stop button is live only while an activity holds the session; it is
+        # absent before login / after logout, hence the None guard.
+        if self.status_stop_button is not None:
+            self.status_stop_button.config(
+                state=tk.NORMAL if is_active else tk.DISABLED
+            )
+
     def create_collaboration_status_bar(self):
         self.collaboration_status_frame = ttk.Frame(self)
         self.collaboration_status_frame.grid(
@@ -6200,7 +6188,28 @@ class Swordfish(tk.Tk):
             sticky="e",
             padx=(8, 4),
         )
+        # AI: Refresh and Stop as small icon buttons at the far right of the bottom bar, each with
+        # a hover tooltip. Stop interrupts whatever activity holds the shared session and is live
+        # only while one runs; Refresh forces a full re-read of image state.
+        self.status_refresh_button = ttk.Button(
+            self.collaboration_status_frame,
+            text="⟳",
+            width=3,
+            command=self.refresh_from_image,
+        )
+        self.status_refresh_button.grid(row=0, column=4, sticky="e", padx=(8, 2))
+        Tooltip(self.status_refresh_button, "Refresh from image")
+        self.status_stop_button = ttk.Button(
+            self.collaboration_status_frame,
+            text="■",
+            width=3,
+            command=self.stop_current_session_activity,
+            state=tk.DISABLED,
+        )
+        self.status_stop_button.grid(row=0, column=5, sticky="e")
+        Tooltip(self.status_stop_button, "Stop the current operation")
         self.set_mcp_activity_indicator_visibility(False)
+        # AI: Keep the status-bar row (row 1) minimal; the pane area in row 0 takes the height.
         self.rowconfigure(1, weight=0)
 
     def set_mcp_activity_indicator_visibility(self, visible):

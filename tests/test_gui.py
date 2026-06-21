@@ -3841,17 +3841,16 @@ def test_refresh_from_image_re_reads_structural_and_breakpoint_views(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_menu_bar_refresh_button_triggers_full_re_read(fixture):
-    """AI: The menu-bar refresh button -- a top-level command shown as a glyph
-    rather than a word, so it reads as an icon -- forces a full re-read on click."""
+def test_toolbar_refresh_button_triggers_full_re_read(fixture):
+    """AI: The toolbar refresh button -- a small icon button at the top right, shown as a glyph
+    rather than a word -- forces a full re-read on click."""
     fixture.simulate_login()
     methods_changed = Mock()
     breakpoints_changed = Mock()
     fixture.app.event_queue.subscribe('MethodsChanged', methods_changed)
     fixture.app.event_queue.subscribe('BreakpointsChanged', breakpoints_changed)
 
-    menu_bar = fixture.app.menu_bar
-    menu_bar.invoke(menu_bar.index('⟳'))
+    fixture.app.status_refresh_button.invoke()
     fixture.app.update()
 
     methods_changed.assert_called()
@@ -3859,35 +3858,40 @@ def test_menu_bar_refresh_button_triggers_full_re_read(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_menu_bar_stop_button_is_disabled_while_the_session_is_idle(fixture):
-    """AI: With nothing running on the shared session there is nothing to interrupt, so the
-    single Stop control offers no false affordance -- it sits disabled."""
+def test_toolbar_icon_buttons_have_hover_tooltips(fixture):
+    """AI: The toolbar's icon buttons are glyphs, so they carry hover tooltips to stay
+    discoverable -- the binding that drives the tooltip is present on each."""
     fixture.simulate_login()
-    menu_bar = fixture.app.menu_bar
-    stop_index = menu_bar.index('■')
-    assert str(menu_bar.entrycget(stop_index, 'state')) == tk.DISABLED
+    assert fixture.app.status_refresh_button.bind('<Enter>')
+    assert fixture.app.status_stop_button.bind('<Enter>')
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_menu_bar_stop_button_enables_while_an_activity_holds_the_session(fixture):
+def test_toolbar_stop_button_is_disabled_while_the_session_is_idle(fixture):
+    """AI: With nothing running on the shared session there is nothing to interrupt, so the
+    single Stop control offers no false affordance -- it sits disabled."""
+    fixture.simulate_login()
+    assert str(fixture.app.status_stop_button.cget('state')) == tk.DISABLED
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_toolbar_stop_button_enables_while_an_activity_holds_the_session(fixture):
     """AI: The one Stop control tracks the single session-activity slot: pressable exactly
     while an activity runs, disabled again the moment it ends."""
     fixture.simulate_login()
-    menu_bar = fixture.app.menu_bar
-    stop_index = menu_bar.index('■')
     activity = types.SimpleNamespace(request_stop=Mock(), message='Searching...')
 
     fixture.app.set_current_session_activity(activity)
     fixture.app.update()
-    assert str(menu_bar.entrycget(stop_index, 'state')) == tk.NORMAL
+    assert str(fixture.app.status_stop_button.cget('state')) == tk.NORMAL
 
     fixture.app.set_current_session_activity(None)
     fixture.app.update()
-    assert str(menu_bar.entrycget(stop_index, 'state')) == tk.DISABLED
+    assert str(fixture.app.status_stop_button.cget('state')) == tk.DISABLED
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_pressing_menu_bar_stop_interrupts_the_current_activity(fixture):
+def test_pressing_toolbar_stop_interrupts_the_current_activity(fixture):
     """AI: One Stop gesture delegates to whatever holds the session, asking it to stop. The
     button knows nothing of Find versus MCP -- only the shared activity protocol."""
     fixture.simulate_login()
@@ -3895,8 +3899,7 @@ def test_pressing_menu_bar_stop_interrupts_the_current_activity(fixture):
     fixture.app.set_current_session_activity(activity)
     fixture.app.update()
 
-    menu_bar = fixture.app.menu_bar
-    menu_bar.invoke(menu_bar.index('■'))
+    fixture.app.status_stop_button.invoke()
 
     activity.request_stop.assert_called_once()
 
@@ -3907,21 +3910,20 @@ def test_a_running_mcp_tool_becomes_the_stoppable_session_activity(fixture):
     runs the one Stop control is live, and pressing it hard-breaks the shared session so the
     tool's blocked call is abandoned. The MCP busy lifecycle drives the slot."""
     fixture.simulate_login()
-    menu_bar = fixture.app.menu_bar
-    stop_index = menu_bar.index('■')
+    stop_button = fixture.app.status_stop_button
 
     fixture.app.integrated_session_state.begin_mcp_operation('gs_run_tests')
     fixture.app.update()
     assert isinstance(fixture.app.current_session_activity, McpActivity)
-    assert str(menu_bar.entrycget(stop_index, 'state')) == tk.NORMAL
+    assert str(stop_button.cget('state')) == tk.NORMAL
 
-    menu_bar.invoke(stop_index)
+    stop_button.invoke()
     fixture.mock_browser.hard_break.assert_called_once()
 
     fixture.app.integrated_session_state.end_mcp_operation()
     fixture.app.update()
     assert fixture.app.current_session_activity is None
-    assert str(menu_bar.entrycget(stop_index, 'state')) == tk.DISABLED
+    assert str(stop_button.cget('state')) == tk.DISABLED
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -3968,14 +3970,12 @@ def test_stop_button_enables_for_mcp_even_while_the_session_gate_is_closed(fixtu
     operation it exists to interrupt. The session-admission gate must not block pure-UI events."""
     fixture.simulate_login()
     fixture.app.event_queue.session_admission = DenyingSessionAdmission()
-    menu_bar = fixture.app.menu_bar
-    stop_index = menu_bar.index('■')
 
     fixture.app.integrated_session_state.begin_mcp_operation('gs_run_tests')
     fixture.app.update()
 
     assert isinstance(fixture.app.current_session_activity, McpActivity)
-    assert str(menu_bar.entrycget(stop_index, 'state')) == tk.NORMAL
+    assert str(fixture.app.status_stop_button.cget('state')) == tk.NORMAL
 
     # AI: integrated_session_state is process-global; balance the begin so the busy state
     # does not leak into the next test.
@@ -5153,9 +5153,13 @@ def test_run_dialog_shows_inspect_button(fixture):
 
     assert hasattr(run_tab, "inspect_button")
     assert run_tab.inspect_button.winfo_exists()
-    assert run_tab.inspect_button.cget("text") == "Inspect"
+    # AI: The action buttons are now compact icon glyphs (named by hover tooltips), not words.
+    assert run_tab.inspect_button.cget("text") not in ("Inspect", "")
     for button in (run_tab.run_button, run_tab.inspect_button, run_tab.debug_button):
         assert not button.instate(["disabled"])
+        # AI: each action is a glyph icon with a hover tooltip, not a wide text button.
+        assert button.cget("text") not in ("Run", "Inspect", "Debug", "")
+        assert button.bind("<Enter>")
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -6837,7 +6841,8 @@ def test_debugger_active_controls_place_restart_after_through(
         debugger_tab.debugger_controls.restart_button.grid_info()["column"]
     )
     assert through_column < restart_column
-    assert debugger_tab.debugger_controls.restart_button.cget("text") == "Restart"
+    # AI: The debugger controls are now compact icon glyphs (named by hover tooltips), not words.
+    assert debugger_tab.debugger_controls.restart_button.cget("text") not in ("Restart", "")
 
 
 @with_fixtures(SwordfishAppFixture)

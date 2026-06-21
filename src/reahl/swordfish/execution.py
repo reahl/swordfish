@@ -20,6 +20,7 @@ from reahl.swordfish.text_editing import (
 )
 from reahl.swordfish.ui_context import UiContext
 from reahl.swordfish.ui_support import (
+    Tooltip,
     add_diagram_commands,
     add_navigation_commands,
     add_run_commands,
@@ -47,26 +48,35 @@ class RunTab(ttk.Frame):
         self.button_frame.grid(row=0, column=0, sticky='ew', padx=10, pady=(10, 5))
         self.button_frame.columnconfigure(3, weight=1)
 
+        # AI: Compact icon buttons (glyph, not word) for the run-window actions, each with a
+        # hover tooltip naming it. Run is a filled play; Debug a hollow play ("run with
+        # debugging"); Inspect a circled dot ("look into the result"). BMP glyphs only.
         self.run_button = ttk.Button(
             self.button_frame,
-            text='Run',
+            text='▶',
+            width=3,
             command=self.run_code_from_editor,
         )
-        self.run_button.grid(row=0, column=0, padx=(0, 5))
+        self.run_button.grid(row=0, column=0, padx=(0, 4))
+        Tooltip(self.run_button, 'Run')
 
         self.inspect_button = ttk.Button(
             self.button_frame,
-            text='Inspect',
+            text='⊙',
+            width=3,
             command=self.inspect_code_from_editor,
         )
-        self.inspect_button.grid(row=0, column=1, sticky='w', padx=(0, 5))
+        self.inspect_button.grid(row=0, column=1, sticky='w', padx=(0, 4))
+        Tooltip(self.inspect_button, 'Inspect')
 
         self.debug_button = ttk.Button(
             self.button_frame,
-            text='Debug',
+            text='▷',
+            width=3,
             command=self.open_debugger,
         )
-        self.debug_button.grid(row=0, column=2, sticky='w', padx=(0, 5))
+        self.debug_button.grid(row=0, column=2, sticky='w', padx=(0, 4))
+        Tooltip(self.debug_button, 'Debug')
 
         self.source_label = ttk.Label(self, text='Source Code:')
         self.source_label.grid(row=1, column=0, sticky='w', padx=10, pady=(5, 0))
@@ -1527,26 +1537,38 @@ class DebuggerControls(ttk.Frame):
         self.debugger = debugger
         self.event_queue = event_queue
 
+        # AI: Compact icon buttons (glyph, not word) for the debugger actions, each with a hover
+        # tooltip naming it. Continue is play; Over arcs over the send; Into steps down into the
+        # call; Through steps further in (also into blocks); Restart re-runs the frame. BMP only.
         self.continue_button = ttk.Button(
-            self, text='Continue', command=self.handle_continue
+            self, text='▶', width=3, command=self.handle_continue
         )
-        self.continue_button.grid(row=0, column=0, padx=5, pady=5)
+        self.continue_button.grid(row=0, column=0, padx=4, pady=5)
+        Tooltip(self.continue_button, 'Continue')
 
-        self.over_button = ttk.Button(self, text='Over', command=self.handle_over)
-        self.over_button.grid(row=0, column=1, padx=5, pady=5)
+        self.over_button = ttk.Button(
+            self, text='↷', width=3, command=self.handle_over
+        )
+        self.over_button.grid(row=0, column=1, padx=4, pady=5)
+        Tooltip(self.over_button, 'Step over')
 
-        self.into_button = ttk.Button(self, text='Into', command=self.handle_into)
-        self.into_button.grid(row=0, column=2, padx=5, pady=5)
+        self.into_button = ttk.Button(
+            self, text='↓', width=3, command=self.handle_into
+        )
+        self.into_button.grid(row=0, column=2, padx=4, pady=5)
+        Tooltip(self.into_button, 'Step into')
 
         self.through_button = ttk.Button(
-            self, text='Through', command=self.handle_through
+            self, text='⤓', width=3, command=self.handle_through
         )
-        self.through_button.grid(row=0, column=3, padx=5, pady=5)
+        self.through_button.grid(row=0, column=3, padx=4, pady=5)
+        Tooltip(self.through_button, 'Step through')
 
         self.restart_button = ttk.Button(
-            self, text='Restart', command=self.handle_restart
+            self, text='↺', width=3, command=self.handle_restart
         )
-        self.restart_button.grid(row=0, column=4, padx=5, pady=5)
+        self.restart_button.grid(row=0, column=4, padx=4, pady=5)
+        Tooltip(self.restart_button, 'Restart frame')
 
         # AI: The spring column absorbs space at the right of the stepping
         # cluster. (Stop and Close both moved to the tab 'x'.)
