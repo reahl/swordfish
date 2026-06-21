@@ -4551,6 +4551,50 @@ def test_run_dialog_shows_debug_button_when_code_raises_error(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_running_source_goes_through_the_interruptible_activity_runner(fixture):
+    """AI: Running code is now a foreground activity, so the single menu-bar Stop can interrupt a
+    long doit. The run window hands the doit to the activity runner instead of calling the gem
+    inline on the UI thread."""
+    fixture.simulate_login()
+    result = Mock()
+    result.asString.return_value.to_py = "7"
+    fixture.mock_browser.run_code.return_value = result
+
+    launched = []
+    original_runner = fixture.app.run_foreground_activity
+
+    def spy(activity):
+        launched.append(activity)
+        return original_runner(activity)
+
+    fixture.app.run_foreground_activity = spy
+
+    fixture.app.run_code("3 + 4")
+    fixture.app.update()
+
+    assert len(launched) == 1
+    assert launched[0].message == "Running source..."
+    assert fixture.mock_browser.run_code.called
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_stopping_a_run_reports_stopped_and_does_not_open_a_debugger(fixture):
+    """AI: A user-requested Stop is not a failure: the run reports it was stopped and must not
+    drop the user into a debugger (unlike a genuine trap, which does). The run window routes an
+    interrupted outcome away from the error/debugger path."""
+    fixture.simulate_login()
+    fixture.app.run_code("1 + 1")
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.on_run_error = Mock()
+
+    run_tab.interrupt_source_run()
+
+    assert run_tab.status_label.cget("text") == "Stopped."
+    run_tab.on_run_error.assert_not_called()
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_run_source_text_shortcuts_replace_selection_and_support_undo(fixture):
     """Run source text supports select/copy/paste/undo shortcuts, and typed input replaces selected text."""
     fixture.simulate_login()

@@ -9,6 +9,7 @@ from reahl.swordfish.exceptions import DomainException
 from reahl.swordfish.gemstone import GemstoneDebugSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.inspector import Explorer
+from reahl.swordfish.session_activity import ForegroundActivity
 from reahl.swordfish.text_editing import (
     CodeLineNumberColumn,
     CodePanel,
@@ -328,6 +329,47 @@ class RunTab(ttk.Frame):
             return self.editable_source
         return EditableText(text_widget, self)
 
+    def run_source_code_as_activity(self, source, message, event_prefix, on_result):
+        """AI: Run source as an interruptible foreground activity. The doit runs on a worker
+        thread so the UI stays responsive and the menu-bar Stop can hard-break it; the outcome
+        is delivered back on the UI thread. A genuine trap (unhandled error or breakpoint)
+        opens the debugger; a user-requested Stop does not -- the activity tells them apart by
+        whether a stop was requested, so stopping never drops the user into a debugger."""
+        self.last_exception = None
+        self.clear_source_error_highlight()
+        activity = ForegroundActivity(
+            message,
+            work=lambda should_stop: self.gemstone_session_record.run_code(source),
+            on_finished=lambda result: self.finish_source_run(
+                source, result, event_prefix, on_result
+            ),
+            on_failed=lambda error: self.fail_source_run(source, error, event_prefix),
+            on_interrupted=lambda partial: self.interrupt_source_run(),
+        )
+        self.application.run_foreground_activity(activity)
+
+    def finish_source_run(self, source, result, event_prefix, on_result):
+        self.on_run_complete(result)
+        on_result(result)
+        self.application.event_queue.publish(
+            event_prefix + 'Succeeded',
+            log_context={'code': source, 'result': result.asString().to_py},
+        )
+
+    def fail_source_run(self, source, error, event_prefix):
+        if isinstance(error, GemstoneError):
+            self.on_run_error(error)
+        else:
+            self.status_label.config(text=str(error))
+            self.show_error_in_result_panel(str(error), None, None)
+        self.application.event_queue.publish(
+            event_prefix + 'Failed',
+            log_context={'code': source, 'error': str(error)},
+        )
+
+    def interrupt_source_run(self):
+        self.status_label.config(text='Stopped.')
+
     def run_selected_source(self, selected_text):
         if self.is_read_only():
             self.status_label.config(text='MCP is busy. Run is disabled.')
@@ -339,41 +381,12 @@ class RunTab(ttk.Frame):
             'RunSelectionRun', log_context={'code': selected_text}
         )
         self.status_label.config(text='Running selection...')
-        self.last_exception = None
-        self.clear_source_error_highlight()
-        self.application.begin_foreground_activity('Running selected source...')
-        try:
-            try:
-                result = self.gemstone_session_record.run_code(selected_text)
-                self.on_run_complete(result)
-                self.application.event_queue.publish(
-                    'RunSelectionSucceeded',
-                    log_context={
-                        'code': selected_text,
-                        'result': result.asString().to_py,
-                    },
-                )
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                self.status_label.config(text=str(domain_exception))
-                self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish(
-                    'RunSelectionFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(domain_exception),
-                    },
-                )
-            except GemstoneError as gemstone_exception:
-                self.on_run_error(gemstone_exception)
-                self.application.event_queue.publish(
-                    'RunSelectionFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(gemstone_exception),
-                    },
-                )
-        finally:
-            self.application.end_foreground_activity()
+        self.run_source_code_as_activity(
+            selected_text,
+            'Running selected source...',
+            'RunSelection',
+            lambda result: None,
+        )
 
     def inspect_selected_source(self, selected_text):
         if self.is_read_only():
@@ -386,42 +399,12 @@ class RunTab(ttk.Frame):
             'InspectSelectionRun', log_context={'code': selected_text}
         )
         self.status_label.config(text='Inspecting selection...')
-        self.last_exception = None
-        self.clear_source_error_highlight()
-        self.application.begin_foreground_activity('Inspecting selected source...')
-        try:
-            try:
-                result = self.gemstone_session_record.run_code(selected_text)
-                self.on_run_complete(result)
-                self.application.open_inspector_for_object(result)
-                self.application.event_queue.publish(
-                    'InspectSelectionSucceeded',
-                    log_context={
-                        'code': selected_text,
-                        'result': result.asString().to_py,
-                    },
-                )
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                self.status_label.config(text=str(domain_exception))
-                self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish(
-                    'InspectSelectionFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(domain_exception),
-                    },
-                )
-            except GemstoneError as gemstone_exception:
-                self.on_run_error(gemstone_exception)
-                self.application.event_queue.publish(
-                    'InspectSelectionFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(gemstone_exception),
-                    },
-                )
-        finally:
-            self.application.end_foreground_activity()
+        self.run_source_code_as_activity(
+            selected_text,
+            'Inspecting selected source...',
+            'InspectSelection',
+            lambda result: self.application.open_inspector_for_object(result),
+        )
 
     def show_selected_source_in_object_diagram(self, selected_text):
         if self.is_read_only():
@@ -622,41 +605,12 @@ class RunTab(ttk.Frame):
             'RunTabCodeRun', log_context={'code': code_to_run}
         )
         self.status_label.config(text='Running...')
-        self.last_exception = None
-        self.clear_source_error_highlight()
-        self.application.begin_foreground_activity('Running source...')
-        try:
-            try:
-                result = self.gemstone_session_record.run_code(code_to_run)
-                self.on_run_complete(result)
-                self.application.event_queue.publish(
-                    'RunTabCodeSucceeded',
-                    log_context={
-                        'code': code_to_run,
-                        'result': result.asString().to_py,
-                    },
-                )
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                self.status_label.config(text=str(domain_exception))
-                self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish(
-                    'RunTabCodeFailed',
-                    log_context={
-                        'code': code_to_run,
-                        'error': str(domain_exception),
-                    },
-                )
-            except GemstoneError as gemstone_exception:
-                self.on_run_error(gemstone_exception)
-                self.application.event_queue.publish(
-                    'RunTabCodeFailed',
-                    log_context={
-                        'code': code_to_run,
-                        'error': str(gemstone_exception),
-                    },
-                )
-        finally:
-            self.application.end_foreground_activity()
+        self.run_source_code_as_activity(
+            code_to_run,
+            'Running source...',
+            'RunTabCode',
+            lambda result: None,
+        )
 
     def inspect_code_from_editor(self):
         if self.is_read_only():
@@ -667,42 +621,12 @@ class RunTab(ttk.Frame):
             'RunTabCodeInspect', log_context={'code': code_to_run}
         )
         self.status_label.config(text='Inspecting...')
-        self.last_exception = None
-        self.clear_source_error_highlight()
-        self.application.begin_foreground_activity('Inspecting source...')
-        try:
-            try:
-                result = self.gemstone_session_record.run_code(code_to_run)
-                self.on_run_complete(result)
-                self.application.open_inspector_for_object(result)
-                self.application.event_queue.publish(
-                    'RunTabCodeInspectSucceeded',
-                    log_context={
-                        'code': code_to_run,
-                        'result': result.asString().to_py,
-                    },
-                )
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                self.status_label.config(text=str(domain_exception))
-                self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish(
-                    'RunTabCodeInspectFailed',
-                    log_context={
-                        'code': code_to_run,
-                        'error': str(domain_exception),
-                    },
-                )
-            except GemstoneError as gemstone_exception:
-                self.on_run_error(gemstone_exception)
-                self.application.event_queue.publish(
-                    'RunTabCodeInspectFailed',
-                    log_context={
-                        'code': code_to_run,
-                        'error': str(gemstone_exception),
-                    },
-                )
-        finally:
-            self.application.end_foreground_activity()
+        self.run_source_code_as_activity(
+            code_to_run,
+            'Inspecting source...',
+            'RunTabCodeInspect',
+            lambda result: self.application.open_inspector_for_object(result),
+        )
 
     def on_run_complete(self, result):
         self.status_label.config(text='Completed successfully')
