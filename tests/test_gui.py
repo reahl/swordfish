@@ -4216,6 +4216,62 @@ def test_debugger_save_recompiles_method_and_restarts_the_caller(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_resuming_in_the_debugger_runs_as_an_interruptible_activity(fixture):
+    """AI: A debugger Resume can run unboundedly, so it goes through the foreground-activity
+    runner -- the single menu-bar Stop can then abandon a long resume rather than freezing the
+    IDE while the process runs."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+    debugger_tab = fixture.app.debugger_tab
+
+    launched = []
+    original_runner = fixture.app.run_foreground_activity
+
+    def spy(activity):
+        launched.append(activity)
+        return original_runner(activity)
+
+    fixture.app.run_foreground_activity = spy
+
+    with patch.object(debugger_tab, "selected_frame_level", return_value=1):
+        with patch.object(
+            debugger_tab.debug_session, "continue_running", return_value=Mock()
+        ) as continue_running:
+            with patch.object(debugger_tab, "apply_debug_action_outcome") as applied:
+                debugger_tab.continue_running()
+                fixture.app.update()
+
+    assert len(launched) == 1
+    assert launched[0].message == "Resuming..."
+    continue_running.assert_called_once()
+    applied.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_a_stopped_resume_redisplays_the_re_suspended_process(fixture):
+    """AI: When a Resume is stopped, the break re-suspends the process and the debugger redisplays
+    at the new point -- a stopped resume is applied just like a completed action, not treated as
+    an error that opens a fresh debugger."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+    debugger_tab = fixture.app.debugger_tab
+
+    outcome = Mock()
+    with patch.object(debugger_tab, "apply_debug_action_outcome") as applied:
+        debugger_tab.apply_interrupted_debug_action_outcome(outcome)
+
+    applied.assert_called_once_with(outcome)
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_debugger_source_menu_has_save_and_cancel(fixture):
     """AI: The debugger source pane is a full editor, so its right-click menu
     carries Save and Cancel (acting on the selected frame's method), like the

@@ -1351,8 +1351,32 @@ class DebuggerWindow(ttk.PanedWindow):
     def continue_running(self):
         frame_level = self.selected_frame_level()
         if frame_level:
-            action_outcome = self.debug_session.continue_running()
+            self.run_debug_action_as_activity(
+                'Resuming...', self.debug_session.continue_running
+            )
+
+    def run_debug_action_as_activity(self, message, debug_action):
+        """AI: Run a debugger resume as an interruptible foreground activity, so a long Resume can
+        be abandoned with the menu-bar Stop. The debug session already absorbs a break into a
+        re-suspended outcome (debug_action_outcome catches GemstoneError), so a forceful Stop just
+        re-suspends the process wherever it landed and we redisplay there -- a finished and an
+        interrupted resume are applied the same way."""
+        activity = ForegroundActivity(
+            message,
+            work=lambda should_stop: debug_action(),
+            on_finished=self.apply_debug_action_outcome,
+            on_interrupted=self.apply_interrupted_debug_action_outcome,
+        )
+        self.application.run_foreground_activity(activity)
+
+    def apply_interrupted_debug_action_outcome(self, action_outcome):
+        if action_outcome is not None:
             self.apply_debug_action_outcome(action_outcome)
+        else:
+            # AI: A forceful break that did not surface as a re-suspended outcome still left the
+            # process suspended; re-read the stack from the current context and redisplay.
+            self.stack_frames = self.debug_session.call_stack()
+            self.refresh()
 
     def step_over(self):
         frame_level = self.selected_frame_level()
