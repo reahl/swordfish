@@ -13,6 +13,7 @@ from reahl.swordfish.ui_support import (
     GRAPH_NODES_PER_ROW,
     GRAPH_ORIGIN_X,
     GRAPH_ORIGIN_Y,
+    Tooltip,
     popup_menu,
 )
 
@@ -419,11 +420,13 @@ class UmlObjectDiagramTab(ttk.Frame):
             column=0,
             sticky='w',
         )
-        ttk.Button(actions_frame, text='Clear', command=self.clear_diagram).grid(
-            row=0,
-            column=1,
-            padx=(6, 0),
+        # AI: Compact icon button (glyph, not word) with a hover tooltip naming
+        # it. Clear empties the canvas. BMP glyph only.
+        clear_button = ttk.Button(
+            actions_frame, text='⊗', width=3, command=self.clear_diagram
         )
+        clear_button.grid(row=0, column=1, padx=(6, 0))
+        Tooltip(clear_button, 'Clear')
         # AI: No in-tab Close button -- the tab 'x' closes the tab and collapses
         # the pane group, consistent with the other right-hand tools.
 

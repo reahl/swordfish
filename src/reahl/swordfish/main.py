@@ -5157,9 +5157,14 @@ class BreakpointsPane(Pane):
             pady=(10, 6),
         )
 
+        # AI: Compact icon buttons (glyph, not word) for the breakpoint actions, each
+        # with a hover tooltip naming it. Clear Selected removes the one selected
+        # breakpoint (circled minus); Clear All removes them all (circled times,
+        # consistent with the diagram Clear). BMP glyphs from a font-proven block.
         self.clear_selected_button = ttk.Button(
             self,
-            text="Clear Selected",
+            text="⊖",
+            width=3,
             command=self.clear_selected_breakpoint,
         )
         self.clear_selected_button.grid(
@@ -5169,9 +5174,11 @@ class BreakpointsPane(Pane):
             pady=(0, 10),
             sticky="w",
         )
+        Tooltip(self.clear_selected_button, "Clear selected breakpoint")
         self.clear_all_button = ttk.Button(
             self,
-            text="Clear All",
+            text="⊗",
+            width=3,
             command=self.clear_all_breakpoints,
         )
         self.clear_all_button.grid(
@@ -5181,6 +5188,7 @@ class BreakpointsPane(Pane):
             pady=(0, 10),
             sticky="w",
         )
+        Tooltip(self.clear_all_button, "Clear all breakpoints")
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=0)
         self.columnconfigure(2, weight=0)

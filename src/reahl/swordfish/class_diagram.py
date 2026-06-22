@@ -20,6 +20,7 @@ from reahl.swordfish.ui_support import (
     UML_NODES_PER_ROW,
     UML_ORIGIN_X,
     UML_ORIGIN_Y,
+    Tooltip,
     popup_menu,
 )
 
@@ -752,22 +753,30 @@ class UmlClassDiagramTab(ttk.Frame):
             column=0,
             sticky="w",
         )
-        ttk.Button(actions_frame, text="Clear", command=self.clear_diagram).grid(
-            row=0,
-            column=1,
-            padx=(6, 0),
+        # AI: Compact icon buttons (glyph, not word) for the diagram actions, each
+        # with a hover tooltip naming it. Clear empties the canvas; Rearrange
+        # re-runs auto-layout; Undo reverts the last change. BMP glyphs only.
+        clear_button = ttk.Button(
+            actions_frame, text="⊗", width=3, command=self.clear_diagram
         )
-        ttk.Button(
+        clear_button.grid(row=0, column=1, padx=(6, 0))
+        Tooltip(clear_button, "Clear")
+        rearrange_button = ttk.Button(
             actions_frame,
-            text='Rearrange',
+            text='⤢',
+            width=3,
             command=self.rearrange_diagram,
-        ).grid(row=0, column=2, padx=(6, 0))
+        )
+        rearrange_button.grid(row=0, column=2, padx=(6, 0))
+        Tooltip(rearrange_button, "Rearrange")
         self.undo_button = ttk.Button(
             actions_frame,
-            text="Undo",
+            text="↶",
+            width=3,
             command=self.undo_diagram,
         )
         self.undo_button.grid(row=0, column=3, padx=(6, 0))
+        Tooltip(self.undo_button, "Undo")
         # AI: No in-tab Close button -- the tab 'x' closes the tab and collapses
         # the pane group, consistent with the other right-hand tools.
 
