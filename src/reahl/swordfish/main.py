@@ -46,12 +46,6 @@ from reahl.swordfish.class_diagram import (
     format_class_diagram_method_label,
 )
 from reahl.swordfish.closable_notebook import install_close_buttons
-from reahl.swordfish.theme import (
-    OperatingSystemAppearance,
-    ThemeApplication,
-    ThemeSelection,
-    active_theme,
-)
 from reahl.swordfish.exceptions import DomainException
 from reahl.swordfish.execution import DebuggerControls, DebuggerWindow, RunTab
 from reahl.swordfish.gemstone import GemstoneBrowserSession, GemstoneDebugSession
@@ -94,6 +88,12 @@ from reahl.swordfish.text_editing import (
     JsonResultDialog,
     TextCursorPositionIndicator,
     configure_widget_if_alive,
+)
+from reahl.swordfish.theme import (
+    OperatingSystemAppearance,
+    ThemeApplication,
+    ThemeSelection,
+    active_theme,
 )
 from reahl.swordfish.ui_context import UiContext
 from reahl.swordfish.ui_support import (

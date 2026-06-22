@@ -1,13 +1,13 @@
 import tkinter as tk
 from tkinter import ttk
 
-from reahl.tofu import Fixture, expected, scenario, with_fixtures
 from reahl.stubble import stubclass
+from reahl.tofu import Fixture, expected, scenario, with_fixtures
 
 from reahl.swordfish.theme import (
-    ActiveTheme,
     DARK_THEME,
     LIGHT_THEME,
+    ActiveTheme,
     OperatingSystemAppearance,
     Theme,
     ThemeApplication,

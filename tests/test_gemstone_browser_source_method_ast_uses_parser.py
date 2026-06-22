@@ -3,7 +3,6 @@ from reahl.tofu import Fixture, with_fixtures
 
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 
-
 # AI: After consolidating method_ast with method_outline, source_method_ast is the
 # AI: single parser-backed primitive the IDE and refactorings share. Its
 # AI: argument_names/temporaries come from SmalltalkMethodParser; the scanner-based

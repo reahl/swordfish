@@ -6,7 +6,6 @@ from tkinter import ttk
 from reahl.ptongue import GemstoneError
 
 from reahl.swordfish.exceptions import DomainException
-from reahl.swordfish.theme import active_theme
 from reahl.swordfish.gemstone import GemstoneDebugSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.inspector import Explorer
@@ -19,6 +18,7 @@ from reahl.swordfish.text_editing import (
     Workspace,
     configure_widget_if_alive,
 )
+from reahl.swordfish.theme import active_theme
 from reahl.swordfish.ui_context import UiContext
 from reahl.swordfish.ui_support import (
     Tooltip,

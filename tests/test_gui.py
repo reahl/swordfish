@@ -19,10 +19,9 @@ from reahl.tofu import (
     with_fixtures,
 )
 
+from reahl.swordfish.browser import MethodEditor
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
-from reahl.swordfish.browser import MethodEditor
-from reahl.swordfish.session_activity import ForegroundActivity, McpActivity
 from reahl.swordfish.main import (
     GEMSTONE_EXE_CONF_CONFIG_NAME,
     BreakpointsPane,
@@ -54,6 +53,7 @@ from reahl.swordfish.main import (
 from reahl.swordfish.mcp.integration_state import IntegratedSessionState
 from reahl.swordfish.object_diagram import UmlObjectDiagramNodeDetailDialog
 from reahl.swordfish.pane_area import PaneArea
+from reahl.swordfish.session_activity import ForegroundActivity, McpActivity
 from reahl.swordfish.text_editing import PINNED_TAB_MARKER
 
 

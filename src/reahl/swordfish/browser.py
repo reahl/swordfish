@@ -10,7 +10,6 @@ from reahl.ptongue import GemstoneError
 
 from reahl.swordfish.closable_notebook import install_close_buttons
 from reahl.swordfish.exceptions import DomainException
-from reahl.swordfish.theme import active_theme
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.navigation import NavigationHistory
 from reahl.swordfish.selection_list import InteractiveSelectionList
@@ -21,6 +20,7 @@ from reahl.swordfish.text_editing import (
     EditorTab,
     TextCursorPositionIndicator,
 )
+from reahl.swordfish.theme import active_theme
 from reahl.swordfish.ui_context import UiContext
 from reahl.swordfish.ui_support import Tooltip, popup_menu
 
