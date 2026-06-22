@@ -1,0 +1,21 @@
+#!/bin/bash
+# AI: Pre-push hook — runs the same import-sort check that CI's "Lint, import and
+# wheel" job runs (isort --check-only --profile black src/), so import-order drift
+# is caught here instead of failing the build after the push.
+#
+# isort is not installed on the host, so the check runs inside the project
+# container via the SSH runner (the container venv is where isort lives). If isort
+# is absent there, we install it quietly first — matching CI, which installs it
+# fresh every run.
+#
+# In a genuine pinch (container down, urgent push) bypass with:
+#     git push --no-verify
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+echo "pre-push: checking import order with isort (profile black)..."
+./docker-run-over-ssh.sh bash -lc \
+    'command -v isort >/dev/null 2>&1 || pip install -q isort; isort --check-only --profile black src/'
+echo "pre-push: isort check passed."
