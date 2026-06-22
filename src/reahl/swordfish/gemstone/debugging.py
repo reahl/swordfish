@@ -187,8 +187,13 @@ class GemstoneDebugSession:
 
     def restart_frame_result(self, level):
         session = self.exception.context.session
+        # AI: Use the PUBLIC trimStackToLevel:, not the deprecated
+        # _trimStackToLevel: (GemStone documents the latter as legacy and it skips
+        # ensure-block unwinding). The public one runs the discarded frames'
+        # unwind blocks and is the sanctioned interface; it errors only if sent to
+        # GsProcess current, but the suspended debug context is never current.
         return self.exception.context.perform(
-            "_trimStackToLevel:",
+            "trimStackToLevel:",
             session.from_py(level),
         )
 

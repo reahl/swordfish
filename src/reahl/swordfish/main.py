@@ -31,10 +31,10 @@ from reahl.swordfish.browser import (
     ClassSelection,
     CoveringTestsBrowseDialog,
     CoveringTestsDiscoveryWorkflow,
-    FramedWidget,
     MethodEditor,
     MethodSelection,
     PackageSelection,
+    Pane,
 )
 from reahl.swordfish.class_diagram import (
     UmlClassDiagramCanvas,
@@ -65,8 +65,6 @@ from reahl.swordfish.mcp.session_serialization import (
     try_enter_session_operation,
 )
 from reahl.swordfish.navigation import (
-    GlobalNavigationEntry,
-    GlobalNavigationHistory,
     NavigationHistory,
 )
 from reahl.swordfish.object_diagram import (
@@ -78,7 +76,9 @@ from reahl.swordfish.object_diagram import (
     UmlObjectNode,
     UmlObjectRelationship,
 )
+from reahl.swordfish.pane_area import PaneArea
 from reahl.swordfish.selection_list import InteractiveSelectionList
+from reahl.swordfish.session_activity import ForegroundActivity, McpActivity
 from reahl.swordfish.tab_registry import DeduplicatedTabRegistry
 from reahl.swordfish.text_editing import (
     CodeLineNumberColumn,
@@ -107,6 +107,7 @@ from reahl.swordfish.ui_support import (
     UML_NODES_PER_ROW,
     UML_ORIGIN_X,
     UML_ORIGIN_Y,
+    Tooltip,
     close_popup_menu,
     popup_menu,
 )
@@ -1261,6 +1262,19 @@ class SessionOperationAdmission:
         leave_session_operation(self.connection_id, operation_token)
 
 
+# AI: Events whose handlers touch NO GemStone GCI, so they are safe to deliver even while
+# an MCP operation holds the shared session. The session-admission gate defers gem-touching
+# events to avoid a 2203 collision, but it must NOT block these pure-UI announcements --
+# otherwise the Stop button (and the MCP busy indicator's activity slot) could never reflect
+# the very MCP operation they exist to interrupt. Handlers of these events must stay gem-free.
+SESSION_SAFE_EVENT_NAMES = frozenset(
+    {
+        'SessionActivityChanged',
+        'McpActivityStateChanged',
+    }
+)
+
+
 class EventQueue:
     def __init__(self, root, activity_log=None):
         self.root = root
@@ -1376,7 +1390,7 @@ class EventQueue:
             'SelectedPackageChanged',
             'SelectedClassChanged',
             'SelectedCategoryChanged',
-            'MethodSelected',
+            'MethodDisplayRequested',
         }
         if event_name not in selection_events:
             return {}
@@ -1397,51 +1411,62 @@ class EventQueue:
         if self.processing_events:
             return
         admission_token = None
+        session_is_admitted = True
         if self.session_admission is not None:
             admission_token = self.session_admission.try_admit()
-            if admission_token is None:
-                # AI: An MCP operation holds the session; defer this whole drain onto the event
-                # loop rather than blocking Tk or running IDE GCI that would collide with it.
-                self.schedule_deferred_processing()
-                return
+            session_is_admitted = admission_token is not None
         self.processing_events = True
+        deferred_events = deque()
         try:
             while True:
                 with self.queue_lock:
                     if not self.queue:
                         break
                     event_name, args, kwargs = self.queue.popleft()
-                if event_name in self.events:
-                    logging.getLogger(__name__).debug(f"Processing: {event_name}")
-                    retained_callbacks = []
-                    for (
-                        weak_callback,
-                        callback_args,
-                        ui_context,
-                        context_snapshot,
-                    ) in self.events[event_name]:
-                        callback = weak_callback()
-                        callback_is_live = callback is not None
-                        context_is_active = self.subscription_is_active(
-                            ui_context,
-                            context_snapshot,
-                        )
-                        if callback_is_live and context_is_active:
-                            retained_callbacks.append(
-                                (
-                                    weak_callback,
-                                    callback_args,
-                                    ui_context,
-                                    context_snapshot,
-                                )
-                            )
-                            logging.getLogger(__name__).debug(f"Calling: {callback}")
-                            callback(*callback_args, *args, **kwargs)
-                    self.events[event_name] = retained_callbacks
+                # AI: A gem-free (session-safe) event is delivered even when an MCP operation
+                # holds the session; a gem-touching event waits for the session to free, so
+                # its handlers cannot run IDE GCI that would collide (error 2203).
+                if session_is_admitted or event_name in SESSION_SAFE_EVENT_NAMES:
+                    self.deliver_queued_event(event_name, args, kwargs)
+                else:
+                    deferred_events.append((event_name, args, kwargs))
         finally:
             self.processing_events = False
             if admission_token is not None:
                 self.session_admission.release(admission_token)
+        if deferred_events:
+            with self.queue_lock:
+                self.queue.extendleft(reversed(deferred_events))
+            self.schedule_deferred_processing()
+
+    def deliver_queued_event(self, event_name, args, kwargs):
+        if event_name in self.events:
+            logging.getLogger(__name__).debug(f"Processing: {event_name}")
+            retained_callbacks = []
+            for (
+                weak_callback,
+                callback_args,
+                ui_context,
+                context_snapshot,
+            ) in self.events[event_name]:
+                callback = weak_callback()
+                callback_is_live = callback is not None
+                context_is_active = self.subscription_is_active(
+                    ui_context,
+                    context_snapshot,
+                )
+                if callback_is_live and context_is_active:
+                    retained_callbacks.append(
+                        (
+                            weak_callback,
+                            callback_args,
+                            ui_context,
+                            context_snapshot,
+                        )
+                    )
+                    logging.getLogger(__name__).debug(f"Calling: {callback}")
+                    callback(*callback_args, *args, **kwargs)
+            self.events[event_name] = retained_callbacks
 
     def schedule_deferred_processing(self):
         if self.deferred_processing_scheduled:
@@ -2720,6 +2745,7 @@ class MainMenu(tk.Menu):
         self.event_queue = event_queue
         self.find_menu = tk.Menu(self, tearoff=0)
         self.debug_menu = tk.Menu(self, tearoff=0)
+        self.uml_menu = tk.Menu(self, tearoff=0)
         self.session_menu = tk.Menu(self, tearoff=0)
         self.mcp_menu = tk.Menu(self, tearoff=0)
         self.filetree_menu = tk.Menu(self, tearoff=0)
@@ -2741,6 +2767,10 @@ class MainMenu(tk.Menu):
         self.add_cascade(label="Code", menu=self.debug_menu)
         self.update_debug_menu()
 
+        # AI: UML gathers the two diagram tools as deliberately openable canvases.
+        self.add_cascade(label="UML", menu=self.uml_menu)
+        self.update_uml_menu()
+
         self.add_cascade(label="MCP", menu=self.mcp_menu)
         self.update_mcp_menu()
         self.add_cascade(label="FileTree", menu=self.filetree_menu)
@@ -2756,6 +2786,7 @@ class MainMenu(tk.Menu):
         self.update_session_menu()
         self.update_find_menu()
         self.update_debug_menu()
+        self.update_uml_menu()
         self.update_mcp_menu()
         self.update_filetree_menu()
 
@@ -2903,6 +2934,10 @@ class MainMenu(tk.Menu):
                 is_busy=is_busy,
             )
             self.debug_menu.add_command(
+                label="Browser",
+                command=self.show_browser,
+            )
+            self.debug_menu.add_command(
                 label="Workspace",
                 command=self.show_run_dialog,
                 state=run_command_state,
@@ -2912,6 +2947,28 @@ class MainMenu(tk.Menu):
                 command=self.show_breakpoints_dialog,
                 state=breakpoints_state,
             )
+
+    def update_uml_menu(self):
+        self.uml_menu.delete(0, tk.END)
+        if self.parent.is_logged_in:
+            self.uml_menu.add_command(
+                label="Class Diagram",
+                command=self.show_class_diagram,
+            )
+            self.uml_menu.add_command(
+                label="Object Diagram",
+                command=self.show_object_diagram,
+            )
+
+    def show_browser(self):
+        self.parent.add_browser_tab()
+
+
+    def show_class_diagram(self):
+        self.parent.ensure_class_diagram_tab()
+
+    def show_object_diagram(self):
+        self.parent.ensure_object_diagram_tab()
 
     def show_find_dialog(self):
         self.event_queue.publish('MenuCommandInvoked', command='Find')
@@ -2950,10 +3007,11 @@ class MainMenu(tk.Menu):
         self.parent.configure_mcp_server_from_menu()
 
 
-class FindDialog(tk.Toplevel):
+class FindPane(Pane):
     def __init__(
         self,
         parent,
+        application,
         search_type="class",
         search_query="",
         run_search=False,
@@ -2961,14 +3019,7 @@ class FindDialog(tk.Toplevel):
         reference_target=None,
         sender_source_class_name=None,
     ):
-        super().__init__(parent)
-        self.title("Find")
-        self.geometry("720x560")
-        self.transient(parent)
-        self.wait_visibility()
-        self.grab_set()
-
-        self.parent = parent
+        super().__init__(parent, application, application.event_queue)
         self.sender_source_class_name = sender_source_class_name
         self.method_reference_results = []
         self.navigation_method_results = []
@@ -2983,7 +3034,6 @@ class FindDialog(tk.Toplevel):
         self.search_intent_var = tk.StringVar(value="")
         self.result_action_var = tk.StringVar(value="")
         self.find_operation_running = False
-        self.find_stop_requested = False
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(8, weight=1)
@@ -3106,8 +3156,8 @@ class FindDialog(tk.Toplevel):
         self.find_entry.grid(
             row=2,
             column=1,
-            columnspan=5,
-            padx=10,
+            columnspan=3,
+            padx=(10, 4),
             pady=10,
             sticky="ew",
         )
@@ -3115,6 +3165,21 @@ class FindDialog(tk.Toplevel):
             "<KeyRelease>",
             lambda *_: self.update_search_context_fields(),
         )
+        # AI: Enter in the search box runs the search, same as the find button.
+        self.find_entry.bind("<Return>", lambda *_: self.find_text())
+
+        # AI: A small magnifying-glass icon button immediately right of the search box
+        # runs the search (a BMP glyph -- Tk 8.6 cannot render non-BMP emoji). There is
+        # no per-dialog Stop: a single Stop control in the menu bar interrupts whatever
+        # GemStone activity holds the shared session, this search included.
+        self.find_button = ttk.Button(
+            self,
+            text="⌕",
+            width=3,
+            command=self.find_text,
+        )
+        self.find_button.grid(row=2, column=4, padx=(0, 10), pady=10)
+        Tooltip(self.find_button, "Search")
 
         self.receiver_class_label = ttk.Label(self, text="Receiver class:")
         self.receiver_class_label.grid(
@@ -3182,44 +3247,19 @@ class FindDialog(tk.Toplevel):
             sticky="ew",
         )
 
+        # AI: Find/Stop are now icon buttons beside the search box (above). This
+        # frame survives only for the experimental Narrow button, and is gridded
+        # only when that button exists so it leaves no empty gap otherwise.
         self.button_frame = ttk.Frame(self)
-        self.button_frame.grid(row=6, column=0, columnspan=6, pady=10)
-        self.button_frame.grid_columnconfigure(0, weight=1)
-        self.button_frame.grid_columnconfigure(1, weight=1)
-        self.button_frame.grid_columnconfigure(2, weight=1)
-        self.button_frame.grid_columnconfigure(3, weight=1)
-        self.button_frame.grid_columnconfigure(4, weight=1)
-
-        self.find_button = ttk.Button(
-            self.button_frame,
-            text="Find",
-            command=self.find_text,
-        )
-        self.find_button.grid(row=0, column=0, padx=5)
-
-        self.stop_button = ttk.Button(
-            self.button_frame,
-            text="Stop",
-            command=self.request_stop_find,
-            state=tk.DISABLED,
-        )
-        self.stop_button.grid(row=0, column=1, padx=5)
-
         self.narrow_button = None
-        if self.parent.experimental_features_enabled:
+        if self.application.experimental_features_enabled:
+            self.button_frame.grid(row=6, column=0, columnspan=6, pady=10)
             self.narrow_button = ttk.Button(
                 self.button_frame,
                 text="Narrow With Tracing",
                 command=self.narrow_senders_with_tracing,
             )
-            self.narrow_button.grid(row=0, column=2, padx=5)
-
-        self.cancel_button = ttk.Button(
-            self.button_frame,
-            text="Cancel",
-            command=self.destroy,
-        )
-        self.cancel_button.grid(row=0, column=4, padx=5)
+            self.narrow_button.grid(row=0, column=0, padx=5)
 
         self.filter_frame = ttk.Frame(self)
         self.filter_frame.grid(
@@ -3230,49 +3270,21 @@ class FindDialog(tk.Toplevel):
             pady=(0, 4),
             sticky="ew",
         )
-        self.filter_frame.columnconfigure(1, weight=1)
-        self.filter_frame.columnconfigure(3, weight=1)
-        ttk.Label(self.filter_frame, text="Class (regex):").grid(
-            row=0, column=0, padx=(0, 4), pady=(0, 4), sticky="w"
-        )
-        self.class_regex_entry = ttk.Entry(self.filter_frame)
-        self.class_regex_entry.grid(
-            row=0, column=1, padx=(0, 12), pady=(0, 4), sticky="ew"
-        )
-        self.class_regex_entry.bind(
-            '<KeyRelease>', lambda *_: self.apply_filter_from_entries()
-        )
-        ttk.Label(self.filter_frame, text="Class category (regex):").grid(
-            row=0, column=2, padx=(0, 4), pady=(0, 4), sticky="w"
-        )
-        self.class_category_regex_entry = ttk.Entry(self.filter_frame)
-        self.class_category_regex_entry.grid(
-            row=0, column=3, padx=(0, 0), pady=(0, 4), sticky="ew"
-        )
-        self.class_category_regex_entry.bind(
-            '<KeyRelease>', lambda *_: self.apply_filter_from_entries()
-        )
-        ttk.Label(self.filter_frame, text="Method category (regex):").grid(
-            row=1, column=0, padx=(0, 4), sticky="w"
-        )
-        self.method_category_regex_entry = ttk.Entry(self.filter_frame)
-        self.method_category_regex_entry.grid(
-            row=1, column=1, padx=(0, 12), sticky="ew"
-        )
-        self.method_category_regex_entry.bind(
-            '<KeyRelease>', lambda *_: self.apply_filter_from_entries()
-        )
-        self.apply_regex_filter_button = ttk.Button(
-            self.filter_frame,
-            text="Apply Filter",
-            command=self.apply_regex_filter_button_clicked,
-        )
-        self.apply_regex_filter_button.grid(row=1, column=2, columnspan=2, sticky="w")
+        # AI: The filter row holds one regex box per visible result column, built
+        # dynamically by rebuild_column_filter_entries (driven from
+        # configure_result_columns) so every find type gets per-column filtering.
+        # The boxes are overlaid above the column headings and aligned to each
+        # column by sync_filter_entry_positions.
+        self.column_filter_entries = {}
+        self.filter_column_order = []
 
         # AI: A Treeview (tree + headings) so results can carry the adaptive
         # AI: Class / Class Category / Method / Method Category columns and so
         # AI: column #0 can indent overrides under the method/class they override.
         self.result_rows_by_iid = {}
+        self.baseline_result_rows = []
+        self.result_column_kind = 'method'
+        self.baseline_class_definition_by_name = {}
         self.results_tree = ttk.Treeview(self, show='tree headings')
         self.results_tree.grid(
             row=8,
@@ -3283,6 +3295,15 @@ class FindDialog(tk.Toplevel):
             sticky='nsew',
         )
         self.results_tree.bind('<Double-Button-1>', self.on_result_double_click)
+        self.results_tree.bind('<ButtonRelease-1>', self.peek_selected_result)
+        # AI: Keep the overlaid filter boxes aligned to the columns: <Configure>
+        # covers the widget being mapped/resized; B1-Motion/ButtonRelease cover a
+        # column being drag-resized (ttk emits no event for that).
+        self.results_tree.bind('<Configure>', self.sync_filter_entry_positions, add='+')
+        self.results_tree.bind('<B1-Motion>', self.sync_filter_entry_positions, add='+')
+        self.results_tree.bind(
+            '<ButtonRelease-1>', self.sync_filter_entry_positions, add='+'
+        )
         self.configure_result_columns('method')
 
         self.status_label = ttk.Label(
@@ -3327,10 +3348,6 @@ class FindDialog(tk.Toplevel):
         self.update_search_context_fields()
         if run_search:
             self.find_text()
-
-    @property
-    def gemstone_session_record(self):
-        return self.parent.gemstone_session_record
 
     def resolved_search_configuration(
         self,
@@ -3389,19 +3406,20 @@ class FindDialog(tk.Toplevel):
         else:
             self.reference_target_label.grid_remove()
             self.reference_target_frame.grid_remove()
+        # AI: The per-column filter row is shown for ALL find types (not just the
+        # tracing/sender mode), so filter_frame is gridded once at construction and
+        # is not toggled here.
         if tracing_controls_visible:
             if self.narrow_button is not None:
                 self.narrow_button.grid()
             self.receiver_class_label.grid()
             self.receiver_class_entry.grid()
-            self.filter_frame.grid()
             self.status_label.grid()
         else:
             if self.narrow_button is not None:
                 self.narrow_button.grid_remove()
             self.receiver_class_label.grid_remove()
             self.receiver_class_entry.grid_remove()
-            self.filter_frame.grid_remove()
             self.status_label.grid_remove()
             self.status_var.set("")
         self.update_trace_narrow_state()
@@ -3422,8 +3440,6 @@ class FindDialog(tk.Toplevel):
     def set_find_operation_state(self, is_running):
         self.find_operation_running = is_running
         self.find_button.config(state=tk.DISABLED if is_running else tk.NORMAL)
-        self.stop_button.config(state=tk.NORMAL if is_running else tk.DISABLED)
-        self.cancel_button.config(state=tk.DISABLED if is_running else tk.NORMAL)
         mode_control_state = tk.DISABLED if is_running else tk.NORMAL
         self.find_entry.config(state=mode_control_state)
         self.class_radio.config(state=mode_control_state)
@@ -3438,21 +3454,6 @@ class FindDialog(tk.Toplevel):
         self.reference_target_method_radio.config(state=mode_control_state)
         self.update_trace_narrow_state()
         self.update_search_context_fields()
-
-    def request_stop_find(self):
-        if self.find_operation_running:
-            self.find_stop_requested = True
-            self.status_var.set("Stopping find...")
-
-    def find_should_stop(self):
-        if not self.find_operation_running:
-            return False
-        self.update_idletasks()
-        try:
-            self.update()
-        except tk.TclError:
-            return True
-        return self.find_stop_requested
 
     def finish_stopped_find(self):
         self.status_var.set("Find stopped. Showing partial results.")
@@ -3651,34 +3652,171 @@ class FindDialog(tk.Toplevel):
             )
         )
 
-    def configure_result_columns(self, column_kind):
-        # AI: The find results are adaptive: a class search only needs Class and
-        # AI: Class Category; a method/sender/reference search adds Method and
-        # AI: Method Category; a 'contains' selector search has only bare
-        # AI: selectors, so it shows a single Method column with no nesting.
+    def result_column_specs(self, column_kind):
+        # AI: Single source of truth for the adaptive result columns: each spec is
+        # (tree_column_id, heading, row_value_fn). Drives the tree columns, the one
+        # filter box built per column, AND the value a column's regex filters
+        # against -- so columns and filters can never disagree. '#0' is the
+        # Treeview tree column (Class, or Method for a bare-selector search).
         if column_kind == 'method':
-            data_columns = ('ClassCategory', 'Method', 'MethodCategory')
-            headings = {
-                '#0': 'Class',
-                'ClassCategory': 'Class Category',
-                'Method': 'Method',
-                'MethodCategory': 'Method Category',
-            }
-            primary_heading = 'Class'
-        elif column_kind == 'class':
-            data_columns = ('ClassCategory',)
-            headings = {'#0': 'Class', 'ClassCategory': 'Class Category'}
-            primary_heading = 'Class'
-        else:
-            data_columns = ()
-            headings = {'#0': 'Method'}
-            primary_heading = 'Method'
+            return [
+                ('#0', 'Class', self.class_display_value),
+                ('ClassCategory', 'Class Category',
+                 lambda row: row.get('class_category') or ''),
+                ('Method', 'Method', lambda row: row.get('method_selector') or ''),
+                ('MethodCategory', 'Method Category',
+                 lambda row: row.get('method_category') or ''),
+            ]
+        if column_kind == 'class':
+            return [
+                ('#0', 'Class', self.class_display_value),
+                ('ClassCategory', 'Class Category',
+                 lambda row: row.get('class_category') or ''),
+            ]
+        return [
+            ('#0', 'Method', lambda row: row.get('method_selector') or ''),
+        ]
+
+    def class_display_value(self, row):
+        class_name = row.get('class_name') or ''
+        if row.get('show_instance_side') is False:
+            return '%s class' % class_name
+        return class_name
+
+    def configure_result_columns(self, column_kind):
+        # AI: The find results are adaptive: a class search needs Class and Class
+        # AI: Category; a method/sender/reference search adds Method and Method
+        # AI: Category; a 'contains' selector search has only bare selectors. The
+        # AI: columns and the per-column filter boxes are both built from
+        # AI: result_column_specs so they always agree. Inner columns are fixed
+        # AI: width and only the last column stretches, so the cumulative set
+        # AI: widths give the exact x-position of every column boundary -- which is
+        # AI: what the overlaid filter boxes are aligned to (sync_filter_entry_positions).
+        specs = self.result_column_specs(column_kind)
+        data_columns = tuple(
+            column_id for column_id, _heading, _value in specs if column_id != '#0'
+        )
         self.results_tree.configure(columns=data_columns)
-        self.results_tree.heading('#0', text=primary_heading)
-        self.results_tree.column('#0', width=220, stretch=True)
-        for data_column in data_columns:
-            self.results_tree.heading(data_column, text=headings[data_column])
-            self.results_tree.column(data_column, width=150, stretch=True)
+        last_column_id = specs[-1][0]
+        for column_id, heading, _value in specs:
+            width = 220 if column_id == '#0' else 150
+            stretches = column_id == last_column_id
+            if column_id != '#0':
+                self.results_tree.heading(column_id, text=heading)
+            else:
+                self.results_tree.heading('#0', text=heading)
+            self.results_tree.column(column_id, width=width, stretch=stretches)
+        self.rebuild_column_filter_entries(specs)
+
+    def rebuild_column_filter_entries(self, specs):
+        # AI: One UNLABELLED regex box per visible column, overlaid in a row above
+        # the column headings and aligned to each column (see
+        # sync_filter_entry_positions). Rebuilt whenever the columns change so every
+        # find type gets per-column filtering. Typing re-renders the unfiltered
+        # baseline through the column filters.
+        for child in self.filter_frame.winfo_children():
+            child.destroy()
+        self.column_filter_entries = {}
+        self.filter_column_order = [column_id for column_id, _h, _v in specs]
+        for column_id in self.filter_column_order:
+            entry = ttk.Entry(self.filter_frame)
+            entry.bind('<KeyRelease>', lambda *_: self.render_current_results())
+            self.column_filter_entries[column_id] = entry
+        # AI: place() children don't size their parent, so pin the row height to one
+        # entry and stop geometry propagation, else the frame collapses to nothing.
+        self.filter_frame.update_idletasks()
+        sample_entry = next(iter(self.column_filter_entries.values()))
+        self.filter_frame.configure(height=sample_entry.winfo_reqheight())
+        self.filter_frame.grid_propagate(False)
+        self.sync_filter_entry_positions()
+
+    def sync_filter_entry_positions(self, event=None):
+        # AI: Position each filter box exactly above its column. ttk.Treeview gives
+        # no column-resize event and stretched columns don't report their rendered
+        # width, so we accumulate the SET widths (inner columns are fixed; only the
+        # last stretches) to get each boundary, and give the last box the remaining
+        # tree width. Re-run on tree <Configure> and column-drag motion.
+        if not self.column_filter_entries:
+            return
+        if not self.results_tree.winfo_exists():
+            return
+        tree_width = self.results_tree.winfo_width()
+        cumulative_x = 0
+        last_index = len(self.filter_column_order) - 1
+        for index, column_id in enumerate(self.filter_column_order):
+            entry = self.column_filter_entries[column_id]
+            column_width = self.results_tree.column(column_id, 'width')
+            if index == last_index:
+                place_width = max(column_width, tree_width - cumulative_x)
+            else:
+                place_width = column_width
+            entry.place(x=cumulative_x, y=0, width=place_width)
+            cumulative_x += column_width
+
+    def set_result_rows(self, rows, column_kind, class_definition_by_name=None):
+        # AI: The one entry point every find-result path funnels through. Keeps an
+        # unfiltered baseline so the per-column filters can re-render without
+        # re-querying GemStone, and rebuilds the columns + filter boxes for the
+        # kind.
+        self.baseline_result_rows = list(rows)
+        self.result_column_kind = column_kind
+        self.baseline_class_definition_by_name = class_definition_by_name or {}
+        self.configure_result_columns(column_kind)
+        self.render_current_results()
+        self.sync_filter_entry_positions()
+
+    def render_current_results(self):
+        rows = self.rows_matching_column_filters(self.baseline_result_rows)
+        if self.result_column_kind == 'selector':
+            self.render_flat_selector_rows(rows)
+        else:
+            self.render_hierarchy_rows(
+                rows,
+                self.result_column_kind,
+                self.baseline_class_definition_by_name,
+            )
+
+    def render_flat_selector_rows(self, rows):
+        self.clear_results()
+        for row in rows:
+            iid = self.results_tree.insert(
+                '', 'end', text=row.get('method_selector') or '', values=()
+            )
+            self.result_rows_by_iid[iid] = row
+
+    def rows_matching_column_filters(self, rows):
+        # AI: Keep a row only if, for every column whose box holds a VALID regex,
+        # that column's value matches (case-insensitive, AND across columns). An
+        # invalid/in-progress regex is ignored rather than blanking the list on a
+        # half-typed pattern.
+        value_by_column = {
+            column_id: value
+            for column_id, _heading, value in self.result_column_specs(
+                self.result_column_kind
+            )
+        }
+        active_filters = []
+        for column_id, entry in self.column_filter_entries.items():
+            pattern = entry.get()
+            if pattern:
+                try:
+                    compiled_pattern = re.compile(pattern, re.IGNORECASE)
+                except re.error:
+                    compiled_pattern = None
+                if compiled_pattern is not None:
+                    active_filters.append(
+                        (value_by_column[column_id], compiled_pattern)
+                    )
+        if not active_filters:
+            return list(rows)
+        return [
+            row
+            for row in rows
+            if all(
+                compiled_pattern.search(extract_value(row))
+                for extract_value, compiled_pattern in active_filters
+            )
+        ]
 
     def clear_results(self):
         for iid in self.results_tree.get_children():
@@ -3778,21 +3916,20 @@ class FindDialog(tk.Toplevel):
             }
             for class_name in class_names
         ]
-        self.configure_result_columns('class')
-        self.render_hierarchy_rows(rows, 'class', class_definition_by_name)
+        self.set_result_rows(rows, 'class', class_definition_by_name)
 
     def display_selector_results(self, selector_names):
-        self.configure_result_columns('selector')
-        self.clear_results()
-        for selector_name in selector_names:
-            iid = self.results_tree.insert('', 'end', text=selector_name, values=())
-            self.result_rows_by_iid[iid] = {
+        rows = [
+            {
                 'class_name': None,
                 'show_instance_side': True,
                 'method_selector': selector_name,
                 'class_category': None,
                 'method_category': None,
             }
+            for selector_name in selector_names
+        ]
+        self.set_result_rows(rows, 'selector', {})
 
     def method_category_for(self, class_name, method_selector, show_instance_side):
         try:
@@ -3849,8 +3986,7 @@ class FindDialog(tk.Toplevel):
             self.enriched_navigation_row(sender_entry, class_definition_by_name)
             for sender_entry in sender_entries
         ]
-        self.configure_result_columns('method')
-        self.render_hierarchy_rows(rows, 'method', class_definition_by_name)
+        self.set_result_rows(rows, 'method', class_definition_by_name)
 
     def record_sender_entries_for_navigation(self, sender_entries):
         sender_results = [
@@ -4070,94 +4206,6 @@ class FindDialog(tk.Toplevel):
             'sender_source_class_name': self.sender_source_class_name,
         }
 
-    def apply_filter_from_entries(self):
-        self.apply_regex_sender_filters(
-            class_regex=self.class_regex_entry.get(),
-            class_category_regex=self.class_category_regex_entry.get(),
-            method_category_regex=self.method_category_regex_entry.get(),
-        )
-
-    def apply_regex_filter_button_clicked(self):
-        result = self.apply_regex_sender_filters(
-            class_regex=self.class_regex_entry.get(),
-            class_category_regex=self.class_category_regex_entry.get(),
-            method_category_regex=self.method_category_regex_entry.get(),
-        )
-        if not result.get('ok'):
-            messagebox.showerror('Apply Filter', result['error']['message'])
-
-    def apply_regex_sender_filters(
-        self, class_regex='', class_category_regex='', method_category_regex=''
-    ):
-        if (
-            self.search_type.get() != 'reference'
-            or self.reference_target.get() != 'method'
-        ):
-            return {
-                'ok': False,
-                'error': {
-                    'message': 'Sender filtering requires Find in method-reference mode.'
-                },
-            }
-        baseline_sender_results = list(self.static_sender_results)
-        filtered_sender_results = []
-        for sender_result in baseline_sender_results:
-            sender_entry = self.sender_entry_for_result(sender_result)
-            if not self.sender_entry_matches_regex_filters(
-                sender_entry, class_regex, class_category_regex, method_category_regex
-            ):
-                continue
-            filtered_sender_results.append(sender_result)
-        self.populate_navigation_results(filtered_sender_results)
-        parts = []
-        if class_regex:
-            parts.append('class~/%s/' % class_regex)
-        if class_category_regex:
-            parts.append('class-category~/%s/' % class_category_regex)
-        if method_category_regex:
-            parts.append('method-category~/%s/' % method_category_regex)
-        filter_desc = ', '.join(parts) if parts else '(none)'
-        self.status_var.set(
-            'Filtered senders: %s of %s displayed. Filter: %s'
-            % (
-                len(filtered_sender_results),
-                len(baseline_sender_results),
-                filter_desc,
-            )
-        )
-        return {
-            'ok': True,
-            'displayed_sender_count': len(filtered_sender_results),
-            'filtered_out_sender_count': len(baseline_sender_results)
-            - len(filtered_sender_results),
-        }
-
-    def sender_entry_matches_regex_filters(
-        self, sender_entry, class_regex, class_category_regex, method_category_regex
-    ):
-        if class_regex:
-            class_name = sender_entry.get('class_name') or ''
-            try:
-                if not re.search(class_regex, class_name, re.IGNORECASE):
-                    return False
-            except re.error:
-                return False
-        if class_category_regex:
-            class_category = sender_entry.get('class_category') or ''
-            try:
-                if not re.search(class_category_regex, class_category, re.IGNORECASE):
-                    return False
-            except re.error:
-                return False
-        if method_category_regex:
-            method_category = sender_entry.get('method_category') or ''
-            try:
-                if not re.search(method_category_regex, method_category, re.IGNORECASE):
-                    return False
-            except re.error:
-                return False
-        return True
-
     def update_sender_status_for_method_references(
         self,
         selector_names,
@@ -4198,140 +4246,182 @@ class FindDialog(tk.Toplevel):
         self.reference_method_selectors = []
         self.sender_tracing_selector = None
         self.sender_entries_by_navigation_result = {}
-        should_run_search = bool(normalized_search_query)
-        self.find_stop_requested = False
-        self.set_find_operation_state(should_run_search)
-        if should_run_search:
-            self.parent.begin_foreground_activity(
-                self.activity_message_for_search(
-                    search_type,
-                    match_mode,
-                    reference_target,
-                    normalized_search_query,
-                )
-            )
+        if not normalized_search_query:
+            self.static_sender_results = []
+            self.sender_entries_by_navigation_result = {}
+            self.last_reference_method_query = None
+            self.last_reference_method_match_mode = None
+            self.clear_results()
+            self.status_var.set('')
+            self.update_search_context_fields()
+            return
+        configuration = {
+            'search_type': search_type,
+            'match_mode': match_mode,
+            'reference_target': reference_target,
+        }
+        message = self.activity_message_for_search(
+            search_type,
+            match_mode,
+            reference_target,
+            normalized_search_query,
+        )
+        self.set_find_operation_state(True)
+        # AI: The heavy scan runs as a foreground activity on a worker thread, so the UI
+        # stays responsive and the menu-bar Stop can interrupt it. Its outcome is delivered
+        # back here on the UI thread, where the results are rendered.
+        activity = ForegroundActivity(
+            message,
+            work=lambda should_stop: self.gather_find_results(
+                configuration,
+                normalized_search_query,
+                should_stop,
+            ),
+            on_finished=self.finish_find_with_results,
+            on_interrupted=self.finish_find_with_partial,
+            on_failed=self.finish_find_with_error,
+        )
+        self.application.run_foreground_activity(activity)
 
-        try:
-            if not should_run_search:
-                self.static_sender_results = []
-                self.sender_entries_by_navigation_result = {}
-                self.last_reference_method_query = None
-                self.last_reference_method_match_mode = None
-                self.clear_results()
-                self.status_var.set('')
-                return
-            if search_type == 'class':
-                class_names = self.class_names_for_query(
-                    normalized_search_query,
-                    match_mode,
-                    should_stop=self.find_should_stop,
-                )
-                self.display_class_results(class_names)
-                self.static_sender_results = []
-                self.sender_entries_by_navigation_result = {}
-                self.last_reference_method_query = None
-                self.last_reference_method_match_mode = None
-                if self.find_stop_requested:
-                    self.finish_stopped_find()
-                else:
-                    self.status_var.set('')
-                return
-            if search_type == 'method':
-                if match_mode == 'exact':
-                    implementor_results = list(
-                        self.gemstone_session_record.find_implementors_of_method(
-                            normalized_search_query
-                        )
-                    )
-                    if self.find_should_stop():
-                        self.clear_results()
-                        self.finish_stopped_find()
-                        return
-                    self.navigation_method_results = [
-                        (
-                            class_name,
-                            not is_meta,
-                            normalized_search_query,
-                        )
-                        for class_name, is_meta in implementor_results
-                    ]
-                    self.static_sender_results = []
-                    self.sender_entries_by_navigation_result = {}
-                    self.populate_navigation_results(self.navigation_method_results)
-                    if self.find_stop_requested:
-                        self.finish_stopped_find()
-                    else:
-                        self.status_var.set('')
-                    return
-                selector_names = self.selector_names_for_query(
-                    normalized_search_query,
-                    match_mode,
-                    should_stop=self.find_should_stop,
-                )
-                self.display_selector_results(selector_names)
-                self.static_sender_results = []
-                self.sender_entries_by_navigation_result = {}
-                self.last_reference_method_query = None
-                self.last_reference_method_match_mode = None
-                if self.find_stop_requested:
-                    self.finish_stopped_find()
-                else:
-                    self.status_var.set('')
-                return
-            if reference_target == 'class':
-                class_reference_results = self.references_for_class_query(
-                    normalized_search_query,
-                    match_mode,
-                    should_stop=self.find_should_stop,
-                )
-                self.method_reference_results = list(class_reference_results)
-                self.populate_navigation_results(class_reference_results)
-                self.static_sender_results = []
-                self.sender_entries_by_navigation_result = {}
-                self.last_reference_method_query = None
-                self.last_reference_method_match_mode = None
-                if self.find_stop_requested:
-                    self.finish_stopped_find()
-                else:
-                    self.status_var.set('')
-                return
-            (
-                method_reference_results,
-                selector_names,
-                sender_entries_by_result,
-            ) = self.references_for_method_query(
+    def gather_find_results(self, configuration, normalized_search_query, should_stop):
+        """AI: Runs on the worker thread. Performs only the heavy GemStone scan for the
+        resolved search and returns the raw results as a payload. It touches no widgets and
+        no dialog state, so it is safe off the UI thread; rendering happens afterwards on the
+        UI thread. A cooperative stop lets the scan return what it has gathered so far."""
+        search_type = configuration['search_type']
+        match_mode = configuration['match_mode']
+        reference_target = configuration['reference_target']
+        if search_type == 'class':
+            class_names = self.class_names_for_query(
                 normalized_search_query,
                 match_mode,
-                should_stop=self.find_should_stop,
+                should_stop=should_stop,
             )
-            self.reference_method_selectors = selector_names
-            self.static_sender_results = list(method_reference_results)
-            self.sender_entries_by_navigation_result = dict(sender_entries_by_result)
-            self.last_reference_method_query = normalized_search_query
-            self.last_reference_method_match_mode = match_mode
-            if self.find_stop_requested:
-                self.sender_tracing_selector = None
-                self.populate_navigation_results(method_reference_results)
-                self.finish_stopped_find()
-                return
-            self.sender_tracing_selector = (
-                self.current_reference_method_selector_for_tracing(
-                    selector_names,
-                    normalized_search_query,
-                    match_mode,
+            return {'kind': 'class', 'class_names': list(class_names)}
+        if search_type == 'method' and match_mode == 'exact':
+            implementor_results = list(
+                self.gemstone_session_record.find_implementors_of_method(
+                    normalized_search_query
                 )
             )
-            self.populate_navigation_results(method_reference_results)
-            self.update_sender_status_for_method_references(
-                selector_names,
-                len(self.static_sender_results),
+            navigation_results = [
+                (class_name, not is_meta, normalized_search_query)
+                for class_name, is_meta in implementor_results
+            ]
+            return {'kind': 'implementors', 'navigation_results': navigation_results}
+        if search_type == 'method':
+            selector_names = self.selector_names_for_query(
+                normalized_search_query,
                 match_mode,
+                should_stop=should_stop,
             )
-        finally:
-            if should_run_search:
-                self.parent.end_foreground_activity()
-            self.set_find_operation_state(False)
-            self.update_search_context_fields()
+            return {'kind': 'selectors', 'selector_names': list(selector_names)}
+        if reference_target == 'class':
+            class_reference_results = list(
+                self.references_for_class_query(
+                    normalized_search_query,
+                    match_mode,
+                    should_stop=should_stop,
+                )
+            )
+            return {'kind': 'class_references', 'results': class_reference_results}
+        (
+            method_reference_results,
+            selector_names,
+            sender_entries_by_result,
+        ) = self.references_for_method_query(
+            normalized_search_query,
+            match_mode,
+            should_stop=should_stop,
+        )
+        return {
+            'kind': 'method_references',
+            'method_reference_results': list(method_reference_results),
+            'selector_names': selector_names,
+            'sender_entries_by_result': dict(sender_entries_by_result),
+            'query': normalized_search_query,
+            'match_mode': match_mode,
+        }
+
+    def render_find_results(self, payload):
+        """AI: Runs on the UI thread once the scan returns. Sets the dialog's result state
+        and renders it; the lighter per-result category lookups happen here, after the heavy
+        scan, when the session is idle again. Each branch sets its own resting status."""
+        kind = payload['kind']
+        if kind == 'class':
+            self.display_class_results(payload['class_names'])
+            self.static_sender_results = []
+            self.sender_entries_by_navigation_result = {}
+            self.last_reference_method_query = None
+            self.last_reference_method_match_mode = None
+            self.status_var.set('')
+        elif kind == 'implementors':
+            self.navigation_method_results = payload['navigation_results']
+            self.static_sender_results = []
+            self.sender_entries_by_navigation_result = {}
+            self.populate_navigation_results(self.navigation_method_results)
+            self.status_var.set('')
+        elif kind == 'selectors':
+            self.display_selector_results(payload['selector_names'])
+            self.static_sender_results = []
+            self.sender_entries_by_navigation_result = {}
+            self.last_reference_method_query = None
+            self.last_reference_method_match_mode = None
+            self.status_var.set('')
+        elif kind == 'class_references':
+            self.method_reference_results = list(payload['results'])
+            self.populate_navigation_results(payload['results'])
+            self.static_sender_results = []
+            self.sender_entries_by_navigation_result = {}
+            self.last_reference_method_query = None
+            self.last_reference_method_match_mode = None
+            self.status_var.set('')
+        else:
+            self.reference_method_selectors = payload['selector_names']
+            self.static_sender_results = list(payload['method_reference_results'])
+            self.sender_entries_by_navigation_result = dict(
+                payload['sender_entries_by_result']
+            )
+            self.last_reference_method_query = payload['query']
+            self.last_reference_method_match_mode = payload['match_mode']
+            self.sender_tracing_selector = (
+                self.current_reference_method_selector_for_tracing(
+                    payload['selector_names'],
+                    payload['query'],
+                    payload['match_mode'],
+                )
+            )
+            self.populate_navigation_results(payload['method_reference_results'])
+            self.update_sender_status_for_method_references(
+                payload['selector_names'],
+                len(self.static_sender_results),
+                payload['match_mode'],
+            )
+
+    def finish_find_with_results(self, payload):
+        """AI: The search ran to completion: render the full results."""
+        self.render_find_results(payload)
+        self.complete_find_operation()
+
+    def finish_find_with_partial(self, payload):
+        """AI: The user stopped the search. Render whatever the scan gathered (None when a
+        forceful break left nothing partial) and report partial results."""
+        if payload is not None:
+            self.render_find_results(payload)
+        else:
+            self.clear_results()
+        self.finish_stopped_find()
+        self.complete_find_operation()
+
+    def finish_find_with_error(self, error):
+        """AI: The search failed (e.g. an invalid pattern). Clear results and report it."""
+        self.clear_results()
+        self.status_var.set('Find failed: %s' % error)
+        self.complete_find_operation()
+
+    def complete_find_operation(self):
+        self.set_find_operation_state(False)
+        self.update_search_context_fields()
 
     def choose_tests_for_tracing(self, method_name):
         test_selection_dialog = CoveringTestsSearchDialog(
@@ -4625,17 +4715,47 @@ class FindDialog(tk.Toplevel):
             self.find_text()
             self.update_search_context_fields()
             return
-        parent = self.parent
-        self.destroy()
+        application = self.application
         if search_type == 'class':
-            parent.handle_find_selection(True, selected_row['class_name'])
+            application.handle_find_selection(True, selected_row['class_name'])
             return
         if selected_row['method_selector'] is not None:
-            parent.handle_sender_selection(
+            # AI: Double-click pins the method in the editor -- preview it, then
+            # promote the tab to permanent -- exactly like double-clicking in
+            # the browser's method list. It does NOT move the browser; "Jump to
+            # class" stays the explicit navigate-the-browser action.
+            method_context = (
                 selected_row['class_name'],
                 selected_row['show_instance_side'],
                 selected_row['method_selector'],
             )
+            application.event_queue.publish(
+                'MethodDisplayRequested', method_context, origin=self
+            )
+            application.event_queue.publish(
+                'MethodTabPinRequested', method_context, origin=self
+            )
+
+
+    def peek_selected_result(self, event):
+        # AI: Single-click previews a method result in the editor via the
+        # MethodDisplayRequested event, without navigating the browser -- an
+        # editor-only peek. Double-click still navigates (on_result_double_click).
+        selected_iids = self.results_tree.selection()
+        if not selected_iids:
+            return
+        selected_row = self.result_rows_by_iid.get(selected_iids[0])
+        if selected_row is None:
+            return
+        class_name = selected_row.get('class_name')
+        method_selector = selected_row.get('method_selector')
+        if class_name is None or method_selector is None:
+            return
+        self.application.event_queue.publish(
+            'MethodDisplayRequested',
+            (class_name, selected_row['show_instance_side'], method_selector),
+            origin=self,
+        )
 
 
 class CoveringTestsSearchDialog(tk.Toplevel):
@@ -4976,18 +5096,10 @@ class CoveringTestsSearchDialog(tk.Toplevel):
         self.destroy()
 
 
-class BreakpointsDialog(tk.Toplevel):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.parent = parent
-        self.gemstone_session_record = parent.gemstone_session_record
+class BreakpointsPane(Pane):
+    def __init__(self, parent, application, event_queue):
+        super().__init__(parent, application, event_queue)
         self.breakpoint_entries_by_id = {}
-        self.title("Breakpoints")
-        self.geometry("760x320")
-        self.transient(parent)
-        if parent.winfo_viewable():
-            self.wait_visibility()
-        self.grab_set()
 
         self.breakpoint_list = ttk.Treeview(
             self,
@@ -5005,7 +5117,10 @@ class BreakpointsDialog(tk.Toplevel):
         self.breakpoint_list.column("Selector", width=220, anchor="w")
         self.breakpoint_list.column("Offset", width=100, anchor="e")
         self.breakpoint_list.column("Step Point", width=100, anchor="e")
-        self.breakpoint_list.bind("<Double-1>", self.on_breakpoint_double_click)
+        # AI: Single-click previews the breakpoint's method in the editor; a
+        # double-click pins that tab -- exactly like the Find pane's results.
+        self.breakpoint_list.bind("<ButtonRelease-1>", self.peek_selected_breakpoint)
+        self.breakpoint_list.bind("<Double-1>", self.pin_selected_breakpoint)
         self.breakpoint_list.grid(
             row=0,
             column=0,
@@ -5039,26 +5154,22 @@ class BreakpointsDialog(tk.Toplevel):
             pady=(0, 10),
             sticky="w",
         )
-        self.close_button = ttk.Button(
-            self,
-            text="Close",
-            command=self.destroy,
-        )
-        self.close_button.grid(
-            row=1,
-            column=2,
-            padx=(5, 10),
-            pady=(0, 10),
-            sticky="e",
-        )
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=0)
         self.columnconfigure(2, weight=0)
         self.rowconfigure(0, weight=1)
 
+        # AI: Keep the list live -- setting or clearing a breakpoint elsewhere
+        # (e.g. from the editor) refreshes the pane while it is open.
+        self.event_queue.subscribe('BreakpointSet', self.refresh_breakpoints)
+        self.event_queue.subscribe('BreakpointCleared', self.refresh_breakpoints)
+        # AI: MCP-driven breakpoint changes reach the pane through the model-
+        # refresh bridge's 'breakpoints' kind -> BreakpointsChanged (the MCP
+        # doesn't publish the per-action BreakpointSet/BreakpointCleared events).
+        self.event_queue.subscribe('BreakpointsChanged', self.refresh_breakpoints)
         self.refresh_breakpoints()
 
-    def refresh_breakpoints(self):
+    def refresh_breakpoints(self, origin=None):
         self.breakpoint_entries_by_id = {}
         for row_id in self.breakpoint_list.get_children():
             self.breakpoint_list.delete(row_id)
@@ -5083,26 +5194,45 @@ class BreakpointsDialog(tk.Toplevel):
                 ),
             )
 
-    def on_breakpoint_double_click(self, event):
+    def selected_breakpoint_entry(self):
         breakpoint_id = self.selected_breakpoint_id()
         if breakpoint_id is None:
-            return
-        breakpoint_entry = self.breakpoint_entries_by_id.get(breakpoint_id)
+            return None
+        return self.breakpoint_entries_by_id.get(breakpoint_id)
+
+    def peek_selected_breakpoint(self, event):
+        # AI: Single-click previews the breakpoint's method in the editor via
+        # MethodDisplayRequested, without navigating the browser.
+        breakpoint_entry = self.selected_breakpoint_entry()
         if breakpoint_entry is None:
             return
-        try:
-            self.parent.handle_sender_selection(
+        self.application.event_queue.publish(
+            'MethodDisplayRequested',
+            (
                 breakpoint_entry["class_name"],
                 breakpoint_entry["show_instance_side"],
                 breakpoint_entry["method_selector"],
-            )
-            if self.parent.browser_tab:
-                self.parent.notebook.select(self.parent.browser_tab)
-            self.destroy()
-        except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror("Breakpoints", str(domain_exception))
-        except GemstoneError as error:
-            messagebox.showerror("Breakpoints", str(error))
+            ),
+            origin=self,
+        )
+
+    def pin_selected_breakpoint(self, event):
+        # AI: Double-click pins the breakpoint's method in the editor -- preview
+        # then promote the tab to permanent -- exactly like the Find pane.
+        breakpoint_entry = self.selected_breakpoint_entry()
+        if breakpoint_entry is None:
+            return
+        method_context = (
+            breakpoint_entry["class_name"],
+            breakpoint_entry["show_instance_side"],
+            breakpoint_entry["method_selector"],
+        )
+        self.application.event_queue.publish(
+            'MethodDisplayRequested', method_context, origin=self
+        )
+        self.application.event_queue.publish(
+            'MethodTabPinRequested', method_context, origin=self
+        )
 
     def selected_breakpoint_id(self):
         selection = self.breakpoint_list.selection()
@@ -5117,7 +5247,7 @@ class BreakpointsDialog(tk.Toplevel):
         try:
             self.gemstone_session_record.clear_breakpoint(breakpoint_id)
             self.refresh_breakpoints()
-            self.parent.event_queue.publish("MethodsChanged")
+            self.application.event_queue.publish("MethodsChanged")
         except (DomainException, GemstoneDomainException) as domain_exception:
             messagebox.showerror("Breakpoints", str(domain_exception))
         except GemstoneError as error:
@@ -5127,7 +5257,7 @@ class BreakpointsDialog(tk.Toplevel):
         try:
             self.gemstone_session_record.clear_all_breakpoints()
             self.refresh_breakpoints()
-            self.parent.event_queue.publish("MethodsChanged")
+            self.application.event_queue.publish("MethodsChanged")
         except (DomainException, GemstoneDomainException) as domain_exception:
             messagebox.showerror("Breakpoints", str(domain_exception))
         except GemstoneError as error:
@@ -5135,6 +5265,11 @@ class BreakpointsDialog(tk.Toplevel):
 
 
 class Swordfish(tk.Tk):
+    # AI: Debounce window (ms) for collapsing a burst of MCP-driven model-refresh
+    # requests into one structural re-read -- see handle_model_refresh_requested.
+    model_refresh_debounce_ms = 200
+    pending_model_refresh_after_id = None
+
     @classmethod
     def new_argument_parser(cls, default_mode='ide'):
         argument_parser = argparse.ArgumentParser(
@@ -5323,27 +5458,35 @@ class Swordfish(tk.Tk):
         self.geometry('800x600')
         self.default_stone_name = default_stone_name
 
+        self.pane_area = None
         self.notebook = None
+        self.last_selected_top_level_group = None
         self.browser_tab = None
         self.debugger_tab = None
         self.run_tab = None
         self.inspector_tab = None
         self.object_diagram_tab = None
         self.class_diagram_tab = None
-        self.global_navigation_history = GlobalNavigationHistory()
-        self.global_navigation_selection_in_progress = False
-        self.next_global_navigation_session_number = 1
-        self.global_back_button = None
-        self.global_forward_button = None
-        self.global_history_combobox = None
-        self.global_history_choice_indices = []
         self.collaboration_status_frame = None
         self.collaboration_status_label = None
         self.collaboration_status_text = tk.StringVar(value='')
         self.transaction_dirty_text = tk.StringVar(value='')
         self.mcp_activity_indicator = None
         self.mcp_activity_indicator_visible = False
+        self.status_refresh_button = None
+        self.status_stop_button = None
         self.foreground_activity_message = ''
+        # AI: At most one activity uses the shared GemStone session at a time (it runs one
+        # call at a time). This holds that single running activity - a ForegroundActivity
+        # the IDE launched on a worker thread, or an McpActivity for an MCP tool's work -
+        # so one Stop control can interrupt whichever it is. None when the session is idle.
+        self.current_session_activity = None
+        self.foreground_activity_after_id = None
+        # AI: Production runs foreground activities on a worker thread so the UI stays
+        # responsive and interruptible. Tests flip this to run them inline, so a search
+        # completes synchronously within the call that started it (deterministic, no
+        # thread/Tk-timing races); the work and delivery code paths are identical.
+        self.run_activities_synchronously = False
 
         self.gemstone_session_record = None
         self.last_mcp_busy_state = None
@@ -5382,9 +5525,19 @@ class Swordfish(tk.Tk):
             'McpBusyStateChanged',
             self.handle_mcp_busy_state_changed,
         )
+        # AI: The gem-free counterpart that drives the Stop button's activity slot. Subscribed
+        # separately so it reaches the UI even while an MCP operation holds the session.
+        self.event_queue.subscribe(
+            'McpActivityStateChanged',
+            self.reflect_mcp_activity_in_session,
+        )
         self.event_queue.subscribe(
             'McpServerStateChanged',
             self.handle_mcp_server_state_changed,
+        )
+        self.event_queue.subscribe(
+            'SessionActivityChanged',
+            self.update_status_stop_button,
         )
         self.event_queue.subscribe(
             'ModelRefreshRequested',
@@ -5393,10 +5546,6 @@ class Swordfish(tk.Tk):
         self.event_queue.subscribe(
             'OpenRunWindow',
             self.handle_open_run_window,
-        )
-        self.event_queue.subscribe(
-            'MethodSelected',
-            self.record_current_browser_place_in_global_history,
         )
         self.integrated_session_state.subscribe_mcp_busy_state(
             self.publish_mcp_busy_state_event,
@@ -5828,17 +5977,12 @@ class Swordfish(tk.Tk):
         self.inspector_tab = None
         self.object_diagram_tab = None
         self.class_diagram_tab = None
-        self.global_navigation_history = GlobalNavigationHistory()
-        self.global_navigation_selection_in_progress = False
-        self.next_global_navigation_session_number = 1
-        self.global_back_button = None
-        self.global_forward_button = None
-        self.global_history_combobox = None
-        self.global_history_choice_indices = []
         self.collaboration_status_frame = None
         self.collaboration_status_label = None
         self.mcp_activity_indicator = None
         self.mcp_activity_indicator_visible = False
+        self.status_refresh_button = None
+        self.status_stop_button = None
 
     def show_login_screen(self):
         self.clear_widgets()
@@ -5888,7 +6032,10 @@ class Swordfish(tk.Tk):
         if change_kind == "methods":
             self.event_queue.publish("MethodsChanged")
             self.event_queue.publish("SelectedCategoryChanged")
-            self.event_queue.publish("MethodSelected")
+            self.event_queue.publish("MethodDisplayRequested")
+            return
+        if change_kind == "breakpoints":
+            self.event_queue.publish("BreakpointsChanged")
             return
         if change_kind == "transaction_dirty":
             self.refresh_collaboration_status()
@@ -5900,25 +6047,59 @@ class Swordfish(tk.Tk):
             self.refresh_collaboration_status()
 
     def create_notebook(self):
-        self.notebook = ttk.Notebook(self)
-        self.notebook.grid(row=0, column=0, sticky="nsew")
-        self.notebook.bind(
-            "<<NotebookTabChanged>>",
-            self.record_selected_tab_in_global_history,
-        )
+        # AI: The IDE centre is a PaneArea -- a splittable arrangement of tab
+        # groups. Its primary group plays the role of the old top-level
+        # notebook, so self.notebook points at it and the existing openers,
+        # navigation and close handling keep working unchanged. The area can
+        # later be split to place a tool (e.g. an embedded Find) beside the rest.
+        self.pane_area = PaneArea(self)
+        self.pane_area.grid(row=0, column=0, sticky="nsew")
+        self.notebook = self.pane_area.group(0)
+        # AI: Track which top-level group last had a tab selected so MCP can
+        # report the focused tool, not always the primary (left) group.
+        self.last_selected_top_level_group = self.notebook
+        self.configure_top_level_notebook(self.notebook)
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
-        # AI: Top-level Browser/Debugger/Run/Inspect/Diagram tabs gain an 'x'.
-        # The Browser tab is non-closable: closing it would empty the IDE.
+
+    def configure_top_level_notebook(self, notebook):
+        # AI: Give a notebook the standard top-level behaviour: focus tracking
+        # (so MCP knows which group is active) plus an 'x' on each tab
+        # (Browser/Find stay without one). Used for both the primary (left)
+        # group and the auxiliary (right) group so tools opened on either side
+        # behave alike.
+        notebook.bind(
+            "<<NotebookTabChanged>>",
+            self.note_focused_top_level_group,
+        )
         install_close_buttons(
-            self.notebook,
+            notebook,
             self.close_top_level_tab_at_index,
             is_closable=self.top_level_tab_is_closable,
         )
 
+    def note_focused_top_level_group(self, event=None):
+        # AI: Remember which top-level group last had a tab selected so the MCP
+        # active-view query reports the focused tool rather than always the
+        # primary group.
+        if event is not None and event.widget.winfo_exists():
+            self.last_selected_top_level_group = event.widget
+
+    def auxiliary_notebook(self):
+        # AI: The right-hand group where auxiliary tools (Find, inspectors, the
+        # debugger, diagrams) open, beside Browser/Workspace on the left. It is
+        # split off and configured on first use; the browser/workspace stay in
+        # the primary group.
+        secondary_is_missing = len(self.pane_area.groups) < 2
+        if secondary_is_missing:
+            self.pane_area.split()
+            self.configure_top_level_notebook(self.pane_area.group(1))
+        return self.pane_area.group(1)
+
     def top_level_tab_is_closable(self, notebook, tab_index):
-        # AI: The Browser tab is the main IDE surface — closing it would
-        # leave the window empty. Every other top-level tab is transient.
+        # AI: The Browser tab is the main IDE surface -- closing it would leave
+        # the window empty. Every other top-level tab, on either notebook, is
+        # transient and closable via its 'x'.
         return notebook.tab(tab_index, 'text') != 'Browser'
 
     def close_top_level_tab_at_index(self, notebook, tab_index):
@@ -5930,18 +6111,29 @@ class Swordfish(tk.Tk):
         tab_widget = notebook.nametowidget(notebook.tabs()[tab_index])
         if tab_widget is self.inspector_tab:
             self.close_inspector_tab()
-            return
-        if tab_widget is self.object_diagram_tab:
+        elif tab_widget is self.object_diagram_tab:
             self.close_object_diagram_tab()
-            return
-        if tab_widget is self.class_diagram_tab:
+        elif tab_widget is self.class_diagram_tab:
             self.close_class_diagram_tab()
-            return
-        notebook.forget(tab_widget)
-        if tab_widget is self.debugger_tab:
-            self.debugger_tab = None
-        if tab_widget is self.run_tab:
-            self.run_tab = None
+        elif tab_widget is self.run_tab:
+            tab_widget.close_tab()
+        elif tab_widget is self.debugger_tab:
+            tab_widget.close_from_tab()
+        else:
+            notebook.forget(tab_widget)
+            tab_widget.destroy()
+        # AI: Same collapse as a pane's own Close button -- if this was the last
+        # tab in a non-primary (right-hand) group, drop the split so the space is
+        # reclaimed instead of leaving a blank hole.
+        self.pane_area.remove_group_if_empty(notebook)
+
+    def update_status_stop_button(self, is_active=False, **kwargs):
+        # AI: The status-bar Stop button is live only while an activity holds the session; it is
+        # absent before login / after logout, hence the None guard.
+        if self.status_stop_button is not None:
+            self.status_stop_button.config(
+                state=tk.NORMAL if is_active else tk.DISABLED
+            )
 
     def create_collaboration_status_bar(self):
         self.collaboration_status_frame = ttk.Frame(self)
@@ -5952,43 +6144,7 @@ class Swordfish(tk.Tk):
             padx=6,
             pady=(2, 4),
         )
-        self.collaboration_status_frame.columnconfigure(2, weight=1)
-        self.global_back_button = ttk.Button(
-            self.collaboration_status_frame,
-            text="Back",
-            command=self.go_to_previous_global_place,
-        )
-        self.global_back_button.grid(
-            row=0,
-            column=0,
-            sticky="w",
-        )
-        self.global_forward_button = ttk.Button(
-            self.collaboration_status_frame,
-            text="Forward",
-            command=self.go_to_next_global_place,
-        )
-        self.global_forward_button.grid(
-            row=0,
-            column=1,
-            sticky="w",
-            padx=(4, 8),
-        )
-        self.global_history_combobox = ttk.Combobox(
-            self.collaboration_status_frame,
-            state='readonly',
-            width=36,
-        )
-        self.global_history_combobox.grid(
-            row=0,
-            column=2,
-            sticky='w',
-            padx=(0, 8),
-        )
-        self.global_history_combobox.bind(
-            '<<ComboboxSelected>>',
-            self.jump_to_selected_global_history_entry,
-        )
+        self.collaboration_status_frame.columnconfigure(0, weight=1)
         self.collaboration_status_label = ttk.Label(
             self.collaboration_status_frame,
             textvariable=self.collaboration_status_text,
@@ -5996,7 +6152,7 @@ class Swordfish(tk.Tk):
         )
         self.collaboration_status_label.grid(
             row=0,
-            column=3,
+            column=0,
             sticky="ew",
         )
         self.transaction_dirty_label = ttk.Label(
@@ -6007,7 +6163,7 @@ class Swordfish(tk.Tk):
         )
         self.transaction_dirty_label.grid(
             row=0,
-            column=4,
+            column=1,
             sticky='e',
             padx=(8, 0),
         )
@@ -6018,7 +6174,7 @@ class Swordfish(tk.Tk):
         )
         self.mcp_activity_indicator.grid(
             row=0,
-            column=5,
+            column=2,
             sticky="e",
             padx=(8, 0),
         )
@@ -6028,426 +6184,33 @@ class Swordfish(tk.Tk):
             foreground='gray',
         ).grid(
             row=0,
-            column=6,
+            column=3,
             sticky="e",
             padx=(8, 4),
         )
+        # AI: Refresh and Stop as small icon buttons at the far right of the bottom bar, each with
+        # a hover tooltip. Stop interrupts whatever activity holds the shared session and is live
+        # only while one runs; Refresh forces a full re-read of image state.
+        self.status_refresh_button = ttk.Button(
+            self.collaboration_status_frame,
+            text="⟳",
+            width=3,
+            command=self.refresh_from_image,
+        )
+        self.status_refresh_button.grid(row=0, column=4, sticky="e", padx=(8, 2))
+        Tooltip(self.status_refresh_button, "Refresh from image")
+        self.status_stop_button = ttk.Button(
+            self.collaboration_status_frame,
+            text="■",
+            width=3,
+            command=self.stop_current_session_activity,
+            state=tk.DISABLED,
+        )
+        self.status_stop_button.grid(row=0, column=5, sticky="e")
+        Tooltip(self.status_stop_button, "Stop the current operation")
         self.set_mcp_activity_indicator_visibility(False)
-        self.refresh_global_navigation_controls()
+        # AI: Keep the status-bar row (row 1) minimal; the pane area in row 0 takes the height.
         self.rowconfigure(1, weight=0)
-
-    def allocate_global_navigation_session_key(self, kind):
-        session_number = self.next_global_navigation_session_number
-        self.next_global_navigation_session_number += 1
-        return f"{kind}:{session_number}"
-
-    def method_context_for_global_navigation(self):
-        if not self.is_logged_in:
-            return None
-        selected_class = self.gemstone_session_record.selected_class
-        selected_method_symbol = self.gemstone_session_record.selected_method_symbol
-        if not selected_class or not selected_method_symbol:
-            return None
-        return (
-            selected_class,
-            self.gemstone_session_record.show_instance_side,
-            selected_method_symbol,
-        )
-
-    def browser_state_for_global_navigation(self):
-        if not self.is_logged_in:
-            return None
-        selected_class_category = (
-            self.gemstone_session_record.selected_dictionary
-            if self.gemstone_session_record.browse_mode == 'dictionaries'
-            else self.gemstone_session_record.selected_package
-        )
-        has_browser_selection = any(
-            (
-                selected_class_category,
-                self.gemstone_session_record.selected_class,
-                self.gemstone_session_record.selected_method_category,
-                self.gemstone_session_record.selected_method_symbol,
-            )
-        )
-        if not has_browser_selection:
-            return None
-        return {
-            'browse_mode': self.gemstone_session_record.browse_mode,
-            'selected_package': self.gemstone_session_record.selected_package,
-            'selected_dictionary': self.gemstone_session_record.selected_dictionary,
-            'selected_class': self.gemstone_session_record.selected_class,
-            'selected_method_category': (
-                self.gemstone_session_record.selected_method_category
-            ),
-            'selected_method_symbol': self.gemstone_session_record.selected_method_symbol,
-            'show_instance_side': self.gemstone_session_record.show_instance_side,
-        }
-
-    def label_for_global_method_context(self, method_context):
-        if method_context is None:
-            return ""
-        class_name, show_instance_side, method_symbol = method_context
-        if show_instance_side:
-            return f"{class_name}>>{method_symbol}"
-        return f"{class_name} class>>{method_symbol}"
-
-    def label_for_browser_state(self, browser_state):
-        if browser_state is None:
-            return ""
-        method_symbol = browser_state.get('selected_method_symbol')
-        selected_class = browser_state.get('selected_class')
-        show_instance_side = browser_state.get('show_instance_side', True)
-        if selected_class and method_symbol:
-            return self.label_for_global_method_context(
-                (
-                    selected_class,
-                    show_instance_side,
-                    method_symbol,
-                )
-            )
-        if selected_class:
-            if show_instance_side:
-                return selected_class
-            return f"{selected_class} class"
-        selected_dictionary = browser_state.get('selected_dictionary')
-        if selected_dictionary:
-            return selected_dictionary
-        selected_package = browser_state.get('selected_package')
-        if selected_package:
-            return selected_package
-        return browser_state.get('browse_mode', 'browser')
-
-    def browser_place_key(self, browser_state):
-        return (
-            'browser_selection',
-            browser_state.get('browse_mode'),
-            browser_state.get('selected_package'),
-            browser_state.get('selected_dictionary'),
-            browser_state.get('selected_class'),
-            browser_state.get('selected_method_category'),
-            browser_state.get('selected_method_symbol'),
-            browser_state.get('show_instance_side'),
-        )
-
-    def current_browser_place_entry(self):
-        browser_state = self.browser_state_for_global_navigation()
-        if browser_state is None:
-            return None
-        method_context = self.method_context_for_global_navigation()
-        if method_context is not None:
-            return GlobalNavigationEntry(
-                'browser_method',
-                self.label_for_global_method_context(method_context),
-                {
-                    'method_context': method_context,
-                    'browser_state': browser_state,
-                },
-                place_key=self.browser_place_key(browser_state),
-            )
-        return GlobalNavigationEntry(
-            'browser_selection',
-            self.label_for_browser_state(browser_state),
-            {'browser_state': browser_state},
-            place_key=self.browser_place_key(browser_state),
-        )
-
-    def record_global_navigation_entry(self, entry):
-        if self.global_navigation_selection_in_progress:
-            self.refresh_global_navigation_controls()
-            return
-        self.global_navigation_history.record(entry)
-        self.refresh_global_navigation_controls()
-
-    def record_current_browser_place_in_global_history(self, origin=None):
-        browser_entry = self.current_browser_place_entry()
-        if browser_entry is None:
-            self.refresh_global_navigation_controls()
-            return
-        if self.global_navigation_selection_in_progress:
-            self.refresh_global_navigation_controls()
-            return
-        current_entry = self.global_navigation_history.current_entry()
-        if current_entry is not None and current_entry.kind in (
-            'browser_method',
-            'browser_selection',
-        ):
-            self.global_navigation_history.replace_current(browser_entry)
-            self.refresh_global_navigation_controls()
-            return
-        self.record_global_navigation_entry(browser_entry)
-
-    def ensure_current_browser_place_in_global_history(self):
-        if self.notebook is None or not self.notebook.winfo_exists():
-            return
-        browser_is_open = (
-            self.browser_tab is not None and self.browser_tab.winfo_exists()
-        )
-        if not browser_is_open:
-            return
-        try:
-            selected_tab_id = self.notebook.select()
-        except tk.TclError:
-            return
-        if selected_tab_id != str(self.browser_tab):
-            return
-        self.record_current_browser_place_in_global_history()
-
-    def record_selected_tab_in_global_history(self, event=None):
-        if self.notebook is None or not self.notebook.winfo_exists():
-            self.refresh_global_navigation_controls()
-            return
-        try:
-            selected_tab_id = self.notebook.select()
-        except tk.TclError:
-            self.refresh_global_navigation_controls()
-            return
-        if not selected_tab_id:
-            self.refresh_global_navigation_controls()
-            return
-        if self.browser_tab is not None and selected_tab_id == str(self.browser_tab):
-            self.record_current_browser_place_in_global_history()
-            return
-        if self.run_tab is not None and selected_tab_id == str(self.run_tab):
-            self.record_global_navigation_entry(
-                GlobalNavigationEntry(
-                    'run_session',
-                    'Workspace',
-                    {'session_key': self.run_tab.global_navigation_session_key},
-                    place_key=(
-                        'run_session',
-                        self.run_tab.global_navigation_session_key,
-                    ),
-                )
-            )
-            return
-        if self.debugger_tab is not None and selected_tab_id == str(self.debugger_tab):
-            self.record_global_navigation_entry(
-                GlobalNavigationEntry(
-                    'debugger_session',
-                    'Debugger',
-                    {'session_key': self.debugger_tab.global_navigation_session_key},
-                    place_key=(
-                        'debugger_session',
-                        self.debugger_tab.global_navigation_session_key,
-                    ),
-                )
-            )
-            return
-        if self.inspector_tab is not None and selected_tab_id == str(
-            self.inspector_tab
-        ):
-            self.record_global_navigation_entry(
-                GlobalNavigationEntry(
-                    'inspector_session',
-                    'Inspect',
-                    {'session_key': self.inspector_tab.global_navigation_session_key},
-                    place_key=(
-                        'inspector_session',
-                        self.inspector_tab.global_navigation_session_key,
-                    ),
-                )
-            )
-            return
-        if self.object_diagram_tab is not None and selected_tab_id == str(
-            self.object_diagram_tab
-        ):
-            self.record_global_navigation_entry(
-                GlobalNavigationEntry(
-                    'object_diagram_session',
-                    'Object Diagram',
-                    {
-                        'session_key': self.object_diagram_tab.global_navigation_session_key
-                    },
-                    place_key=(
-                        'object_diagram_session',
-                        self.object_diagram_tab.global_navigation_session_key,
-                    ),
-                )
-            )
-            return
-        if self.class_diagram_tab is not None and selected_tab_id == str(
-            self.class_diagram_tab
-        ):
-            self.record_global_navigation_entry(
-                GlobalNavigationEntry(
-                    'class_diagram_session',
-                    'Class Diagram',
-                    {
-                        'session_key': self.class_diagram_tab.global_navigation_session_key
-                    },
-                    place_key=(
-                        'class_diagram_session',
-                        self.class_diagram_tab.global_navigation_session_key,
-                    ),
-                )
-            )
-            return
-        self.refresh_global_navigation_controls()
-
-    def global_history_label(self, history_entry):
-        entry = history_entry['entry']
-        label = entry.label
-        if entry.is_stale:
-            return f"{label} (unavailable)"
-        return label
-
-    def refresh_global_navigation_controls(self):
-        if (
-            self.global_back_button is not None
-            and self.global_back_button.winfo_exists()
-        ):
-            back_button_state = (
-                tk.NORMAL
-                if self.global_navigation_history.can_go_back()
-                else tk.DISABLED
-            )
-            self.global_back_button.configure(state=back_button_state)
-        if (
-            self.global_forward_button is not None
-            and self.global_forward_button.winfo_exists()
-        ):
-            forward_button_state = (
-                tk.NORMAL
-                if self.global_navigation_history.can_go_forward()
-                else tk.DISABLED
-            )
-            self.global_forward_button.configure(state=forward_button_state)
-        if (
-            self.global_history_combobox is not None
-            and self.global_history_combobox.winfo_exists()
-        ):
-            history_entries = (
-                self.global_navigation_history.entries_with_current_marker()
-            )
-            self.global_history_choice_indices = []
-            history_labels = []
-            for history_entry in reversed(history_entries):
-                history_index = history_entry['history_index']
-                history_labels.append(self.global_history_label(history_entry))
-                self.global_history_choice_indices.append(history_index)
-            self.global_history_combobox['values'] = history_labels
-            if len(history_labels) > 0:
-                current_history_index = self.global_navigation_history.current_index
-                selected_index = len(history_labels) - current_history_index - 1
-                self.global_history_combobox.current(selected_index)
-            if len(history_labels) == 0:
-                self.global_history_combobox.set('')
-
-    def mark_global_navigation_place_stale(self, place_key):
-        self.global_navigation_history.mark_place_stale(place_key)
-        self.refresh_global_navigation_controls()
-
-    def tab_for_global_navigation_session(self, kind, session_key):
-        if kind == 'run_session':
-            candidate = self.run_tab
-        elif kind == 'debugger_session':
-            candidate = self.debugger_tab
-        elif kind == 'inspector_session':
-            candidate = self.inspector_tab
-        elif kind == 'object_diagram_session':
-            candidate = self.object_diagram_tab
-        elif kind == 'class_diagram_session':
-            candidate = self.class_diagram_tab
-        else:
-            candidate = None
-        if candidate is None or not candidate.winfo_exists():
-            return None
-        if getattr(candidate, 'global_navigation_session_key', None) != session_key:
-            return None
-        return candidate
-
-    def restore_global_navigation_entry(self, entry):
-        if entry is None or entry.is_stale:
-            return False
-        if entry.kind in ('browser_method', 'browser_selection'):
-            browser_state = entry.payload.get('browser_state')
-            if browser_state is None:
-                return False
-            self.gemstone_session_record.browse_mode = browser_state['browse_mode']
-            self.gemstone_session_record.selected_package = browser_state[
-                'selected_package'
-            ]
-            self.gemstone_session_record.selected_dictionary = browser_state[
-                'selected_dictionary'
-            ]
-            self.gemstone_session_record.selected_class = browser_state[
-                'selected_class'
-            ]
-            self.gemstone_session_record.selected_method_category = browser_state[
-                'selected_method_category'
-            ]
-            self.gemstone_session_record.selected_method_symbol = browser_state[
-                'selected_method_symbol'
-            ]
-            self.gemstone_session_record.show_instance_side = browser_state[
-                'show_instance_side'
-            ]
-            self.event_queue.publish('BrowseModeChanged')
-            self.event_queue.publish('SelectedClassChanged')
-            self.event_queue.publish('SelectedCategoryChanged')
-            self.event_queue.publish('MethodSelected')
-            if self.browser_tab is not None and self.browser_tab.winfo_exists():
-                self.notebook.select(self.browser_tab)
-            return True
-        session_key = entry.payload.get('session_key')
-        session_tab = self.tab_for_global_navigation_session(entry.kind, session_key)
-        if session_tab is None:
-            self.mark_global_navigation_place_stale(entry.place_key)
-            return False
-        self.notebook.select(session_tab)
-        return True
-
-    def navigate_global_history(self, direction):
-        event_name = (
-            'GlobalNavigationBack' if direction == 'back' else 'GlobalNavigationForward'
-        )
-        self.event_queue.publish(event_name)
-        history_entry = None
-        if direction == 'back':
-            history_entry = self.global_navigation_history.go_back()
-        if direction == 'forward':
-            history_entry = self.global_navigation_history.go_forward()
-        if history_entry is None:
-            self.refresh_global_navigation_controls()
-            return
-        self.global_navigation_selection_in_progress = True
-        try:
-            restored = self.restore_global_navigation_entry(history_entry)
-        finally:
-            self.global_navigation_selection_in_progress = False
-        if restored:
-            self.refresh_global_navigation_controls()
-            return
-        self.navigate_global_history(direction)
-
-    def go_to_previous_global_place(self):
-        self.navigate_global_history('back')
-
-    def go_to_next_global_place(self):
-        self.navigate_global_history('forward')
-
-    def jump_to_selected_global_history_entry(self, event=None):
-        combobox_index = self.global_history_combobox.current()
-        if combobox_index < 0:
-            return
-        if combobox_index >= len(self.global_history_choice_indices):
-            return
-        history_index = self.global_history_choice_indices[combobox_index]
-        selected_entry = self.global_navigation_history.entries[history_index]
-        if selected_entry.is_stale:
-            self.refresh_global_navigation_controls()
-            return
-        self.global_navigation_history.jump_to(history_index)
-        self.global_navigation_selection_in_progress = True
-        try:
-            restored = self.restore_global_navigation_entry(selected_entry)
-        finally:
-            self.global_navigation_selection_in_progress = False
-        if not restored:
-            self.refresh_global_navigation_controls()
-            return
-        self.refresh_global_navigation_controls()
 
     def set_mcp_activity_indicator_visibility(self, visible):
         if self.mcp_activity_indicator is None:
@@ -6507,8 +6270,78 @@ class Swordfish(tk.Tk):
             pass
         self.refresh_collaboration_status()
 
+    def set_current_session_activity(self, activity):
+        """AI: Record (or clear, with None) the single activity currently using the shared
+        session and announce it, so the Stop control enables or disables itself. One slot,
+        because the session runs one call at a time."""
+        self.current_session_activity = activity
+        self.event_queue.publish(
+            "SessionActivityChanged",
+            is_active=activity is not None,
+        )
+
+    def stop_current_session_activity(self):
+        """AI: The single Stop gesture. Delegates to whatever is running: a ForegroundActivity
+        stops cooperatively and then breaks the session; an McpActivity breaks the session."""
+        activity = self.current_session_activity
+        if activity is not None:
+            activity.request_stop()
+
+    def hard_break_session(self):
+        """AI: Forcefully abandon whatever GemStone call is in flight on the shared session,
+        whichever thread launched it. A break that cannot be delivered (the gem is idle, or
+        the session is gone) must not crash the thread that asked to stop."""
+        session_record = self.gemstone_session_record
+        if session_record is not None:
+            try:
+                session_record.hard_break()
+            except GemstoneError:
+                pass
+
+    def run_foreground_activity(self, activity):
+        """AI: Launch a foreground activity, mark the session busy, and arrange for its
+        outcome to be delivered on the UI thread. In production the work runs on a worker
+        thread so the UI stays free to interrupt it; synchronously in tests."""
+        activity.interrupt_session = self.hard_break_session
+        self.set_current_session_activity(activity)
+        self.begin_foreground_activity(activity.message)
+        if self.run_activities_synchronously:
+            activity.run_work()
+            self.conclude_foreground_activity(activity)
+        else:
+            worker = threading.Thread(target=activity.run_work, daemon=True)
+            worker.start()
+            self.poll_foreground_activity(activity, worker)
+
+    def poll_foreground_activity(self, activity, worker):
+        """AI: Drive the worker from the UI thread without blocking it: re-check on the Tk
+        event loop until the worker finishes, then conclude on this (UI) thread."""
+        if worker.is_alive():
+            self.foreground_activity_after_id = self.after(
+                50,
+                lambda: self.poll_foreground_activity(activity, worker),
+            )
+        else:
+            self.foreground_activity_after_id = None
+            self.conclude_foreground_activity(activity)
+
+    def conclude_foreground_activity(self, activity):
+        """AI: Clear the busy state and deliver the outcome here on the UI thread, where
+        touching widgets is safe. Shared by the threaded and synchronous paths."""
+        self.set_current_session_activity(None)
+        self.end_foreground_activity()
+        activity.deliver_outcome()
+
     def publish_mcp_busy_state_event(self, is_busy=False, operation_name=""):
         busy_lease_token = self.busy_coordinator.lease_for_state(
+            is_busy=is_busy,
+            operation_name=operation_name,
+        )
+        # AI: A gem-free announcement (driving the session-activity slot + Stop button) that is
+        # delivered even while the MCP operation holds the session -- it is session-safe, unlike
+        # McpBusyStateChanged whose handlers (status re-read, menu rebuild) may run GCI.
+        self.event_queue.publish(
+            "McpActivityStateChanged",
             is_busy=is_busy,
             operation_name=operation_name,
         )
@@ -6547,13 +6380,31 @@ class Swordfish(tk.Tk):
         )
 
     def process_pending_model_refresh_requests(self):
+        self.pending_model_refresh_after_id = None
         pending_change_kinds = (
             self.integrated_session_state.consume_model_refresh_requests()
         )
         if not self.is_logged_in:
             return
-        for change_kind in pending_change_kinds:
+        # AI: Dedup so a settled burst re-reads each view once (dict.fromkeys
+        # preserves first-seen order) -- N 'transaction' requests -> one refresh.
+        for change_kind in dict.fromkeys(pending_change_kinds):
             self.publish_model_change_events(change_kind)
+
+    def refresh_from_image(self):
+        # AI: Manual catch-all re-read for image changes the IDE cannot detect
+        # (another client editing the image, debugger/sync state, MCP tools not on
+        # the model-write allowlist). Immediate (not debounced) and full:
+        # structural views + breakpoints. Wired to the menu-bar refresh button.
+        if not self.is_logged_in:
+            return
+        self.publish_model_change_events('transaction')
+        self.publish_model_change_events('breakpoints')
+        # AI: Snapshot tools (class diagram, inspector) opt into the manual refresh
+        # by subscribing to this generic event -- they re-read the contents they
+        # display IN PLACE rather than rebuilding their layout. Derived tools
+        # (browser, editor, breakpoints) already refresh via the typed events above.
+        self.event_queue.publish('RefreshFromImage')
 
     def apply_collaboration_read_only_state(self, read_only):
         if self.browser_tab is not None and self.browser_tab.winfo_exists():
@@ -6645,6 +6496,17 @@ class Swordfish(tk.Tk):
         self.last_mcp_busy_state = is_busy
         self.refresh_collaboration_status()
 
+    def reflect_mcp_activity_in_session(self, is_busy, operation_name):
+        """AI: Make an in-flight MCP tool the current session activity so the one Stop control
+        can break it, and clear it when the tool ends. Guarded so it never clobbers a
+        foreground activity (the two cannot run at once, but the guard keeps that honest)."""
+        if is_busy:
+            self.set_current_session_activity(
+                McpActivity(operation_name, self.hard_break_session)
+            )
+        elif isinstance(self.current_session_activity, McpActivity):
+            self.set_current_session_activity(None)
+
     def note_mcp_activity(self, operation_name):
         self.activity_linger.note_activity()
         self.last_seen_mcp_operation_name = operation_name or "unknown"
@@ -6702,7 +6564,16 @@ class Swordfish(tk.Tk):
         self.run_tab.present_source(source, run_immediately=False)
 
     def handle_model_refresh_requested(self, change_kind=""):
-        self.process_pending_model_refresh_requests()
+        # AI: Debounce -- a burst of MCP writes each requests a refresh; collapse
+        # them into one structural re-read once the burst settles, so a sequence
+        # of e.g. 50 compiles costs one refresh, not 50. The manual Refresh button
+        # (refresh_from_image) bypasses this for an immediate full re-read.
+        if self.pending_model_refresh_after_id is not None:
+            self.after_cancel(self.pending_model_refresh_after_id)
+        self.pending_model_refresh_after_id = self.after(
+            self.model_refresh_debounce_ms,
+            self.process_pending_model_refresh_requests,
+        )
         self.refresh_collaboration_status()
 
     def validated_oop_label_for_navigation(self, oop_value):
@@ -6958,14 +6829,24 @@ class Swordfish(tk.Tk):
         active_tab_id = None
         active_tab_label = None
         active_tab_kind = 'none'
-        if self.notebook is not None and self.notebook.winfo_exists():
+        # AI: Report the focused top-level group (which may be the right-hand
+        # auxiliary group), falling back to the primary group, so a selected
+        # Find/diagram/inspector tab is reported as active rather than the
+        # browser.
+        active_group = self.notebook
+        if (
+            self.last_selected_top_level_group is not None
+            and self.last_selected_top_level_group.winfo_exists()
+        ):
+            active_group = self.last_selected_top_level_group
+        if active_group is not None and active_group.winfo_exists():
             try:
-                active_tab_id = self.notebook.select()
+                active_tab_id = active_group.select()
             except tk.TclError:
                 active_tab_id = None
             if active_tab_id:
                 try:
-                    active_tab_label = self.notebook.tab(active_tab_id, 'text')
+                    active_tab_label = active_group.tab(active_tab_id, 'text')
                 except tk.TclError:
                     active_tab_label = None
         if self.browser_tab is not None and active_tab_id == str(self.browser_tab):
@@ -7042,19 +6923,19 @@ class Swordfish(tk.Tk):
         }
 
     def active_find_dialog(self):
-        find_dialog = None
-        child_windows = list(self.winfo_children())
-        for child_window in child_windows:
-            child_is_find_dialog = isinstance(child_window, FindDialog)
-            child_window_exists = False
-            if child_is_find_dialog:
+        # AI: Find is now an embeddable FindPane nested in the PaneArea, not a
+        # child Toplevel -- walk the widget tree to find a live one.
+        pending = list(self.winfo_children())
+        while pending:
+            widget = pending.pop()
+            if isinstance(widget, FindPane):
                 try:
-                    child_window_exists = bool(child_window.winfo_exists())
+                    if widget.winfo_exists():
+                        return widget
                 except tk.TclError:
-                    child_window_exists = False
-            if child_is_find_dialog and child_window_exists:
-                find_dialog = child_window
-        return find_dialog
+                    pass
+            pending.extend(widget.winfo_children())
+        return None
 
     def find_dialog_state_for_mcp(self):
         find_dialog = self.active_find_dialog()
@@ -7662,10 +7543,17 @@ class Swordfish(tk.Tk):
         super().destroy()
 
     def add_browser_tab(self):
-        if self.browser_tab:
-            self.browser_tab.destroy()
-        self.browser_tab = BrowserWindow(self.notebook, self)
-        self.notebook.add(self.browser_tab, text="Browser")
+        # AI: Re-opening the Browser focuses the existing tab rather than
+        # destroying and rebuilding it (which would discard its state). At login
+        # clear_widgets has already reset browser_tab to None, so a fresh one is
+        # built there; the menu's repeat-open just brings the open tab forward.
+        browser_is_open = (
+            self.browser_tab is not None and self.browser_tab.winfo_exists()
+        )
+        if not browser_is_open:
+            self.browser_tab = BrowserWindow(self.notebook, self)
+            self.notebook.add(self.browser_tab, text="Browser")
+        self.notebook.select(self.browser_tab)
 
     def open_debugger(self, exception):
         if self.integrated_session_state.is_mcp_busy():
@@ -7684,7 +7572,6 @@ class Swordfish(tk.Tk):
         exception,
         ask_before_open=False,
     ):
-        self.ensure_current_browser_place_in_global_history()
         if ask_before_open:
             response = messagebox.askquestion(
                 "Open Debugger",
@@ -7704,15 +7591,6 @@ class Swordfish(tk.Tk):
                 )
                 if response == "cancel":
                     return False
-            debugger_session_key = getattr(
-                self.debugger_tab,
-                'global_navigation_session_key',
-                None,
-            )
-            if debugger_session_key:
-                self.mark_global_navigation_place_stale(
-                    ('debugger_session', debugger_session_key),
-                )
             self.debugger_tab.destroy()
 
         self.add_debugger_tab(exception)
@@ -7748,20 +7626,18 @@ class Swordfish(tk.Tk):
         }
 
     def add_debugger_tab(self, exception):
+        notebook = self.auxiliary_notebook()
         self.debugger_tab = DebuggerWindow(
-            self.notebook,
+            notebook,
             self,
             self.gemstone_session_record,
             self.event_queue,
             exception,
         )
-        self.debugger_tab.global_navigation_session_key = (
-            self.allocate_global_navigation_session_key('debugger')
-        )
-        self.notebook.add(self.debugger_tab, text="Debugger")
+        notebook.add(self.debugger_tab, text="Debugger")
 
     def select_debugger_tab(self):
-        self.notebook.select(self.debugger_tab)
+        self.debugger_tab.master.select(self.debugger_tab)
         # if self.debugger_tab:
         #     self.notebook.select(self.debugger_tab)
         #     self.debugger_tab.top_frame.lift()
@@ -7803,7 +7679,10 @@ class Swordfish(tk.Tk):
         )
         self.event_queue.publish("SelectedClassChanged")
         self.event_queue.publish("SelectedCategoryChanged")
-        self.event_queue.publish("MethodSelected")
+        self.event_queue.publish(
+            'MethodDisplayRequested',
+            (class_name, show_instance_side, method_symbol),
+        )
 
     def handle_sender_selection(self, class_name, show_instance_side, method_symbol):
         self.gemstone_session_record.jump_to_method(
@@ -7816,16 +7695,13 @@ class Swordfish(tk.Tk):
         )
         self.event_queue.publish('SelectedCategoryChanged')
         self.event_queue.publish(
-            'MethodSelected', log_context={'method': method_symbol}
+            'MethodDisplayRequested',
+            (class_name, show_instance_side, method_symbol),
         )
 
     def open_run_tab(self):
-        self.ensure_current_browser_place_in_global_history()
         if self.run_tab is None or not self.run_tab.winfo_exists():
             self.run_tab = RunTab(self.notebook, self)
-            self.run_tab.global_navigation_session_key = (
-                self.allocate_global_navigation_session_key('run')
-            )
             self.notebook.add(self.run_tab, text='Workspace')
         self.run_tab.set_read_only(self.integrated_session_state.is_mcp_busy())
         self.notebook.select(self.run_tab)
@@ -7836,33 +7712,31 @@ class Swordfish(tk.Tk):
         self.run_tab.present_source(source, run_immediately=run_immediately)
 
     def open_inspector_for_object(self, inspected_object):
-        self.ensure_current_browser_place_in_global_history()
         self.close_inspector_tab()
+        notebook = self.auxiliary_notebook()
         self.inspector_tab = InspectorTab(
-            self.notebook,
+            notebook,
             self,
             an_object=inspected_object,
             graph_inspect_action=self.open_object_diagram_for_object,
         )
-        self.inspector_tab.global_navigation_session_key = (
-            self.allocate_global_navigation_session_key('inspect')
-        )
-        self.notebook.add(self.inspector_tab, text="Inspect")
-        self.notebook.select(self.inspector_tab)
+        notebook.add(self.inspector_tab, text="Inspect")
+        notebook.select(self.inspector_tab)
 
-    def open_object_diagram_for_object(self, inspected_object):
-        self.ensure_current_browser_place_in_global_history()
+    def ensure_object_diagram_tab(self):
+        notebook = self.auxiliary_notebook()
         tab_is_missing = (
             self.object_diagram_tab is None
             or not self.object_diagram_tab.winfo_exists()
         )
         if tab_is_missing:
-            self.object_diagram_tab = UmlObjectDiagramTab(self.notebook, self)
-            self.object_diagram_tab.global_navigation_session_key = (
-                self.allocate_global_navigation_session_key('object_diagram')
-            )
-            self.notebook.add(self.object_diagram_tab, text="Object Diagram")
-        self.notebook.select(self.object_diagram_tab)
+            self.object_diagram_tab = UmlObjectDiagramTab(notebook, self)
+            notebook.add(self.object_diagram_tab, text="Object Diagram")
+        notebook.select(self.object_diagram_tab)
+        return self.object_diagram_tab
+
+    def open_object_diagram_for_object(self, inspected_object):
+        self.ensure_object_diagram_tab()
         self.object_diagram_tab.add_object(inspected_object)
 
     def browse_object_class(self, inspected_object):
@@ -7896,7 +7770,6 @@ class Swordfish(tk.Tk):
     def open_class_diagram_for_class(self, class_name):
         if not class_name:
             return
-        self.ensure_current_browser_place_in_global_history()
         self.ensure_class_diagram_tab()
         self.class_diagram_tab.add_class(class_name)
 
@@ -7913,16 +7786,14 @@ class Swordfish(tk.Tk):
         )
 
     def ensure_class_diagram_tab(self):
+        notebook = self.auxiliary_notebook()
         tab_is_missing = (
             self.class_diagram_tab is None or not self.class_diagram_tab.winfo_exists()
         )
         if tab_is_missing:
-            self.class_diagram_tab = UmlClassDiagramTab(self.notebook, self)
-            self.class_diagram_tab.global_navigation_session_key = (
-                self.allocate_global_navigation_session_key('class_diagram')
-            )
-            self.notebook.add(self.class_diagram_tab, text="Class Diagram")
-        self.notebook.select(self.class_diagram_tab)
+            self.class_diagram_tab = UmlClassDiagramTab(notebook, self)
+            notebook.add(self.class_diagram_tab, text="Class Diagram")
+        notebook.select(self.class_diagram_tab)
         return self.class_diagram_tab
 
     def class_diagram_state_for_mcp(self):
@@ -7939,9 +7810,10 @@ class Swordfish(tk.Tk):
                 },
             }
         selected_tab_id = None
-        if self.notebook is not None and self.notebook.winfo_exists():
+        diagram_notebook = self.class_diagram_tab.master
+        if diagram_notebook is not None and diagram_notebook.winfo_exists():
             try:
-                selected_tab_id = self.notebook.select()
+                selected_tab_id = diagram_notebook.select()
             except tk.TclError:
                 selected_tab_id = None
         return {
@@ -7957,17 +7829,8 @@ class Swordfish(tk.Tk):
         if not has_open_tab:
             self.inspector_tab = None
             return
-        inspector_session_key = getattr(
-            self.inspector_tab,
-            'global_navigation_session_key',
-            None,
-        )
-        if inspector_session_key:
-            self.mark_global_navigation_place_stale(
-                ('inspector_session', inspector_session_key),
-            )
         try:
-            self.notebook.forget(self.inspector_tab)
+            self.inspector_tab.master.forget(self.inspector_tab)
         except tk.TclError:
             pass
         self.inspector_tab.destroy()
@@ -7981,17 +7844,8 @@ class Swordfish(tk.Tk):
         if not tab_exists:
             self.object_diagram_tab = None
             return
-        object_diagram_session_key = getattr(
-            self.object_diagram_tab,
-            'global_navigation_session_key',
-            None,
-        )
-        if object_diagram_session_key:
-            self.mark_global_navigation_place_stale(
-                ('object_diagram_session', object_diagram_session_key),
-            )
         try:
-            self.notebook.forget(self.object_diagram_tab)
+            self.object_diagram_tab.master.forget(self.object_diagram_tab)
         except tk.TclError:
             pass
         self.object_diagram_tab.destroy()
@@ -8004,21 +7858,11 @@ class Swordfish(tk.Tk):
         if not tab_exists:
             self.class_diagram_tab = None
             return
-        class_diagram_session_key = getattr(
-            self.class_diagram_tab,
-            'global_navigation_session_key',
-            None,
-        )
-        if class_diagram_session_key:
-            self.mark_global_navigation_place_stale(
-                ('class_diagram_session', class_diagram_session_key),
-            )
         try:
-            self.notebook.forget(self.class_diagram_tab)
+            self.class_diagram_tab.master.forget(self.class_diagram_tab)
         except tk.TclError:
             pass
         self.class_diagram_tab.destroy()
-        self.class_diagram_tab = None
 
     def open_find_dialog(
         self,
@@ -8029,7 +7873,16 @@ class Swordfish(tk.Tk):
         reference_target=None,
         sender_source_class_name=None,
     ):
-        return FindDialog(
+        # AI: Find is a single reusable pane beside the browser. If one is open,
+        # replace its contents in place; otherwise split off a group for it.
+        existing_find_pane = self.active_find_dialog()
+        if existing_find_pane is not None:
+            target_group = existing_find_pane.master
+            existing_find_pane.destroy()
+        else:
+            target_group = self.auxiliary_notebook()
+        find_pane = FindPane(
+            target_group,
             self,
             search_type=search_type,
             search_query=search_query,
@@ -8038,6 +7891,9 @@ class Swordfish(tk.Tk):
             reference_target=reference_target,
             sender_source_class_name=sender_source_class_name,
         )
+        target_group.add(find_pane, text='Find')
+        target_group.select(find_pane)
+        return find_pane
 
     def open_find_dialog_for_class(self, class_name):
         selected_class_name = (class_name or "").strip()
@@ -8081,10 +7937,34 @@ class Swordfish(tk.Tk):
             reference_target='class',
         )
 
+    def active_breakpoints_pane(self):
+        # AI: Breakpoints is an embeddable BreakpointsPane nested in the PaneArea
+        # -- walk the widget tree to find a live one.
+        pending = list(self.winfo_children())
+        while pending:
+            widget = pending.pop()
+            if isinstance(widget, BreakpointsPane):
+                try:
+                    if widget.winfo_exists():
+                        return widget
+                except tk.TclError:
+                    pass
+            pending.extend(widget.winfo_children())
+        return None
+
     def open_breakpoints_dialog(self):
         if self.gemstone_session_record is None:
             return
-        BreakpointsDialog(self)
+        existing_breakpoints_pane = self.active_breakpoints_pane()
+        if existing_breakpoints_pane is not None:
+            target_group = existing_breakpoints_pane.master
+            existing_breakpoints_pane.destroy()
+        else:
+            target_group = self.auxiliary_notebook()
+        breakpoints_pane = BreakpointsPane(target_group, self, self.event_queue)
+        target_group.add(breakpoints_pane, text='Breakpoints')
+        target_group.select(breakpoints_pane)
+        return breakpoints_pane
 
 
 class LoginFrame(ttk.Frame):

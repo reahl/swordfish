@@ -13,6 +13,7 @@ from reahl.swordfish.gemstone.smalltalk_source_scanner import (
     SmalltalkSourceScanner,
     SmalltalkTokenKind,
 )
+from reahl.swordfish.test_execution import TestExecution
 from reahl.swordfish.ui_support import (
     add_diagram_commands,
     add_navigation_commands,
@@ -871,6 +872,22 @@ class CodePanel(tk.Frame):
                 state=write_command_state,
             )
             self.current_context_menu.add_separator()
+        elif self.is_debugger_source_panel():
+            # AI: The debugger source pane saves/cancels the SELECTED frame's
+            # method: Save recompiles and restarts the caller; Cancel reloads the
+            # frame source.
+            debugger_tab = self.application.debugger_tab
+            self.current_context_menu.add_command(
+                label='Save',
+                command=debugger_tab.save_current_frame_method,
+                state=write_command_state,
+            )
+            self.current_context_menu.add_command(
+                label='Cancel',
+                command=debugger_tab.cancel_current_frame_method,
+                state=write_command_state,
+            )
+            self.current_context_menu.add_separator()
         selected_text = self.selected_text()
         run_enabled = run_command_state == tk.NORMAL
         add_run_commands(
@@ -981,40 +998,30 @@ class CodePanel(tk.Frame):
         if method_context is None:
             return
         class_name, show_instance_side, method_selector = method_context
-        self.application.begin_foreground_activity(
-            'Running test %s>>%s...' % (class_name, method_selector)
-        )
-        try:
-            try:
-                result = self.gemstone_session_record.run_test_method(
-                    class_name, method_selector
-                )
-                self.display_test_result(result)
-            except (DomainException, GemstoneDomainException) as e:
-                messagebox.showerror('Run Test', str(e))
-            except GemstoneError as error:
-                self.application.open_debugger(error)
-        finally:
-            self.application.end_foreground_activity()
+        TestExecution(
+            self.application,
+            'Running test %s>>%s...' % (class_name, method_selector),
+            lambda should_stop: self.gemstone_session_record.run_test_method(
+                class_name, method_selector
+            ),
+            self.display_test_result,
+            'Run Test',
+        ).start()
 
     def run_all_tests_for_current_class(self):
         method_context = self.method_context()
         if method_context is None:
             return
         class_name = method_context[0]
-        self.application.begin_foreground_activity(
-            'Running tests in %s...' % class_name
-        )
-        try:
-            try:
-                result = self.gemstone_session_record.run_gemstone_tests(class_name)
-                self.display_test_result(result)
-            except (DomainException, GemstoneDomainException) as e:
-                messagebox.showerror('Run All Tests', str(e))
-            except GemstoneError as error:
-                self.application.open_debugger(error)
-        finally:
-            self.application.end_foreground_activity()
+        TestExecution(
+            self.application,
+            'Running tests in %s...' % class_name,
+            lambda should_stop: self.gemstone_session_record.run_gemstone_tests(
+                class_name
+            ),
+            self.display_test_result,
+            'Run All Tests',
+        ).start()
 
     def display_test_result(self, result):
         if result['has_passed']:
@@ -1057,28 +1064,6 @@ class CodePanel(tk.Frame):
             )
             current_source = self.text_editor.get('1.0', 'end-1c')
             self.apply_breakpoint_markers(current_source)
-            resolved_source_offset = breakpoint_entry['source_offset']
-            if resolved_source_offset != requested_source_offset:
-                requested_line, requested_column = (
-                    self.line_and_column_for_source_offset(requested_source_offset)
-                )
-                resolved_line, resolved_column = self.line_and_column_for_source_offset(
-                    resolved_source_offset
-                )
-                messagebox.showinfo(
-                    'Breakpoint Set',
-                    (
-                        'Requested line %s, column %s. '
-                        'Breakpoint set at nearest executable location '
-                        'line %s, column %s.'
-                    )
-                    % (
-                        requested_line,
-                        requested_column,
-                        resolved_line,
-                        resolved_column,
-                    ),
-                )
         except (DomainException, GemstoneDomainException) as domain_exception:
             messagebox.showerror('Set Breakpoint', str(domain_exception))
         except GemstoneError as error:
@@ -1456,7 +1441,8 @@ class CodePanel(tk.Frame):
             rename_result,
         )
         if apply_change:
-            self.application.event_queue.publish('MethodSelected', origin=self)
+            self.application.event_queue.publish('MethodsChanged')
+            self.application.event_queue.publish('MethodDisplayRequested', origin=self)
 
     def preview_method_rename(self):
         self.run_method_rename(apply_change=False)
@@ -1568,7 +1554,7 @@ class CodePanel(tk.Frame):
         if apply_change:
             self.application.event_queue.publish('SelectedClassChanged')
             self.application.event_queue.publish('SelectedCategoryChanged')
-            self.application.event_queue.publish('MethodSelected')
+            self.application.event_queue.publish('MethodDisplayRequested')
 
     def preview_method_move(self):
         self.run_method_move(apply_change=False)
@@ -1667,7 +1653,8 @@ class CodePanel(tk.Frame):
             add_parameter_result,
         )
         if apply_change:
-            self.application.event_queue.publish('MethodSelected', origin=self)
+            self.application.event_queue.publish('MethodsChanged')
+            self.application.event_queue.publish('MethodDisplayRequested', origin=self)
 
     def preview_method_add_parameter(self):
         self.run_method_add_parameter(apply_change=False)
@@ -1751,7 +1738,8 @@ class CodePanel(tk.Frame):
             remove_parameter_result,
         )
         if apply_change:
-            self.application.event_queue.publish('MethodSelected', origin=self)
+            self.application.event_queue.publish('MethodsChanged')
+            self.application.event_queue.publish('MethodDisplayRequested', origin=self)
 
     def preview_method_remove_parameter(self):
         self.run_method_remove_parameter(apply_change=False)
@@ -2057,7 +2045,8 @@ class CodePanel(tk.Frame):
             extract_result,
         )
         if apply_change:
-            self.application.event_queue.publish('MethodSelected', origin=self)
+            self.application.event_queue.publish('MethodsChanged')
+            self.application.event_queue.publish('MethodDisplayRequested', origin=self)
 
     def preview_method_extract(self):
         self.run_method_extract(apply_change=False)
@@ -2130,7 +2119,8 @@ class CodePanel(tk.Frame):
             inline_result,
         )
         if apply_change:
-            self.application.event_queue.publish('MethodSelected', origin=self)
+            self.application.event_queue.publish('MethodsChanged')
+            self.application.event_queue.publish('MethodDisplayRequested', origin=self)
 
     def preview_method_inline(self):
         self.run_method_inline(apply_change=False)
@@ -2254,9 +2244,9 @@ PINNED_TAB_MARKER = '★ '
 
 
 class EditorTab(tk.Frame):
-    def __init__(self, parent, browser_window, method_editor, tab_key):
+    def __init__(self, parent, application, method_editor, tab_key):
         super().__init__(parent)
-        self.browser_window = browser_window
+        self.application = application
         self.method_editor = method_editor
         self.tab_key = tab_key
         self.is_dirty = False
@@ -2266,7 +2256,7 @@ class EditorTab(tk.Frame):
 
         self.code_panel = CodePanel(
             self,
-            self.browser_window.application,
+            self.application,
             tab_key=tab_key,
             on_text_changed=self.mark_dirty,
         )
@@ -2335,6 +2325,12 @@ class EditorTab(tk.Frame):
             label=f'Close All not in {tab_class_name}',
             command=lambda: self.method_editor.close_tabs_in_other_classes(self),
         )
+        # AI: tab_key[2] is the selector; close every open tab with that name.
+        tab_method_name = self.tab_key[2]
+        menu.add_command(
+            label=f'Close All named {tab_method_name}',
+            command=lambda: self.method_editor.close_tabs_with_same_name(self),
+        )
         menu.bind(
             '<Escape>',
             lambda popup_event: close_popup_menu(menu),
@@ -2363,13 +2359,20 @@ class EditorTab(tk.Frame):
 
     def save(self):
         selected_class, show_instance_side, method_symbol = self.tab_key
-        self.browser_window.gemstone_session_record.update_method_source(
+        self.application.gemstone_session_record.update_method_source(
             selected_class,
             show_instance_side,
             method_symbol,
             self.code_panel.text_editor.get('1.0', 'end-1c'),
         )
-        self.browser_window.event_queue.publish('MethodSelected', origin=self)
+        self.application.event_queue.publish('MethodsChanged')
+        self.application.event_queue.publish('MethodDisplayRequested', origin=self)
+        # AI: Signal the precise method that was recompiled (MethodsChanged carries
+        # no identity) so a debugger running this method can re-run it with the new
+        # code by trimming to the caller.
+        self.application.event_queue.publish(
+            'MethodRecompiled', self.tab_key, origin=self
+        )
         self.repopulate()
 
     def cancel(self):
@@ -2379,7 +2382,7 @@ class EditorTab(tk.Frame):
             self.repopulate()
 
     def repopulate(self):
-        gemstone_method = self.browser_window.gemstone_session_record.get_method(
+        gemstone_method = self.application.gemstone_session_record.get_method(
             *self.tab_key
         )
         if gemstone_method:
