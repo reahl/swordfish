@@ -13,7 +13,6 @@ from reahl.swordfish.gemstone.working_copy import (
     point_working_copy_at,
 )
 
-
 CYPRESS_CONFIG = (
     '{\n\t"separateMethodMetaAndSource" : false,\n'
     '\t"noMethodMetaData" : true,\n\t"useCypressPropertiesFile" : true\n}'

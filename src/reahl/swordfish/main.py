@@ -89,6 +89,12 @@ from reahl.swordfish.text_editing import (
     TextCursorPositionIndicator,
     configure_widget_if_alive,
 )
+from reahl.swordfish.theme import (
+    OperatingSystemAppearance,
+    ThemeApplication,
+    ThemeSelection,
+    active_theme,
+)
 from reahl.swordfish.ui_context import UiContext
 from reahl.swordfish.ui_support import (
     GRAPH_NODE_HEIGHT,
@@ -1747,6 +1753,23 @@ class McpConfigurationStore:
         except (ValueError, TypeError):
             return McpPermissionPolicy()
 
+    def load_theme_name(self):
+        # AI: The configured colour theme, if the user pinned one. Read from a top-level
+        # 'appearance' object so it sits alongside the other persisted config sections. Returns
+        # None when unset, leaving the operating-system preference to decide at startup.
+        payload = self.config_payload()
+        if payload is None:
+            return None
+        appearance = payload.get('appearance')
+        if isinstance(appearance, dict):
+            theme_name = appearance.get('theme')
+        else:
+            theme_name = None
+        if theme_name in ('light', 'dark'):
+            return theme_name
+        else:
+            return None
+
     def load_login_gemstone_script_source(self):
         payload = self.config_payload()
         if payload is None:
@@ -2667,7 +2690,11 @@ class McpConfigurationDialog(tk.Toplevel):
         note = self.compute_risk_note()
         self.risk_note_variable.set(note)
         is_safe = note.startswith('\u2713')
-        self.risk_note_label.configure(foreground='#006600' if is_safe else '#AA4400')
+        self.risk_note_label.configure(
+            foreground=active_theme.current().color_for(
+                'risk_safe' if is_safe else 'risk_unsafe'
+            )
+        )
 
     def apply_configuration(self):
         port_text = self.port_variable.get().strip()
@@ -5130,9 +5157,14 @@ class BreakpointsPane(Pane):
             pady=(10, 6),
         )
 
+        # AI: Compact icon buttons (glyph, not word) for the breakpoint actions, each
+        # with a hover tooltip naming it. Clear Selected removes the one selected
+        # breakpoint (circled minus); Clear All removes them all (circled times,
+        # consistent with the diagram Clear). BMP glyphs from a font-proven block.
         self.clear_selected_button = ttk.Button(
             self,
-            text="Clear Selected",
+            text="⊖",
+            width=3,
             command=self.clear_selected_breakpoint,
         )
         self.clear_selected_button.grid(
@@ -5142,9 +5174,11 @@ class BreakpointsPane(Pane):
             pady=(0, 10),
             sticky="w",
         )
+        Tooltip(self.clear_selected_button, "Clear selected breakpoint")
         self.clear_all_button = ttk.Button(
             self,
-            text="Clear All",
+            text="⊗",
+            width=3,
             command=self.clear_all_breakpoints,
         )
         self.clear_all_button.grid(
@@ -5154,6 +5188,7 @@ class BreakpointsPane(Pane):
             pady=(0, 10),
             sticky="w",
         )
+        Tooltip(self.clear_all_button, "Clear all breakpoints")
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=0)
         self.columnconfigure(2, weight=0)
@@ -5519,6 +5554,12 @@ class Swordfish(tk.Tk):
         )
         self.session_only_mcp_runtime_config_active = False
 
+        # AI: Resolve and apply the colour theme once, before any widgets are built, so every
+        # widget reads the right colours as it constructs itself. Fixed for the session.
+        self.apply_theme(
+            self.mcp_server_controller.configuration_store.load_theme_name()
+        )
+
         self.event_queue.subscribe('LoggedInSuccessfully', self.show_main_app)
         self.event_queue.subscribe('LoggedOut', self.show_login_screen)
         self.event_queue.subscribe(
@@ -5584,6 +5625,16 @@ class Swordfish(tk.Tk):
 
     def embedded_mcp_server_status(self):
         return self.mcp_server_controller.status()
+
+    def apply_theme(self, configured_theme_name):
+        # AI: Resolve config name -> OS preference -> light default into a concrete theme, make it
+        # the active theme the whole UI reads from, and apply its global widget styling. Fixed for
+        # the session; changing themes means restarting.
+        theme = ThemeSelection(
+            configured_theme_name, OperatingSystemAppearance()
+        ).chosen_theme()
+        active_theme.activate(theme)
+        ThemeApplication(self).apply(theme)
 
     def mcp_configuration_access(self):
         can_write_config = (
@@ -6158,7 +6209,7 @@ class Swordfish(tk.Tk):
         self.transaction_dirty_label = ttk.Label(
             self.collaboration_status_frame,
             textvariable=self.transaction_dirty_text,
-            foreground='darkorange',
+            foreground=active_theme.current().color_for('status_busy'),
             anchor='e',
         )
         self.transaction_dirty_label.grid(
@@ -6181,7 +6232,7 @@ class Swordfish(tk.Tk):
         ttk.Label(
             self.collaboration_status_frame,
             text=f'v{__version__}',
-            foreground='gray',
+            foreground=active_theme.current().color_for('status_muted'),
         ).grid(
             row=0,
             column=3,
@@ -8070,7 +8121,7 @@ class LoginFrame(ttk.Frame):
         ttk.Label(
             self,
             text=f'Swordfish {__version__}',
-            foreground='gray',
+            foreground=active_theme.current().color_for('status_muted'),
         ).grid(
             row=1,
             column=0,
@@ -8149,7 +8200,7 @@ class LoginFrame(ttk.Frame):
             self.error_label = ttk.Label(
                 self.form_frame,
                 text=str(ex),
-                foreground="red",
+                foreground=active_theme.current().color_for('status_error'),
             )
             self.error_label.grid(
                 column=0,

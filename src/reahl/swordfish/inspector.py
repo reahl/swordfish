@@ -8,7 +8,7 @@ from reahl.swordfish.closable_notebook import install_close_buttons
 from reahl.swordfish.navigation import NavigationHistory
 from reahl.swordfish.tab_registry import DeduplicatedTabRegistry
 from reahl.swordfish.text_editing import Workspace
-from reahl.swordfish.ui_support import popup_menu
+from reahl.swordfish.ui_support import Tooltip, popup_menu
 
 
 class ObjectInspector(ttk.Frame):
@@ -61,20 +61,28 @@ class ObjectInspector(ttk.Frame):
         self.footer.grid(row=1, column=0, sticky='ew', pady=(4, 0))
         self.status_label = ttk.Label(self.footer, text='')
         self.status_label.grid(row=0, column=0, sticky='w')
+        # AI: Compact icon buttons (glyph, not word), each with a hover tooltip
+        # naming it. Previous/Next page the value rows (single guillemets, kept
+        # distinct from the history arrows); Browse Class jumps to the class.
+        # BMP glyphs only.
         self.previous_button = ttk.Button(
-            self.footer, text='Previous', command=self.on_previous_page
+            self.footer, text='‹', width=3, command=self.on_previous_page
         )
         self.previous_button.grid(row=0, column=1, padx=(8, 0))
+        Tooltip(self.previous_button, 'Previous page')
         self.next_button = ttk.Button(
-            self.footer, text='Next', command=self.on_next_page
+            self.footer, text='›', width=3, command=self.on_next_page
         )
         self.next_button.grid(row=0, column=2, padx=(4, 0))
+        Tooltip(self.next_button, 'Next page')
         self.browse_class_button = ttk.Button(
             self.footer,
-            text='Browse Class',
+            text='▣',
+            width=3,
             command=self.browse_inspected_object_class,
         )
         self.browse_class_button.grid(row=0, column=3, padx=(8, 0))
+        Tooltip(self.browse_class_button, 'Browse class')
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
@@ -764,19 +772,25 @@ class InspectorTab(ttk.Frame):
         self.title_label = ttk.Label(self.actions_frame, text='Inspector')
         self.title_label.grid(row=0, column=0, sticky='w')
 
+        # AI: Compact icon buttons (glyph, not word) for history navigation, each
+        # with a hover tooltip naming it. Back/Forward are thin arrows. BMP only.
         self.back_button = ttk.Button(
             self.actions_frame,
-            text='Back',
+            text='←',
+            width=3,
             command=self.go_to_previous_object,
         )
         self.back_button.grid(row=0, column=1, padx=(6, 0))
+        Tooltip(self.back_button, 'Back')
 
         self.forward_button = ttk.Button(
             self.actions_frame,
-            text='Forward',
+            text='→',
+            width=3,
             command=self.go_to_next_object,
         )
         self.forward_button.grid(row=0, column=2, padx=(4, 0))
+        Tooltip(self.forward_button, 'Forward')
 
         self.history_combobox = ttk.Combobox(
             self.actions_frame,

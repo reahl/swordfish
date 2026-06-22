@@ -3,7 +3,6 @@ from reahl.tofu import Fixture, with_fixtures
 
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 
-
 # AI: Issue #14: class-reference search was slow because the original fast path called
 # AI: ClassOrganizer >> allCallsOn:, which does not exist in any current GemStone image.
 # AI: Every call raised, the exception was swallowed by a defensive try/except, and a

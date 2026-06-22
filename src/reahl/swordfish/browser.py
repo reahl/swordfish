@@ -20,8 +20,9 @@ from reahl.swordfish.text_editing import (
     EditorTab,
     TextCursorPositionIndicator,
 )
+from reahl.swordfish.theme import active_theme
 from reahl.swordfish.ui_context import UiContext
-from reahl.swordfish.ui_support import popup_menu
+from reahl.swordfish.ui_support import Tooltip, popup_menu
 
 
 class CoveringTestsDiscoveryWorkflow:
@@ -1807,7 +1808,7 @@ class MethodSelection(Pane):
 
     def style_method_entry(self, listbox, index, method_selector):
         if method_selector in self.inherited_method_selectors:
-            listbox.itemconfig(index, foreground='gray50')
+            listbox.itemconfig(index, foreground=active_theme.current().color_for('disabled_list_item'))
 
     def get_selected_method(self):
         return self.gemstone_session_record.selected_method_symbol
@@ -2362,19 +2363,25 @@ class MethodEditor(Pane):
         self.label_bar = tk.Label(self.navigation_bar, text='Method Editor', anchor='w')
         self.label_bar.grid(row=0, column=0, sticky='ew')
 
+        # AI: Compact icon buttons (glyph, not word) for history navigation, each
+        # with a hover tooltip naming it. Back/Forward are thin arrows. BMP only.
         self.back_button = ttk.Button(
             self.navigation_bar,
-            text='Back',
+            text='←',
+            width=3,
             command=self.go_to_previous_method,
         )
         self.back_button.grid(row=0, column=1, padx=(6, 0))
+        Tooltip(self.back_button, 'Back')
 
         self.forward_button = ttk.Button(
             self.navigation_bar,
-            text='Forward',
+            text='→',
+            width=3,
             command=self.go_to_next_method,
         )
         self.forward_button.grid(row=0, column=2, padx=(4, 0))
+        Tooltip(self.forward_button, 'Forward')
 
         self.history_combobox = ttk.Combobox(
             self.navigation_bar,
@@ -2386,6 +2393,7 @@ class MethodEditor(Pane):
             '<<ComboboxSelected>>',
             self.jump_to_selected_history_entry,
         )
+        self.apply_theme_to_history_dropdown()
 
         self.editor_notebook = ttk.Notebook(self)
         self.editor_notebook.grid(row=1, column=0, sticky='nsew')
@@ -2586,6 +2594,25 @@ class MethodEditor(Pane):
         )
         method_context = self.method_navigation_history.go_forward()
         self.jump_to_method_context(method_context)
+
+    def apply_theme_to_history_dropdown(self):
+        # AI: ttk colours a combobox's dropdown listbox itself, ignoring the Tk option database that
+        # themes ordinary listboxes, so the popdown list must be coloured directly. Reach into the
+        # combobox's popdown window and apply the active theme's editor colours. No-op for a
+        # native-look theme, whose dropdown already matches the host appearance.
+        theme = active_theme.current()
+        if theme.restyles_widgets:
+            popdown_window = self.history_combobox.tk.call(
+                'ttk::combobox::PopdownWindow', self.history_combobox
+            )
+            self.history_combobox.tk.call(
+                '%s.f.l' % popdown_window,
+                'configure',
+                '-background', theme.color_for('editor_background'),
+                '-foreground', theme.color_for('editor_foreground'),
+                '-selectbackground', theme.color_for('select_background'),
+                '-selectforeground', theme.color_for('select_foreground'),
+            )
 
     def jump_to_selected_history_entry(self, event):
         combobox_index = self.history_combobox.current()
