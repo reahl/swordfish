@@ -21,6 +21,7 @@ from reahl.swordfish.text_editing import (
 from reahl.swordfish.theme import active_theme
 from reahl.swordfish.ui_context import UiContext
 from reahl.swordfish.ui_support import (
+    SelectionEvaluation,
     Tooltip,
     add_diagram_commands,
     add_navigation_commands,
@@ -348,16 +349,15 @@ class RunTab(ttk.Frame):
         whether a stop was requested, so stopping never drops the user into a debugger."""
         self.last_exception = None
         self.clear_source_error_highlight()
-        activity = ForegroundActivity(
-            message,
-            work=lambda should_stop: self.gemstone_session_record.run_code(source),
-            on_finished=lambda result: self.finish_source_run(
+        SelectionEvaluation(self.application, message, message).evaluate(
+            source,
+            self.gemstone_session_record.run_code,
+            on_result=lambda result: self.finish_source_run(
                 source, result, event_prefix, on_result
             ),
             on_failed=lambda error: self.fail_source_run(source, error, event_prefix),
             on_interrupted=lambda partial: self.interrupt_source_run(),
         )
-        self.application.run_foreground_activity(activity)
 
     def finish_source_run(self, source, result, event_prefix, on_result):
         self.on_run_complete(result)
@@ -415,6 +415,32 @@ class RunTab(ttk.Frame):
             'Inspecting selected source...',
             'InspectSelection',
             lambda result: self.application.open_inspector_for_object(result),
+        )
+
+    def print_selected_source(self, selected_text):
+        # AI: Classic "print it" in the Run window: evaluate as an interruptible
+        # activity (the same path Run/Inspect use here) and splice the result's
+        # printString back into the source editor.
+        if self.is_read_only():
+            self.status_label.config(text='MCP is busy. Print is disabled.')
+            return
+        if not selected_text.strip():
+            self.status_label.config(text='Select source text to print')
+            return
+        self.application.event_queue.publish(
+            'PrintSelectionRun', log_context={'code': selected_text}
+        )
+        self.status_label.config(text='Printing selection...')
+        self.run_source_code_as_activity(
+            selected_text,
+            'Printing selected source...',
+            'PrintSelection',
+            self.insert_print_string,
+        )
+
+    def insert_print_string(self, result):
+        self.editable_source.insert_after_selection(
+            ' ' + result.printString().to_py
         )
 
     def show_selected_source_in_object_diagram(self, selected_text):
@@ -1178,15 +1204,15 @@ class DebuggerWindow(ttk.PanedWindow):
                 'Select a stack frame before inspecting source text.',
             )
             return
-        try:
-            inspected_object = self.value_for_source_expression(
-                frame,
-                expression,
-            )
-        except (DomainException, GemstoneDomainException, GemstoneError) as error:
-            messagebox.showerror('Inspect Expression', str(error))
-            return
-        self.application.open_inspector_for_object(inspected_object)
+        SelectionEvaluation(
+            self.application, 'Inspecting expression...', 'Inspect Expression'
+        ).evaluate(
+            expression,
+            lambda evaluated_expression: self.value_for_source_expression(
+                frame, evaluated_expression
+            ),
+            self.application.open_inspector_for_object,
+        )
 
     def show_selected_source_expression_in_object_diagram(self, source_expression):
         expression = source_expression.strip()
@@ -1203,15 +1229,44 @@ class DebuggerWindow(ttk.PanedWindow):
                 'Select a stack frame before inspecting source text.',
             )
             return
-        try:
-            inspected_object = self.value_for_source_expression(
-                frame,
-                expression,
+        SelectionEvaluation(
+            self.application, 'Evaluating expression...', 'Inspect Expression'
+        ).evaluate(
+            expression,
+            lambda evaluated_expression: self.value_for_source_expression(
+                frame, evaluated_expression
+            ),
+            self.application.open_object_diagram_for_object,
+        )
+
+    def print_selected_source_expression(self, source_expression, source_panel):
+        # AI: "Print it" in the debugger: evaluate the selection in the selected
+        # frame's context and splice its printString back into the source panel that
+        # asked, so temporaries and self resolve as they do on that frame. The
+        # in-frame doit runs as an interruptible foreground activity like the others.
+        expression = source_expression.strip()
+        if not expression:
+            messagebox.showwarning(
+                'No Selection',
+                'Select source text in the debugger method pane to print it.',
             )
-        except (DomainException, GemstoneDomainException, GemstoneError) as error:
-            messagebox.showerror('Inspect Expression', str(error))
             return
-        self.application.open_object_diagram_for_object(inspected_object)
+        frame = self.get_selected_stack_frame()
+        if frame is None:
+            messagebox.showwarning(
+                'No Stack Frame',
+                'Select a stack frame before printing source text.',
+            )
+            return
+        SelectionEvaluation(
+            self.application, 'Printing expression...', 'Print Expression'
+        ).evaluate(
+            expression,
+            lambda evaluated_expression: self.value_for_source_expression(
+                frame, evaluated_expression
+            ).printString().to_py,
+            source_panel.insert_print_string,
+        )
 
     def frame_method_context(self, frame):
         if frame is None:

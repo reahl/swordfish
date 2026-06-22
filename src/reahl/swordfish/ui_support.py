@@ -1,8 +1,10 @@
 import re
 import tkinter as tk
+import tkinter.messagebox as messagebox
 
 from reahl.ptongue import GemstoneError
 
+from reahl.swordfish.session_activity import ForegroundActivity
 from reahl.swordfish.theme import active_theme
 
 GRAPH_NODE_WIDTH = 200
@@ -121,10 +123,51 @@ def is_compile_error(exception):
     return 'compileerror' in error_text or 'compile error' in error_text
 
 
+class SelectionEvaluation:
+    """AI: A selection of source evaluated against the shared session as an
+    interruptible foreground activity.
+
+    The evaluation runs on a worker thread so the menu-bar Stop can hard-break a long
+    doit; the outcome is delivered back on the UI thread. Every 'evaluate the
+    selection' action -- Inspect, Print, Show in Diagram, and the Run window's own
+    run -- evaluates through this, so a selection that takes a while is interruptible
+    no matter which editor or command started it. The caller supplies what to
+    evaluate (``evaluate_source``, run on the worker thread) and what to do with the
+    outcome (``on_result`` on the UI thread); a failure falls back to a dialog named
+    by ``failure_title`` unless the caller handles it itself."""
+
+    def __init__(self, application, message, failure_title):
+        self.application = application
+        self.message = message
+        self.failure_title = failure_title
+
+    def evaluate(
+        self,
+        source,
+        evaluate_source,
+        on_result,
+        on_failed=None,
+        on_interrupted=None,
+    ):
+        activity = ForegroundActivity(
+            self.message,
+            work=lambda should_stop: evaluate_source(source),
+            on_finished=on_result,
+            on_failed=on_failed if on_failed is not None else self.report_failure,
+            on_interrupted=on_interrupted,
+        )
+        self.application.run_foreground_activity(activity)
+
+    def report_failure(self, error):
+        messagebox.showerror(self.failure_title, str(error))
+
+
 def add_run_commands(menu, source_code_editor, selected_text, enabled):
-    # AI: The 'evaluate the selection' group - Run / Inspect / Debug - shared by
-    # every live code editor so the action set stays identical wherever code is
-    # selected. Disabled when there is nothing to evaluate.
+    # AI: The 'evaluate the selection' group - Run / Print / Inspect / Debug - shared
+    # by every live code editor so the action set stays identical wherever code is
+    # selected. Print evaluates and splices the result's printString back into the
+    # editor (classic Smalltalk 'print it'). Disabled when there is nothing to
+    # evaluate. Order follows the classic do-it / print-it / inspect-it / debug-it.
     command_state = tk.NORMAL if enabled and selected_text.strip() else tk.DISABLED
 
     def add_command(label, action):
@@ -135,6 +178,7 @@ def add_run_commands(menu, source_code_editor, selected_text, enabled):
         )
 
     add_command('Run', source_code_editor.run_selected_source)
+    add_command('Print', source_code_editor.print_selected_source)
     add_command('Inspect', source_code_editor.inspect_selected_source)
     add_command('Debug', source_code_editor.debug_selected_source)
 
