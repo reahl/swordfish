@@ -12,9 +12,9 @@ from reahl.swordfish.closable_notebook import install_close_buttons
 from reahl.swordfish.exceptions import DomainException
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.navigation import NavigationHistory
-from reahl.swordfish.test_execution import TestExecution
 from reahl.swordfish.selection_list import InteractiveSelectionList
 from reahl.swordfish.tab_registry import DeduplicatedTabRegistry
+from reahl.swordfish.test_execution import TestExecution
 from reahl.swordfish.text_editing import (
     CodeLineNumberColumn,
     EditorTab,
