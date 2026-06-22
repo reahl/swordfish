@@ -13,7 +13,6 @@ from reahl.ptongue import GemstoneApiError, GemstoneError
 from reahl.swordfish.exceptions import DomainException
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 
-
 # AI: Failures we expect a unit of GemStone work to raise. We capture these at the
 # worker-thread boundary so every activity ends with a recorded outcome (the UI thread
 # would otherwise wait forever for a thread that died with an unreported exception). A
