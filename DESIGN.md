@@ -91,6 +91,23 @@ This is non-negotiable for new long-running work — never block the UI thread o
 uninterruptible gem call. See the session-activity model below and `session_activity.py`,
 `Swordfish.run_foreground_activity`, `update_status_stop_button`.
 
+### Evaluating a selection is one interruptible path
+Every "evaluate the selected source" action — **Run**, **Print**, **Inspect**, **Show in
+Object/Class Diagram**, and their debugger in-frame counterparts — evaluates through the
+`SelectionEvaluation` collaborator (`ui_support.py`), which runs the doit as a `ForegroundActivity`
+on the worker thread so the Stop button can `hard_break` a slow expression. The caller supplies
+*what to evaluate* (run on the worker thread) and *what to do with the result* (on the UI thread);
+a failure falls back to a dialog named for the action. Never evaluate a selection synchronously on
+the UI thread again — that was the old inconsistency this consolidates. Editors share the action
+set via `add_run_commands`, so every code editor exposes the same group.
+
+### Print It splices the result back into the editor
+**Print** is the classic Smalltalk *print it*: evaluate the selection and insert the result's
+`printString` immediately **after** the selection, leaving the inserted text selected (one delete
+removes it). The gem work (the doit **and** the `printString`) happens inside the activity's worker
+step; only the insert touches widgets, via the reusable `EditableText.insert_after_selection`. The
+menu order is the classic do-it / **print-it** / inspect-it / debug-it.
+
 ### Consistent menu placement
 Top-level menus, in order: **Session, Find, Code, UML, MCP, FileTree** (native OS menu bar).
 Exit lives on **Session**. New menu commands go on the menu that names their domain; keep the

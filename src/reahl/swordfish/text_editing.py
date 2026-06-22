@@ -16,6 +16,7 @@ from reahl.swordfish.gemstone.smalltalk_source_scanner import (
 from reahl.swordfish.test_execution import TestExecution
 from reahl.swordfish.theme import active_theme
 from reahl.swordfish.ui_support import (
+    SelectionEvaluation,
     add_diagram_commands,
     add_navigation_commands,
     add_run_commands,
@@ -63,6 +64,26 @@ class EditableText:
         self.text_widget.mark_set(tk.INSERT, start_index)
         self.text_widget.delete(start_index, end_index)
         return True
+
+    def insert_after_selection(self, text_to_insert):
+        # AI: Classic "print it" splice: drop the text in right after the current
+        # selection (or at the cursor if nothing is selected) and leave the inserted
+        # text selected, so the printed result is highlighted and a single delete
+        # removes it again.
+        start_index, end_index = self.selected_range()
+        insertion_index = (
+            end_index
+            if end_index is not None
+            else self.text_widget.index(tk.INSERT)
+        )
+        self.text_widget.insert(insertion_index, text_to_insert)
+        new_end_index = self.text_widget.index(
+            f'{insertion_index} + {len(text_to_insert)}c'
+        )
+        self.text_widget.tag_remove(tk.SEL, '1.0', tk.END)
+        self.text_widget.tag_add(tk.SEL, insertion_index, new_end_index)
+        self.text_widget.mark_set(tk.INSERT, new_end_index)
+        self.text_widget.see(new_end_index)
 
     def select_all(self):
         self.text_widget.tag_add(tk.SEL, '1.0', 'end-1c')
@@ -342,15 +363,13 @@ class Workspace(ttk.Frame):
         self.application.event_queue.publish(
             'SourceTextInspected', log_context={'code': selected_text}
         )
-        try:
-            inspected_object = self.gemstone_session_record.run_code(selected_text)
-        except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Inspect Selection', str(domain_exception))
-            return
-        except GemstoneError as gemstone_exception:
-            messagebox.showerror('Inspect Selection', str(gemstone_exception))
-            return
-        self.application.open_inspector_for_object(inspected_object)
+        SelectionEvaluation(
+            self.application, 'Inspecting selection...', 'Inspect Selection'
+        ).evaluate(
+            selected_text,
+            self.gemstone_session_record.run_code,
+            self.application.open_inspector_for_object,
+        )
 
     def show_selected_source_in_object_diagram(self, selected_text):
         if self.is_read_only():
@@ -359,15 +378,13 @@ class Workspace(ttk.Frame):
                 'MCP is busy. Object diagram is disabled until MCP finishes.',
             )
             return
-        try:
-            inspected_object = self.gemstone_session_record.run_code(selected_text)
-        except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Show in Object Diagram', str(domain_exception))
-            return
-        except GemstoneError as gemstone_exception:
-            messagebox.showerror('Show in Object Diagram', str(gemstone_exception))
-            return
-        self.application.open_object_diagram_for_object(inspected_object)
+        SelectionEvaluation(
+            self.application, 'Evaluating selection...', 'Show in Object Diagram'
+        ).evaluate(
+            selected_text,
+            self.gemstone_session_record.run_code,
+            self.application.open_object_diagram_for_object,
+        )
 
     def show_selected_source_in_class_diagram(self, selected_text):
         if self.is_read_only():
@@ -376,17 +393,41 @@ class Workspace(ttk.Frame):
                 'MCP is busy. Class diagram is disabled until MCP finishes.',
             )
             return
-        try:
-            evaluated_object = self.gemstone_session_record.run_code(selected_text)
-        except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Show in Class Diagram', str(domain_exception))
-            return
-        except GemstoneError as gemstone_exception:
-            messagebox.showerror('Show in Class Diagram', str(gemstone_exception))
-            return
-        self.application.open_class_diagram_for_class(
-            class_name_for_class_diagram(evaluated_object)
+        SelectionEvaluation(
+            self.application, 'Evaluating selection...', 'Show in Class Diagram'
+        ).evaluate(
+            selected_text,
+            self.gemstone_session_record.run_code,
+            lambda evaluated_object: self.application.open_class_diagram_for_class(
+                class_name_for_class_diagram(evaluated_object)
+            ),
         )
+
+    def print_selected_source(self, selected_text):
+        # AI: Classic "print it": evaluate the selection and splice the result's
+        # printString back into the editor after it. The doit and the printString both
+        # run on the worker thread (so a long print is interruptible); only the insert
+        # touches widgets, on the UI thread.
+        if self.is_read_only():
+            messagebox.showwarning(
+                'Read Only', 'MCP is busy. Print is disabled until MCP finishes.'
+            )
+            return
+        self.application.event_queue.publish(
+            'SourceTextPrinted', log_context={'code': selected_text}
+        )
+        SelectionEvaluation(
+            self.application, 'Printing selection...', 'Print Selection'
+        ).evaluate(
+            selected_text,
+            lambda source: self.gemstone_session_record.run_code(
+                source
+            ).printString().to_py,
+            self.insert_print_string,
+        )
+
+    def insert_print_string(self, print_string):
+        self.editable.insert_after_selection(' ' + print_string)
 
     def debug_selected_source(self, selected_text):
         if self.is_read_only():
@@ -1149,30 +1190,27 @@ class CodePanel(tk.Frame):
         self.application.event_queue.publish(
             'SourceTextInspected', log_context={'code': selected_text}
         )
-        try:
-            inspected_object = self.gemstone_session_record.run_code(selected_text)
-        except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Inspect Selection', str(domain_exception))
-            self.application.event_queue.publish(
-                'SourceTextInspectFailed',
-                log_context={
-                    'code': selected_text,
-                    'error': str(domain_exception),
-                },
-            )
-            return
-        except GemstoneError as gemstone_exception:
-            messagebox.showerror('Inspect Selection', str(gemstone_exception))
-            self.application.event_queue.publish(
-                'SourceTextInspectFailed',
-                log_context={
-                    'code': selected_text,
-                    'error': str(gemstone_exception),
-                },
-            )
-            return
+        SelectionEvaluation(
+            self.application, 'Inspecting selection...', 'Inspect Selection'
+        ).evaluate(
+            selected_text,
+            self.gemstone_session_record.run_code,
+            self.open_inspected_object,
+            on_failed=lambda error: self.report_inspect_failure(
+                selected_text, error
+            ),
+        )
+
+    def open_inspected_object(self, inspected_object):
         if hasattr(self.application, 'open_inspector_for_object'):
             self.application.open_inspector_for_object(inspected_object)
+
+    def report_inspect_failure(self, selected_text, error):
+        messagebox.showerror('Inspect Selection', str(error))
+        self.application.event_queue.publish(
+            'SourceTextInspectFailed',
+            log_context={'code': selected_text, 'error': str(error)},
+        )
 
     def show_selected_source_in_object_diagram(self, selected_text):
         if self.is_read_only():
@@ -1187,14 +1225,15 @@ class CodePanel(tk.Frame):
                 selected_text
             )
             return
-        try:
-            inspected_object = self.gemstone_session_record.run_code(selected_text)
-        except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Show in Object Diagram', str(domain_exception))
-            return
-        except GemstoneError as gemstone_exception:
-            messagebox.showerror('Show in Object Diagram', str(gemstone_exception))
-            return
+        SelectionEvaluation(
+            self.application, 'Evaluating selection...', 'Show in Object Diagram'
+        ).evaluate(
+            selected_text,
+            self.gemstone_session_record.run_code,
+            self.show_object_in_object_diagram,
+        )
+
+    def show_object_in_object_diagram(self, inspected_object):
         if hasattr(self.application, 'open_object_diagram_for_object'):
             self.application.open_object_diagram_for_object(inspected_object)
 
@@ -1205,18 +1244,50 @@ class CodePanel(tk.Frame):
                 'MCP is busy. Class diagram is disabled until MCP finishes.',
             )
             return
-        try:
-            evaluated_object = self.gemstone_session_record.run_code(selected_text)
-        except (DomainException, GemstoneDomainException) as domain_exception:
-            messagebox.showerror('Show in Class Diagram', str(domain_exception))
-            return
-        except GemstoneError as gemstone_exception:
-            messagebox.showerror('Show in Class Diagram', str(gemstone_exception))
-            return
+        SelectionEvaluation(
+            self.application, 'Evaluating selection...', 'Show in Class Diagram'
+        ).evaluate(
+            selected_text,
+            self.gemstone_session_record.run_code,
+            self.show_class_in_class_diagram,
+        )
+
+    def show_class_in_class_diagram(self, evaluated_object):
         if hasattr(self.application, 'open_class_diagram_for_class'):
             self.application.open_class_diagram_for_class(
                 class_name_for_class_diagram(evaluated_object)
             )
+
+    def print_selected_source(self, selected_text):
+        # AI: Classic "print it": evaluate the selection and splice the result's
+        # printString back into the editor after it. In the debugger source panel
+        # the expression is evaluated in the selected frame's context (so its
+        # temporaries resolve), mirroring how Inspect routes there.
+        if self.is_read_only():
+            messagebox.showwarning(
+                'Read Only',
+                'MCP is busy. Print is disabled until MCP finishes.',
+            )
+            return
+        if self.is_debugger_source_panel():
+            debugger_tab = self.application.debugger_tab
+            debugger_tab.print_selected_source_expression(selected_text, self)
+            return
+        self.application.event_queue.publish(
+            'SourceTextPrinted', log_context={'code': selected_text}
+        )
+        SelectionEvaluation(
+            self.application, 'Printing selection...', 'Print Selection'
+        ).evaluate(
+            selected_text,
+            lambda source: self.gemstone_session_record.run_code(
+                source
+            ).printString().to_py,
+            self.insert_print_string,
+        )
+
+    def insert_print_string(self, print_string):
+        self.editable_text.insert_after_selection(' ' + print_string)
 
     def debug_selected_source(self, selected_text):
         if self.is_read_only():
