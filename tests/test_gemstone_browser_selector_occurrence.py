@@ -3,7 +3,6 @@ from reahl.tofu import Fixture, with_fixtures
 
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 
-
 # AI: After issue #14: 'find senders' / 'find implementors' used to have a fast path
 # AI: that ignored category details and a slow path that supplied them - so the IDE's
 # AI: category filter accidentally depended on the fast path failing. The corrected

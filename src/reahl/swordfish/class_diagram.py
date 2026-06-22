@@ -6,10 +6,10 @@ from tkinter import ttk
 from reahl.ptongue import GemstoneError
 
 from reahl.swordfish.exceptions import DomainException
-from reahl.swordfish.theme import active_theme
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.navigation import NavigationHistory
 from reahl.swordfish.selection_list import InteractiveSelectionList
+from reahl.swordfish.theme import active_theme
 from reahl.swordfish.ui_support import (
     UML_HEADER_HEIGHT,
     UML_METHOD_LINE_HEIGHT,

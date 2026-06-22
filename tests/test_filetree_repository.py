@@ -15,7 +15,6 @@ from reahl.swordfish.gemstone.filetree_sync import (
     mangle_selector,
 )
 
-
 FIXTURE_ROOT = os.path.join(os.path.dirname(__file__), 'fixtures', 'monticello')
 
 

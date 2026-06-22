@@ -12,7 +12,6 @@ restarting. See DESIGN.md for the colour-and-theming conventions.
 """
 
 import subprocess
-
 from tkinter import ttk
 
 
