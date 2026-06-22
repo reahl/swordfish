@@ -56,12 +56,22 @@ and find tabs that anchor the left group are intentionally *not* closable. See
 Actions are **compact glyph icon buttons**, not wide text buttons. Each carries a **hover
 tooltip** that names it (the glyph is the affordance, the tooltip is the name). Use the
 reusable `Tooltip` (`ui_support.py`). Examples: Run `▶`, Inspect `⊙`, Debug `▷`, debugger
-Continue `▶` / Over `↷` / Into `↓` / Through `⤓` / Restart `↺`, Find `⌕`, Refresh `⟳`, Stop `■`.
+Continue `▶` / Over `↷` / Into `↓` / Through `⤓` / Restart `↺`, Find `⌕`, Refresh `⟳`, Stop `■`,
+history Back `←` / Forward `→`, inspector page Previous `‹` / Next `›`, Browse class `▣`, diagram
+Clear `⊗` / Rearrange `⤢` / Undo `↶` (a semicircle, kept visually distinct from the full-circle
+Refresh `⟳`). This applies to **persistent chrome** (toolbars, navigation
+bars, tool footers); **modal dialog** buttons (Login, File out, Add/Cancel and the like) stay as
+words — a transient dialog's named confirm/cancel is its own idiom and reads worse as a lone glyph.
 
 ### Glyphs are BMP-only
 Tk 8.6 cannot render characters outside the Basic Multilingual Plane (e.g. most emoji like
-🔍 U+1F50D show as tofu). Every glyph used as an icon must be a **BMP** code point. When a
-glyph reads poorly, prefer swapping it (and the tooltip clarifies meaning regardless).
+🔍 U+1F50D show as tofu). Every glyph used as an icon must be a **BMP** code point. But BMP is
+**necessary, not sufficient** — Tk only draws a glyph the *system font actually covers*, so a
+BMP code point in a sparsely-covered block (e.g. `⎚` U+239A in Miscellaneous Technical) still
+shows as a tofu box. Pick glyphs from blocks the app already renders elsewhere: Arrows
+(`←↺↷`), Geometric Shapes (`■▶▷▣`), Mathematical Operators (`⊙⊗`), and the arrow/symbol
+blocks proven by `⤓`/`⟳`. When a glyph reads poorly or boxes out, swap it for a neighbour in a
+proven block (and the tooltip clarifies meaning regardless).
 
 ### Find: one regex filter box per visible column, aligned to it
 Find results are a `Treeview` with adaptive columns per result kind. Filtering is **one
