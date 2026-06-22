@@ -50,6 +50,54 @@ from reahl.swordfish.mcp.tracer_assets import (
     tracer_source_hash,
 )
 
+BREAKPOINT_WRITE_TOOLS = frozenset(
+    {'gs_breakpoint_set', 'gs_breakpoint_clear', 'gs_breakpoint_clear_all'}
+)
+
+MODEL_WRITE_TOOLS = frozenset(
+    {
+        'gs_begin',
+        'gs_begin_if_needed',
+        'gs_commit',
+        'gs_abort',
+        'gs_eval',
+        'gs_debug_eval',
+        'gs_set_method_category',
+        'gs_delete_method',
+        'gs_delete_class',
+        'gs_global_set',
+        'gs_global_remove',
+        'gs_tracer_install',
+        'gs_tracer_uninstall',
+        'gs_tracer_enable',
+        'gs_tracer_disable',
+        'gs_tracer_trace_selector',
+        'gs_tracer_untrace_selector',
+        'gs_tracer_clear_observed_senders',
+    }
+)
+
+MODEL_WRITE_TOOL_PREFIXES = ('gs_create_', 'gs_install_', 'gs_compile_', 'gs_apply_')
+
+
+def model_refresh_kind_for_tool(tool_name, tool_result):
+    # AI: The IDE model-refresh kind a successful MCP tool warrants, or None.
+    # Breakpoint writes refresh the breakpoint views ('breakpoints'); other model
+    # writes do a coarse 'transaction' refresh (packages/classes/methods); reads
+    # warrant no refresh. This is the single place the MCP decides what the IDE
+    # must re-read after a tool runs -- new write tools that need IDE reflection
+    # belong in these sets/prefixes (or a new kind mapped in
+    # publish_model_change_events).
+    if not isinstance(tool_result, dict) or not tool_result.get('ok'):
+        return None
+    if tool_name in BREAKPOINT_WRITE_TOOLS:
+        return 'breakpoints'
+    if tool_name in MODEL_WRITE_TOOLS:
+        return 'transaction'
+    if any(tool_name.startswith(prefix) for prefix in MODEL_WRITE_TOOL_PREFIXES):
+        return 'transaction'
+    return None
+
 
 def register_tools(
     mcp_server,
@@ -89,45 +137,6 @@ def register_tools(
     planned_sender_tests = {}
     experimental_tool = mcp_server.tool if experimental else (lambda: lambda fn: fn)
 
-    def tool_name_writes_model(tool_name):
-        if tool_name in {
-            "gs_begin",
-            "gs_begin_if_needed",
-            "gs_commit",
-            "gs_abort",
-            "gs_eval",
-            "gs_debug_eval",
-            "gs_set_method_category",
-            "gs_delete_method",
-            "gs_delete_class",
-            "gs_global_set",
-            "gs_global_remove",
-            "gs_tracer_install",
-            "gs_tracer_uninstall",
-            "gs_tracer_enable",
-            "gs_tracer_disable",
-            "gs_tracer_trace_selector",
-            "gs_tracer_untrace_selector",
-            "gs_tracer_clear_observed_senders",
-        }:
-            return True
-        for write_prefix in (
-            "gs_create_",
-            "gs_install_",
-            "gs_compile_",
-            "gs_apply_",
-        ):
-            if tool_name.startswith(write_prefix):
-                return True
-        return False
-
-    def should_refresh_model(tool_name, tool_result):
-        if not isinstance(tool_result, dict):
-            return False
-        if not tool_result.get("ok"):
-            return False
-        return tool_name_writes_model(tool_name)
-
     original_tool_decorator_factory = mcp_server.tool
 
     def coordinated_tool_decorator_factory(*decorator_arguments, **decorator_keywords):
@@ -147,8 +156,13 @@ def register_tools(
                         tool_result = function(
                             *function_arguments, **function_keywords
                         )
-                        if should_refresh_model(function.__name__, tool_result):
-                            integrated_session_state.request_model_refresh("transaction")
+                        model_refresh_kind = model_refresh_kind_for_tool(
+                            function.__name__, tool_result
+                        )
+                        if model_refresh_kind is not None:
+                            integrated_session_state.request_model_refresh(
+                                model_refresh_kind
+                            )
                         notices = (
                             integrated_session_state.consume_config_change_notices()
                         )

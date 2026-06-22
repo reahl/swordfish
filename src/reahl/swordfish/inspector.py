@@ -389,6 +389,15 @@ class ObjectInspector(ttk.Frame):
             rows = self.set_rows_for_range(start_index, end_index)
         self.load_rows(rows, self.treeview_heading, self.total_items)
 
+    def refresh_from_image(self):
+        # AI: Re-inspect the same object so its current state from the image
+        # replaces what's shown (inspect_object re-queries the gem). Value-only
+        # context tabs (no live object) have nothing to re-read.
+        if not self.winfo_exists():
+            return
+        if self.inspected_object is not None:
+            self.inspect_object(self.inspected_object)
+
     def inspect_instance(self, an_object):
         # AI: Regular instances expose their instance variables via instVarNamed:.
         values = {}
@@ -656,6 +665,13 @@ class Explorer(ttk.Notebook):
         self.register_object_tab(
             context_frame, an_object, tab_label, object_key=context_key
         )
+        if self.event_queue is not None:
+            # AI: A manual Refresh re-reads each inspected object's live state. We
+            # subscribe here (not per ObjectInspector) because navigated tabs are
+            # created without an event_queue; the Explorer owns them all.
+            self.event_queue.subscribe(
+                'RefreshFromImage', self.refresh_inspected_objects
+            )
 
     def object_key_for(self, an_object):
         if an_object is None:
@@ -680,6 +696,13 @@ class Explorer(ttk.Notebook):
             object_key = self.object_key_for(an_object)
         self.tab_registry.register_tab(object_key, tab_widget, tab_label)
         return object_key
+
+    def refresh_inspected_objects(self, **kwargs):
+        # AI: Re-read every open inspector tab's object from the image in place.
+        if not self.winfo_exists():
+            return
+        for tab_id in self.tabs():
+            self.nametowidget(tab_id).refresh_from_image()
 
     def open_or_select_object(self, an_object):
         object_key = self.object_key_for(an_object)
@@ -765,13 +788,6 @@ class InspectorTab(ttk.Frame):
             '<<ComboboxSelected>>',
             self.jump_to_selected_history_entry,
         )
-
-        self.close_button = ttk.Button(
-            self.actions_frame,
-            text='Close',
-            command=self.application.close_inspector_tab,
-        )
-        self.close_button.grid(row=0, column=5, sticky='e')
 
         self.explorer = Explorer(
             self,

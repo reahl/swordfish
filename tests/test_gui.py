@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import time
 import tkinter as tk
 import tkinter.messagebox as messagebox
 import types
@@ -20,19 +21,19 @@ from reahl.tofu import (
 
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
+from reahl.swordfish.browser import MethodEditor
+from reahl.swordfish.session_activity import ForegroundActivity, McpActivity
 from reahl.swordfish.main import (
     GEMSTONE_EXE_CONF_CONFIG_NAME,
-    BreakpointsDialog,
+    BreakpointsPane,
     BrowserWindow,
     CoveringTestsBrowseDialog,
     CoveringTestsSearchDialog,
     DomainException,
     EventQueue,
     Explorer,
-    FindDialog,
+    FindPane,
     GemstoneSessionRecord,
-    GlobalNavigationEntry,
-    GlobalNavigationHistory,
     InspectorTab,
     McpConfigurationAccess,
     McpConfigurationDialog,
@@ -52,6 +53,7 @@ from reahl.swordfish.main import (
 )
 from reahl.swordfish.mcp.integration_state import IntegratedSessionState
 from reahl.swordfish.object_diagram import UmlObjectDiagramNodeDetailDialog
+from reahl.swordfish.pane_area import PaneArea
 from reahl.swordfish.text_editing import PINNED_TAB_MARKER
 
 
@@ -85,12 +87,24 @@ class FakeApplication:
             self.gemstone_session_record.select_method_symbol(method_symbol)
         self.event_queue.publish("SelectedClassChanged")
         self.event_queue.publish("SelectedCategoryChanged")
-        self.event_queue.publish("MethodSelected")
+        self.event_queue.publish(
+            'MethodDisplayRequested',
+            (class_name, show_instance_side, method_symbol),
+        )
 
     def begin_foreground_activity(self, message):
         pass
 
     def end_foreground_activity(self):
+        pass
+
+    def run_foreground_activity(self, activity):
+        # AI: Run the activity inline so GUI tests observe its outcome within the call,
+        # mirroring Swordfish.run_activities_synchronously (the real app's test seam).
+        activity.run_work()
+        activity.deliver_outcome()
+
+    def open_debugger(self, error):
         pass
 
     def open_class_diagram_for_class(self, class_name):
@@ -124,7 +138,7 @@ class FakeApplication:
 
 
 def find_result_label_for_row(row):
-    # AI: Reconstruct the legacy single-string label for a FindDialog result row
+    # AI: Reconstruct the legacy single-string label for a FindPane result row
     # ("Class>>selector" / "Class class>>selector" for method rows, the class name
     # for class rows, or the bare selector for a 'contains' search), so tests can
     # assert which results appear independently of the new columns and indentation.
@@ -139,7 +153,7 @@ def find_result_label_for_row(row):
 
 
 def find_result_labels(dialog):
-    # AI: Flatten the FindDialog results Treeview (depth-first, parents before
+    # AI: Flatten the FindPane results Treeview (depth-first, parents before
     # their nested overrides) into the list of labels in display order.
     labels = []
 
@@ -375,6 +389,20 @@ class SwordfishGuiFixture(Fixture):
     def selected_listbox_entry(self, listbox):
         selected_index = listbox.curselection()[0]
         return listbox.get(selected_index)
+
+
+def visible_tab_title(notebook):
+    """AI: Title of the currently selected tab in the given notebook group."""
+    return notebook.tab(notebook.select(), 'text')
+
+
+def all_open_tab_texts(app):
+    """AI: Titles of every open top-level tab across both notebook groups -- the
+    left browser/workspace group and the right auxiliary (tools) group."""
+    texts = []
+    for group in app.pane_area.groups:
+        texts.extend(group.tab(tab_id, 'text') for tab_id in group.tabs())
+    return texts
 
 
 def menu_command_labels(menu):
@@ -849,6 +877,85 @@ def test_selecting_another_method_recycles_the_preview_tab(fixture):
     assert list(editor.open_tabs.keys()) == [("OrderLine", True, "description")]
 
 
+class MethodDisplayOriginScenarios(Fixture):
+    """AI: The two kinds of origin that can ask the editor to display a
+    method. Both hand the method to the editor through the
+    MethodDisplayRequested event; they differ only in whether the origin
+    also owns and moves the browser's own selection."""
+
+    @scenario
+    def chosen_from_the_browser_list(self):
+        """AI: The method list owns the browser selection, so choosing a
+        method moves that selection and asks the editor to display it."""
+        self.move_browser_selection = True
+        self.selected_method_after_request = 'description'
+
+    @scenario
+    def peeked_from_a_search_result(self):
+        """AI: A search result only asks the editor to display a method; it
+        must leave the browser's selection alone (an editor-only peek)."""
+        self.move_browser_selection = False
+        self.selected_method_after_request = 'total'
+
+
+@with_fixtures(SwordfishGuiFixture, MethodDisplayOriginScenarios)
+def test_editor_displays_the_method_the_event_carries(fixture, scenario):
+    """AI: The method to display travels inside the MethodDisplayRequested
+    event, so any origin can drive the single editor. Because the editor no
+    longer reads 'which method' from the shared browser selection, a search
+    result can peek a method into the editor without moving the browser --
+    only the origin that owns the selection moves it."""
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+
+    requested_method = ('OrderLine', True, 'description')
+    if scenario.move_browser_selection:
+        fixture.application.gemstone_session_record.select_method_symbol(
+            'description'
+        )
+    fixture.event_queue.publish(
+        'MethodDisplayRequested', requested_method, origin=None
+    )
+
+    editor = fixture.browser_window.editor_area_widget
+    assert list(editor.open_tabs.keys()) == [requested_method]
+    assert (
+        fixture.application.gemstone_session_record.selected_method_symbol
+        == scenario.selected_method_after_request
+    )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_pinning_a_displayed_method_promotes_its_preview_tab(fixture):
+    """AI: MethodTabPinRequested carries the method to pin, so a double-click
+    from Find -- which previews a method then pins it WITHOUT touching the
+    browser's selection -- actually promotes that method's preview tab to a
+    permanent one. (The bug: pin read the browser selection, which Find, by
+    design, never sets.)"""
+    editor = fixture.browser_window.editor_area_widget
+    method = ('OrderLine', True, 'total')
+
+    fixture.event_queue.publish('MethodDisplayRequested', method, origin=None)
+    assert editor.preview_tab_key == method
+
+    fixture.event_queue.publish('MethodTabPinRequested', method, origin=None)
+
+    assert method in editor.open_tabs
+    assert editor.preview_tab_key is None
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_editor_is_a_standalone_tool_built_from_the_application(fixture):
+    """AI: The editor is a placeable tool in its own right -- constructed from
+    only the application (its gem session and busy state) and the event queue,
+    with no BrowserWindow -- and it still follows MethodDisplayRequested to show
+    the chosen method."""
+    editor = MethodEditor(
+        fixture.root, fixture.application, fixture.event_queue
+    )
+    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
+    assert list(editor.open_tabs.keys()) == [('OrderLine', True, 'total')]
+
+
 @with_fixtures(SwordfishGuiFixture)
 def test_double_clicking_a_method_pins_its_tab(fixture):
     """AI: Double-clicking a method pins its tab, so it is no longer the
@@ -1118,6 +1225,37 @@ def test_close_all_not_in_class_keeps_only_that_classes_tabs(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_close_all_named_closes_every_tab_with_that_selector(fixture):
+    """AI: 'Close All named <selector>' closes every open tab whose method has
+    that name, across classes, leaving differently-named methods open."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total", pin=True)
+    fixture.select_down_to_method(
+        "Kernel", "OrderLine", "accessing", "description", pin=True
+    )
+    fixture.select_down_to_method("Kernel", "Order", "accessing", "total", pin=True)
+
+    editor = fixture.browser_window.editor_area_widget
+    order_line_total_tab = editor.open_tabs[("OrderLine", True, "total")]
+
+    menu = fixture.open_tab_context_menu_for_tab(order_line_total_tab)
+    fixture.invoke_menu_command(menu, "Close All named total")
+
+    assert list(editor.open_tabs.keys()) == [("OrderLine", True, "description")]
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_browser_selection_columns_are_resizable(fixture):
+    """AI: The four selection columns sit in a horizontal PanedWindow so the user
+    can drag the borders between them to resize, rather than being locked to
+    equal-width grid cells."""
+    columns_pane = fixture.browser_window.top_frame
+
+    assert columns_pane.winfo_class() == 'TPanedwindow'
+    assert str(columns_pane.cget('orient')) == 'horizontal'
+    assert len(columns_pane.panes()) == 4
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_set_breakpoint_command_from_text_context_menu_uses_method_context(
     fixture,
 ):
@@ -1188,10 +1326,12 @@ def test_clear_breakpoint_command_from_text_context_menu_uses_method_context(
 
 
 @with_fixtures(SwordfishGuiFixture)
-def test_set_breakpoint_reports_nearest_executable_location_when_snapped(
+def test_set_breakpoint_does_not_pop_up_a_dialog_when_snapped(
     fixture,
 ):
-    """AI: Setting a breakpoint should explain when the cursor location is snapped to a nearby executable offset."""
+    """AI: Setting a breakpoint is silent -- even when the cursor offset snaps to
+    a nearby executable location, no dialog pops up; the gutter marker already
+    shows where the breakpoint landed."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
     tab = fixture.browser_window.editor_area_widget.open_tabs[
         ("OrderLine", True, "total")
@@ -1210,9 +1350,8 @@ def test_set_breakpoint_reports_nearest_executable_location_when_snapped(
     with patch("reahl.swordfish.text_editing.messagebox") as mock_messagebox:
         tab.code_panel.set_breakpoint_at_cursor()
 
-    mock_messagebox.showinfo.assert_called_once()
-    showinfo_message = mock_messagebox.showinfo.call_args.args[1]
-    assert "nearest executable location" in showinfo_message
+    mock_messagebox.showinfo.assert_not_called()
+    fixture.session_record.set_breakpoint.assert_called_once()
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -2278,6 +2417,10 @@ class SwordfishAppFixture(Fixture):
         self.session_record.transaction_is_dirty = False
 
         self.app = Swordfish(experimental=True)
+        # AI: Run foreground activities (searches) inline so they complete within the call
+        # that starts them -- deterministic, with no worker-thread/Tk-timing races. The
+        # threaded path is exercised by its own dedicated test, which opts back out.
+        self.app.run_activities_synchronously = True
         self.app.withdraw()
         self.app.mcp_server_controller.configuration_store.can_write_config = Mock(
             return_value=True
@@ -3268,6 +3411,109 @@ def test_find_menu_contains_find_implementors_senders_and_references_shortcuts(
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_code_menu_offers_opening_the_browser(fixture):
+    """AI: The Code menu can deliberately (re)open a Browser tab, listed ahead
+    of the Workspace so the primary navigation tool leads the menu."""
+    fixture.simulate_login()
+    fixture.app.menu_bar.update_menus()
+
+    code_menu_labels = menu_command_labels(fixture.app.menu_bar.debug_menu)
+    assert "Browser" in code_menu_labels
+    assert code_menu_labels.index("Browser") < code_menu_labels.index("Workspace")
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_menu_holds_the_class_and_object_diagrams(fixture):
+    """AI: A dedicated UML menu gathers the two diagram tools -- class diagram
+    and object diagram -- as deliberately openable canvases, separate from the
+    contextual inspector/debugger which need a subject."""
+    fixture.simulate_login()
+    fixture.app.menu_bar.update_menus()
+
+    uml_menu_labels = menu_command_labels(fixture.app.menu_bar.uml_menu)
+    assert uml_menu_labels == ["Class Diagram", "Object Diagram"]
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_uml_object_diagram_opens_an_empty_canvas(fixture):
+    """AI: Opening the object diagram from the menu needs no subject object --
+    ensure_object_diagram_tab brings up a blank canvas you add objects to,
+    mirroring ensure_class_diagram_tab."""
+    fixture.simulate_login()
+
+    fixture.app.ensure_object_diagram_tab()
+
+    assert fixture.app.object_diagram_tab is not None
+    assert fixture.app.object_diagram_tab.winfo_exists()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_opening_the_browser_when_already_open_focuses_it_without_replacing(fixture):
+    """AI: Re-opening the Browser (e.g. from the Code menu) must keep the
+    existing browser tab and its state -- it just comes to the front, rather
+    than being destroyed and rebuilt under the user."""
+    fixture.simulate_login()
+    existing_browser = fixture.app.browser_tab
+    assert existing_browser is not None
+
+    fixture.app.add_browser_tab()
+
+    assert fixture.app.browser_tab is existing_browser
+    assert str(fixture.app.notebook.select()) == str(existing_browser)
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_auxiliary_tools_open_in_the_right_notebook(fixture):
+    """AI: The diagrams (and, by the same path, inspector/debugger) are
+    auxiliary views -- they open in the right-hand notebook (the split group
+    where Find opens), not in the primary left group."""
+    fixture.simulate_login()
+
+    fixture.app.ensure_class_diagram_tab()
+    fixture.app.ensure_object_diagram_tab()
+
+    right = fixture.app.pane_area.group(1)
+    assert str(fixture.app.class_diagram_tab.master) == str(right)
+    assert str(fixture.app.object_diagram_tab.master) == str(right)
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_browser_and_workspace_stay_in_the_left_notebook(fixture):
+    """AI: Browser and Workspace are the primary working surface and stay in the
+    left group -- they are not pushed to the auxiliary right notebook."""
+    fixture.simulate_login()
+    fixture.app.open_run_tab()
+
+    left = fixture.app.pane_area.group(0)
+    assert str(fixture.app.browser_tab.master) == str(left)
+    assert str(fixture.app.run_tab.master) == str(left)
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_and_tools_share_one_right_notebook(fixture):
+    """AI: Find and the auxiliary tools open into the SAME right-hand group --
+    opening a diagram and then Find does not stack up extra split groups."""
+    fixture.simulate_login()
+
+    fixture.app.ensure_class_diagram_tab()
+    fixture.app.open_find_dialog()
+
+    assert len(fixture.app.pane_area.groups) == 2
+    right = fixture.app.pane_area.group(1)
+    assert str(fixture.app.class_diagram_tab.master) == str(right)
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_method_selected_event_is_retired(fixture):
+    """AI: The legacy MethodSelected event is retired -- method display now flows
+    through MethodDisplayRequested and list refresh through MethodsChanged, so
+    nothing subscribes to MethodSelected anymore."""
+    fixture.simulate_login()
+
+    assert 'MethodSelected' not in fixture.app.event_queue.events
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_session_menu_owns_exit_and_leads_the_menubar_with_a_code_menu(fixture):
     """AI: Exit now lives on the Session menu (the File menu, which held nothing
     else, is gone), Session leads the menubar, and the former Debug menu is Code."""
@@ -3399,7 +3645,8 @@ def test_debug_menu_workspace_command_opens_run_tab(
 
 @with_fixtures(SwordfishAppFixture)
 def test_open_breakpoints_dialog_lists_active_breakpoints(fixture):
-    """AI: Opening Breakpoints dialog should list the active breakpoints from session record."""
+    """AI: Opening Breakpoints lists the active breakpoints in a pane that opens
+    in the right-hand notebook (beside Find), not a modal popup."""
     fixture.simulate_login()
     fixture.session_record.list_breakpoints = Mock(
         return_value=[
@@ -3414,32 +3661,25 @@ def test_open_breakpoints_dialog_lists_active_breakpoints(fixture):
         ]
     )
 
-    fixture.app.open_breakpoints_dialog()
+    breakpoints_pane = fixture.app.open_breakpoints_dialog()
     fixture.app.update()
-    dialogs = [
-        child
-        for child in fixture.app.winfo_children()
-        if isinstance(child, BreakpointsDialog)
-    ]
-    assert dialogs
-    dialog = dialogs[0]
-    dialog_rows = dialog.breakpoint_list.get_children()
-    assert len(dialog_rows) == 1
-    row_values = dialog.breakpoint_list.item(dialog_rows[0], "values")
+
+    assert breakpoints_pane is fixture.app.active_breakpoints_pane()
+    assert str(breakpoints_pane.master) == str(fixture.app.pane_area.group(1))
+    pane_rows = breakpoints_pane.breakpoint_list.get_children()
+    assert len(pane_rows) == 1
+    row_values = breakpoints_pane.breakpoint_list.item(pane_rows[0], "values")
     assert row_values[0] == "OrderLine"
     assert row_values[1] == "instance"
     assert row_values[2] == "total"
-    dialog.destroy()
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_breakpoints_dialog_double_click_navigates_to_selected_method(
-    fixture,
-):
-    """AI: Double-clicking a breakpoint should navigate browser selection to that method and focus Browser tab."""
+def test_breakpoints_double_click_pins_the_method(fixture):
+    """AI: Double-clicking a breakpoint pins its method in the editor -- preview,
+    then promote the tab to permanent, like the Find pane -- without moving the
+    browser's column selection."""
     fixture.simulate_login()
-    fixture.app.run_code()
-    fixture.app.update()
     fixture.session_record.list_breakpoints = Mock(
         return_value=[
             {
@@ -3452,30 +3692,770 @@ def test_breakpoints_dialog_double_click_navigates_to_selected_method(
             }
         ]
     )
-
-    fixture.app.open_breakpoints_dialog()
-    fixture.app.update()
-    dialogs = [
-        child
-        for child in fixture.app.winfo_children()
-        if isinstance(child, BreakpointsDialog)
-    ]
-    assert dialogs
-    dialog = dialogs[0]
-
-    dialog.breakpoint_list.focus("bp-1")
-    dialog.breakpoint_list.selection_set("bp-1")
-    dialog.on_breakpoint_double_click(None)
+    breakpoints_pane = fixture.app.open_breakpoints_dialog()
     fixture.app.update()
 
-    assert fixture.session_record.selected_class == "OrderLine"
-    assert fixture.session_record.selected_method_symbol == "total"
-    assert fixture.session_record.show_instance_side
-    selected_tab_text = fixture.app.notebook.tab(
-        fixture.app.notebook.select(),
-        "text",
+    shown = Mock()
+    pinned = Mock()
+    fixture.app.event_queue.subscribe('MethodDisplayRequested', shown)
+    fixture.app.event_queue.subscribe('MethodTabPinRequested', pinned)
+    selection_before = fixture.session_record.selected_class
+
+    breakpoints_pane.breakpoint_list.selection_set("bp-1")
+    breakpoints_pane.pin_selected_breakpoint(None)
+    fixture.app.update()
+
+    shown.assert_called_once_with(("OrderLine", True, "total"), origin=ANY)
+    pinned.assert_called_once_with(("OrderLine", True, "total"), origin=ANY)
+    assert fixture.session_record.selected_class == selection_before
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_breakpoints_single_click_peeks_the_method(fixture):
+    """AI: Single-clicking a breakpoint previews its method in the editor via
+    MethodDisplayRequested, without pinning and without moving the browser."""
+    fixture.simulate_login()
+    fixture.session_record.list_breakpoints = Mock(
+        return_value=[
+            {
+                "breakpoint_id": "bp-1",
+                "class_name": "OrderLine",
+                "show_instance_side": True,
+                "method_selector": "total",
+                "source_offset": 42,
+                "step_point": 3,
+            }
+        ]
     )
-    assert selected_tab_text == "Browser"
+    breakpoints_pane = fixture.app.open_breakpoints_dialog()
+    fixture.app.update()
+
+    shown = Mock()
+    pinned = Mock()
+    fixture.app.event_queue.subscribe('MethodDisplayRequested', shown)
+    fixture.app.event_queue.subscribe('MethodTabPinRequested', pinned)
+    selection_before = fixture.session_record.selected_class
+
+    breakpoints_pane.breakpoint_list.selection_set("bp-1")
+    breakpoints_pane.peek_selected_breakpoint(None)
+    fixture.app.update()
+
+    shown.assert_called_once_with(("OrderLine", True, "total"), origin=ANY)
+    pinned.assert_not_called()
+    assert fixture.session_record.selected_class == selection_before
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_breakpoints_pane_refreshes_when_a_breakpoint_is_set(fixture):
+    """AI: An open breakpoints pane listens for breakpoint changes -- placing a
+    breakpoint elsewhere (the BreakpointSet event) re-lists the active
+    breakpoints in place, without reopening the pane."""
+    fixture.simulate_login()
+    fixture.session_record.list_breakpoints = Mock(return_value=[])
+    breakpoints_pane = fixture.app.open_breakpoints_dialog()
+    fixture.app.update()
+    assert len(breakpoints_pane.breakpoint_list.get_children()) == 0
+
+    fixture.session_record.list_breakpoints = Mock(
+        return_value=[
+            {
+                "breakpoint_id": "bp-1",
+                "class_name": "OrderLine",
+                "show_instance_side": True,
+                "method_selector": "total",
+                "source_offset": 42,
+                "step_point": 3,
+            }
+        ]
+    )
+    fixture.app.event_queue.publish('BreakpointSet')
+    fixture.app.update()
+
+    assert len(breakpoints_pane.breakpoint_list.get_children()) == 1
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_breakpoints_pane_refreshes_on_breakpoints_changed(fixture):
+    """AI: The breakpoints pane refreshes on the generic BreakpointsChanged event
+    -- the one the MCP model-refresh bridge publishes for its 'breakpoints' kind
+    -- so a breakpoint set via the MCP shows up in the IDE pane."""
+    fixture.simulate_login()
+    fixture.session_record.list_breakpoints = Mock(return_value=[])
+    breakpoints_pane = fixture.app.open_breakpoints_dialog()
+    fixture.app.update()
+    assert len(breakpoints_pane.breakpoint_list.get_children()) == 0
+
+    fixture.session_record.list_breakpoints = Mock(
+        return_value=[
+            {
+                "breakpoint_id": "bp-1",
+                "class_name": "OrderLine",
+                "show_instance_side": True,
+                "method_selector": "total",
+                "source_offset": 42,
+                "step_point": 3,
+            }
+        ]
+    )
+    fixture.app.event_queue.publish('BreakpointsChanged')
+    fixture.app.update()
+
+    assert len(breakpoints_pane.breakpoint_list.get_children()) == 1
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_breakpoints_model_change_kind_publishes_breakpoints_changed(fixture):
+    """AI: The 'breakpoints' model-change kind (requested by the MCP breakpoint
+    tools through the refresh bridge) publishes BreakpointsChanged, so the IDE's
+    breakpoint views refresh."""
+    fixture.simulate_login()
+    changed = Mock()
+    fixture.app.event_queue.subscribe('BreakpointsChanged', changed)
+
+    fixture.app.publish_model_change_events('breakpoints')
+    fixture.app.update()
+
+    changed.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_refresh_from_image_re_reads_structural_and_breakpoint_views(fixture):
+    """AI: The manual Refresh re-reads everything detectable -- structural views
+    (classes/methods) and breakpoints -- immediately, for image changes the IDE
+    cannot detect on its own (another client, debugger/sync state, MCP tools off
+    the model-write allowlist)."""
+    fixture.simulate_login()
+    classes_changed = Mock()
+    methods_changed = Mock()
+    breakpoints_changed = Mock()
+    fixture.app.event_queue.subscribe('ClassesChanged', classes_changed)
+    fixture.app.event_queue.subscribe('MethodsChanged', methods_changed)
+    fixture.app.event_queue.subscribe('BreakpointsChanged', breakpoints_changed)
+
+    fixture.app.refresh_from_image()
+    fixture.app.update()
+
+    classes_changed.assert_called()
+    methods_changed.assert_called()
+    breakpoints_changed.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_status_bar_refresh_button_triggers_full_re_read(fixture):
+    """AI: The status-bar refresh button -- a small icon button at the bottom right, shown as a
+    glyph rather than a word -- forces a full re-read on click."""
+    fixture.simulate_login()
+    methods_changed = Mock()
+    breakpoints_changed = Mock()
+    fixture.app.event_queue.subscribe('MethodsChanged', methods_changed)
+    fixture.app.event_queue.subscribe('BreakpointsChanged', breakpoints_changed)
+
+    fixture.app.status_refresh_button.invoke()
+    fixture.app.update()
+
+    methods_changed.assert_called()
+    breakpoints_changed.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_status_bar_icon_buttons_have_hover_tooltips(fixture):
+    """AI: The status-bar icon buttons are glyphs, so they carry hover tooltips to stay
+    discoverable -- the binding that drives the tooltip is present on each."""
+    fixture.simulate_login()
+    assert fixture.app.status_refresh_button.bind('<Enter>')
+    assert fixture.app.status_stop_button.bind('<Enter>')
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_status_bar_stop_button_is_disabled_while_the_session_is_idle(fixture):
+    """AI: With nothing running on the shared session there is nothing to interrupt, so the
+    single Stop control offers no false affordance -- it sits disabled."""
+    fixture.simulate_login()
+    assert str(fixture.app.status_stop_button.cget('state')) == tk.DISABLED
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_status_bar_stop_button_enables_while_an_activity_holds_the_session(fixture):
+    """AI: The one Stop control tracks the single session-activity slot: pressable exactly
+    while an activity runs, disabled again the moment it ends."""
+    fixture.simulate_login()
+    activity = types.SimpleNamespace(request_stop=Mock(), message='Searching...')
+
+    fixture.app.set_current_session_activity(activity)
+    fixture.app.update()
+    assert str(fixture.app.status_stop_button.cget('state')) == tk.NORMAL
+
+    fixture.app.set_current_session_activity(None)
+    fixture.app.update()
+    assert str(fixture.app.status_stop_button.cget('state')) == tk.DISABLED
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_pressing_status_bar_stop_interrupts_the_current_activity(fixture):
+    """AI: One Stop gesture delegates to whatever holds the session, asking it to stop. The
+    button knows nothing of Find versus MCP -- only the shared activity protocol."""
+    fixture.simulate_login()
+    activity = types.SimpleNamespace(request_stop=Mock(), message='Searching...')
+    fixture.app.set_current_session_activity(activity)
+    fixture.app.update()
+
+    fixture.app.status_stop_button.invoke()
+
+    activity.request_stop.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_a_running_mcp_tool_becomes_the_stoppable_session_activity(fixture):
+    """AI: An MCP tool's work is the same kind of session activity as an IDE search: while it
+    runs the one Stop control is live, and pressing it hard-breaks the shared session so the
+    tool's blocked call is abandoned. The MCP busy lifecycle drives the slot."""
+    fixture.simulate_login()
+    stop_button = fixture.app.status_stop_button
+
+    fixture.app.integrated_session_state.begin_mcp_operation('gs_run_tests')
+    fixture.app.update()
+    assert isinstance(fixture.app.current_session_activity, McpActivity)
+    assert str(stop_button.cget('state')) == tk.NORMAL
+
+    stop_button.invoke()
+    fixture.mock_browser.hard_break.assert_called_once()
+
+    fixture.app.integrated_session_state.end_mcp_operation()
+    fixture.app.update()
+    assert fixture.app.current_session_activity is None
+    assert str(stop_button.cget('state')) == tk.DISABLED
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_running_a_foreground_activity_delivers_its_result_on_the_ui_thread(fixture):
+    """AI: A foreground activity runs off the UI thread; when its worker finishes the app
+    clears the session slot and hands the result back here on the UI thread. This is the
+    plumbing that keeps the UI responsive -- and thus interruptible -- during a search."""
+    fixture.simulate_login()
+    fixture.app.run_activities_synchronously = False
+    delivered = {}
+    activity = ForegroundActivity(
+        'Working...',
+        work=lambda should_stop: 'done',
+        on_finished=lambda result: delivered.update(result=result),
+    )
+
+    fixture.app.run_foreground_activity(activity)
+    deadline = time.monotonic() + 5
+    while (
+        fixture.app.current_session_activity is not None
+        and time.monotonic() < deadline
+    ):
+        fixture.app.update()
+
+    assert delivered['result'] == 'done'
+    assert fixture.app.current_session_activity is None
+
+
+class DenyingSessionAdmission:
+    """AI: Stands in for the session-admission gate while an MCP operation holds the session:
+    every IDE attempt to take the session is refused."""
+
+    def try_admit(self):
+        return None
+
+    def release(self, operation_token):
+        pass
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_stop_button_enables_for_mcp_even_while_the_session_gate_is_closed(fixture):
+    """AI: The gem-free announcement of an MCP activity must reach the UI even while the MCP
+    operation holds the session -- otherwise the Stop button could never enable during the very
+    operation it exists to interrupt. The session-admission gate must not block pure-UI events."""
+    fixture.simulate_login()
+    fixture.app.event_queue.session_admission = DenyingSessionAdmission()
+
+    fixture.app.integrated_session_state.begin_mcp_operation('gs_run_tests')
+    fixture.app.update()
+
+    assert isinstance(fixture.app.current_session_activity, McpActivity)
+    assert str(fixture.app.status_stop_button.cget('state')) == tk.NORMAL
+
+    # AI: integrated_session_state is process-global; balance the begin so the busy state
+    # does not leak into the next test.
+    fixture.app.event_queue.session_admission = None
+    fixture.app.integrated_session_state.end_mcp_operation()
+    fixture.app.update()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_gem_touching_events_still_wait_for_the_session_gate_to_open(fixture):
+    """AI: The gate still protects gem-touching event handlers from colliding with a concurrent
+    MCP operation: such an event is held back while the session is taken, then delivered once it
+    frees. Only the pure-UI events jump the queue."""
+    fixture.simulate_login()
+    handled = Mock()
+    fixture.app.event_queue.subscribe('GemTouchingProbe', handled)
+    fixture.app.event_queue.session_admission = DenyingSessionAdmission()
+
+    fixture.app.event_queue.publish('GemTouchingProbe')
+    handled.assert_not_called()
+
+    fixture.app.event_queue.session_admission = None
+    fixture.app.event_queue.run_deferred_processing()
+    handled.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_model_refresh_requests_are_debounced_not_immediate(fixture):
+    """AI: A burst of MCP write refresh-requests must not each trigger a structural
+    re-read; handling defers (debounces) so the burst collapses -- otherwise a run
+    of compiles would re-query packages/classes/methods once per call."""
+    fixture.simulate_login()
+    classes_changed = Mock()
+    fixture.app.event_queue.subscribe('ClassesChanged', classes_changed)
+
+    fixture.app.integrated_session_state.request_model_refresh('transaction')
+    fixture.app.update()
+
+    assert classes_changed.call_count == 0
+    assert fixture.app.pending_model_refresh_after_id is not None
+
+    fixture.app.process_pending_model_refresh_requests()
+    fixture.app.update()
+    classes_changed.assert_called()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debounced_burst_re_reads_each_view_once(fixture):
+    """AI: A settled burst of identical refresh-requests re-reads the views once,
+    not once per request -- the dedup that makes auto-refresh affordable."""
+    fixture.simulate_login()
+    classes_changed = Mock()
+    fixture.app.event_queue.subscribe('ClassesChanged', classes_changed)
+
+    fixture.app.integrated_session_state.request_model_refresh('transaction')
+    fixture.app.integrated_session_state.request_model_refresh('transaction')
+    fixture.app.integrated_session_state.request_model_refresh('transaction')
+    fixture.app.process_pending_model_refresh_requests()
+    fixture.app.update()
+
+    assert classes_changed.call_count == 1
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_open_editor_tab_reloads_its_source_on_methods_changed(fixture):
+    """AI: An open editor tab re-reads its method source from the gem on
+    MethodsChanged (which Refresh fans out), so an edit made in the image -- e.g.
+    an MCP recompile -- replaces the tab's contents. This is why 'each tool
+    re-reads itself' needs no special editor refresh wiring: the typed change
+    events already are that fan-out."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+    assert "amount * quantity" in tab.code_panel.text_editor.get("1.0", "end-1c")
+
+    fixture.mock_browser.get_compiled_method.return_value.sourceString.return_value.to_py = (
+        "total\n    ^42"
+    )
+    fixture.event_queue.publish("MethodsChanged")
+    fixture.root.update()
+
+    assert "^42" in tab.code_panel.text_editor.get("1.0", "end-1c")
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_refresh_publishes_generic_refresh_from_image_event(fixture):
+    """AI: refresh_from_image also fires a generic RefreshFromImage so the
+    snapshot tools (class diagram, inspector) -- which don't track the typed
+    change events -- can opt into the manual refresh and re-read in place."""
+    fixture.simulate_login()
+    refresh_requested = Mock()
+    fixture.app.event_queue.subscribe('RefreshFromImage', refresh_requested)
+
+    fixture.app.refresh_from_image()
+    fixture.app.update()
+
+    refresh_requested.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_class_diagram_refreshes_shown_class_contents_in_place(fixture):
+    """AI: A manual Refresh re-reads each shown class's contents (inst vars) from
+    the image and redraws it AT ITS CURRENT POSITION -- not a relayout/rebuild.
+    An in-image change to the class shape appears; the layout you arranged stays."""
+    fixture.simulate_login()
+    fixture.app.ensure_class_diagram_tab()
+    diagram = fixture.app.class_diagram_tab
+    node = diagram.uml_canvas.add_or_update_class_node(
+        {
+            "class_name": "OrderLine",
+            "superclass_name": "Object",
+            "inst_var_names": ["amount"],
+        }
+    )
+    node.x, node.y = 120, 80
+    diagram.uml_canvas.redraw_node(node)
+    assert node.inst_var_names == ["amount"]
+
+    fixture.mock_browser.get_class_definition.side_effect = None
+    fixture.mock_browser.get_class_definition.return_value = {
+        "class_name": "OrderLine",
+        "superclass_name": "Object",
+        "inst_var_names": ["amount", "quantity"],
+    }
+    fixture.app.refresh_from_image()
+    fixture.app.update()
+
+    assert node.inst_var_names == ["amount", "quantity"]
+    assert (node.x, node.y) == (120, 80)
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_inspector_re_reads_object_in_place_on_refresh(fixture):
+    """AI: A manual Refresh re-inspects each open inspector object so its current
+    state from the image replaces what's shown -- the snapshot tool opts in via
+    RefreshFromImage; the Explorer re-reads every tab (incl. navigated ones)."""
+    fixture.simulate_login()
+    an_object = make_mock_gemstone_object("OrderLine", "an OrderLine")
+    fixture.app.open_inspector_for_object(an_object)
+    fixture.app.update()
+    explorer = fixture.app.inspector_tab.explorer
+    context_inspector = fixture.app.nametowidget(explorer.tabs()[0])
+    context_inspector.inspect_object = Mock()
+
+    fixture.app.refresh_from_image()
+    fixture.app.update()
+
+    context_inspector.inspect_object.assert_called_once_with(an_object)
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_closing_the_last_right_hand_tab_collapses_the_group(fixture):
+    """AI: Closing the last tab of the right-hand group via its tab 'x' drops the
+    split so the left group reclaims the space -- the same collapse Find's Close
+    does -- for any auxiliary tool, here a class diagram. No blank hole left."""
+    fixture.simulate_login()
+    fixture.app.ensure_class_diagram_tab()
+    right = fixture.app.pane_area.group(1)
+    assert len(fixture.app.pane_area.groups) == 2
+
+    fixture.app.close_top_level_tab_at_index(right, 0)
+
+    assert len(fixture.app.pane_area.groups) == 1
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_tab_is_closable_via_its_x_and_collapses_the_group(fixture):
+    """AI: The Find tab closes via its tab 'x' like every other right-hand pane
+    -- it is closable and collapses the group when it was the last tab there."""
+    fixture.simulate_login()
+    fixture.app.open_find_dialog()
+    right = fixture.app.pane_area.group(1)
+    assert fixture.app.top_level_tab_is_closable(right, 0)
+
+    fixture.app.close_top_level_tab_at_index(right, 0)
+
+    assert len(fixture.app.pane_area.groups) == 1
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugger_dismiss_collapses_the_right_group(fixture):
+    """AI: Dismissing the debugger (e.g. via Stop, or its finished Close) collapses
+    its right-hand group like the tab 'x' does, rather than leaving a blank hole."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+    debugger_tab = fixture.app.debugger_tab
+    assert len(fixture.app.pane_area.groups) == 2
+
+    debugger_tab.dismiss()
+    fixture.app.update()
+
+    assert fixture.app.debugger_tab is None
+    assert len(fixture.app.pane_area.groups) == 1
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugger_save_recompiles_method_and_restarts_the_caller(fixture):
+    """AI: Saving an edited method in the debugger recompiles it, then restarts
+    the CALLER frame (selected level + 1). A live frame stays bound to the old
+    method version, so re-sending the selector from the caller is what runs the
+    new code (verified against a live gem). Editor views refresh via
+    MethodsChanged + MethodDisplayRequested."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+
+    debugger_tab = fixture.app.debugger_tab
+    frame = types.SimpleNamespace(level=1, class_name="OrderLine", method_name="total")
+    debugger_tab.code_panel.text_editor.delete("1.0", "end")
+    debugger_tab.code_panel.text_editor.insert("1.0", "total\n\t^ 42")
+
+    fixture.session_record.update_method_source = Mock()
+    methods_changed = Mock()
+    displayed = Mock()
+    fixture.app.event_queue.subscribe("MethodsChanged", methods_changed)
+    fixture.app.event_queue.subscribe("MethodDisplayRequested", displayed)
+
+    with patch.object(debugger_tab, "get_selected_stack_frame", return_value=frame):
+        with patch.object(debugger_tab.debug_session, "restart_frame") as restart_frame:
+            with patch.object(debugger_tab, "apply_debug_action_outcome"):
+                debugger_tab.save_current_frame_method()
+    fixture.app.update()
+
+    fixture.session_record.update_method_source.assert_called_once_with(
+        "OrderLine", True, "total", "total\n\t^ 42"
+    )
+    restart_frame.assert_called_once_with(2)
+    methods_changed.assert_called_once()
+    displayed.assert_called_once_with(("OrderLine", True, "total"), origin=ANY)
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_resuming_in_the_debugger_runs_as_an_interruptible_activity(fixture):
+    """AI: A debugger Resume can run unboundedly, so it goes through the foreground-activity
+    runner -- the single menu-bar Stop can then abandon a long resume rather than freezing the
+    IDE while the process runs."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+    debugger_tab = fixture.app.debugger_tab
+
+    launched = []
+    original_runner = fixture.app.run_foreground_activity
+
+    def spy(activity):
+        launched.append(activity)
+        return original_runner(activity)
+
+    fixture.app.run_foreground_activity = spy
+
+    with patch.object(debugger_tab, "selected_frame_level", return_value=1):
+        with patch.object(
+            debugger_tab.debug_session, "continue_running", return_value=Mock()
+        ) as continue_running:
+            with patch.object(debugger_tab, "apply_debug_action_outcome") as applied:
+                debugger_tab.continue_running()
+                fixture.app.update()
+
+    assert len(launched) == 1
+    assert launched[0].message == "Resuming..."
+    continue_running.assert_called_once()
+    applied.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_a_stopped_resume_redisplays_the_re_suspended_process(fixture):
+    """AI: When a Resume is stopped, the break re-suspends the process and the debugger redisplays
+    at the new point -- a stopped resume is applied just like a completed action, not treated as
+    an error that opens a fresh debugger."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+    debugger_tab = fixture.app.debugger_tab
+
+    outcome = Mock()
+    with patch.object(debugger_tab, "apply_debug_action_outcome") as applied:
+        debugger_tab.apply_interrupted_debug_action_outcome(outcome)
+
+    applied.assert_called_once_with(outcome)
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_stepping_in_the_debugger_runs_as_an_interruptible_activity(fixture):
+    """AI: A debugger step runs as a foreground activity too, sharing the resume path's runner and
+    outcome handling, so a step over a long method can be stopped with the menu-bar Stop."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+    debugger_tab = fixture.app.debugger_tab
+
+    launched = []
+    original_runner = fixture.app.run_foreground_activity
+
+    def spy(activity):
+        launched.append(activity)
+        return original_runner(activity)
+
+    fixture.app.run_foreground_activity = spy
+
+    with patch.object(debugger_tab, "selected_frame_level", return_value=1):
+        with patch.object(
+            debugger_tab.debug_session, "step_over", return_value=Mock()
+        ) as step_over:
+            with patch.object(debugger_tab, "apply_debug_action_outcome"):
+                debugger_tab.step_over()
+                fixture.app.update()
+
+    assert len(launched) == 1
+    assert launched[0].message == "Stepping over..."
+    step_over.assert_called_once()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugging_source_runs_as_an_interruptible_activity(fixture):
+    """AI: The run-window Debug button runs the code to its first step point as a foreground
+    activity, so a long run-to-breakpoint can be stopped with the menu-bar Stop."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    result = Mock()
+    result.asString.return_value.to_py = "7"
+    fixture.session_record.debug_source = Mock(return_value=result)
+
+    launched = []
+    original_runner = fixture.app.run_foreground_activity
+
+    def spy(activity):
+        launched.append(activity)
+        return original_runner(activity)
+
+    fixture.app.run_foreground_activity = spy
+
+    run_tab.debug_selected_source("3 + 4")
+    fixture.app.update()
+
+    assert len(launched) == 1
+    assert launched[0].message == "Debugging source..."
+    fixture.session_record.debug_source.assert_called_once_with("3 + 4")
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugger_source_menu_has_save_and_cancel(fixture):
+    """AI: The debugger source pane is a full editor, so its right-click menu
+    carries Save and Cancel (acting on the selected frame's method), like the
+    editor's source menu."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+    debugger_tab = fixture.app.debugger_tab
+
+    menu_event = types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1)
+    debugger_tab.code_panel.open_text_menu(menu_event)
+    fixture.app.update()
+
+    labels = menu_command_labels(debugger_tab.code_panel.current_context_menu)
+    assert "Save" in labels
+    assert "Cancel" in labels
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugger_source_menu_cancel_reloads_frame_source(fixture):
+    """AI: Cancel in the debugger source pane discards edits by reloading the
+    selected frame's method source."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+    debugger_tab = fixture.app.debugger_tab
+
+    frame = types.SimpleNamespace(
+        level=1,
+        class_name="OrderLine",
+        method_name="total",
+        method_source="total\n\t^ 0",
+        step_point_offset=1,
+    )
+    debugger_tab.code_panel.text_editor.delete("1.0", "end")
+    debugger_tab.code_panel.text_editor.insert("1.0", "total\n\t^ 999")
+
+    with patch.object(debugger_tab, "get_selected_stack_frame", return_value=frame):
+        debugger_tab.cancel_current_frame_method()
+    fixture.app.update()
+
+    assert debugger_tab.code_panel.text_editor.get("1.0", "end-1c") == "total\n\t^ 0"
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugger_tab_x_ends_the_live_debug_and_closes(fixture):
+    """AI: The debugger's tab 'x' takes over the old Stop button -- a still-live
+    debug is ended (the suspended process is resumed) and the debugger closes,
+    collapsing its group."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+    debugger_tab = fixture.app.debugger_tab
+    debugger_tab.stack_frames = [types.SimpleNamespace(level=1)]
+    right = debugger_tab.master
+    assert len(fixture.app.pane_area.groups) == 2
+
+    with patch.object(debugger_tab.debug_session, "stop") as stop:
+        fixture.app.close_top_level_tab_at_index(right, right.index(debugger_tab))
+    fixture.app.update()
+
+    stop.assert_called_once()
+    assert fixture.app.debugger_tab is None
+    assert len(fixture.app.pane_area.groups) == 1
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_debugger_trims_to_caller_when_its_running_method_is_recompiled(fixture):
+    """AI: Saving a method in the EDITOR that the debugger is running re-runs it
+    with the new code -- the debugger restarts the CALLER of the frame running it
+    (MethodRecompiled carries the method identity, so the debugger reacts only to
+    its own method)."""
+    fixture.simulate_login()
+    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
+    fixture.app.run_code("1/0")
+    fixture.app.update()
+    fixture.app.run_tab.debug_button.invoke()
+    fixture.app.update()
+    debugger_tab = fixture.app.debugger_tab
+    debugger_tab.stack_frames = [
+        types.SimpleNamespace(level=2, class_name="OrderLine", method_name="total")
+    ]
+
+    with patch.object(debugger_tab.debug_session, "restart_frame") as restart_frame:
+        with patch.object(debugger_tab, "apply_debug_action_outcome"):
+            fixture.app.event_queue.publish(
+                "MethodRecompiled", ("OrderLine", True, "total"), origin=Mock()
+            )
+            fixture.app.update()
+
+    restart_frame.assert_called_once_with(3)
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_editor_save_publishes_method_recompiled(fixture):
+    """AI: Saving a method in the editor publishes MethodRecompiled carrying the
+    method identity, so a debugger running it can react."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+    recompiled = Mock()
+    fixture.browser_window.application.event_queue.subscribe(
+        "MethodRecompiled", recompiled
+    )
+
+    tab.code_panel.text_editor.delete("1.0", "end")
+    tab.code_panel.text_editor.insert("1.0", "total\n    ^42")
+    tab.save()
+    fixture.root.update()
+
+    recompiled.assert_called_once_with(("OrderLine", True, "total"), origin=ANY)
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -3699,6 +4679,80 @@ def test_run_dialog_shows_debug_button_when_code_raises_error(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_running_source_goes_through_the_interruptible_activity_runner(fixture):
+    """AI: Running code is now a foreground activity, so the single menu-bar Stop can interrupt a
+    long doit. The run window hands the doit to the activity runner instead of calling the gem
+    inline on the UI thread."""
+    fixture.simulate_login()
+    result = Mock()
+    result.asString.return_value.to_py = "7"
+    fixture.mock_browser.run_code.return_value = result
+
+    launched = []
+    original_runner = fixture.app.run_foreground_activity
+
+    def spy(activity):
+        launched.append(activity)
+        return original_runner(activity)
+
+    fixture.app.run_foreground_activity = spy
+
+    fixture.app.run_code("3 + 4")
+    fixture.app.update()
+
+    assert len(launched) == 1
+    assert launched[0].message == "Running source..."
+    assert fixture.mock_browser.run_code.called
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_stopping_a_run_reports_stopped_and_does_not_open_a_debugger(fixture):
+    """AI: A user-requested Stop is not a failure: the run reports it was stopped and must not
+    drop the user into a debugger (unlike a genuine trap, which does). The run window routes an
+    interrupted outcome away from the error/debugger path."""
+    fixture.simulate_login()
+    fixture.app.run_code("1 + 1")
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    run_tab.on_run_error = Mock()
+
+    run_tab.interrupt_source_run()
+
+    assert run_tab.status_label.cget("text") == "Stopped."
+    run_tab.on_run_error.assert_not_called()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_showing_selected_source_in_a_diagram_runs_as_an_interruptible_activity(fixture):
+    """AI: Evaluating selected source to show it in a diagram is a foreground activity too, so a
+    long evaluation can be stopped with the menu-bar Stop -- consistent with Run/Inspect/Debug."""
+    fixture.simulate_login()
+    fixture.app.run_code()
+    fixture.app.update()
+    run_tab = fixture.app.run_tab
+    result = Mock()
+    result.asString.return_value.to_py = "anOrder"
+    fixture.mock_browser.run_code.return_value = result
+    fixture.app.open_object_diagram_for_object = Mock()
+
+    launched = []
+    original_runner = fixture.app.run_foreground_activity
+
+    def spy(activity):
+        launched.append(activity)
+        return original_runner(activity)
+
+    fixture.app.run_foreground_activity = spy
+
+    run_tab.show_selected_source_in_object_diagram("anOrder")
+    fixture.app.update()
+
+    assert len(launched) == 1
+    assert launched[0].message == "Showing selected source in Object Diagram..."
+    fixture.app.open_object_diagram_for_object.assert_called_once_with(result)
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_run_source_text_shortcuts_replace_selection_and_support_undo(fixture):
     """Run source text supports select/copy/paste/undo shortcuts, and typed input replaces selected text."""
     fixture.simulate_login()
@@ -3838,7 +4892,7 @@ def test_run_context_menu_inspect_opens_inspector_for_selected_result(fixture):
     assert fixture.app.inspector_tab is not None
     assert isinstance(fixture.app.inspector_tab, InspectorTab)
     assert isinstance(fixture.app.inspector_tab.explorer, Explorer)
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.pane_area.group(1))
     assert selected_tab_text == "Inspect"
 
 
@@ -3862,7 +4916,7 @@ def test_run_context_menu_graph_inspect_opens_graph_for_selected_result(fixture)
 
     fixture.mock_browser.run_code.assert_called_with("3 + 4")
     assert fixture.app.object_diagram_tab is not None
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.pane_area.group(1))
     assert selected_tab_text == "Object Diagram"
     assert fixture.app.object_diagram_tab.graph_canvas.registry.contains_object(
         inspected_result
@@ -3894,7 +4948,7 @@ def test_run_source_context_menu_show_in_class_diagram_opens_class_diagram(fixtu
 
     fixture.mock_browser.run_code.assert_called_with("OrderLine")
     assert fixture.app.class_diagram_tab is not None
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.pane_area.group(1))
     assert selected_tab_text == "Class Diagram"
     assert fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("OrderLine")
 
@@ -4115,9 +5169,7 @@ def test_run_context_menu_debug_opens_debugger_for_selected_text_only(fixture):
     fixture.app.update()
 
     fixture.mock_browser.debug_source.assert_called_with("1/0")
-    tab_labels = [
-        fixture.app.notebook.tab(t, "text") for t in fixture.app.notebook.tabs()
-    ]
+    tab_labels = all_open_tab_texts(fixture.app)
     assert "Debugger" in tab_labels
 
 
@@ -4131,9 +5183,13 @@ def test_run_dialog_shows_inspect_button(fixture):
 
     assert hasattr(run_tab, "inspect_button")
     assert run_tab.inspect_button.winfo_exists()
-    assert run_tab.inspect_button.cget("text") == "Inspect"
+    # AI: The action buttons are now compact icon glyphs (named by hover tooltips), not words.
+    assert run_tab.inspect_button.cget("text") not in ("Inspect", "")
     for button in (run_tab.run_button, run_tab.inspect_button, run_tab.debug_button):
         assert not button.instate(["disabled"])
+        # AI: each action is a glyph icon with a hover tooltip, not a wide text button.
+        assert button.cget("text") not in ("Run", "Inspect", "Debug", "")
+        assert button.bind("<Enter>")
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -4220,7 +5276,7 @@ def test_open_class_diagram_for_class_creates_uml_tab_and_adds_class(fixture):
     fixture.app.update()
 
     assert fixture.app.class_diagram_tab is not None
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.pane_area.group(1))
     assert selected_tab_text == "Class Diagram"
     assert (
         fixture.app.class_diagram_tab.uml_canvas.registry.class_node_for("OrderLine")
@@ -5014,8 +6070,9 @@ def test_mcp_ide_navigation_action_reports_sender_find_dialog_state(fixture):
         "total_count": 2,
         "returned_count": 2,
     }
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="reference",
             search_query="total",
@@ -5072,8 +6129,9 @@ def test_mcp_ide_navigation_action_filters_sender_find_dialog_by_class_category(
         "total_count": 2,
         "returned_count": 2,
     }
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="reference",
             search_query="total",
@@ -5205,8 +6263,9 @@ def test_run_inspector_uses_object_summary_as_first_tab_label(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_run_inspector_tab_can_be_closed_with_close_button(fixture):
-    """The inspector tab opened from Run can be dismissed using its Close Inspector button."""
+def test_run_inspector_tab_can_be_closed_via_its_tab_x(fixture):
+    """AI: The inspector tab opened from Run closes via its tab 'x' -- the single,
+    uniform close for any right-hand tab -- clearing the inspector reference."""
     fixture.simulate_login()
     fixture.app.run_code()
     fixture.app.update()
@@ -5224,62 +6283,12 @@ def test_run_inspector_tab_can_be_closed_with_close_button(fixture):
 
     inspector_tab = fixture.app.inspector_tab
     assert inspector_tab is not None
-    inspector_tab.close_button.invoke()
+    right = inspector_tab.master
+    fixture.app.close_top_level_tab_at_index(right, right.index(inspector_tab))
     fixture.app.update()
 
     assert fixture.app.inspector_tab is None
-    tab_labels = [
-        fixture.app.notebook.tab(tab_id, "text")
-        for tab_id in fixture.app.notebook.tabs()
-    ]
-    assert "Inspect" not in tab_labels
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_run_tab_places_close_button_to_the_right_of_primary_actions(fixture):
-    """AI: Run tab actions keep close on the right so tab controls align with other tabs."""
-    fixture.simulate_login()
-    fixture.app.run_code()
-    fixture.app.update()
-    run_tab = fixture.app.run_tab
-
-    assert int(run_tab.button_frame.grid_info()["row"]) == 0
-    assert int(run_tab.source_label.grid_info()["row"]) == 1
-    assert int(run_tab.source_editor_frame.grid_info()["row"]) == 2
-
-    run_column = int(run_tab.run_button.grid_info()["column"])
-    debug_column = int(run_tab.debug_button.grid_info()["column"])
-    close_column = int(run_tab.close_button.grid_info()["column"])
-
-    assert run_column < debug_column
-    assert debug_column < close_column
-    assert run_tab.close_button.cget("text") == "Close"
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_inspector_tab_uses_top_action_row_with_close_button(fixture):
-    """AI: Inspector tab places close control in the top action row above explorer content."""
-    fixture.simulate_login()
-    fixture.app.run_code()
-    fixture.app.update()
-    run_tab = fixture.app.run_tab
-    run_tab.source_text.delete("1.0", "end")
-    run_tab.source_text.insert("1.0", "3 + 4")
-    run_tab.source_text.tag_add(tk.SEL, "1.0", "1.5")
-
-    inspected_result = make_mock_gemstone_object("Integer", "7")
-    fixture.mock_browser.run_code.return_value = inspected_result
-
-    run_tab.open_source_text_menu(types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1))
-    invoke_menu_command_by_label(run_tab.current_text_menu, "Inspect")
-    fixture.app.update()
-
-    inspector_tab = fixture.app.inspector_tab
-    assert inspector_tab is not None
-    assert int(inspector_tab.actions_frame.grid_info()["row"]) == 0
-    assert int(inspector_tab.explorer.grid_info()["row"]) == 1
-    assert int(inspector_tab.close_button.grid_info()["row"]) == 0
-    assert inspector_tab.close_button.cget("text") == "Close"
+    assert "Inspect" not in all_open_tab_texts(fixture.app)
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -5344,210 +6353,6 @@ def test_inspector_tab_navigates_object_history_with_back_and_forward(fixture):
     history_labels = list(inspector_tab.history_combobox["values"])
     assert nested_label in history_labels
     assert context_label in history_labels
-
-
-def test_global_navigation_history_skips_stale_entries_but_keeps_them():
-    """AI: Global history should retain stale visits while skipping them during traversal."""
-    history = GlobalNavigationHistory()
-    total_entry = GlobalNavigationEntry(
-        'browser_method',
-        'OrderLine>>total',
-        {'method_context': ('OrderLine', True, 'total')},
-        place_key=('browser_method', 'OrderLine', True, 'total'),
-    )
-    run_entry = GlobalNavigationEntry(
-        'run_session',
-        'Run',
-        {'session_key': 'run:1'},
-        place_key=('run_session', 'run:1'),
-    )
-    description_entry = GlobalNavigationEntry(
-        'browser_method',
-        'OrderLine>>description',
-        {'method_context': ('OrderLine', True, 'description')},
-        place_key=('browser_method', 'OrderLine', True, 'description'),
-    )
-
-    history.record(total_entry)
-    history.record(run_entry)
-    history.record(description_entry)
-    history.mark_place_stale(('run_session', 'run:1'))
-
-    assert len(history.entries) == 3
-    assert history.entries[1].is_stale
-    assert history.go_back() == total_entry
-    assert history.go_forward() == description_entry
-
-
-def test_global_navigation_history_replaces_current_place_without_losing_forward_entries():
-    """AI: Updating the current place should preserve existing forward entries instead of truncating them."""
-    history = GlobalNavigationHistory()
-    initial_browser_entry = GlobalNavigationEntry(
-        'browser_selection',
-        'OrderLine',
-        {'browser_state': {'selected_class': 'OrderLine'}},
-        place_key=('browser_selection', 'OrderLine'),
-    )
-    uml_entry = GlobalNavigationEntry(
-        'class_diagram_session',
-        'Class Diagram',
-        {'session_key': 'uml:1'},
-        place_key=('class_diagram_session', 'uml:1'),
-    )
-    run_entry = GlobalNavigationEntry(
-        'run_session',
-        'Run',
-        {'session_key': 'run:1'},
-        place_key=('run_session', 'run:1'),
-    )
-    updated_browser_entry = GlobalNavigationEntry(
-        'browser_selection',
-        'Order class',
-        {'browser_state': {'selected_class': 'Order', 'show_instance_side': False}},
-        place_key=('browser_selection', 'Order'),
-    )
-
-    history.record(initial_browser_entry)
-    history.record(uml_entry)
-    history.record(run_entry)
-    assert history.go_back() == uml_entry
-    assert history.go_back() == initial_browser_entry
-
-    history.replace_current(updated_browser_entry)
-
-    assert history.current_entry() == updated_browser_entry
-    assert history.go_forward() == uml_entry
-    assert history.go_forward() == run_entry
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_global_back_and_forward_navigate_places_across_browser_and_run(fixture):
-    """AI: App-level navigation should move between browser-method visits and the run session."""
-    fixture.simulate_login()
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
-    fixture.app.open_run_tab()
-    fixture.app.update()
-
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Workspace'
-
-    fixture.app.global_back_button.invoke()
-    fixture.app.update()
-
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
-    assert fixture.session_record.selected_method_symbol == 'total'
-
-    fixture.app.global_forward_button.invoke()
-    fixture.app.update()
-
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Workspace'
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_global_back_skips_closed_run_session_entries(fixture):
-    """AI: Closing a run session should stale its global entries so app-level Back skips them."""
-    fixture.simulate_login()
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
-    fixture.app.open_run_tab()
-    fixture.app.update()
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
-    fixture.app.run_tab.close_tab()
-    fixture.app.update()
-
-    fixture.app.global_back_button.invoke()
-    fixture.app.update()
-
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
-    assert fixture.session_record.selected_method_symbol == 'total'
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_global_forward_revisits_live_inspector_session(fixture):
-    """AI: A live inspector session should remain revisitable through app-level Back and Forward."""
-    fixture.simulate_login()
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
-    inspected_object = make_mock_gemstone_object('Integer', '7', oop=2007)
-    fixture.app.open_inspector_for_object(inspected_object)
-    fixture.app.update()
-
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Inspect'
-
-    fixture.app.global_back_button.invoke()
-    fixture.app.update()
-
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
-    assert fixture.session_record.selected_method_symbol == 'total'
-
-    fixture.app.global_forward_button.invoke()
-    fixture.app.update()
-
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Inspect'
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_global_forward_revisits_live_graph_session(fixture):
-    """AI: A live graph session should remain revisitable through app-level Back and Forward."""
-    fixture.simulate_login()
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
-    graphed_object = make_mock_gemstone_object('Integer', '7', oop=3007)
-    fixture.app.open_object_diagram_for_object(graphed_object)
-    fixture.app.update()
-
-    assert (
-        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
-        == 'Object Diagram'
-    )
-
-    fixture.app.global_back_button.invoke()
-    fixture.app.update()
-
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
-    assert fixture.session_record.selected_method_symbol == 'total'
-
-    fixture.app.global_forward_button.invoke()
-    fixture.app.update()
-
-    assert (
-        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
-        == 'Object Diagram'
-    )
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_global_back_skips_closed_inspector_session_entries(fixture):
-    """AI: Closing an inspector session should stale its global entries so app-level Back skips them."""
-    fixture.simulate_login()
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
-    inspected_object = make_mock_gemstone_object('Integer', '7', oop=2007)
-    fixture.app.open_inspector_for_object(inspected_object)
-    fixture.app.update()
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
-    fixture.app.close_inspector_tab()
-    fixture.app.update()
-
-    fixture.app.global_back_button.invoke()
-    fixture.app.update()
-
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
-    assert fixture.session_record.selected_method_symbol == 'total'
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_global_back_skips_closed_graph_session_entries(fixture):
-    """AI: Closing a graph session should stale its global entries so app-level Back skips them."""
-    fixture.simulate_login()
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
-    graphed_object = make_mock_gemstone_object('Integer', '7', oop=3007)
-    fixture.app.open_object_diagram_for_object(graphed_object)
-    fixture.app.update()
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
-    fixture.app.close_object_diagram_tab()
-    fixture.app.update()
-
-    fixture.app.global_back_button.invoke()
-    fixture.app.update()
-
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
-    assert fixture.session_record.selected_method_symbol == 'total'
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -5641,193 +6446,17 @@ def test_object_diagram_detail_browse_class_closes_dialog(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_global_forward_revisits_live_uml_session(fixture):
-    """AI: A live UML session should remain revisitable through app-level Back and Forward."""
+def test_active_view_reports_focused_right_group_tool_not_browser(fixture):
+    """AI: When a tool opened in the right-hand group (e.g. a class diagram) is
+    the focused tab, the MCP active-view query must report that tool as active
+    rather than always falling back to the browser in the primary group."""
     fixture.simulate_login()
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
-    fixture.app.open_class_diagram_for_class('OrderLine')
+    fixture.app.ensure_class_diagram_tab()
     fixture.app.update()
 
-    assert (
-        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
-        == 'Class Diagram'
-    )
+    view_state = fixture.app.current_ide_view_state()
 
-    fixture.app.global_back_button.invoke()
-    fixture.app.update()
-
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
-    assert fixture.session_record.selected_method_symbol == 'total'
-
-    fixture.app.global_forward_button.invoke()
-    fixture.app.update()
-
-    assert (
-        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
-        == 'Class Diagram'
-    )
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_global_back_restores_browser_class_selection_without_open_method(fixture):
-    """AI: Leaving the browser from a class-only selection should still preserve that browser place in global history."""
-    fixture.simulate_login()
-    fixture.select_down_to_class('Kernel', 'OrderLine')
-    fixture.app.open_class_diagram_for_class('OrderLine')
-    fixture.app.update()
-
-    assert (
-        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
-        == 'Class Diagram'
-    )
-
-    fixture.app.global_back_button.invoke()
-    fixture.app.update()
-
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
-    assert fixture.session_record.selected_class == 'OrderLine'
-    assert fixture.session_record.selected_method_symbol is None
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_browsing_more_in_browser_after_global_back_keeps_forward_history(fixture):
-    """AI: Changing browser-local selection after global Back should update the browser place without truncating forward places."""
-    fixture.simulate_login()
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
-    fixture.app.open_class_diagram_for_class('OrderLine')
-    fixture.app.update()
-    fixture.app.open_run_tab()
-    fixture.app.update()
-
-    fixture.app.global_back_button.invoke()
-    fixture.app.update()
-    fixture.app.global_back_button.invoke()
-    fixture.app.update()
-
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
-
-    fixture.app.global_forward_button.invoke()
-    fixture.app.update()
-    assert (
-        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
-        == 'Class Diagram'
-    )
-
-    fixture.app.global_forward_button.invoke()
-    fixture.app.update()
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Workspace'
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_global_history_dropdown_jumps_to_selected_place(fixture):
-    """AI: Choosing an entry in the global history dropdown should jump directly to that place."""
-    fixture.simulate_login()
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
-    fixture.app.open_class_diagram_for_class('OrderLine')
-    fixture.app.update()
-    fixture.app.open_run_tab()
-    fixture.app.update()
-
-    history_values = fixture.app.global_history_combobox.cget('values')
-    matching_indices = [
-        index for index, value in enumerate(history_values) if value == 'Class Diagram'
-    ]
-    target_index = matching_indices[0]
-
-    fixture.app.global_history_combobox.current(target_index)
-    fixture.app.global_history_combobox.event_generate('<<ComboboxSelected>>')
-    fixture.app.update()
-
-    assert (
-        fixture.app.notebook.tab(fixture.app.notebook.select(), 'text')
-        == 'Class Diagram'
-    )
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_global_history_dropdown_marks_stale_entries_unavailable(fixture):
-    """AI: The global history dropdown should show stale entries as unavailable and leave the current place unchanged when selected."""
-    fixture.simulate_login()
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
-    fixture.app.open_run_tab()
-    fixture.app.update()
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
-    fixture.app.run_tab.close_tab()
-    fixture.app.update()
-
-    history_values = fixture.app.global_history_combobox.cget('values')
-    unavailable_indices = [
-        index
-        for index, value in enumerate(history_values)
-        if value == 'Workspace (unavailable)'
-    ]
-    target_index = unavailable_indices[0]
-
-    fixture.app.global_history_combobox.current(target_index)
-    fixture.app.global_history_combobox.event_generate('<<ComboboxSelected>>')
-    fixture.app.update()
-
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
-    assert fixture.session_record.selected_method_symbol == 'description'
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_global_back_skips_closed_uml_session_entries(fixture):
-    """AI: Closing a UML session should stale its global entries so app-level Back skips them."""
-    fixture.simulate_login()
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
-    fixture.app.open_class_diagram_for_class('OrderLine')
-    fixture.app.update()
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
-    fixture.app.close_class_diagram_tab()
-    fixture.app.update()
-
-    fixture.app.global_back_button.invoke()
-    fixture.app.update()
-
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
-    assert fixture.session_record.selected_method_symbol == 'total'
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_global_back_skips_replaced_debugger_session_entries(fixture):
-    """AI: Replacing a debugger session should stale the old debugger visits instead of revisiting the new debugger incorrectly."""
-    fixture.simulate_login()
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
-    fixture.mock_browser.run_code.side_effect = [
-        FakeGemstoneError(),
-        FakeGemstoneError(),
-        FakeGemstoneError(),
-        FakeGemstoneError(),
-    ]
-
-    fixture.app.run_code('1/0')
-    fixture.app.update()
-    fixture.app.run_tab.debug_button.invoke()
-    fixture.app.update()
-
-    fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'description')
-    with patch('reahl.swordfish.main.messagebox.askquestion', return_value='ok'):
-        fixture.app.run_code('2/0')
-        fixture.app.update()
-        fixture.app.run_tab.debug_button.invoke()
-        fixture.app.update()
-
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Debugger'
-
-    fixture.app.global_back_button.invoke()
-    fixture.app.update()
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Workspace'
-
-    fixture.app.global_back_button.invoke()
-    fixture.app.update()
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Browser'
-    assert fixture.session_record.selected_method_symbol == 'description'
-
-    fixture.app.global_back_button.invoke()
-    fixture.app.update()
-    assert fixture.app.notebook.tab(fixture.app.notebook.select(), 'text') == 'Workspace'
+    assert view_state['active_tab']['kind'] == 'class_diagram'
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -5942,9 +6571,7 @@ def test_debug_button_opens_debugger_tab_in_notebook(fixture):
     run_tab.debug_button.invoke()
     fixture.app.update()
 
-    tab_labels = [
-        fixture.app.notebook.tab(t, "text") for t in fixture.app.notebook.tabs()
-    ]
+    tab_labels = all_open_tab_texts(fixture.app)
     assert "Debugger" in tab_labels
 
 
@@ -5998,9 +6625,7 @@ def test_debug_button_does_not_open_debugger_for_compile_error(fixture):
     run_tab.debug_button.invoke()
     fixture.app.update()
 
-    tab_labels = [
-        fixture.app.notebook.tab(t, "text") for t in fixture.app.notebook.tabs()
-    ]
+    tab_labels = all_open_tab_texts(fixture.app)
     assert "Debugger" not in tab_labels
     expected_source = run_tab.source_text.get("1.0", "end-1c")
     assert fixture.mock_browser.debug_source.call_args_list[-1] == call(expected_source)
@@ -6020,7 +6645,7 @@ def test_debug_button_selects_debugger_tab_as_visible(fixture):
     run_tab.debug_button.invoke()
     fixture.app.update()
 
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.pane_area.group(1))
     assert selected_tab_text == "Debugger"
 
 
@@ -6197,8 +6822,9 @@ def test_debugger_frame_list_shows_class_and_method_category_columns(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_completed_debugger_can_be_dismissed_with_close_button(fixture):
-    """AI: Once debugger execution completes, the UI should expose a close action that exits debugger mode."""
+def test_completed_debugger_can_be_closed_via_its_tab_x(fixture):
+    """AI: Once debugger execution completes, it closes via its tab 'x' -- the
+    single, uniform close for any right-hand tab -- exiting debugger mode."""
     fixture.simulate_login()
     fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
 
@@ -6214,49 +6840,20 @@ def test_completed_debugger_can_be_dismissed_with_close_button(fixture):
     debugger_tab.finish(completed_result)
     fixture.app.update()
 
-    assert debugger_tab.close_button.winfo_exists()
-    debugger_tab.close_button.invoke()
+    right = debugger_tab.master
+    fixture.app.close_top_level_tab_at_index(right, right.index(debugger_tab))
     fixture.app.update()
 
     assert fixture.app.debugger_tab is None
-    tab_labels = [
-        fixture.app.notebook.tab(tab_id, "text")
-        for tab_id in fixture.app.notebook.tabs()
-    ]
-    assert "Debugger" not in tab_labels
+    assert "Debugger" not in all_open_tab_texts(fixture.app)
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_debugger_active_controls_keep_close_on_right(fixture):
-    """AI: Debugger control row keeps Close at the right edge, past the rightmost stepping action, so closing the debugger never sits next to the step buttons (Browse Method now lives on the stack-frame right-click menu, issue #13)."""
-    fixture.simulate_login()
-    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
-
-    fixture.app.run_code("1/0")
-    fixture.app.update()
-    run_tab = fixture.app.run_tab
-    run_tab.debug_button.invoke()
-    fixture.app.update()
-
-    debugger_tab = fixture.app.debugger_tab
-    assert debugger_tab is not None
-    assert debugger_tab.close_button is debugger_tab.debugger_controls.close_button
-
-    stop_column = int(
-        debugger_tab.debugger_controls.stop_button.grid_info()["column"]
-    )
-    close_column = int(
-        debugger_tab.debugger_controls.close_button.grid_info()["column"]
-    )
-    assert stop_column < close_column
-    assert debugger_tab.debugger_controls.close_button.cget("text") == "Close"
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_debugger_active_controls_place_restart_between_through_and_stop(
+def test_debugger_active_controls_place_restart_after_through(
     fixture,
 ):
-    """AI: Restart action should be in stepping flow between Through and Stop."""
+    """AI: Restart action sits in the stepping flow after Through (Stop is gone --
+    the tab 'x' ends the debug)."""
     fixture.simulate_login()
     fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
 
@@ -6273,11 +6870,9 @@ def test_debugger_active_controls_place_restart_between_through_and_stop(
     restart_column = int(
         debugger_tab.debugger_controls.restart_button.grid_info()["column"]
     )
-    stop_column = int(debugger_tab.debugger_controls.stop_button.grid_info()["column"])
-
     assert through_column < restart_column
-    assert restart_column < stop_column
-    assert debugger_tab.debugger_controls.restart_button.cget("text") == "Restart"
+    # AI: The debugger controls are now compact icon glyphs (named by hover tooltips), not words.
+    assert debugger_tab.debugger_controls.restart_button.cget("text") not in ("Restart", "")
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -6333,30 +6928,6 @@ def test_debugger_restart_frame_uses_selected_level_with_debug_session(
 
     restart_frame.assert_called_once_with(3)
     apply_debug_action_outcome.assert_called_once_with(action_outcome)
-
-
-@with_fixtures(SwordfishAppFixture)
-def test_completed_debugger_keeps_close_in_top_action_row(fixture):
-    """AI: Completed debugger view keeps close action above result content for layout consistency."""
-    fixture.simulate_login()
-    fixture.mock_browser.run_code.side_effect = FakeGemstoneError()
-
-    fixture.app.run_code("1/0")
-    fixture.app.update()
-    run_tab = fixture.app.run_tab
-    run_tab.debug_button.invoke()
-    fixture.app.update()
-
-    debugger_tab = fixture.app.debugger_tab
-    completed_result = Mock()
-    completed_result.asString.return_value.to_py = "42"
-    debugger_tab.finish(completed_result)
-    fixture.app.update()
-
-    assert debugger_tab.close_button.master is debugger_tab.finished_actions
-    assert int(debugger_tab.finished_actions.grid_info()["row"]) == 0
-    assert int(debugger_tab.result_text.grid_info()["row"]) == 1
-    assert debugger_tab.close_button.cget("text") == "Close"
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -6568,7 +7139,7 @@ def test_debugger_variable_inspect_opens_main_inspector_tab(fixture):
     fixture.app.update()
 
     assert fixture.app.inspector_tab is not None
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.pane_area.group(1))
     assert selected_tab_text == "Inspect"
     root_tab_id = fixture.app.inspector_tab.explorer.tabs()[0]
     root_tab_label = fixture.app.inspector_tab.explorer.tab(root_tab_id, "text")
@@ -6625,7 +7196,7 @@ def test_debugger_source_context_menu_inspect_evaluates_selected_expression_in_f
         context=mock_var_context,
     )
     assert fixture.app.inspector_tab is not None
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.pane_area.group(1))
     assert selected_tab_text == "Inspect"
     root_tab_id = fixture.app.inspector_tab.explorer.tabs()[0]
     root_tab_label = fixture.app.inspector_tab.explorer.tab(root_tab_id, "text")
@@ -6683,7 +7254,7 @@ def test_debugger_source_context_menu_inspect_reads_self_instance_variable(
 
     mock_gemstone_session.execute.assert_not_called()
     assert fixture.app.inspector_tab is not None
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.pane_area.group(1))
     assert selected_tab_text == "Inspect"
     root_tab_id = fixture.app.inspector_tab.explorer.tabs()[0]
     root_tab_label = fixture.app.inspector_tab.explorer.tab(root_tab_id, "text")
@@ -6703,19 +7274,19 @@ def test_file_run_command_opens_run_tab_in_notebook(fixture):
         for tab_id in fixture.app.notebook.tabs()
     ]
     assert "Workspace" in tab_labels
-    selected_tab_text = fixture.app.notebook.tab(fixture.app.notebook.select(), "text")
+    selected_tab_text = visible_tab_title(fixture.app.notebook)
     assert selected_tab_text == "Workspace"
 
 
 @with_fixtures(SwordfishAppFixture)
 def test_find_dialog_class_search_populates_result_list(fixture):
-    """Searching for a class name in the FindDialog calls GemStone and
+    """Searching for a class name in the FindPane calls GemStone and
     populates the results listbox with the matching class names."""
     fixture.simulate_login()
     fixture.mock_browser.find_classes.return_value = ["OrderLine", "OrderHistory"]
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(fixture.app)
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
 
     dialog.find_entry.insert(0, "Order")
     dialog.find_text()
@@ -6723,6 +7294,147 @@ def test_find_dialog_class_search_populates_result_list(fixture):
     results = find_result_labels(dialog)
     assert "OrderLine" in results
     assert "OrderHistory" in results
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_pressing_enter_in_search_box_runs_the_search(fixture):
+    """AI: Pressing Enter in the search box runs the search, exactly like the find
+    (magnifying-glass) button -- so a search doesn't require reaching for a button."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_classes.return_value = ["OrderLine", "OrderHistory"]
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+    dialog.find_entry.insert(0, "Order")
+
+    # AI: A <Return> binding is installed on the search box (we assert the wire is
+    # present; Tk won't deliver a synthetic keystroke to an unmapped widget), and
+    # invoking that bound action runs the search and populates the results.
+    assert dialog.find_entry.bind("<Return>")
+    dialog.find_text()
+
+    assert set(find_result_labels(dialog)) == {"OrderLine", "OrderHistory"}
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_is_an_icon_button_beside_the_search_box_with_no_per_dialog_stop(fixture):
+    """AI: Find is a compact icon button (a glyph, not wide text) on the search-box row, to
+    the right of the entry. There is no per-dialog Stop button: interrupting is the job of
+    the single menu-bar Stop, which governs whichever activity holds the shared session."""
+    fixture.simulate_login()
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    assert dialog.find_button.cget("text") not in ("Find", "")
+    assert int(dialog.find_button.grid_info()["row"]) == int(
+        dialog.find_entry.grid_info()["row"]
+    )
+    assert int(dialog.find_button.grid_info()["column"]) > int(
+        dialog.find_entry.grid_info()["column"]
+    )
+    assert not hasattr(dialog, "stop_button")
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_results_have_one_regex_filter_box_per_visible_column(fixture):
+    """AI: Every find type gets filtering: the filter row holds one regex box per
+    visible result column. A class search shows Class + Class Category columns, so
+    two filter boxes keyed by those columns."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_classes.return_value = ["OrderLine", "OrderHistory"]
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+    dialog.find_entry.insert(0, "Order")
+    dialog.find_text()
+
+    assert set(dialog.column_filter_entries.keys()) == {"#0", "ClassCategory"}
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_class_results_filter_by_class_column_regex(fixture):
+    """AI: Typing a regex in a column's filter box keeps only rows whose value in
+    that column matches (case-insensitive), re-rendering the unfiltered baseline
+    without re-querying GemStone."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_classes.return_value = ["OrderLine", "OrderHistory"]
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+    dialog.find_entry.insert(0, "Order")
+    dialog.find_text()
+    assert set(find_result_labels(dialog)) == {"OrderLine", "OrderHistory"}
+
+    dialog.column_filter_entries["#0"].insert(0, "Line$")
+    dialog.render_current_results()
+
+    assert find_result_labels(dialog) == ["OrderLine"]
+    fixture.mock_browser.find_classes.assert_called_once()
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_selector_results_filter_by_method_column_regex(fixture):
+    """AI: The bare-selector ('contains') search also gets a filter box -- on its
+    single Method column -- so even the simplest find type is filterable."""
+    fixture.simulate_login()
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+    dialog.display_selector_results(["printOn:", "printString", "addAll:"])
+    assert set(find_result_labels(dialog)) == {"printOn:", "printString", "addAll:"}
+    assert set(dialog.column_filter_entries.keys()) == {"#0"}
+
+    dialog.column_filter_entries["#0"].insert(0, "^print")
+    dialog.render_current_results()
+
+    assert set(find_result_labels(dialog)) == {"printOn:", "printString"}
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_invalid_filter_regex_is_ignored_not_blanking_results(fixture):
+    """AI: A half-typed/invalid regex in a filter box is ignored rather than
+    emptying the list, so filtering as-you-type never hides everything on an
+    incomplete pattern."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_classes.return_value = ["OrderLine", "OrderHistory"]
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+    dialog.find_entry.insert(0, "Order")
+    dialog.find_text()
+
+    dialog.column_filter_entries["#0"].insert(0, "Order(")
+    dialog.render_current_results()
+
+    assert set(find_result_labels(dialog)) == {"OrderLine", "OrderHistory"}
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_filter_boxes_are_overlaid_aligned_to_their_columns(fixture):
+    """AI: Each filter box is an unlabelled entry placed (overlaid) above its
+    column, aligned to that column's boundary: box order follows the columns and
+    each box's x-position is the cumulative width of the columns to its left, so it
+    sits exactly over its heading and follows when columns resize."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_classes.return_value = ["OrderLine"]
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+    dialog.find_entry.insert(0, "Order")
+    dialog.find_text()
+    dialog.update_idletasks()
+
+    assert dialog.filter_column_order == ["#0", "ClassCategory"]
+    first_box = dialog.column_filter_entries["#0"]
+    second_box = dialog.column_filter_entries["ClassCategory"]
+    # AI: placed via place(), so geometry manager is 'place' and x tracks the
+    # cumulative column width (#0 width) -- no label tuple, just the box.
+    assert first_box.winfo_manager() == "place"
+    assert first_box.place_info()["x"] == "0"
+    assert int(second_box.place_info()["x"]) == dialog.results_tree.column(
+        "#0", "width"
+    )
     dialog.destroy()
 
 
@@ -6749,8 +7461,9 @@ def test_find_dialog_class_mode_supports_contains_and_exact_matching(
 
     fixture.mock_browser.existing_class_named.side_effect = class_named
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="class",
             search_query="Order",
@@ -6769,42 +7482,71 @@ def test_find_dialog_class_mode_supports_contains_and_exact_matching(
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_find_dialog_can_stop_a_running_class_search(fixture):
-    """AI: Stop should cancel class search and keep partial results."""
+def test_find_scan_returns_the_partial_results_gathered_before_a_stop(fixture):
+    """AI: The scan is cooperative: when the stop flag rises it returns exactly what it has
+    gathered so far, rather than the full result set. This is the worker-side half of Stop,
+    tested deterministically through the stop predicate without involving a real thread."""
     fixture.simulate_login()
-
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
-            fixture.app,
-            search_type="class",
-            search_query="Order",
-            match_mode="contains",
-        )
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
 
     def classes_for_pattern(pattern, should_stop=None):
         class_names = []
-        class_index = 0
-        while class_index < 10:
+        for class_index in range(10):
             if should_stop is not None and should_stop():
                 return class_names
             class_names.append("Order%s" % class_index)
-            if class_index == 2:
-                dialog.request_stop_find()
-            class_index = class_index + 1
         return class_names
 
     fixture.mock_browser.find_classes.side_effect = classes_for_pattern
+    stop_after_two = {"checks": 0}
 
-    dialog.find_text()
+    def should_stop():
+        stop_after_two["checks"] = stop_after_two["checks"] + 1
+        return stop_after_two["checks"] > 2
+
+    payload = dialog.gather_find_results(
+        {"search_type": "class", "match_mode": "contains", "reference_target": "class"},
+        "Order",
+        should_stop,
+    )
+
+    assert payload["class_names"] == ["Order0", "Order1"]
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_renders_partial_results_and_a_stopped_status_when_interrupted(fixture):
+    """AI: The UI-side half of Stop: an interrupted find renders whatever the scan gathered
+    and tells the user these are partial results, so a stopped search is never mistaken for
+    a complete (empty-or-short) one."""
+    fixture.simulate_login()
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    dialog.finish_find_with_partial(
+        {"kind": "class", "class_names": ["Order0", "Order1", "Order2"]}
+    )
 
     assert dialog.status_var.get() == "Find stopped. Showing partial results."
-    assert find_result_labels(dialog) == [
-        "Order0",
-        "Order1",
-        "Order2",
-    ]
-    assert str(dialog.stop_button.cget("state")) == tk.DISABLED
+    assert find_result_labels(dialog) == ["Order0", "Order1", "Order2"]
     assert str(dialog.find_button.cget("state")) == tk.NORMAL
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_interrupted_with_no_partial_results_clears_and_reports_stopped(fixture):
+    """AI: When a forceful break aborts a single long call there is nothing partial to keep,
+    so the results clear and the status still reports the search was stopped -- one consistent
+    Stop semantics whether or not partial results exist."""
+    fixture.simulate_login()
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    dialog.finish_find_with_partial(None)
+
+    assert dialog.status_var.get() == "Find stopped. Showing partial results."
+    assert find_result_labels(dialog) == []
     dialog.destroy()
 
 
@@ -6820,8 +7562,9 @@ def test_find_dialog_method_mode_supports_contains_and_exact_matching(
         {"class_name": "OrderLine", "show_instance_side": True},
     ]
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="method",
             search_query="total",
@@ -6849,8 +7592,9 @@ def test_find_dialog_method_search_shows_class_and_method_category_columns(fixtu
         {"class_name": "OrderLine", "show_instance_side": True},
     ]
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="method",
             search_query="total",
@@ -6882,8 +7626,9 @@ def test_find_dialog_nests_override_under_the_implementor_it_overrides(fixture):
         {"class_name": "OrderLine", "show_instance_side": True},
     ]
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="method",
             search_query="total",
@@ -6909,8 +7654,9 @@ def test_find_dialog_class_search_shows_category_column_and_nests_subclasses(fix
 
     fixture.mock_browser.find_classes.side_effect = classes_for_pattern
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="class",
             search_query="Order",
@@ -6933,8 +7679,9 @@ def test_find_dialog_selector_contains_search_shows_only_a_method_column(fixture
     fixture.simulate_login()
     fixture.mock_browser.find_selectors.return_value = ["subtotal", "total"]
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="method",
             search_query="total",
@@ -6960,8 +7707,9 @@ def test_find_dialog_shows_search_intent_and_result_action_text(fixture):
         {"class_name": "OrderLine", "show_instance_side": True},
     ]
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="method",
             search_query="total",
@@ -6995,8 +7743,9 @@ def test_method_contains_double_click_pivots_to_exact_search_in_place(fixture):
         {"class_name": "OrderLine", "show_instance_side": True},
     ]
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="method",
             search_query="tot",
@@ -7036,8 +7785,9 @@ def test_find_dialog_reference_method_search_is_always_exact(
         "returned_count": 1,
     }
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="reference",
             search_query="total",
@@ -7075,8 +7825,9 @@ def test_find_dialog_reference_class_search_is_always_exact(
         "returned_count": 1,
     }
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="reference",
             search_query="Or",
@@ -7118,7 +7869,7 @@ def test_open_find_dialog_for_class_prefills_and_executes_reference_search(
 
     with patch.object(fixture.app, "begin_foreground_activity") as begin_activity:
         with patch.object(fixture.app, "end_foreground_activity") as end_activity:
-            with patch.object(FindDialog, "wait_visibility"):
+            with patch.object(FindPane, "wait_visibility"):
                 dialog = fixture.app.open_find_dialog_for_class("OrderLine")
 
     assert dialog is not None
@@ -7136,39 +7887,42 @@ def test_open_find_dialog_for_class_prefills_and_executes_reference_search(
     ]
     dialog.destroy()
 
-
 @with_fixtures(SwordfishAppFixture)
-def test_find_dialog_double_click_navigates_to_selected_class_reference_method(
-    fixture,
-):
-    """AI: Double-clicking a class-reference match should navigate to the referenced method context."""
+def test_find_dialog_double_click_pins_class_reference_method(fixture):
+    """AI: Double-clicking a class-reference match (a method) pins that method
+    in the editor rather than navigating the browser to it."""
     fixture.simulate_login()
     fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
-        "Kernel"
+        'Kernel'
     )
-    fixture.mock_browser.get_method_category.return_value = "accessing"
+    fixture.mock_browser.get_method_category.return_value = 'accessing'
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(fixture.app)
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = FindPane(fixture.app, fixture.app)
 
-    dialog.search_type.set("reference")
-    dialog.reference_target.set("class")
-    dialog.match_mode.set("exact")
-    dialog.populate_navigation_results([("Order", False, "defaultLineClass")])
-    select_find_result(dialog, "Order class>>defaultLineClass")
+    dialog.search_type.set('reference')
+    dialog.reference_target.set('class')
+    dialog.match_mode.set('exact')
+    dialog.populate_navigation_results([('Order', False, 'defaultLineClass')])
+
+    shown = Mock()
+    pinned = Mock()
+    fixture.app.event_queue.subscribe('MethodDisplayRequested', shown)
+    fixture.app.event_queue.subscribe('MethodTabPinRequested', pinned)
+    selection_before = fixture.session_record.selected_class
+
+    select_find_result(dialog, 'Order class>>defaultLineClass')
     dialog.on_result_double_click(None)
     fixture.app.update()
 
-    assert fixture.session_record.selected_package == "Kernel"
-    assert fixture.session_record.selected_class == "Order"
-    assert fixture.session_record.show_instance_side is False
-    assert fixture.session_record.selected_method_symbol == "defaultLineClass"
-    assert fixture.session_record.selected_method_category == "accessing"
+    shown.assert_called_once_with(('Order', False, 'defaultLineClass'), origin=ANY)
+    pinned.assert_called_once()
+    assert fixture.session_record.selected_class == selection_before
 
 
 @with_fixtures(SwordfishAppFixture)
 def test_find_dialog_double_click_navigates_browser_to_selected_class(fixture):
-    """Double-clicking a class name in the FindDialog results navigates the
+    """Double-clicking a class name in the FindPane results navigates the
     browser to that class by selecting its package and class in the columns."""
     fixture.simulate_login()
     fixture.app.browser_tab.packages_widget.browse_mode_var.set("categories")
@@ -7180,8 +7934,8 @@ def test_find_dialog_double_click_navigates_browser_to_selected_class(fixture):
         "Kernel"
     )
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(fixture.app)
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
 
     dialog.display_class_results(["OrderLine"])
     select_find_result(dialog, "OrderLine")
@@ -7217,8 +7971,8 @@ def test_find_dialog_double_click_in_dictionary_mode_updates_dictionary_and_clas
     fixture.app.event_queue.publish("SelectedClassChanged")
     fixture.app.update()
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(fixture.app)
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
 
     dialog.display_class_results(["OrderLine"])
     select_find_result(dialog, "OrderLine")
@@ -7265,8 +8019,8 @@ def test_find_dialog_double_click_in_dictionary_mode_uses_class_membership_not_s
     fixture.app.event_queue.publish("SelectedClassChanged")
     fixture.app.update()
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(fixture.app)
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
 
     dialog.display_class_results(["OrderLine"])
     select_find_result(dialog, "OrderLine")
@@ -7285,7 +8039,7 @@ def test_find_dialog_double_click_in_dictionary_mode_uses_class_membership_not_s
 
 @with_fixtures(SwordfishAppFixture)
 def test_senders_dialog_method_search_populates_result_list(fixture):
-    """Searching for senders in the FindDialog shows sender methods with class/side labels."""
+    """Searching for senders in the FindPane shows sender methods with class/side labels."""
     fixture.simulate_login()
     fixture.mock_browser.find_senders.return_value = {
         "senders": [
@@ -7304,8 +8058,9 @@ def test_senders_dialog_method_search_populates_result_list(fixture):
         "returned_count": 2,
     }
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
             fixture.app,
             search_type="reference",
             search_query="total",
@@ -7318,45 +8073,128 @@ def test_senders_dialog_method_search_populates_result_list(fixture):
     assert results == ["Order class>>default", "OrderLine>>recalculateTotal"]
     dialog.destroy()
 
-
 @with_fixtures(SwordfishAppFixture)
-def test_senders_dialog_double_click_navigates_browser_to_selected_sender(fixture):
-    """Double-clicking a sender result jumps the browser to that sender method context."""
+def test_senders_dialog_double_click_pins_the_method(fixture):
+    """AI: Double-clicking a sender (method) result pins that method in the
+    editor -- preview, then promote the tab to permanent, like the browser's
+    method list -- without moving the browser's column selection."""
     fixture.simulate_login()
     fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
-        "Kernel"
+        'Kernel'
     )
-    fixture.mock_browser.get_method_category.return_value = "accessing"
+    fixture.mock_browser.get_method_category.return_value = 'accessing'
     fixture.mock_browser.find_senders.return_value = {
-        "senders": [
+        'senders': [
             {
-                "class_name": "OrderLine",
-                "show_instance_side": True,
-                "method_selector": "recalculateTotal",
+                'class_name': 'OrderLine',
+                'show_instance_side': True,
+                'method_selector': 'recalculateTotal',
             },
         ],
-        "total_count": 1,
-        "returned_count": 1,
+        'total_count': 1,
+        'returned_count': 1,
     }
 
-    with patch.object(FindDialog, "wait_visibility"):
-        dialog = FindDialog(
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = FindPane(
             fixture.app,
-            search_type="reference",
-            search_query="total",
+            fixture.app,
+            search_type='reference',
+            search_query='total',
             run_search=True,
-            match_mode="exact",
-            reference_target="method",
+            match_mode='exact',
+            reference_target='method',
         )
 
-    select_find_result(dialog, "OrderLine>>recalculateTotal")
+    shown = Mock()
+    pinned = Mock()
+    fixture.app.event_queue.subscribe('MethodDisplayRequested', shown)
+    fixture.app.event_queue.subscribe('MethodTabPinRequested', pinned)
+    selection_before = fixture.session_record.selected_class
+
+    select_find_result(dialog, 'OrderLine>>recalculateTotal')
     dialog.on_result_double_click(None)
     fixture.app.update()
 
-    assert fixture.session_record.selected_class == "OrderLine"
-    assert fixture.session_record.selected_package == "Kernel"
-    assert fixture.session_record.show_instance_side is True
-    assert fixture.session_record.selected_method_symbol == "recalculateTotal"
+    shown.assert_called_once_with(
+        ('OrderLine', True, 'recalculateTotal'), origin=ANY
+    )
+    pinned.assert_called_once()
+    assert fixture.session_record.selected_class == selection_before
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_single_clicking_a_find_method_result_peeks_it_without_moving_the_browser(
+    fixture,
+):
+    """AI: Single-clicking a method result in Find asks the editor to display
+    that method (via MethodDisplayRequested) but leaves the browser's column
+    selection untouched -- an editor-only peek, unlike the double-click that
+    navigates the browser to the method."""
+    fixture.simulate_login()
+    fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
+        'Kernel'
+    )
+    fixture.mock_browser.get_method_category.return_value = 'accessing'
+    fixture.mock_browser.find_senders.return_value = {
+        'senders': [
+            {
+                'class_name': 'OrderLine',
+                'show_instance_side': True,
+                'method_selector': 'recalculateTotal',
+            },
+        ],
+        'total_count': 1,
+        'returned_count': 1,
+    }
+
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = FindPane(
+            fixture.app,
+            fixture.app,
+            search_type='reference',
+            search_query='total',
+            run_search=True,
+            match_mode='exact',
+            reference_target='method',
+        )
+
+    selection_before_peek = fixture.session_record.selected_class
+    peeked_method = Mock()
+    fixture.app.event_queue.subscribe('MethodDisplayRequested', peeked_method)
+
+    select_find_result(dialog, 'OrderLine>>recalculateTotal')
+    dialog.peek_selected_result(None)
+    fixture.app.update()
+
+    peeked_method.assert_called_once_with(
+        ('OrderLine', True, 'recalculateTotal'), origin=dialog
+    )
+    assert fixture.session_record.selected_class == selection_before_peek
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_opening_find_twice_reuses_one_pane(fixture):
+    """AI: Find is a single reusable pane -- opening it a second time replaces
+    its contents in place rather than splitting another group beside it."""
+    fixture.simulate_login()
+
+    fixture.app.open_find_dialog()
+    fixture.app.open_find_dialog()
+
+    assert len(fixture.app.pane_area.groups) == 2
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_main_window_centre_is_a_splittable_pane_area(fixture):
+    """AI: The IDE centre is a PaneArea (a splittable arrangement of tab
+    groups). Today's tools live in its primary group -- self.notebook points at
+    that group -- so the familiar top-level tab strip is unchanged, while the
+    area can later be split to place a tool beside them."""
+    fixture.simulate_login()
+
+    assert isinstance(fixture.app.pane_area, PaneArea)
+    assert fixture.app.notebook is fixture.app.pane_area.group(0)
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -7436,7 +8274,7 @@ def test_senders_dialog_narrow_with_tracing_filters_to_observed_senders(fixture)
         if dialog.selected_tests is None:
             dialog.run_selected_tests()
 
-    with patch.object(FindDialog, "wait_visibility"):
+    with patch.object(FindPane, "wait_visibility"):
         with patch.object(CoveringTestsSearchDialog, "wait_visibility"):
             with patch.object(
                 CoveringTestsSearchDialog,
@@ -7444,7 +8282,8 @@ def test_senders_dialog_narrow_with_tracing_filters_to_observed_senders(fixture)
                 autospec=True,
                 side_effect=set_ready_then_run,
             ):
-                dialog = FindDialog(
+                dialog = FindPane(
+                    fixture.app,
                     fixture.app,
                     search_type="reference",
                     search_query="total",
@@ -7511,7 +8350,7 @@ def test_senders_dialog_narrow_with_tracing_stops_when_no_candidate_tests(
         )
         dialog.cancel_dialog()
 
-    with patch.object(FindDialog, "wait_visibility"):
+    with patch.object(FindPane, "wait_visibility"):
         with patch.object(CoveringTestsSearchDialog, "wait_visibility"):
             with patch.object(
                 CoveringTestsSearchDialog,
@@ -7519,7 +8358,8 @@ def test_senders_dialog_narrow_with_tracing_stops_when_no_candidate_tests(
                 autospec=True,
                 side_effect=set_ready_then_cancel,
             ):
-                dialog = FindDialog(
+                dialog = FindPane(
+                    fixture.app,
                     fixture.app,
                     search_type="reference",
                     search_query="total",
@@ -7655,7 +8495,7 @@ def test_senders_dialog_narrow_with_tracing_can_search_more_after_timeout(
         if not timed_out:
             dialog.run_selected_tests()
 
-    with patch.object(FindDialog, "wait_visibility"):
+    with patch.object(FindPane, "wait_visibility"):
         with patch.object(CoveringTestsSearchDialog, "wait_visibility"):
             with patch.object(
                 CoveringTestsSearchDialog,
@@ -7663,7 +8503,8 @@ def test_senders_dialog_narrow_with_tracing_can_search_more_after_timeout(
                 autospec=True,
                 side_effect=set_ready_then_search_more_or_run,
             ):
-                dialog = FindDialog(
+                dialog = FindPane(
+                    fixture.app,
                     fixture.app,
                     search_type="reference",
                     search_query="total",
@@ -7717,7 +8558,7 @@ def test_senders_dialog_stop_search_cancels_narrowing_instead_of_using_partial_r
         original_set_searching_state(dialog)
         dialog.request_stop_search()
 
-    with patch.object(FindDialog, "wait_visibility"):
+    with patch.object(FindPane, "wait_visibility"):
         with patch.object(CoveringTestsSearchDialog, "wait_visibility"):
             with patch.object(
                 CoveringTestsSearchDialog,
@@ -7725,7 +8566,8 @@ def test_senders_dialog_stop_search_cancels_narrowing_instead_of_using_partial_r
                 autospec=True,
                 side_effect=set_searching_then_stop,
             ):
-                dialog = FindDialog(
+                dialog = FindPane(
+                    fixture.app,
                     fixture.app,
                     search_type="reference",
                     search_query="total",
@@ -7883,13 +8725,14 @@ def test_senders_dialog_narrow_with_tracing_reloads_static_senders_after_selecto
     def selected_tests_for_method(method_name):
         return selected_tests_by_method[method_name]
 
-    with patch.object(FindDialog, "wait_visibility"):
+    with patch.object(FindPane, "wait_visibility"):
         with patch.object(
-            FindDialog,
+            FindPane,
             "choose_tests_for_tracing",
             side_effect=selected_tests_for_method,
         ):
-            dialog = FindDialog(
+            dialog = FindPane(
+                fixture.app,
                 fixture.app,
                 search_type="reference",
                 search_query="total",
@@ -8442,7 +9285,8 @@ def test_method_context_menu_covering_tests_opens_browse_dialog(fixture):
         methods_widget.open_covering_tests()
 
     dialog_class.assert_called_once_with(
-        fixture.browser_window,
+        fixture.root,
+        fixture.application,
         "total",
     )
 
@@ -8452,7 +9296,7 @@ def test_method_context_menu_show_in_uml_routes_selected_method(fixture):
     """AI: The method context menu should route the selected method to the UML pin action."""
     fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
     methods_widget = fixture.browser_window.methods_widget
-    methods_widget.browser_window.application.pin_method_in_class_diagram = Mock()
+    methods_widget.application.pin_method_in_class_diagram = Mock()
 
     methods_widget.show_context_menu(
         types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1),
@@ -8467,7 +9311,7 @@ def test_method_context_menu_show_in_uml_routes_selected_method(fixture):
         methods_widget.current_context_menu, "Show in Class Diagram"
     )
 
-    methods_widget.browser_window.application.pin_method_in_class_diagram.assert_called_once_with(
+    methods_widget.application.pin_method_in_class_diagram.assert_called_once_with(
         "OrderLine",
         True,
         "total",
@@ -8492,6 +9336,7 @@ def test_covering_tests_browse_dialog_navigates_to_selected_test_method(fixture)
             ):
                 dialog = CoveringTestsBrowseDialog(
                     fixture.browser_window,
+                    fixture.application,
                     "total",
                 )
                 dialog.add_or_update_candidate_test(
@@ -8808,7 +9653,7 @@ def test_class_list_context_menu_find_references_uses_selected_class_name(
         "Kernel",
     )
     classes_widget = fixture.browser_window.classes_widget
-    classes_widget.browser_window.application.open_find_dialog_for_class = Mock()
+    classes_widget.application.open_find_dialog_for_class = Mock()
     class_listbox = classes_widget.selection_list.selection_listbox
     class_index = list(class_listbox.get(0, "end")).index("OrderLine")
     class_item_box = class_listbox.bbox(class_index)
@@ -8827,7 +9672,7 @@ def test_class_list_context_menu_find_references_uses_selected_class_name(
     assert "References" in command_labels
     fixture.invoke_menu_command(menu, "References")
 
-    classes_widget.browser_window.application.open_find_dialog_for_class.assert_called_once_with(
+    classes_widget.application.open_find_dialog_for_class.assert_called_once_with(
         "OrderLine",
     )
 
@@ -8846,7 +9691,7 @@ def test_class_hierarchy_context_menu_find_references_uses_selected_class_name(
         "OrderLine",
     )
     classes_widget = fixture.browser_window.classes_widget
-    classes_widget.browser_window.application.open_find_dialog_for_class = Mock()
+    classes_widget.application.open_find_dialog_for_class = Mock()
     classes_widget.classes_notebook.select(classes_widget.hierarchy_frame)
     fixture.root.update()
     tree = classes_widget.hierarchy_tree
@@ -8883,7 +9728,7 @@ def test_class_hierarchy_context_menu_find_references_uses_selected_class_name(
     assert "References" in command_labels
     fixture.invoke_menu_command(menu, "References")
 
-    classes_widget.browser_window.application.open_find_dialog_for_class.assert_called_once_with(
+    classes_widget.application.open_find_dialog_for_class.assert_called_once_with(
         "OrderLine",
     )
 
@@ -8898,7 +9743,7 @@ def test_class_hierarchy_context_menu_add_selected_to_uml_routes_all_selected_cl
         "Kernel",
     )
     classes_widget = fixture.browser_window.classes_widget
-    classes_widget.browser_window.application.open_class_diagram_for_class = Mock()
+    classes_widget.application.open_class_diagram_for_class = Mock()
     classes_widget.classes_notebook.select(classes_widget.hierarchy_frame)
     fixture.root.update()
     tree = classes_widget.hierarchy_tree
@@ -8938,7 +9783,7 @@ def test_class_hierarchy_context_menu_add_selected_to_uml_routes_all_selected_cl
 
     fixture.invoke_menu_command(menu, "Add Selected to Class Diagram")
 
-    classes_widget.browser_window.application.open_class_diagram_for_class.assert_has_calls(
+    classes_widget.application.open_class_diagram_for_class.assert_has_calls(
         [
             call("Order"),
             call("OrderLine"),
@@ -8954,7 +9799,7 @@ def test_class_list_context_menu_add_to_uml_routes_selected_class(fixture):
         "Kernel",
     )
     classes_widget = fixture.browser_window.classes_widget
-    classes_widget.browser_window.application.open_class_diagram_for_class = Mock()
+    classes_widget.application.open_class_diagram_for_class = Mock()
     class_listbox = classes_widget.selection_list.selection_listbox
     class_index = list(class_listbox.get(0, "end")).index("OrderLine")
     class_item_box = class_listbox.bbox(class_index)
@@ -8975,7 +9820,7 @@ def test_class_list_context_menu_add_to_uml_routes_selected_class(fixture):
 
     fixture.invoke_menu_command(menu, "Add to Class Diagram")
 
-    classes_widget.browser_window.application.open_class_diagram_for_class.assert_called_once_with(
+    classes_widget.application.open_class_diagram_for_class.assert_called_once_with(
         "OrderLine",
     )
 
@@ -9000,9 +9845,7 @@ def test_run_test_method_opens_debugger_on_gemstone_error(fixture):
     fixture.app.browser_tab.methods_widget.run_test()
     fixture.app.update()
 
-    tab_labels = [
-        fixture.app.notebook.tab(t, "text") for t in fixture.app.notebook.tabs()
-    ]
+    tab_labels = all_open_tab_texts(fixture.app)
     assert "Debugger" in tab_labels
 
 
@@ -9024,9 +9867,7 @@ def test_run_all_tests_opens_debugger_on_gemstone_error(fixture):
     fixture.app.browser_tab.classes_widget.run_all_tests()
     fixture.app.update()
 
-    tab_labels = [
-        fixture.app.notebook.tab(t, "text") for t in fixture.app.notebook.tabs()
-    ]
+    tab_labels = all_open_tab_texts(fixture.app)
     assert "Debugger" in tab_labels
 
 
@@ -9051,9 +9892,7 @@ def test_debug_test_opens_debugger_even_for_assertion_failures(fixture):
     fixture.app.browser_tab.methods_widget.debug_test()
     fixture.app.update()
 
-    tab_labels = [
-        fixture.app.notebook.tab(t, "text") for t in fixture.app.notebook.tabs()
-    ]
+    tab_labels = all_open_tab_texts(fixture.app)
     assert "Debugger" in tab_labels
 
 

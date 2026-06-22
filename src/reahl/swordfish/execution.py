@@ -9,6 +9,7 @@ from reahl.swordfish.exceptions import DomainException
 from reahl.swordfish.gemstone import GemstoneDebugSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
 from reahl.swordfish.inspector import Explorer
+from reahl.swordfish.session_activity import ForegroundActivity
 from reahl.swordfish.text_editing import (
     CodeLineNumberColumn,
     CodePanel,
@@ -19,6 +20,7 @@ from reahl.swordfish.text_editing import (
 )
 from reahl.swordfish.ui_context import UiContext
 from reahl.swordfish.ui_support import (
+    Tooltip,
     add_diagram_commands,
     add_navigation_commands,
     add_run_commands,
@@ -46,33 +48,35 @@ class RunTab(ttk.Frame):
         self.button_frame.grid(row=0, column=0, sticky='ew', padx=10, pady=(10, 5))
         self.button_frame.columnconfigure(3, weight=1)
 
+        # AI: Compact icon buttons (glyph, not word) for the run-window actions, each with a
+        # hover tooltip naming it. Run is a filled play; Debug a hollow play ("run with
+        # debugging"); Inspect a circled dot ("look into the result"). BMP glyphs only.
         self.run_button = ttk.Button(
             self.button_frame,
-            text='Run',
+            text='▶',
+            width=3,
             command=self.run_code_from_editor,
         )
-        self.run_button.grid(row=0, column=0, padx=(0, 5))
+        self.run_button.grid(row=0, column=0, padx=(0, 4))
+        Tooltip(self.run_button, 'Run')
 
         self.inspect_button = ttk.Button(
             self.button_frame,
-            text='Inspect',
+            text='⊙',
+            width=3,
             command=self.inspect_code_from_editor,
         )
-        self.inspect_button.grid(row=0, column=1, sticky='w', padx=(0, 5))
+        self.inspect_button.grid(row=0, column=1, sticky='w', padx=(0, 4))
+        Tooltip(self.inspect_button, 'Inspect')
 
         self.debug_button = ttk.Button(
             self.button_frame,
-            text='Debug',
+            text='▷',
+            width=3,
             command=self.open_debugger,
         )
-        self.debug_button.grid(row=0, column=2, sticky='w', padx=(0, 5))
-
-        self.close_button = ttk.Button(
-            self.button_frame,
-            text='Close',
-            command=self.close_tab,
-        )
-        self.close_button.grid(row=0, column=4, sticky='e')
+        self.debug_button.grid(row=0, column=2, sticky='w', padx=(0, 4))
+        Tooltip(self.debug_button, 'Debug')
 
         self.source_label = ttk.Label(self, text='Source Code:')
         self.source_label.grid(row=1, column=0, sticky='w', padx=10, pady=(5, 0))
@@ -335,6 +339,47 @@ class RunTab(ttk.Frame):
             return self.editable_source
         return EditableText(text_widget, self)
 
+    def run_source_code_as_activity(self, source, message, event_prefix, on_result):
+        """AI: Run source as an interruptible foreground activity. The doit runs on a worker
+        thread so the UI stays responsive and the menu-bar Stop can hard-break it; the outcome
+        is delivered back on the UI thread. A genuine trap (unhandled error or breakpoint)
+        opens the debugger; a user-requested Stop does not -- the activity tells them apart by
+        whether a stop was requested, so stopping never drops the user into a debugger."""
+        self.last_exception = None
+        self.clear_source_error_highlight()
+        activity = ForegroundActivity(
+            message,
+            work=lambda should_stop: self.gemstone_session_record.run_code(source),
+            on_finished=lambda result: self.finish_source_run(
+                source, result, event_prefix, on_result
+            ),
+            on_failed=lambda error: self.fail_source_run(source, error, event_prefix),
+            on_interrupted=lambda partial: self.interrupt_source_run(),
+        )
+        self.application.run_foreground_activity(activity)
+
+    def finish_source_run(self, source, result, event_prefix, on_result):
+        self.on_run_complete(result)
+        on_result(result)
+        self.application.event_queue.publish(
+            event_prefix + 'Succeeded',
+            log_context={'code': source, 'result': result.asString().to_py},
+        )
+
+    def fail_source_run(self, source, error, event_prefix):
+        if isinstance(error, GemstoneError):
+            self.on_run_error(error)
+        else:
+            self.status_label.config(text=str(error))
+            self.show_error_in_result_panel(str(error), None, None)
+        self.application.event_queue.publish(
+            event_prefix + 'Failed',
+            log_context={'code': source, 'error': str(error)},
+        )
+
+    def interrupt_source_run(self):
+        self.status_label.config(text='Stopped.')
+
     def run_selected_source(self, selected_text):
         if self.is_read_only():
             self.status_label.config(text='MCP is busy. Run is disabled.')
@@ -346,41 +391,12 @@ class RunTab(ttk.Frame):
             'RunSelectionRun', log_context={'code': selected_text}
         )
         self.status_label.config(text='Running selection...')
-        self.last_exception = None
-        self.clear_source_error_highlight()
-        self.application.begin_foreground_activity('Running selected source...')
-        try:
-            try:
-                result = self.gemstone_session_record.run_code(selected_text)
-                self.on_run_complete(result)
-                self.application.event_queue.publish(
-                    'RunSelectionSucceeded',
-                    log_context={
-                        'code': selected_text,
-                        'result': result.asString().to_py,
-                    },
-                )
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                self.status_label.config(text=str(domain_exception))
-                self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish(
-                    'RunSelectionFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(domain_exception),
-                    },
-                )
-            except GemstoneError as gemstone_exception:
-                self.on_run_error(gemstone_exception)
-                self.application.event_queue.publish(
-                    'RunSelectionFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(gemstone_exception),
-                    },
-                )
-        finally:
-            self.application.end_foreground_activity()
+        self.run_source_code_as_activity(
+            selected_text,
+            'Running selected source...',
+            'RunSelection',
+            lambda result: None,
+        )
 
     def inspect_selected_source(self, selected_text):
         if self.is_read_only():
@@ -393,42 +409,12 @@ class RunTab(ttk.Frame):
             'InspectSelectionRun', log_context={'code': selected_text}
         )
         self.status_label.config(text='Inspecting selection...')
-        self.last_exception = None
-        self.clear_source_error_highlight()
-        self.application.begin_foreground_activity('Inspecting selected source...')
-        try:
-            try:
-                result = self.gemstone_session_record.run_code(selected_text)
-                self.on_run_complete(result)
-                self.application.open_inspector_for_object(result)
-                self.application.event_queue.publish(
-                    'InspectSelectionSucceeded',
-                    log_context={
-                        'code': selected_text,
-                        'result': result.asString().to_py,
-                    },
-                )
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                self.status_label.config(text=str(domain_exception))
-                self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish(
-                    'InspectSelectionFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(domain_exception),
-                    },
-                )
-            except GemstoneError as gemstone_exception:
-                self.on_run_error(gemstone_exception)
-                self.application.event_queue.publish(
-                    'InspectSelectionFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(gemstone_exception),
-                    },
-                )
-        finally:
-            self.application.end_foreground_activity()
+        self.run_source_code_as_activity(
+            selected_text,
+            'Inspecting selected source...',
+            'InspectSelection',
+            lambda result: self.application.open_inspector_for_object(result),
+        )
 
     def show_selected_source_in_object_diagram(self, selected_text):
         if self.is_read_only():
@@ -443,44 +429,12 @@ class RunTab(ttk.Frame):
             'DiagramSelectionRun', log_context={'code': selected_text}
         )
         self.status_label.config(text='Showing selection in Object Diagram...')
-        self.last_exception = None
-        self.clear_source_error_highlight()
-        self.application.begin_foreground_activity(
-            'Showing selected source in Object Diagram...'
+        self.run_source_code_as_activity(
+            selected_text,
+            'Showing selected source in Object Diagram...',
+            'DiagramSelection',
+            lambda result: self.application.open_object_diagram_for_object(result),
         )
-        try:
-            try:
-                result = self.gemstone_session_record.run_code(selected_text)
-                self.on_run_complete(result)
-                self.application.open_object_diagram_for_object(result)
-                self.application.event_queue.publish(
-                    'DiagramSelectionSucceeded',
-                    log_context={
-                        'code': selected_text,
-                        'result': result.asString().to_py,
-                    },
-                )
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                self.status_label.config(text=str(domain_exception))
-                self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish(
-                    'DiagramSelectionFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(domain_exception),
-                    },
-                )
-            except GemstoneError as gemstone_exception:
-                self.on_run_error(gemstone_exception)
-                self.application.event_queue.publish(
-                    'DiagramSelectionFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(gemstone_exception),
-                    },
-                )
-        finally:
-            self.application.end_foreground_activity()
 
     def show_selected_source_in_class_diagram(self, selected_text):
         if self.is_read_only():
@@ -495,46 +449,14 @@ class RunTab(ttk.Frame):
             'ClassDiagramSelectionRun', log_context={'code': selected_text}
         )
         self.status_label.config(text='Showing selection in Class Diagram...')
-        self.last_exception = None
-        self.clear_source_error_highlight()
-        self.application.begin_foreground_activity(
-            'Showing selected source in Class Diagram...'
+        self.run_source_code_as_activity(
+            selected_text,
+            'Showing selected source in Class Diagram...',
+            'ClassDiagramSelection',
+            lambda result: self.application.open_class_diagram_for_class(
+                class_name_for_class_diagram(result)
+            ),
         )
-        try:
-            try:
-                result = self.gemstone_session_record.run_code(selected_text)
-                self.on_run_complete(result)
-                self.application.open_class_diagram_for_class(
-                    class_name_for_class_diagram(result)
-                )
-                self.application.event_queue.publish(
-                    'ClassDiagramSelectionSucceeded',
-                    log_context={
-                        'code': selected_text,
-                        'result': result.asString().to_py,
-                    },
-                )
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                self.status_label.config(text=str(domain_exception))
-                self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish(
-                    'ClassDiagramSelectionFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(domain_exception),
-                    },
-                )
-            except GemstoneError as gemstone_exception:
-                self.on_run_error(gemstone_exception)
-                self.application.event_queue.publish(
-                    'ClassDiagramSelectionFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(gemstone_exception),
-                    },
-                )
-        finally:
-            self.application.end_foreground_activity()
 
     def show_text_menu_for_widget(
         self,
@@ -629,41 +551,12 @@ class RunTab(ttk.Frame):
             'RunTabCodeRun', log_context={'code': code_to_run}
         )
         self.status_label.config(text='Running...')
-        self.last_exception = None
-        self.clear_source_error_highlight()
-        self.application.begin_foreground_activity('Running source...')
-        try:
-            try:
-                result = self.gemstone_session_record.run_code(code_to_run)
-                self.on_run_complete(result)
-                self.application.event_queue.publish(
-                    'RunTabCodeSucceeded',
-                    log_context={
-                        'code': code_to_run,
-                        'result': result.asString().to_py,
-                    },
-                )
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                self.status_label.config(text=str(domain_exception))
-                self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish(
-                    'RunTabCodeFailed',
-                    log_context={
-                        'code': code_to_run,
-                        'error': str(domain_exception),
-                    },
-                )
-            except GemstoneError as gemstone_exception:
-                self.on_run_error(gemstone_exception)
-                self.application.event_queue.publish(
-                    'RunTabCodeFailed',
-                    log_context={
-                        'code': code_to_run,
-                        'error': str(gemstone_exception),
-                    },
-                )
-        finally:
-            self.application.end_foreground_activity()
+        self.run_source_code_as_activity(
+            code_to_run,
+            'Running source...',
+            'RunTabCode',
+            lambda result: None,
+        )
 
     def inspect_code_from_editor(self):
         if self.is_read_only():
@@ -674,42 +567,12 @@ class RunTab(ttk.Frame):
             'RunTabCodeInspect', log_context={'code': code_to_run}
         )
         self.status_label.config(text='Inspecting...')
-        self.last_exception = None
-        self.clear_source_error_highlight()
-        self.application.begin_foreground_activity('Inspecting source...')
-        try:
-            try:
-                result = self.gemstone_session_record.run_code(code_to_run)
-                self.on_run_complete(result)
-                self.application.open_inspector_for_object(result)
-                self.application.event_queue.publish(
-                    'RunTabCodeInspectSucceeded',
-                    log_context={
-                        'code': code_to_run,
-                        'result': result.asString().to_py,
-                    },
-                )
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                self.status_label.config(text=str(domain_exception))
-                self.show_error_in_result_panel(str(domain_exception), None, None)
-                self.application.event_queue.publish(
-                    'RunTabCodeInspectFailed',
-                    log_context={
-                        'code': code_to_run,
-                        'error': str(domain_exception),
-                    },
-                )
-            except GemstoneError as gemstone_exception:
-                self.on_run_error(gemstone_exception)
-                self.application.event_queue.publish(
-                    'RunTabCodeInspectFailed',
-                    log_context={
-                        'code': code_to_run,
-                        'error': str(gemstone_exception),
-                    },
-                )
-        finally:
-            self.application.end_foreground_activity()
+        self.run_source_code_as_activity(
+            code_to_run,
+            'Inspecting source...',
+            'RunTabCodeInspect',
+            lambda result: self.application.open_inspector_for_object(result),
+        )
 
     def on_run_complete(self, result):
         self.status_label.config(text='Completed successfully')
@@ -972,59 +835,55 @@ class RunTab(ttk.Frame):
         )
         self.last_exception = None
         self.clear_source_error_highlight()
-        self.application.begin_foreground_activity('Debugging source...')
-        try:
-            try:
-                result = self.gemstone_session_record.debug_source(selected_text)
-                self.on_run_complete(result)
-                self.status_label.config(
-                    text='Completed; no step point to stop at',
-                )
-                self.application.event_queue.publish(
-                    'RunTabDebugSucceeded',
-                    log_context={
-                        'code': selected_text,
-                        'result': result.asString().to_py,
-                    },
-                )
-                return
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                self.status_label.config(text=str(domain_exception))
-                self.show_error_in_result_panel(str(domain_exception), None, None)
+        activity = ForegroundActivity(
+            'Debugging source...',
+            work=lambda should_stop: self.gemstone_session_record.debug_source(
+                selected_text
+            ),
+            on_finished=lambda result: self.finish_debug_run(selected_text, result),
+            on_failed=lambda error: self.fail_debug_run(selected_text, error),
+            on_interrupted=lambda partial: self.interrupt_source_run(),
+        )
+        self.application.run_foreground_activity(activity)
+
+    def finish_debug_run(self, source, result):
+        # AI: debug_source returned without trapping -- the code completed with no step point to
+        # stop at, so there is no debugger to open.
+        self.on_run_complete(result)
+        self.status_label.config(text='Completed; no step point to stop at')
+        self.application.event_queue.publish(
+            'RunTabDebugSucceeded',
+            log_context={'code': source, 'result': result.asString().to_py},
+        )
+
+    def fail_debug_run(self, source, error):
+        # AI: A trap is the EXPECTED outcome of a debug run -- a non-compile GemstoneError carries
+        # the suspended process at the step point, so it opens the debugger. A compile error is
+        # reported in place; a user Stop is handled separately (interrupt_source_run), so it never
+        # reaches here.
+        if isinstance(error, GemstoneError):
+            self.on_run_error(error)
+            if is_compile_error(error):
                 self.application.event_queue.publish(
                     'RunTabDebugFailed',
-                    log_context={
-                        'code': selected_text,
-                        'error': str(domain_exception),
-                    },
+                    log_context={'code': source, 'error': str(error)},
                 )
-                return
-            except GemstoneError as gemstone_exception:
-                self.on_run_error(gemstone_exception)
-                if is_compile_error(gemstone_exception):
-                    self.application.event_queue.publish(
-                        'RunTabDebugFailed',
-                        log_context={
-                            'code': selected_text,
-                            'error': str(gemstone_exception),
-                        },
-                    )
-                    return
-                self.application.open_debugger(gemstone_exception)
-        finally:
-            self.application.end_foreground_activity()
+            else:
+                self.application.open_debugger(error)
+        else:
+            self.status_label.config(text=str(error))
+            self.show_error_in_result_panel(str(error), None, None)
+            self.application.event_queue.publish(
+                'RunTabDebugFailed',
+                log_context={'code': source, 'error': str(error)},
+            )
 
     def close_tab(self):
         self.ui_context.invalidate()
-        run_session_key = getattr(self, 'global_navigation_session_key', None)
-        if run_session_key:
-            self.application.mark_global_navigation_place_stale(
-                ('run_session', run_session_key),
-            )
         if self.application.run_tab is self:
             self.application.run_tab = None
         try:
-            self.application.notebook.forget(self)
+            self.master.forget(self)
         except tk.TclError:
             pass
         self.destroy()
@@ -1058,7 +917,6 @@ class DebuggerWindow(ttk.PanedWindow):
             self.call_stack_frame, self, self.event_queue
         )
         self.debugger_controls.grid(row=0, column=0, sticky='nsew', padx=5, pady=5)
-        self.close_button = self.debugger_controls.close_button
 
         self.listbox = ttk.Treeview(
             self.call_stack_frame,
@@ -1090,6 +948,15 @@ class DebuggerWindow(ttk.PanedWindow):
 
         self.code_panel = CodePanel(self.code_panel_frame, application=application)
         self.code_panel.grid(row=0, column=0, sticky='nsew')
+        # AI: In the debugger the source pane is a full editor: Ctrl-S saves the
+        # SELECTED FRAME's method (not the browser selection CodePanel's own
+        # Ctrl-S targets), recompiling and restarting the caller.
+        self.code_panel.text_editor.bind('<Control-s>', self.save_current_frame_method)
+        self.code_panel.text_editor.bind('<Control-S>', self.save_current_frame_method)
+        # AI: Editing the running method in the EDITOR re-runs it here too: react
+        # to its recompile by trimming this debugger to the caller of the frame
+        # running it.
+        self.event_queue.subscribe('MethodRecompiled', self.on_method_recompiled)
 
         self.call_stack_frame.columnconfigure(0, weight=1)
         self.call_stack_frame.rowconfigure(1, weight=1)
@@ -1431,57 +1298,153 @@ class DebuggerWindow(ttk.PanedWindow):
     def continue_running(self):
         frame_level = self.selected_frame_level()
         if frame_level:
-            action_outcome = self.debug_session.continue_running()
+            self.run_debug_action_as_activity(
+                'Resuming...', self.debug_session.continue_running
+            )
+
+    def run_debug_action_as_activity(self, message, debug_action):
+        """AI: Run a debugger resume as an interruptible foreground activity, so a long Resume can
+        be abandoned with the menu-bar Stop. The debug session already absorbs a break into a
+        re-suspended outcome (debug_action_outcome catches GemstoneError), so a forceful Stop just
+        re-suspends the process wherever it landed and we redisplay there -- a finished and an
+        interrupted resume are applied the same way."""
+        activity = ForegroundActivity(
+            message,
+            work=lambda should_stop: debug_action(),
+            on_finished=self.apply_debug_action_outcome,
+            on_interrupted=self.apply_interrupted_debug_action_outcome,
+        )
+        self.application.run_foreground_activity(activity)
+
+    def apply_interrupted_debug_action_outcome(self, action_outcome):
+        if action_outcome is not None:
             self.apply_debug_action_outcome(action_outcome)
+        else:
+            # AI: A forceful break that did not surface as a re-suspended outcome still left the
+            # process suspended; re-read the stack from the current context and redisplay.
+            self.stack_frames = self.debug_session.call_stack()
+            self.refresh()
 
     def step_over(self):
         frame_level = self.selected_frame_level()
         if frame_level:
-            action_outcome = self.debug_session.step_over(frame_level)
-            self.apply_debug_action_outcome(action_outcome)
+            self.run_debug_action_as_activity(
+                'Stepping over...',
+                lambda: self.debug_session.step_over(frame_level),
+            )
 
     def step_into(self):
         frame_level = self.selected_frame_level()
         if frame_level:
-            action_outcome = self.debug_session.step_into(frame_level)
-            self.apply_debug_action_outcome(action_outcome)
+            self.run_debug_action_as_activity(
+                'Stepping into...',
+                lambda: self.debug_session.step_into(frame_level),
+            )
 
     def step_through(self):
         frame_level = self.selected_frame_level()
         if frame_level:
-            action_outcome = self.debug_session.step_through(frame_level)
-            self.apply_debug_action_outcome(action_outcome)
+            self.run_debug_action_as_activity(
+                'Stepping through...',
+                lambda: self.debug_session.step_through(frame_level),
+            )
 
     def restart_frame(self):
         frame_level = self.selected_frame_level()
         if frame_level:
-            outcome = self.debug_session.restart_frame(frame_level)
-            self.apply_debug_action_outcome(outcome)
+            self.run_debug_action_as_activity(
+                'Restarting frame...',
+                lambda: self.debug_session.restart_frame(frame_level),
+            )
 
-    def stop(self):
-        frame_level = self.selected_frame_level()
-        if frame_level:
-            action_outcome = self.debug_session.stop()
-            if action_outcome.has_completed:
-                self.dismiss()
-            else:
-                self.stack_frames = self.debug_session.call_stack()
-                self.refresh()
+    def save_current_frame_method(self, event=None):
+        # AI: Save an edit made in the debugger's source pane. Recompile the
+        # SELECTED frame's method, then restart its CALLER (frame.level + 1): a
+        # live frame is bound to the method version it entered with, so re-running
+        # the edited frame would run the OLD code -- restarting the caller re-sends
+        # the selector, which re-resolves to the new method version (verified on a
+        # live gem). Editor tabs of the method refresh via the published events.
+        frame = self.get_selected_stack_frame()
+        method_context = self.frame_method_context(frame)
+        if method_context is None:
+            return 'break'
+        class_name, show_instance_side, method_name = method_context
+        new_source = self.code_panel.text_editor.get('1.0', 'end-1c')
+        try:
+            self.application.gemstone_session_record.update_method_source(
+                class_name, show_instance_side, method_name, new_source
+            )
+        except (DomainException, GemstoneDomainException, GemstoneError) as error:
+            messagebox.showerror('Save Method', str(error))
+            return 'break'
+        outcome = self.debug_session.restart_frame(frame.level + 1)
+        self.apply_debug_action_outcome(outcome)
+        self.application.event_queue.publish('MethodsChanged')
+        self.application.event_queue.publish(
+            'MethodDisplayRequested',
+            (class_name, show_instance_side, method_name),
+            origin=self,
+        )
+        return 'break'
+
+    def cancel_current_frame_method(self, event=None):
+        # AI: Discard edits in the debugger source pane by reloading the selected
+        # frame's method source (with its step-point highlight).
+        frame = self.get_selected_stack_frame()
+        if frame is not None:
+            self.code_panel.refresh(frame.method_source, mark=frame.step_point_offset)
+        return 'break'
+
+    def level_of_frame_running(self, method_context):
+        # AI: Level of the shallowest live frame whose method matches, or None.
+        if self.stack_frames is None:
+            return None
+        for frame in self.stack_frames:
+            if self.frame_method_context(frame) == method_context:
+                return frame.level
+        return None
+
+    def on_method_recompiled(self, method_context, origin=None):
+        # AI: A method on this stack was recompiled (in the editor, or here). Run
+        # the new code by restarting the CALLER of the shallowest frame running it
+        # (a live frame stays bound to the old method version, so re-sending from
+        # the caller is what re-resolves to the new version). Our own save already
+        # trimmed inline, so skip when we are the origin.
+        if origin is self:
+            return
+        target_level = self.level_of_frame_running(method_context)
+        if target_level is None:
+            return
+        outcome = self.debug_session.restart_frame(target_level + 1)
+        self.apply_debug_action_outcome(outcome)
+
+    def destroy(self):
+        self.application.event_queue.clear_subscribers(self)
+        super().destroy()
+
+    def close_from_tab(self):
+        # AI: The tab 'x' takes over the old Stop button: end a live debug by
+        # resuming the suspended process (an unhandled error then unwinds), then
+        # close. A finished debug has no live frames (finish nulls stack_frames),
+        # so there is nothing to resume -- just close.
+        if self.stack_frames:
+            self.debug_session.stop()
+        self.dismiss()
 
     def dismiss(self):
         self.stack_frames = None
-        debugger_session_key = getattr(self, 'global_navigation_session_key', None)
-        if debugger_session_key:
-            self.application.mark_global_navigation_place_stale(
-                ('debugger_session', debugger_session_key),
-            )
         if self.application.debugger_tab is self:
             self.application.debugger_tab = None
+        notebook = self.master
         try:
-            self.application.notebook.forget(self)
+            notebook.forget(self)
         except tk.TclError:
             pass
         self.destroy()
+        # AI: Collapse the now-empty right group, like the tab 'x' does, so
+        # dismissing the debugger (Stop or the finished view) doesn't leave a
+        # blank hole.
+        self.application.pane_area.remove_group_if_empty(notebook)
 
     def finish(self, result):
         self.stack_frames = None
@@ -1499,13 +1462,6 @@ class DebuggerWindow(ttk.PanedWindow):
         self.finished_actions.grid(row=0, column=0, sticky='ew', padx=5, pady=(5, 0))
         self.finished_actions.columnconfigure(0, weight=1)
 
-        self.close_button = ttk.Button(
-            self.finished_actions,
-            text='Close',
-            command=self.dismiss,
-        )
-        self.close_button.grid(row=0, column=1, sticky='e')
-
         self.result_text = tk.Text(self.finished_frame)
         self.result_text.insert('1.0', result.asString().to_py)
         self.result_text.grid(row=1, column=0, sticky='nsew', padx=5, pady=(5, 5))
@@ -1517,40 +1473,42 @@ class DebuggerControls(ttk.Frame):
         self.debugger = debugger
         self.event_queue = event_queue
 
+        # AI: Compact icon buttons (glyph, not word) for the debugger actions, each with a hover
+        # tooltip naming it. Continue is play; Over arcs over the send; Into steps down into the
+        # call; Through steps further in (also into blocks); Restart re-runs the frame. BMP only.
         self.continue_button = ttk.Button(
-            self, text='Continue', command=self.handle_continue
+            self, text='▶', width=3, command=self.handle_continue
         )
-        self.continue_button.grid(row=0, column=0, padx=5, pady=5)
+        self.continue_button.grid(row=0, column=0, padx=4, pady=5)
+        Tooltip(self.continue_button, 'Continue')
 
-        self.over_button = ttk.Button(self, text='Over', command=self.handle_over)
-        self.over_button.grid(row=0, column=1, padx=5, pady=5)
+        self.over_button = ttk.Button(
+            self, text='↷', width=3, command=self.handle_over
+        )
+        self.over_button.grid(row=0, column=1, padx=4, pady=5)
+        Tooltip(self.over_button, 'Step over')
 
-        self.into_button = ttk.Button(self, text='Into', command=self.handle_into)
-        self.into_button.grid(row=0, column=2, padx=5, pady=5)
+        self.into_button = ttk.Button(
+            self, text='↓', width=3, command=self.handle_into
+        )
+        self.into_button.grid(row=0, column=2, padx=4, pady=5)
+        Tooltip(self.into_button, 'Step into')
 
         self.through_button = ttk.Button(
-            self, text='Through', command=self.handle_through
+            self, text='⤓', width=3, command=self.handle_through
         )
-        self.through_button.grid(row=0, column=3, padx=5, pady=5)
+        self.through_button.grid(row=0, column=3, padx=4, pady=5)
+        Tooltip(self.through_button, 'Step through')
 
         self.restart_button = ttk.Button(
-            self, text='Restart', command=self.handle_restart
+            self, text='↺', width=3, command=self.handle_restart
         )
-        self.restart_button.grid(row=0, column=4, padx=5, pady=5)
+        self.restart_button.grid(row=0, column=4, padx=4, pady=5)
+        Tooltip(self.restart_button, 'Restart frame')
 
-        self.stop_button = ttk.Button(self, text='Stop', command=self.handle_stop)
-        self.stop_button.grid(row=0, column=5, padx=5, pady=5)
-
-        # AI: Browse Method moved to the stack-frame right-click menu (issue
-        # #13); the spring column absorbs space between the stepping cluster
-        # and the right-aligned Close button.
+        # AI: The spring column absorbs space at the right of the stepping
+        # cluster. (Stop and Close both moved to the tab 'x'.)
         self.columnconfigure(6, weight=1)
-        self.close_button = ttk.Button(
-            self,
-            text='Close',
-            command=self.handle_close,
-        )
-        self.close_button.grid(row=0, column=7, padx=5, pady=5, sticky='e')
 
     def handle_continue(self):
         self.event_queue.publish('DebuggerContinued')
@@ -1571,13 +1529,3 @@ class DebuggerControls(ttk.Frame):
     def handle_restart(self):
         self.event_queue.publish('DebuggerFrameRestarted')
         self.debugger.restart_frame()
-
-    def handle_stop(self):
-        self.event_queue.publish('DebuggerStopped')
-        self.debugger.stop()
-
-    
-
-    def handle_close(self):
-        self.event_queue.publish('DebuggerClosed')
-        self.debugger.dismiss()

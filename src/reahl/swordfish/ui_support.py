@@ -21,6 +21,64 @@ UML_METHOD_LINE_HEIGHT = 18
 UML_HEADER_HEIGHT = 26
 
 
+class Tooltip:
+    """A hover-help popup for a widget.
+
+    It shows a short description in a small borderless window once the pointer has rested on the
+    widget, and hides it when the pointer leaves or the widget is pressed. This lets compact icon
+    buttons stay compact without becoming cryptic: the glyph is the affordance, the tooltip is the
+    name."""
+
+    def __init__(self, widget, text, delay_ms=500):
+        self.widget = widget
+        self.text = text
+        self.delay_ms = delay_ms
+        self.tip_window = None
+        self.scheduled_id = None
+        widget.bind('<Enter>', self.schedule_show, add='+')
+        widget.bind('<Leave>', self.hide, add='+')
+        widget.bind('<ButtonPress>', self.hide, add='+')
+
+    def schedule_show(self, event=None):
+        self.cancel_scheduled()
+        self.scheduled_id = self.widget.after(self.delay_ms, self.show)
+
+    def cancel_scheduled(self):
+        if self.scheduled_id is not None:
+            try:
+                self.widget.after_cancel(self.scheduled_id)
+            except tk.TclError:
+                pass
+            self.scheduled_id = None
+
+    def show(self):
+        self.scheduled_id = None
+        if self.tip_window is not None or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self.tip_window = tk.Toplevel(self.widget)
+        self.tip_window.wm_overrideredirect(True)
+        self.tip_window.wm_geometry('+%d+%d' % (x, y))
+        label = tk.Label(
+            self.tip_window,
+            text=self.text,
+            justify='left',
+            background='#ffffe0',
+            relief='solid',
+            borderwidth=1,
+            padx=4,
+            pady=2,
+        )
+        label.pack()
+
+    def hide(self, event=None):
+        self.cancel_scheduled()
+        if self.tip_window is not None:
+            self.tip_window.destroy()
+            self.tip_window = None
+
+
 def close_popup_menu(menu):
     # AI: Unpost AND release the input grab. tk_popup installs a grab that lets a
     # click outside the menu dismiss it; the explicit-close path (Escape) must

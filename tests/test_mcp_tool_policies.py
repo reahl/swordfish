@@ -5,7 +5,7 @@ from reahl.tofu import Fixture, NoException, expected, set_up, tear_down, with_f
 from reahl.swordfish.mcp.debug_registry import add_debug_session, clear_debug_sessions
 from reahl.swordfish.mcp.integration_state import IntegratedSessionState
 from reahl.swordfish.mcp.session_registry import add_connection, clear_connections
-from reahl.swordfish.mcp.tools import register_tools
+from reahl.swordfish.mcp.tools import model_refresh_kind_for_tool, register_tools
 
 
 class FakeGemstoneValue:
@@ -3656,3 +3656,21 @@ def test_gs_capabilities_includes_ide_mcp_runtime_restart_hint():
     capabilities_result = registrar.registered_tools_by_name["gs_capabilities"]()
     assert capabilities_result["ok"], capabilities_result
     assert capabilities_result["ide_mcp_runtime"]["restart_required_for_config"]
+
+
+def test_model_refresh_kind_for_tool_classifies_breakpoint_and_model_writes():
+    """AI: The MCP->IDE refresh bridge classifies each successful tool so the IDE
+    re-reads the right views: breakpoint writes warrant a 'breakpoints' refresh,
+    other model writes a coarse 'transaction' refresh, and reads or failures
+    warrant nothing. (Breakpoint writes previously fell through to no refresh, so
+    MCP breakpoints never reflected in the IDE.)"""
+    ok = {"ok": True}
+    assert model_refresh_kind_for_tool("gs_breakpoint_set", ok) == "breakpoints"
+    assert model_refresh_kind_for_tool("gs_breakpoint_clear", ok) == "breakpoints"
+    assert model_refresh_kind_for_tool("gs_breakpoint_clear_all", ok) == "breakpoints"
+    assert model_refresh_kind_for_tool("gs_compile_method", ok) == "transaction"
+    assert model_refresh_kind_for_tool("gs_delete_class", ok) == "transaction"
+    assert model_refresh_kind_for_tool("gs_create_class", ok) == "transaction"
+    assert model_refresh_kind_for_tool("gs_find_classes", ok) is None
+    assert model_refresh_kind_for_tool("gs_breakpoint_set", {"ok": False}) is None
+    assert model_refresh_kind_for_tool("gs_compile_method", "not-a-dict") is None

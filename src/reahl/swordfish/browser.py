@@ -14,6 +14,7 @@ from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainEx
 from reahl.swordfish.navigation import NavigationHistory
 from reahl.swordfish.selection_list import InteractiveSelectionList
 from reahl.swordfish.tab_registry import DeduplicatedTabRegistry
+from reahl.swordfish.test_execution import TestExecution
 from reahl.swordfish.text_editing import (
     CodeLineNumberColumn,
     EditorTab,
@@ -170,15 +171,15 @@ class CoveringTestsDiscoveryWorkflow:
 
 
 class CoveringTestsBrowseDialog(tk.Toplevel):
-    def __init__(self, browser_window, method_name, max_elapsed_ms=120000):
-        super().__init__(browser_window)
+    def __init__(self, parent, application, method_name, max_elapsed_ms=120000):
+        super().__init__(parent)
         self.title('Covering Tests')
         self.geometry('760x520')
-        self.transient(browser_window)
+        self.transient(parent)
         self.wait_visibility()
         self.grab_set()
 
-        self.browser_window = browser_window
+        self.application = application
         self.method_name = method_name
         self.max_elapsed_ms = max_elapsed_ms
         self.candidate_tests_by_key = {}
@@ -187,7 +188,7 @@ class CoveringTestsBrowseDialog(tk.Toplevel):
         self.visited_selector_count = 0
         self.summary_message = ''
         self.discovery_workflow = CoveringTestsDiscoveryWorkflow(
-            browser_window.gemstone_session_record,
+            application.gemstone_session_record,
             method_name,
             max_elapsed_ms,
             self.merged_sender_test_plan,
@@ -573,25 +574,26 @@ class CoveringTestsBrowseDialog(tk.Toplevel):
         selected_index = selection[0]
         candidate_key = self.candidate_test_keys_in_order[selected_index]
         candidate_test = self.candidate_tests_by_key[candidate_key]
-        self.browser_window.application.handle_sender_selection(
+        self.application.handle_sender_selection(
             candidate_test['test_case_class_name'],
             True,
             candidate_test['test_method_selector'],
         )
 
 
-class FramedWidget(ttk.Frame):
-    def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
+class Pane(ttk.Frame):
+    def __init__(self, parent, application, event_queue):
+        # AI: A Pane is an app-wired component that resides in the IDE: it holds
+        # the application and event queue and clears its event subscriptions when
+        # destroyed. It does NOT place itself -- whoever owns it (BrowserWindow's
+        # grid, a notebook tab, a split pane) decides where it goes.
         super().__init__(parent, borderwidth=2, relief='sunken')
-        self.browser_window = browser_window
+        self.application = application
         self.event_queue = event_queue
-        self.grid(
-            row=row, column=column, columnspan=colspan, sticky='nsew', padx=1, pady=1
-        )
 
     @property
     def gemstone_session_record(self):
-        return self.browser_window.gemstone_session_record
+        return self.application.gemstone_session_record
 
     def destroy(self):
         super().destroy()
@@ -609,10 +611,10 @@ class FramedWidget(ttk.Frame):
             messagebox.showerror('Test Result', '\n'.join(lines))
 
 
-class PackageSelection(FramedWidget):
-    def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
+class PackageSelection(Pane):
+    def __init__(self, parent, application, event_queue):
         super().__init__(
-            parent, browser_window, event_queue, row, column, colspan=colspan
+            parent, application, event_queue
         )
 
         self.selection_list = InteractiveSelectionList(
@@ -692,7 +694,7 @@ class PackageSelection(FramedWidget):
         self.event_queue.publish('SelectedPackageChanged', origin=self)
         self.event_queue.publish('SelectedClassChanged', origin=self)
         self.event_queue.publish('SelectedCategoryChanged', origin=self)
-        self.event_queue.publish('MethodSelected', origin=self)
+        self.event_queue.publish('MethodDisplayRequested', origin=self)
 
     def handle_browse_mode_changed(self, origin=None):
         if origin is self:
@@ -718,7 +720,7 @@ class PackageSelection(FramedWidget):
         )
 
     def get_all_groups(self):
-        return list(self.browser_window.gemstone_session_record.class_categories)
+        return list(self.application.gemstone_session_record.class_categories)
 
     def get_selected_group(self):
         return self.gemstone_session_record.selected_class_category()
@@ -735,7 +737,7 @@ class PackageSelection(FramedWidget):
             self.context_menu_class_category = None
         menu = tk.Menu(self, tearoff=0)
         read_only = (
-            self.browser_window.application.integrated_session_state.is_mcp_busy()
+            self.application.integrated_session_state.is_mcp_busy()
         )
         # AI: A selected group is only a class category in categories/rowan mode; in
         # dictionaries mode it names a symbol dictionary, which file in/out does not address.
@@ -760,13 +762,13 @@ class PackageSelection(FramedWidget):
 
     def file_out_class_category(self):
         if self.context_menu_class_category:
-            self.browser_window.application.file_out_class_category_action(
+            self.application.file_out_class_category_action(
                 self.context_menu_class_category
             )
 
     def file_in_class_category(self):
         if self.context_menu_class_category:
-            self.browser_window.application.file_in_class_category_action(
+            self.application.file_in_class_category_action(
                 self.context_menu_class_category
             )
 
@@ -775,10 +777,10 @@ class PackageSelection(FramedWidget):
             self.selection_list.repopulate()
 
 
-class ClassSelection(FramedWidget):
-    def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
+class ClassSelection(Pane):
+    def __init__(self, parent, application, event_queue):
         super().__init__(
-            parent, browser_window, event_queue, row, column, colspan=colspan
+            parent, application, event_queue
         )
 
         self.class_content_paned = ttk.PanedWindow(self, orient=tk.VERTICAL)
@@ -1082,7 +1084,7 @@ class ClassSelection(FramedWidget):
     def get_all_classes(self):
         selected_category = self.gemstone_session_record.selected_class_category()
         return list(
-            self.browser_window.gemstone_session_record.get_classes_in_category(
+            self.application.gemstone_session_record.get_classes_in_category(
                 selected_category
             )
         )
@@ -1134,7 +1136,7 @@ class ClassSelection(FramedWidget):
             self.current_context_menu.unpost()
         menu = self.current_context_menu = tk.Menu(self, tearoff=0)
         read_only = (
-            self.browser_window.application.integrated_session_state.is_mcp_busy()
+            self.application.integrated_session_state.is_mcp_busy()
         )
         write_command_state = tk.NORMAL
         run_command_state = tk.NORMAL
@@ -1186,14 +1188,14 @@ class ClassSelection(FramedWidget):
             self.context_menu_class_name or self.gemstone_session_record.selected_class
         )
         if class_name:
-            self.browser_window.application.file_out_class_action(class_name)
+            self.application.file_out_class_action(class_name)
 
     def file_in_class(self):
         class_name = (
             self.context_menu_class_name or self.gemstone_session_record.selected_class
         )
         if class_name:
-            self.browser_window.application.file_in_class_action(class_name)
+            self.application.file_in_class_action(class_name)
 
     def class_name_from_list_context_event(self, event):
         listbox = self.selection_list.selection_listbox
@@ -1235,7 +1237,7 @@ class ClassSelection(FramedWidget):
             class_name = self.gemstone_session_record.selected_class
         if not class_name:
             return
-        self.browser_window.application.open_find_dialog_for_class(class_name)
+        self.application.open_find_dialog_for_class(class_name)
 
     def add_selected_class_to_class_diagram(self):
         class_name = self.context_menu_class_name
@@ -1243,7 +1245,7 @@ class ClassSelection(FramedWidget):
             class_name = self.gemstone_session_record.selected_class
         if not class_name:
             return
-        self.browser_window.application.open_class_diagram_for_class(class_name)
+        self.application.open_class_diagram_for_class(class_name)
 
     def add_selected_hierarchy_classes_to_class_diagram(self):
         selected_class_names = self.selected_class_names_from_hierarchy()
@@ -1251,7 +1253,7 @@ class ClassSelection(FramedWidget):
             self.add_selected_class_to_class_diagram()
             return
         for class_name in selected_class_names:
-            self.browser_window.application.open_class_diagram_for_class(class_name)
+            self.application.open_class_diagram_for_class(class_name)
 
     def show_hierarchy_context_menu(self, event):
         selected_class_name = self.class_name_from_hierarchy_context_event(event)
@@ -1350,7 +1352,7 @@ class ClassSelection(FramedWidget):
             self.refresh_class_definition()
             self.event_queue.publish('SelectedClassChanged', origin=self)
             self.event_queue.publish('SelectedCategoryChanged', origin=self)
-            self.event_queue.publish('MethodSelected', origin=self)
+            self.event_queue.publish('MethodDisplayRequested', origin=self)
         except (DomainException, GemstoneDomainException, GemstoneError) as error:
             messagebox.showerror('Delete Class', str(error))
 
@@ -1455,25 +1457,21 @@ class ClassSelection(FramedWidget):
         if not selection:
             return
         class_name = listbox.get(selection[0])
-        self.browser_window.application.begin_foreground_activity(
-            'Running tests in %s...' % class_name
-        )
-        try:
-            try:
-                result = self.gemstone_session_record.run_gemstone_tests(class_name)
-                self.show_test_result(result)
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                messagebox.showerror('Run All Tests', str(domain_exception))
-            except GemstoneError as error:
-                self.browser_window.application.open_debugger(error)
-        finally:
-            self.browser_window.application.end_foreground_activity()
+        TestExecution(
+            self.application,
+            'Running tests in %s...' % class_name,
+            lambda should_stop: self.gemstone_session_record.run_gemstone_tests(
+                class_name
+            ),
+            self.show_test_result,
+            'Run All Tests',
+        ).start()
 
 
-class CategorySelection(FramedWidget):
-    def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
+class CategorySelection(Pane):
+    def __init__(self, parent, application, event_queue):
         super().__init__(
-            parent, browser_window, event_queue, row, column, colspan=colspan
+            parent, application, event_queue
         )
 
         self.selection_list = InteractiveSelectionList(
@@ -1533,7 +1531,7 @@ class CategorySelection(FramedWidget):
             self.context_menu_method_category = None
         menu = tk.Menu(self, tearoff=0)
         read_only = (
-            self.browser_window.application.integrated_session_state.is_mcp_busy()
+            self.application.integrated_session_state.is_mcp_busy()
         )
         write_command_state = tk.DISABLED if read_only else tk.NORMAL
         delete_command_state = write_command_state if has_selection else tk.DISABLED
@@ -1571,7 +1569,7 @@ class CategorySelection(FramedWidget):
     def file_out_method_category(self):
         class_name = self.gemstone_session_record.selected_class
         if class_name and self.context_menu_method_category:
-            self.browser_window.application.file_out_method_category_action(
+            self.application.file_out_method_category_action(
                 class_name,
                 self.context_menu_method_category,
                 self.gemstone_session_record.show_instance_side,
@@ -1580,7 +1578,7 @@ class CategorySelection(FramedWidget):
     def file_in_method_category(self):
         class_name = self.gemstone_session_record.selected_class
         if class_name and self.context_menu_method_category:
-            self.browser_window.application.file_in_method_category_action(
+            self.application.file_in_method_category_action(
                 class_name,
                 self.context_menu_method_category,
                 self.gemstone_session_record.show_instance_side,
@@ -1655,10 +1653,10 @@ class CategorySelection(FramedWidget):
             messagebox.showerror('Delete Category', str(error))
 
 
-class MethodSelection(FramedWidget):
-    def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
+class MethodSelection(Pane):
+    def __init__(self, parent, application, event_queue):
         super().__init__(
-            parent, browser_window, event_queue, row, column, colspan=colspan
+            parent, application, event_queue
         )
 
         self.method_content_paned = ttk.PanedWindow(self, orient=tk.VERTICAL)
@@ -1725,7 +1723,6 @@ class MethodSelection(FramedWidget):
         self.event_queue.subscribe('ClassesChanged', self.repopulate)
         self.event_queue.subscribe('MethodsChanged', self.repopulate)
         self.event_queue.subscribe('Committed', self.repopulate)
-        self.event_queue.subscribe('MethodSelected', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
 
         self.selection_list.selection_listbox.bind('<Button-3>', self.show_context_menu)
@@ -1743,7 +1740,15 @@ class MethodSelection(FramedWidget):
 
             self.gemstone_session_record.select_method_symbol(selected_method)
             self.selection_changed = False
-            self.event_queue.publish('MethodSelected', origin=self)
+            self.event_queue.publish(
+                'MethodDisplayRequested',
+                (
+                    self.gemstone_session_record.selected_class,
+                    self.gemstone_session_record.show_instance_side,
+                    selected_method,
+                ),
+                origin=self,
+            )
 
         except IndexError:
             pass
@@ -1818,7 +1823,13 @@ class MethodSelection(FramedWidget):
         if self.show_method_hierarchy_var.get():
             self.refresh_method_hierarchy()
         self.event_queue.publish(
-            'MethodSelected', origin=self, log_context={'method': selected_method}
+            'MethodDisplayRequested',
+            (
+                self.gemstone_session_record.selected_class,
+                self.gemstone_session_record.show_instance_side,
+                selected_method,
+            ),
+            origin=self,
         )
 
     def pin_selected_method_tab(self, event=None):
@@ -1862,7 +1873,11 @@ class MethodSelection(FramedWidget):
         self.event_queue.publish('SelectedPackageChanged', origin=self)
         self.event_queue.publish('SelectedClassChanged', origin=self)
         self.event_queue.publish('SelectedCategoryChanged', origin=self)
-        self.event_queue.publish('MethodSelected', origin=self)
+        self.event_queue.publish(
+            'MethodDisplayRequested',
+            (owner_class_name, show_instance_side, selected_method),
+            origin=self,
+        )
 
     def new_method_argument_names(self, method_selector):
         selector_tokens = self.keyword_selector_tokens(method_selector)
@@ -1940,7 +1955,11 @@ class MethodSelection(FramedWidget):
                 self.refresh_method_hierarchy()
             self.event_queue.publish('SelectedClassChanged', origin=self)
             self.event_queue.publish('SelectedCategoryChanged', origin=self)
-            self.event_queue.publish('MethodSelected', origin=self)
+            self.event_queue.publish(
+                'MethodDisplayRequested',
+                (selected_class, show_instance_side, method_selector),
+                origin=self,
+            )
             return method_selector
         except (GemstoneDomainException, GemstoneError) as error:
             messagebox.showerror('Add Method', str(error))
@@ -2102,7 +2121,11 @@ class MethodSelection(FramedWidget):
             self.gemstone_session_record.select_method_symbol(selected_method)
         self.event_queue.publish('SelectedClassChanged', origin=self)
         self.event_queue.publish('SelectedCategoryChanged', origin=self)
-        self.event_queue.publish('MethodSelected', origin=self)
+        self.event_queue.publish(
+            'MethodDisplayRequested',
+            (selected_class, show_instance_side, selected_method),
+            origin=self,
+        )
 
     def show_context_menu(self, event):
         listbox = self.selection_list.selection_listbox
@@ -2116,7 +2139,7 @@ class MethodSelection(FramedWidget):
         )
         menu = self.current_context_menu = tk.Menu(self, tearoff=0)
         read_only = (
-            self.browser_window.application.integrated_session_state.is_mcp_busy()
+            self.application.integrated_session_state.is_mcp_busy()
         )
         write_command_state = tk.NORMAL
         run_command_state = tk.NORMAL
@@ -2186,7 +2209,7 @@ class MethodSelection(FramedWidget):
     def file_out_method(self):
         class_name = self.gemstone_session_record.selected_class
         if class_name and self.context_menu_method_selector:
-            self.browser_window.application.file_out_method_action(
+            self.application.file_out_method_action(
                 class_name,
                 self.context_menu_method_selector,
                 self.gemstone_session_record.show_instance_side,
@@ -2195,7 +2218,7 @@ class MethodSelection(FramedWidget):
     def file_in_method(self):
         class_name = self.gemstone_session_record.selected_class
         if class_name and self.context_menu_method_selector:
-            self.browser_window.application.file_in_method_action(
+            self.application.file_in_method_action(
                 class_name,
                 self.context_menu_method_selector,
                 self.gemstone_session_record.show_instance_side,
@@ -2206,7 +2229,7 @@ class MethodSelection(FramedWidget):
         method_selector = self.gemstone_session_record.selected_method_symbol
         if not class_name or not method_selector:
             return
-        self.browser_window.application.pin_method_in_class_diagram(
+        self.application.pin_method_in_class_diagram(
             class_name,
             self.gemstone_session_record.show_instance_side,
             method_selector,
@@ -2236,7 +2259,7 @@ class MethodSelection(FramedWidget):
             if self.show_method_hierarchy_var.get():
                 self.refresh_method_hierarchy()
             self.event_queue.publish('SelectedCategoryChanged', origin=self)
-            self.event_queue.publish('MethodSelected', origin=self)
+            self.event_queue.publish('MethodDisplayRequested', origin=self)
         except (DomainException, GemstoneDomainException, GemstoneError) as error:
             messagebox.showerror('Delete Method', str(error))
 
@@ -2247,22 +2270,16 @@ class MethodSelection(FramedWidget):
             return
         class_name = self.gemstone_session_record.selected_class
         method_selector = listbox.get(selection[0])
-        self.browser_window.application.begin_foreground_activity(
-            'Running test %s>>%s...' % (class_name, method_selector)
-        )
-        try:
-            try:
-                result = self.gemstone_session_record.run_test_method(
-                    class_name,
-                    method_selector,
-                )
-                self.show_test_result(result)
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                messagebox.showerror('Run Test', str(domain_exception))
-            except GemstoneError as error:
-                self.browser_window.application.open_debugger(error)
-        finally:
-            self.browser_window.application.end_foreground_activity()
+        TestExecution(
+            self.application,
+            'Running test %s>>%s...' % (class_name, method_selector),
+            lambda should_stop: self.gemstone_session_record.run_test_method(
+                class_name,
+                method_selector,
+            ),
+            self.show_test_result,
+            'Run Test',
+        ).start()
 
     def debug_test(self):
         listbox = self.selection_list.selection_listbox
@@ -2271,14 +2288,14 @@ class MethodSelection(FramedWidget):
             return
         class_name = self.gemstone_session_record.selected_class
         method_selector = listbox.get(selection[0])
-        self.browser_window.application.event_queue.publish(
+        self.application.event_queue.publish(
             'DebugTestStarted',
             log_context={
                 'class_name': class_name,
                 'method': method_selector,
             },
         )
-        self.browser_window.application.begin_foreground_activity(
+        self.application.begin_foreground_activity(
             'Debugging test %s>>%s...' % (class_name, method_selector)
         )
         try:
@@ -2290,9 +2307,9 @@ class MethodSelection(FramedWidget):
             except (DomainException, GemstoneDomainException) as domain_exception:
                 messagebox.showerror('Debug Test', str(domain_exception))
             except GemstoneError as error:
-                self.browser_window.application.open_debugger(error)
+                self.application.open_debugger(error)
         finally:
-            self.browser_window.application.end_foreground_activity()
+            self.application.end_foreground_activity()
 
     def open_covering_tests(self):
         listbox = self.selection_list.selection_listbox
@@ -2301,7 +2318,8 @@ class MethodSelection(FramedWidget):
             return
         method_selector = listbox.get(selection[0])
         CoveringTestsBrowseDialog(
-            self.browser_window,
+            self.winfo_toplevel(),
+            self.application,
             method_selector,
         )
 
@@ -2311,25 +2329,25 @@ class MethodSelection(FramedWidget):
         selector = self.get_selected_method()
         if not selector:
             return
-        self.browser_window.application.event_queue.publish(
+        self.application.event_queue.publish(
             'SendersOpened', log_context={'selector': selector}
         )
-        self.browser_window.application.open_senders_dialog(method_symbol=selector)
+        self.application.open_senders_dialog(method_symbol=selector)
 
     def open_implementors_for_selection(self):
         # AI: Method-list right-click -> Implementors.
         selector = self.get_selected_method()
         if not selector:
             return
-        self.browser_window.application.open_implementors_dialog(
+        self.application.open_implementors_dialog(
             method_symbol=selector,
         )
 
 
-class MethodEditor(FramedWidget):
-    def __init__(self, parent, browser_window, event_queue, row, column, colspan=1):
+class MethodEditor(Pane):
+    def __init__(self, parent, application, event_queue):
         super().__init__(
-            parent, browser_window, event_queue, row, column, colspan=colspan
+            parent, application, event_queue
         )
 
         self.current_menu = None
@@ -2390,10 +2408,10 @@ class MethodEditor(FramedWidget):
         # method in preview mode recycles this tab instead of adding a new one.
         self.preview_tab_key = None
 
-        self.event_queue.subscribe('MethodSelected', self.open_method)
+        self.event_queue.subscribe('MethodDisplayRequested', self.open_method)
         self.event_queue.subscribe('MethodTabPinRequested', self.pin_current_method_tab)
         self.event_queue.subscribe(
-            'MethodSelected',
+            'MethodDisplayRequested',
             self.record_method_navigation,
         )
         self.event_queue.subscribe('MethodsChanged', self.repopulate)
@@ -2406,7 +2424,7 @@ class MethodEditor(FramedWidget):
         )
         self.refresh_navigation_controls()
         self.set_read_only(
-            self.browser_window.application.integrated_session_state.is_mcp_busy()
+            self.application.integrated_session_state.is_mcp_busy()
         )
 
     def repopulate(self, origin=None):
@@ -2471,6 +2489,15 @@ class MethodEditor(FramedWidget):
             if tab_widget.tab_key[0] != reference_class:
                 self.close_tab(tab_widget)
 
+    def close_tabs_with_same_name(self, reference_tab):
+        # AI: Close every open method that shares reference_tab's selector
+        # (tab_key[2] is the method name), regardless of class.
+        reference_selector = reference_tab.tab_key[2]
+        for tab_path in list(self.editor_notebook.tabs()):
+            tab_widget = self.editor_notebook.nametowidget(tab_path)
+            if tab_widget.tab_key[2] == reference_selector:
+                self.close_tab(tab_widget)
+
     def close_editor_tab_at_index(self, notebook, tab_index):
         # AI: Adapter that the closable_notebook helper calls when the user
         # clicks the 'x' on a tab. Routes through the existing close_tab to
@@ -2497,8 +2524,10 @@ class MethodEditor(FramedWidget):
             return f'{class_name}>>{method_symbol}'
         return f'{class_name} class>>{method_symbol}'
 
-    def record_method_navigation(self, origin=None):
-        self.method_navigation_history.record(self.current_method_context())
+    def record_method_navigation(self, method_context=None, origin=None):
+        if method_context is None:
+            method_context = self.current_method_context()
+        self.method_navigation_history.record(method_context)
         self.refresh_navigation_controls()
 
     def refresh_navigation_controls(self):
@@ -2539,7 +2568,7 @@ class MethodEditor(FramedWidget):
             self.refresh_navigation_controls()
             return
         class_name, show_instance_side, method_symbol = method_context
-        self.browser_window.application.handle_sender_selection(
+        self.application.handle_sender_selection(
             class_name,
             show_instance_side,
             method_symbol,
@@ -2547,12 +2576,12 @@ class MethodEditor(FramedWidget):
         self.refresh_navigation_controls()
 
     def go_to_previous_method(self):
-        self.browser_window.application.event_queue.publish('MethodEditorNavigatedBack')
+        self.application.event_queue.publish('MethodEditorNavigatedBack')
         method_context = self.method_navigation_history.go_back()
         self.jump_to_method_context(method_context)
 
     def go_to_next_method(self):
-        self.browser_window.application.event_queue.publish(
+        self.application.event_queue.publish(
             'MethodEditorNavigatedForward'
         )
         method_context = self.method_navigation_history.go_forward()
@@ -2568,8 +2597,9 @@ class MethodEditor(FramedWidget):
         method_context = self.method_navigation_history.jump_to(history_index)
         self.jump_to_method_context(method_context)
 
-    def open_method(self, origin=None):
-        method_context = self.current_method_context()
+    def open_method(self, method_context=None, origin=None):
+        if method_context is None:
+            method_context = self.current_method_context()
         if method_context is None:
             return
         selected_method_symbol = method_context[2]
@@ -2586,7 +2616,7 @@ class MethodEditor(FramedWidget):
 
         new_tab = EditorTab(
             self.editor_notebook,
-            self.browser_window,
+            self.application,
             self,
             method_context,
         )
@@ -2600,7 +2630,7 @@ class MethodEditor(FramedWidget):
         self.preview_tab_key = method_context
         new_tab.update_tab_label()
         new_tab.code_panel.set_read_only(
-            self.browser_window.application.integrated_session_state.is_mcp_busy()
+            self.application.integrated_session_state.is_mcp_busy()
         )
 
     def discard_preview_tab(self):
@@ -2625,10 +2655,13 @@ class MethodEditor(FramedWidget):
             self.preview_tab_key = None
             tab.update_tab_label()
 
-    def pin_current_method_tab(self, origin=None):
-        # AI: Driven by MethodTabPinRequested (a double-click in the method
-        # list). Pins the tab for the currently selected method.
-        method_context = self.current_method_context()
+    def pin_current_method_tab(self, method_context=None, origin=None):
+        # AI: Driven by MethodTabPinRequested. Pins the tab for the carried
+        # method; when none is carried, fall back to the browser selection
+        # (the method list sets that on the preceding single click). Find passes
+        # the method explicitly -- a peek/pin never moves the browser selection.
+        if method_context is None:
+            method_context = self.current_method_context()
         if method_context is None:
             return
         if method_context in self.open_tabs:
@@ -2645,7 +2678,7 @@ class MethodEditor(FramedWidget):
         busy_lease_token=None,
     ):
         busy_coordinator = getattr(
-            self.browser_window.application,
+            self.application,
             'busy_coordinator',
             None,
         )
@@ -2681,34 +2714,39 @@ class BrowserWindow(ttk.PanedWindow):
 
         self.application = application
 
-        self.top_frame = ttk.Frame(self)
+        # AI: The four selection columns live in a horizontal PanedWindow so the
+        # user can drag the borders between them to resize each column; the
+        # vertical BrowserWindow sash resizes the columns row against the editor
+        # beneath. Panes no longer grid themselves -- BrowserWindow places them.
+        self.top_frame = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
         self.bottom_frame = ttk.Frame(self)
 
         self.add(self.top_frame)
         self.add(self.bottom_frame)
 
         self.packages_widget = PackageSelection(
-            self.top_frame, self, self.event_queue, 0, 0
+            self.top_frame, self.application, self.event_queue
         )
+        self.top_frame.add(self.packages_widget, weight=1)
         self.classes_widget = ClassSelection(
-            self.top_frame, self, self.event_queue, 0, 1
+            self.top_frame, self.application, self.event_queue
         )
+        self.top_frame.add(self.classes_widget, weight=1)
         self.categories_widget = CategorySelection(
-            self.top_frame, self, self.event_queue, 0, 2
+            self.top_frame, self.application, self.event_queue
         )
+        self.top_frame.add(self.categories_widget, weight=1)
         self.methods_widget = MethodSelection(
-            self.top_frame, self, self.event_queue, 0, 3
+            self.top_frame, self.application, self.event_queue
         )
+        self.top_frame.add(self.methods_widget, weight=1)
 
         self.editor_area_widget = MethodEditor(
-            self.bottom_frame, self, self.event_queue, 0, 0, colspan=4
+            self.bottom_frame, self.application, self.event_queue
         )
-
-        self.top_frame.columnconfigure(0, weight=1)
-        self.top_frame.columnconfigure(1, weight=1)
-        self.top_frame.columnconfigure(2, weight=1)
-        self.top_frame.columnconfigure(3, weight=1)
-        self.top_frame.rowconfigure(0, weight=1)
+        self.editor_area_widget.grid(
+            row=0, column=0, columnspan=4, sticky='nsew', padx=1, pady=1
+        )
 
         self.bottom_frame.columnconfigure(0, weight=1)
         self.bottom_frame.rowconfigure(0, weight=1)
