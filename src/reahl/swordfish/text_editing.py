@@ -10,11 +10,11 @@ from reahl.ptongue import GemstoneError
 from reahl.swordfish.exceptions import DomainException
 from reahl.swordfish.theme import active_theme
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
-from reahl.swordfish.test_execution import TestExecution
 from reahl.swordfish.gemstone.smalltalk_source_scanner import (
     SmalltalkSourceScanner,
     SmalltalkTokenKind,
 )
+from reahl.swordfish.test_execution import TestExecution
 from reahl.swordfish.ui_support import (
     add_diagram_commands,
     add_navigation_commands,

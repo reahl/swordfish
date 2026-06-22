@@ -31,10 +31,10 @@ from reahl.swordfish.browser import (
     ClassSelection,
     CoveringTestsBrowseDialog,
     CoveringTestsDiscoveryWorkflow,
-    Pane,
     MethodEditor,
     MethodSelection,
     PackageSelection,
+    Pane,
 )
 from reahl.swordfish.class_diagram import (
     UmlClassDiagramCanvas,
@@ -53,7 +53,6 @@ from reahl.swordfish.theme import (
     active_theme,
 )
 from reahl.swordfish.exceptions import DomainException
-from reahl.swordfish.session_activity import ForegroundActivity, McpActivity
 from reahl.swordfish.execution import DebuggerControls, DebuggerWindow, RunTab
 from reahl.swordfish.gemstone import GemstoneBrowserSession, GemstoneDebugSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
@@ -85,6 +84,7 @@ from reahl.swordfish.object_diagram import (
 )
 from reahl.swordfish.pane_area import PaneArea
 from reahl.swordfish.selection_list import InteractiveSelectionList
+from reahl.swordfish.session_activity import ForegroundActivity, McpActivity
 from reahl.swordfish.tab_registry import DeduplicatedTabRegistry
 from reahl.swordfish.text_editing import (
     CodeLineNumberColumn,

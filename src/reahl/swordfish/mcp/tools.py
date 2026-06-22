@@ -50,7 +50,6 @@ from reahl.swordfish.mcp.tracer_assets import (
     tracer_source_hash,
 )
 
-
 BREAKPOINT_WRITE_TOOLS = frozenset(
     {'gs_breakpoint_set', 'gs_breakpoint_clear', 'gs_breakpoint_clear_all'}
 )
