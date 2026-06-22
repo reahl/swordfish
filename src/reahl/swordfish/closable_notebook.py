@@ -7,6 +7,8 @@
 import tkinter as tk
 from tkinter import ttk
 
+from reahl.swordfish.theme import active_theme
+
 # AI: PhotoImages must remain referenced for Tk to keep them alive. Keeping the
 # references at module scope avoids garbage collection while staying out of
 # the host notebook's own attribute namespace.
@@ -27,9 +29,10 @@ def build_close_image(master, fill_color):
 
 def close_images_for(master):
     """AI: Build the three state variants (idle, hover, pressed) of the icon."""
-    img_normal = build_close_image(master, '#666666')
-    img_active = build_close_image(master, '#222222')
-    img_pressed = build_close_image(master, '#000000')
+    theme = active_theme.current()
+    img_normal = build_close_image(master, theme.color_for('close_glyph'))
+    img_active = build_close_image(master, theme.color_for('close_glyph_hover'))
+    img_pressed = build_close_image(master, theme.color_for('close_glyph_pressed'))
     CLOSE_BUTTON_IMAGES.extend([img_normal, img_active, img_pressed])
     return img_normal, img_active, img_pressed
 

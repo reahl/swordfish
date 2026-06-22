@@ -4,7 +4,6 @@ import sys
 import uuid
 
 import pytest
-
 from reahl.ptongue import GemstoneError
 from reahl.ptongue.gemstonecontrol import Stone
 from reahl.tofu import (

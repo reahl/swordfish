@@ -19,10 +19,9 @@ from reahl.tofu import (
     with_fixtures,
 )
 
+from reahl.swordfish.browser import MethodEditor
 from reahl.swordfish.gemstone.browser import GemstoneBrowserSession
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
-from reahl.swordfish.browser import MethodEditor
-from reahl.swordfish.session_activity import ForegroundActivity, McpActivity
 from reahl.swordfish.main import (
     GEMSTONE_EXE_CONF_CONFIG_NAME,
     BreakpointsPane,
@@ -54,6 +53,7 @@ from reahl.swordfish.main import (
 from reahl.swordfish.mcp.integration_state import IntegratedSessionState
 from reahl.swordfish.object_diagram import UmlObjectDiagramNodeDetailDialog
 from reahl.swordfish.pane_area import PaneArea
+from reahl.swordfish.session_activity import ForegroundActivity, McpActivity
 from reahl.swordfish.text_editing import PINNED_TAB_MARKER
 
 
@@ -1439,6 +1439,90 @@ def test_inspect_command_from_method_source_context_menu_opens_inspector_for_sel
     fixture.mock_browser.run_code.assert_called_with("3 + 4")
     tab.code_panel.application.open_inspector_for_object.assert_called_with(
         inspected_object,
+    )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_print_command_from_method_source_splices_print_string_after_selection(
+    fixture,
+):
+    """AI: Print (classic 'print it') evaluates the selection and splices the
+    result's printString in right after the selection, leaving the inserted result
+    selected so a single delete removes it again."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+    tab.code_panel.text_editor.delete("1.0", "end")
+    tab.code_panel.text_editor.insert("1.0", "3 + 4")
+    tab.code_panel.text_editor.tag_add(tk.SEL, "1.0", "1.5")
+    fixture.mock_browser.run_code.return_value = make_mock_gemstone_object(
+        "Integer", "7", oop=3004
+    )
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    assert "Print" in menu_command_labels(menu)
+    fixture.invoke_menu_command(menu, "Print")
+
+    fixture.mock_browser.run_code.assert_called_with("3 + 4")
+    assert tab.code_panel.text_editor.get("1.0", "end").strip() == "3 + 4 7"
+    assert tab.code_panel.text_editor.get(tk.SEL_FIRST, tk.SEL_LAST) == " 7"
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_print_selection_evaluates_through_interruptible_foreground_activity(
+    fixture,
+):
+    """AI: Print must evaluate through a ForegroundActivity rather than a synchronous
+    UI-thread call, so the menu-bar Stop can hard-break a slow print -- the same
+    interruptibility guarantee every selection evaluation now shares."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+    tab.code_panel.text_editor.delete("1.0", "end")
+    tab.code_panel.text_editor.insert("1.0", "3 + 4")
+    tab.code_panel.text_editor.tag_add(tk.SEL, "1.0", "1.5")
+    fixture.mock_browser.run_code.return_value = make_mock_gemstone_object(
+        "Integer", "7"
+    )
+    submitted_activities = []
+    original_run_foreground_activity = fixture.application.run_foreground_activity
+
+    def record_then_run(activity):
+        submitted_activities.append(activity)
+        return original_run_foreground_activity(activity)
+
+    fixture.application.run_foreground_activity = record_then_run
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    fixture.invoke_menu_command(menu, "Print")
+
+    assert len(submitted_activities) == 1
+    assert isinstance(submitted_activities[0], ForegroundActivity)
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_print_selection_failure_reports_error_and_leaves_editor_unchanged(fixture):
+    """AI: A failed print evaluation reports the error under the action's name and
+    leaves the editor text exactly as it was -- no partial or garbage insertion."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    tab = fixture.browser_window.editor_area_widget.open_tabs[
+        ("OrderLine", True, "total")
+    ]
+    tab.code_panel.text_editor.delete("1.0", "end")
+    tab.code_panel.text_editor.insert("1.0", "self error: 'boom'")
+    tab.code_panel.text_editor.tag_add(tk.SEL, "1.0", "1.18")
+    fixture.mock_browser.run_code = Mock(side_effect=DomainException("boom"))
+
+    menu = fixture.open_text_context_menu_for_tab(tab)
+    with patch("reahl.swordfish.ui_support.messagebox") as mock_messagebox:
+        fixture.invoke_menu_command(menu, "Print")
+
+    mock_messagebox.showerror.assert_called_once()
+    title, _message = mock_messagebox.showerror.call_args.args
+    assert title == "Print Selection"
+    assert (
+        tab.code_panel.text_editor.get("1.0", "end").strip() == "self error: 'boom'"
     )
 
 

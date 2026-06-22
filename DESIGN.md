@@ -56,12 +56,22 @@ and find tabs that anchor the left group are intentionally *not* closable. See
 Actions are **compact glyph icon buttons**, not wide text buttons. Each carries a **hover
 tooltip** that names it (the glyph is the affordance, the tooltip is the name). Use the
 reusable `Tooltip` (`ui_support.py`). Examples: Run `▶`, Inspect `⊙`, Debug `▷`, debugger
-Continue `▶` / Over `↷` / Into `↓` / Through `⤓` / Restart `↺`, Find `⌕`, Refresh `⟳`, Stop `■`.
+Continue `▶` / Over `↷` / Into `↓` / Through `⤓` / Restart `↺`, Find `⌕`, Refresh `⟳`, Stop `■`,
+history Back `←` / Forward `→`, inspector page Previous `‹` / Next `›`, Browse class `▣`, diagram
+Clear `⊗` / Rearrange `⤢` / Undo `↶` (a semicircle, kept visually distinct from the full-circle
+Refresh `⟳`). This applies to **persistent chrome** (toolbars, navigation
+bars, tool footers); **modal dialog** buttons (Login, File out, Add/Cancel and the like) stay as
+words — a transient dialog's named confirm/cancel is its own idiom and reads worse as a lone glyph.
 
 ### Glyphs are BMP-only
 Tk 8.6 cannot render characters outside the Basic Multilingual Plane (e.g. most emoji like
-🔍 U+1F50D show as tofu). Every glyph used as an icon must be a **BMP** code point. When a
-glyph reads poorly, prefer swapping it (and the tooltip clarifies meaning regardless).
+🔍 U+1F50D show as tofu). Every glyph used as an icon must be a **BMP** code point. But BMP is
+**necessary, not sufficient** — Tk only draws a glyph the *system font actually covers*, so a
+BMP code point in a sparsely-covered block (e.g. `⎚` U+239A in Miscellaneous Technical) still
+shows as a tofu box. Pick glyphs from blocks the app already renders elsewhere: Arrows
+(`←↺↷`), Geometric Shapes (`■▶▷▣`), Mathematical Operators (`⊙⊗`), and the arrow/symbol
+blocks proven by `⤓`/`⟳`. When a glyph reads poorly or boxes out, swap it for a neighbour in a
+proven block (and the tooltip clarifies meaning regardless).
 
 ### Find: one regex filter box per visible column, aligned to it
 Find results are a `Treeview` with adaptive columns per result kind. Filtering is **one
@@ -81,6 +91,23 @@ This is non-negotiable for new long-running work — never block the UI thread o
 uninterruptible gem call. See the session-activity model below and `session_activity.py`,
 `Swordfish.run_foreground_activity`, `update_status_stop_button`.
 
+### Evaluating a selection is one interruptible path
+Every "evaluate the selected source" action — **Run**, **Print**, **Inspect**, **Show in
+Object/Class Diagram**, and their debugger in-frame counterparts — evaluates through the
+`SelectionEvaluation` collaborator (`ui_support.py`), which runs the doit as a `ForegroundActivity`
+on the worker thread so the Stop button can `hard_break` a slow expression. The caller supplies
+*what to evaluate* (run on the worker thread) and *what to do with the result* (on the UI thread);
+a failure falls back to a dialog named for the action. Never evaluate a selection synchronously on
+the UI thread again — that was the old inconsistency this consolidates. Editors share the action
+set via `add_run_commands`, so every code editor exposes the same group.
+
+### Print It splices the result back into the editor
+**Print** is the classic Smalltalk *print it*: evaluate the selection and insert the result's
+`printString` immediately **after** the selection, leaving the inserted text selected (one delete
+removes it). The gem work (the doit **and** the `printString`) happens inside the activity's worker
+step; only the insert touches widgets, via the reusable `EditableText.insert_after_selection`. The
+menu order is the classic do-it / **print-it** / inspect-it / debug-it.
+
 ### Consistent menu placement
 Top-level menus, in order: **Session, Find, Code, UML, MCP, FileTree** (native OS menu bar).
 Exit lives on **Session**. New menu commands go on the menu that names their domain; keep the
@@ -93,6 +120,24 @@ Long activities set a status message and the activity indicator (the watch curso
 collaboration status bar). A user-requested **Stop is not an error** — it reports "stopped"
 and must never drop the user into a debugger; a genuine trap (unhandled error / breakpoint)
 *does* open the debugger. Keep that distinction.
+
+### Colour comes from the theme, by semantic role — never hardcode a colour
+Every colour is named by a **semantic role** (what it means: `editor_keyword`, `class_node_outline`,
+`risk_safe`) and looked up on the active theme, never written as a literal. The vocabulary and the
+light/dark palettes live in `theme.py`; a widget asks `active_theme.current().color_for('role')` as
+it builds. Both palettes must define **identical roles** (a test enforces this) so any screen is
+fully themeable in either — add a role to *both* or to neither. When a colour carries a distinction
+(direct vs inferred inheritance, safe vs unsafe risk), give each side its own role rather than
+inverting lightness, so the meaning survives in both palettes.
+
+The theme is **resolved once at startup** (configured `appearance.theme` → OS preference via
+`OperatingSystemAppearance` → light default) and **fixed for the session** — changing it means
+restarting. There is deliberately no on-the-fly switch: that would need a re-apply path through
+every open tool and the diagrams' canvas redraw. Light is the host's **native** look and applies
+no global styling (its per-site colours equal the original appearance, so zero regression); only a
+departing theme (dark) restyles, via `ThemeApplication` — the Tk **option database** for classic-tk
+widgets plus a `clam`-based `ttk.Style` for ttk widgets (the two families don't share a styling
+mechanism). New colour sites read a role; new screens get themed for free.
 
 ---
 
