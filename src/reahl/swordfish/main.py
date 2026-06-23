@@ -5318,6 +5318,15 @@ class Swordfish(tk.Tk):
             help='GemStone stone name to prefill in login form.',
         )
         argument_parser.add_argument(
+            '--theme',
+            default=None,
+            choices=['light', 'dark'],
+            help=(
+                'Override the configured appearance theme for this run '
+                '(otherwise appearance.theme, then the OS preference, then light).'
+            ),
+        )
+        argument_parser.add_argument(
             '--headless-mcp',
             action='store_true',
             default=default_headless_mcp,
@@ -5468,6 +5477,7 @@ class Swordfish(tk.Tk):
             mcp_configuration_store=configuration_store,
             experimental=arguments.experimental,
             activity_log=activity_log,
+            theme_override=arguments.theme,
         )
         app.mainloop()
 
@@ -5479,6 +5489,7 @@ class Swordfish(tk.Tk):
         mcp_configuration_store=None,
         experimental=False,
         activity_log=None,
+        theme_override=None,
     ):
         super().__init__()
         self.action_gate = ActionGate()
@@ -5555,9 +5566,13 @@ class Swordfish(tk.Tk):
         self.session_only_mcp_runtime_config_active = False
 
         # AI: Resolve and apply the colour theme once, before any widgets are built, so every
-        # widget reads the right colours as it constructs itself. Fixed for the session.
+        # widget reads the right colours as it constructs itself. Fixed for the session. A
+        # --theme on the command line overrides the configured appearance.theme; otherwise the
+        # saved config name is used (and the resolver falls through to OS preference, then light).
         self.apply_theme(
-            self.mcp_server_controller.configuration_store.load_theme_name()
+            theme_override
+            if theme_override is not None
+            else self.mcp_server_controller.configuration_store.load_theme_name()
         )
 
         self.event_queue.subscribe('LoggedInSuccessfully', self.show_main_app)
