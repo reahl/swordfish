@@ -5202,6 +5202,11 @@ class BreakpointsPane(Pane):
         # refresh bridge's 'breakpoints' kind -> BreakpointsChanged (the MCP
         # doesn't publish the per-action BreakpointSet/BreakpointCleared events).
         self.event_queue.subscribe('BreakpointsChanged', self.refresh_breakpoints)
+        # AI: A recompile re-applies a method's breakpoints onto the new CompiledMethod,
+        # remapping their offset/step point. MethodsChanged is published by every edit path
+        # (editor save and MCP compile alike), so re-read on it to keep the Offset/Step Point
+        # columns true rather than showing pre-edit values.
+        self.event_queue.subscribe('MethodsChanged', self.refresh_breakpoints)
         self.refresh_breakpoints()
 
     def refresh_breakpoints(self, origin=None):

@@ -104,6 +104,33 @@ def test_setting_same_breakpoint_twice_reuses_existing_entry():
     assert compiled_method.breakpoints_set == [2]
 
 
+def test_recompiling_a_method_reapplies_its_breakpoint_to_the_new_method():
+    """AI: A recompile installs a brand-new CompiledMethod, so a breakpoint set on the old
+    one is orphaned - the image stops honouring it while the IDE still shows it as set.
+    Re-applying maps the breakpoint's stored source offset onto the NEW method's step points
+    and re-installs the break there, so editing a method never silently disarms its
+    breakpoint."""
+    clear_all_breakpoints()
+    original_method = FakeCompiledMethod([5, 14, 30])
+    gemstone_class = FakeGemstoneClass(original_method)
+    gemstone_session = FakeGemstoneSession({"ExampleClass": gemstone_class})
+    browser_session = GemstoneBrowserSession(gemstone_session)
+    browser_session.set_breakpoint("ExampleClass", "exampleMethod", True, 14)
+    assert original_method.breakpoints_set == [2]
+
+    # AI: The recompile: a new CompiledMethod whose step-point offsets have shifted.
+    new_method = FakeCompiledMethod([5, 20, 36])
+    gemstone_class.compiled_method = new_method
+    browser_session.reapply_breakpoints_for_method("ExampleClass", True, "exampleMethod")
+
+    # AI: The break is re-installed on the NEW method at the step point nearest the stored
+    # AI: offset, and the registry entry tracks the new step point so the marker stays true.
+    assert new_method.breakpoints_set == [2]
+    reapplied_breakpoint = browser_session.list_breakpoints()[0]
+    assert reapplied_breakpoint["step_point"] == 2
+    assert reapplied_breakpoint["source_offset"] == 20
+
+
 def test_clear_breakpoint_at_cursor_offset_removes_matching_breakpoint():
     clear_all_breakpoints()
     compiled_method = FakeCompiledMethod([5, 14, 30])

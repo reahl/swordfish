@@ -117,6 +117,25 @@ def remove_breakpoint_for_session(gemstone_session, breakpoint_id):
     return dict(breakpoint_entry)
 
 
+def update_breakpoint_location(
+    gemstone_session, breakpoint_id, source_offset, step_point
+):
+    # AI: Move an existing breakpoint to a new source offset / step point while keeping its
+    # identity. Used when a method is recompiled: the step points of the new CompiledMethod
+    # may have shifted, so the recorded location is remapped without minting a new breakpoint.
+    selected_session_key = session_key_for(gemstone_session)
+    session_breakpoints = breakpoints_by_session_key.get(
+        selected_session_key,
+        {},
+    )
+    breakpoint_entry = session_breakpoints.get(breakpoint_id)
+    if breakpoint_entry is None:
+        return None
+    breakpoint_entry["source_offset"] = source_offset
+    breakpoint_entry["step_point"] = step_point
+    return dict(breakpoint_entry)
+
+
 def clear_breakpoints_for_session(gemstone_session):
     selected_session_key = session_key_for(gemstone_session)
     session_breakpoints = breakpoints_by_session_key.pop(
