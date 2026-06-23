@@ -1,0 +1,8 @@
+
+Do something re config - split it into site-wide/user? Add a config window that can save the editable parts?
+
+More than one instance of Find/Diagrams with a way to hide the unnecessary parts
+
+Bug: what happens to breakpoints when:
+ - you compile a method that has a breakoint in it
+ - when you continue

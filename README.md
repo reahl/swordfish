@@ -76,7 +76,16 @@ swordfish
 
 # Or if installed from source
 python -m swordfish
+
+# Force the appearance theme for this run, overriding the saved config
+swordfish --theme dark
+swordfish --theme light
 ```
+
+The colour theme is resolved at startup and fixed for the session. `--theme`
+overrides the configured `appearance.theme`; without it the saved config is
+used, falling through to the operating system's light/dark preference and then
+a light default.
 
 ## MCP
 
