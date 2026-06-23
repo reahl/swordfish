@@ -3921,6 +3921,55 @@ def test_breakpoints_pane_refreshes_on_breakpoints_changed(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_breakpoints_pane_refreshes_when_a_method_is_recompiled(fixture):
+    """AI: Recompiling a method re-applies its breakpoint onto the new CompiledMethod,
+    remapping its offset/step point. The pane re-reads on the method-change event (published
+    by both editor saves and MCP compiles) so its Offset/Step Point columns track the edit
+    rather than showing pre-edit values for a breakpoint that is in fact still effective."""
+    fixture.simulate_login()
+    fixture.session_record.list_breakpoints = Mock(
+        return_value=[
+            {
+                "breakpoint_id": "bp-1",
+                "class_name": "OrderLine",
+                "show_instance_side": True,
+                "method_selector": "total",
+                "source_offset": 42,
+                "step_point": 3,
+            }
+        ]
+    )
+    breakpoints_pane = fixture.app.open_breakpoints_dialog()
+    fixture.app.update()
+    original_values = breakpoints_pane.breakpoint_list.item(
+        breakpoints_pane.breakpoint_list.get_children()[0], "values"
+    )
+    assert original_values[3] == "42"
+
+    # AI: The recompile re-applied the breakpoint at a shifted offset / step point.
+    fixture.session_record.list_breakpoints = Mock(
+        return_value=[
+            {
+                "breakpoint_id": "bp-1",
+                "class_name": "OrderLine",
+                "show_instance_side": True,
+                "method_selector": "total",
+                "source_offset": 58,
+                "step_point": 4,
+            }
+        ]
+    )
+    fixture.app.event_queue.publish("MethodsChanged")
+    fixture.app.update()
+
+    refreshed_values = breakpoints_pane.breakpoint_list.item(
+        breakpoints_pane.breakpoint_list.get_children()[0], "values"
+    )
+    assert refreshed_values[3] == "58"
+    assert refreshed_values[4] == "4"
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_breakpoints_model_change_kind_publishes_breakpoints_changed(fixture):
     """AI: The 'breakpoints' model-change kind (requested by the MCP breakpoint
     tools through the refresh bridge) publishes BreakpointsChanged, so the IDE's

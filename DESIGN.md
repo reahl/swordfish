@@ -152,6 +152,14 @@ change events; snapshot views (diagrams, inspector) opt into a generic `RefreshF
 adding behaviour that several components care about, **add an event**, don't wire direct
 cross-references. See `EventQueue` in `main.py` and `reference_mcp_ide_refresh_bridge`.
 
+Breakpoints follow this rule concretely. A breakpoint binds to a `CompiledMethod`, which a
+recompile replaces — so a recompile **re-applies** the method's breakpoints onto the new method
+(remapping each to the step point nearest its stored source offset): an edit never silently
+disarms a breakpoint the user can still see. Every view that shows them re-reads on the typed
+events — the editor gutter and the **debugger frame pane** (the same `CodePanel`, so it marks the
+displayed frame's method) on method display, and the **Breakpoints pane** on
+`MethodsChanged`/`BreakpointsChanged`.
+
 ### One shared GemStone session; gem work off the UI thread
 There is one `ide-session` and it runs **one GCI call at a time**. Long gem work runs on a
 **worker thread** (never the Tk UI thread); results are marshalled back and all widget updates
