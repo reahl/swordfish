@@ -12,6 +12,7 @@ from reahl.swordfish.gemstone.breakpoint_registry import (
     list_breakpoints_for_session,
     record_breakpoint_for_session,
     remove_breakpoint_for_session,
+    update_breakpoint_location,
 )
 from reahl.swordfish.gemstone.session import DomainException, render_result
 from reahl.swordfish.gemstone.smalltalk_method_parser import (
@@ -1967,6 +1968,14 @@ class GemstoneBrowserSession:
             self.mirror_compiled_method(
                 class_name, show_instance_side, source, method_category, selector, previous_source
             )
+        # AI: A recompile installs a new CompiledMethod, so re-apply any breakpoints the user
+        # set on this method - otherwise the edit leaves them shown-but-dead (orphaned on the
+        # old method). Covers every edit that routes through compile_method (IDE save, MCP).
+        recompiled_selector = self.mirrored_selector(source)
+        if recompiled_selector is not None:
+            self.reapply_breakpoints_for_method(
+                class_name, show_instance_side, recompiled_selector
+            )
         return compile_result
 
     def effective_method_category(
@@ -2501,6 +2510,47 @@ class GemstoneBrowserSession:
             selected_source_offset,
             step_point,
         )
+
+    def reapply_breakpoints_for_method(
+        self, class_name, show_instance_side, method_selector
+    ):
+        # AI: A recompile installs a NEW CompiledMethod, orphaning any in-image break set on
+        # the old one - the image stops honouring it while the IDE still shows it as set.
+        # Re-install each registered breakpoint for this method on the new CompiledMethod,
+        # remapping its stored source offset to a step point of the new method, so an edit
+        # never silently disarms a breakpoint that the user can still see.
+        matching_breakpoints = [
+            breakpoint_entry
+            for breakpoint_entry in self.list_breakpoints()
+            if breakpoint_entry["class_name"] == class_name
+            and breakpoint_entry["show_instance_side"] == show_instance_side
+            and breakpoint_entry["method_selector"] == method_selector
+        ]
+        if not matching_breakpoints:
+            return []
+        compiled_method = self.get_compiled_method(
+            class_name,
+            method_selector,
+            show_instance_side,
+        )
+        offsets = self.source_offsets_for_compiled_method(compiled_method)
+        reapplied_breakpoints = []
+        for breakpoint_entry in matching_breakpoints:
+            step_point = self.step_point_for_source_offset(
+                offsets, breakpoint_entry["source_offset"]
+            )
+            compiled_method.perform(
+                "setBreakAtStepPoint:",
+                self.gemstone_session.from_py(step_point),
+            )
+            updated_breakpoint = update_breakpoint_location(
+                self.gemstone_session,
+                breakpoint_entry["breakpoint_id"],
+                offsets[step_point - 1],
+                step_point,
+            )
+            reapplied_breakpoints.append(updated_breakpoint)
+        return reapplied_breakpoints
 
     def clear_breakpoint(self, breakpoint_id):
         breakpoint_entry = breakpoint_for_session(
