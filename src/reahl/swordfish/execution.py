@@ -1034,10 +1034,7 @@ class DebuggerWindow(ttk.PanedWindow):
             first_iid = str(first_frame.level)
             self.listbox.selection_set(first_iid)
             self.listbox.focus(first_iid)
-            self.code_panel.refresh(
-                first_frame.method_source,
-                mark=first_frame.step_point_offset,
-            )
+            self.present_frame_source(first_frame)
             self.refresh_explorer(first_frame)
 
     def refresh_explorer(self, frame):
@@ -1063,7 +1060,7 @@ class DebuggerWindow(ttk.PanedWindow):
                 'DebuggerFrameSelected',
                 log_context={'frame_level': self.selected_frame_level()},
             )
-            self.code_panel.refresh(frame.method_source, mark=frame.step_point_offset)
+            self.present_frame_source(frame)
             self.refresh_explorer(frame)
 
     def open_method_from_selected_frame(self, event):
@@ -1281,6 +1278,14 @@ class DebuggerWindow(ttk.PanedWindow):
             return None
         return class_name, show_instance_side, frame.method_name
 
+    def present_frame_source(self, frame):
+        # AI: Show a frame's source in the debugger pane AND adopt the frame's method identity,
+        # so the shared CodePanel paints breakpoint markers for that method (it keys markers off
+        # its method context). Non-method activations (executed doIts, blocks) have no identity,
+        # so frame_method_context returns None and any stale context is cleared.
+        self.code_panel.tab_key = self.frame_method_context(frame)
+        self.code_panel.refresh(frame.method_source, mark=frame.step_point_offset)
+
     def frame_categories(self, frame, class_category_by_name):
         # AI: Resolve the class category (package_name) and method category for a
         # AI: stack frame, mirroring frame_method_context's handling of the
@@ -1448,7 +1453,7 @@ class DebuggerWindow(ttk.PanedWindow):
         # frame's method source (with its step-point highlight).
         frame = self.get_selected_stack_frame()
         if frame is not None:
-            self.code_panel.refresh(frame.method_source, mark=frame.step_point_offset)
+            self.present_frame_source(frame)
         return 'break'
 
     def level_of_frame_running(self, method_context):
