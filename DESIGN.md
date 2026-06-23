@@ -130,8 +130,9 @@ fully themeable in either — add a role to *both* or to neither. When a colour 
 (direct vs inferred inheritance, safe vs unsafe risk), give each side its own role rather than
 inverting lightness, so the meaning survives in both palettes.
 
-The theme is **resolved once at startup** (configured `appearance.theme` → OS preference via
-`OperatingSystemAppearance` → light default) and **fixed for the session** — changing it means
+The theme is **resolved once at startup** (the `--theme` command-line flag overrides the
+configured `appearance.theme`, which overrides the OS preference via `OperatingSystemAppearance`,
+falling through to a light default) and **fixed for the session** — changing it means
 restarting. There is deliberately no on-the-fly switch: that would need a re-apply path through
 every open tool and the diagrams' canvas redraw. Light is the host's **native** look and applies
 no global styling (its per-site colours equal the original appearance, so zero regression); only a

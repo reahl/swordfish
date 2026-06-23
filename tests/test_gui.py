@@ -2681,6 +2681,39 @@ def test_run_application_uses_cli_stone_name_when_given():
     swordfish_mainloop.assert_called_once()
 
 
+def test_run_application_passes_theme_override_from_command_line():
+    """AI: A --theme on the command line overrides the configured appearance.theme: it reaches
+    Swordfish as theme_override, the higher-priority source of the 'configured theme name' that
+    the one theme resolver then honours over the saved config."""
+    with patch.object(Swordfish, "__init__", return_value=None) as init_swordfish:
+        with patch.object(Swordfish, "mainloop"):
+            with patch.object(
+                McpConfigurationStore,
+                "merged_config_from_arguments",
+                return_value=McpRuntimeConfig(),
+            ):
+                with patch("sys.argv", ["swordfish", "--theme", "dark"]):
+                    Swordfish.run()
+    swordfish_call_arguments = init_swordfish.call_args.kwargs
+    assert swordfish_call_arguments["theme_override"] == "dark"
+
+
+def test_run_application_has_no_theme_override_without_the_command_line_flag():
+    """AI: Without --theme there is no override, so the configured appearance.theme (then OS, then
+    light) is left to decide; the absence is signalled as None, not a guessed default."""
+    with patch.object(Swordfish, "__init__", return_value=None) as init_swordfish:
+        with patch.object(Swordfish, "mainloop"):
+            with patch.object(
+                McpConfigurationStore,
+                "merged_config_from_arguments",
+                return_value=McpRuntimeConfig(),
+            ):
+                with patch("sys.argv", ["swordfish"]):
+                    Swordfish.run()
+    swordfish_call_arguments = init_swordfish.call_args.kwargs
+    assert swordfish_call_arguments["theme_override"] is None
+
+
 def test_run_application_uses_saved_mcp_config_when_no_cli_runtime_overrides():
     """AI: run_application should load saved MCP runtime settings when no explicit MCP CLI overrides are supplied."""
     saved_runtime_config = McpRuntimeConfig(
