@@ -1780,6 +1780,21 @@ class McpConfigurationStore:
         else:
             return None
 
+    def load_tab_spacing(self):
+        # AI: The configured editor tab stop width in spaces. Read from appearance.tab_spacing.
+        # Accepts any positive integer; defaults to 4 when absent or invalid.
+        payload = self.config_payload()
+        if payload is None:
+            return 4
+        appearance = payload.get('appearance')
+        if isinstance(appearance, dict):
+            tab_spacing = appearance.get('tab_spacing')
+        else:
+            tab_spacing = None
+        if isinstance(tab_spacing, int) and not isinstance(tab_spacing, bool) and tab_spacing > 0:
+            return tab_spacing
+        return 4
+
     def load_login_gemstone_script_source(self):
         payload = self.config_payload()
         if payload is None:
@@ -5602,6 +5617,9 @@ class Swordfish(tk.Tk):
             theme_override
             if theme_override is not None
             else self.mcp_server_controller.configuration_store.load_theme_name()
+        )
+        self.tab_spacing = (
+            self.mcp_server_controller.configuration_store.load_tab_spacing()
         )
 
         self.event_queue.subscribe('LoggedInSuccessfully', self.show_main_app)

@@ -13,6 +13,7 @@ def test_debugger_context_menu_includes_breakpoint_commands():
     root.withdraw()
     try:
         fake_app = types.SimpleNamespace(
+            tab_spacing=4,
             integrated_session_state=types.SimpleNamespace(is_mcp_busy=lambda: False),
             debugger_tab=None,
             experimental_features_enabled=False,

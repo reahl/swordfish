@@ -1,6 +1,7 @@
 import json
 import re
 import tkinter as tk
+import tkinter.font as tkfont
 import tkinter.messagebox as messagebox
 import tkinter.simpledialog as simpledialog
 from tkinter import ttk
@@ -638,7 +639,9 @@ class CodePanel(tk.Frame):
         self.is_refreshing = False
         self.chord_pending = False
 
-        self.text_editor = tk.Text(self, tabs=('4',), wrap='none', undo=True)
+        self.text_editor = tk.Text(self, wrap='none', undo=True)
+        _tab_font = tkfont.Font(font=self.text_editor.cget('font'))
+        self.text_editor.configure(tabs=(_tab_font.measure(' ' * application.tab_spacing),))
         self.text_editor.bind('<<Modified>>', self.notify_text_changed)
         self.editable_text = EditableText(self.text_editor, self)
 
