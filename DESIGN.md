@@ -160,6 +160,18 @@ events — the editor gutter and the **debugger frame pane** (the same `CodePane
 displayed frame's method) on method display, and the **Breakpoints pane** on
 `MethodsChanged`/`BreakpointsChanged`.
 
+**Step-point and breakpoint markers are visually independent.** The current step point (where
+execution is paused) is shown as a character **background highlight** (`step_point_background`
+theme role) **plus underline**. A breakpoint on the same character uses a distinct background
+colour (`breakpoint_background`). Because both use `background`, the breakpoint's colour wins
+when they coincide — but the **underline** comes from the step-point tag and is unaffected by
+tag priority, so both are always visible simultaneously. Do not remove the underline from the
+step-point tag; without it, landing on a breakpoint makes the step position invisible.
+Breakpoint markers are applied once when source loads and tracked by Tk as the user edits; they
+are **not** re-applied on every key event (`on_key_release` only re-runs syntax highlighting).
+Set/Clear Breakpoint is available in **both** the regular editor context menu and the debugger
+source-pane context menu.
+
 ### One shared GemStone session; gem work off the UI thread
 There is one `ide-session` and it runs **one GCI call at a time**. Long gem work runs on a
 **worker thread** (never the Tk UI thread); results are marshalled back and all widget updates
