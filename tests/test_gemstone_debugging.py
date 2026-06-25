@@ -130,19 +130,22 @@ class FakeRestartFrameContext:
         self.trim_selector_used = None
         self.trimmed_to = None
 
-    def respondsTo_(self, symbol):
+    def respondsTo(self, symbol):
         _, selector = symbol
         return FakeGemBool(self.has_public_trim and selector == 'trimStackToLevel:')
 
-    def trimStackToLevel_(self, wrapped_level):
+    def trimStackToLevel(self, wrapped_level):
         self.trim_selector_used = 'trimStackToLevel:'
         self.trimmed_to = wrapped_level
         return 'trimmed'
 
-    def _trimStackToLevel_(self, wrapped_level):
-        self.trim_selector_used = '_trimStackToLevel:'
-        self.trimmed_to = wrapped_level
-        return 'trimmed'
+    def perform(self, selector, wrapped_level):
+        _, selector_name = selector
+        if selector_name == '_trimStackToLevel:':
+            self.trim_selector_used = '_trimStackToLevel:'
+            self.trimmed_to = wrapped_level
+            return 'trimmed'
+        raise AssertionError('AI: Unexpected selector in perform: %s' % selector_name)
 
 
 class FakeRestartFrameException:
