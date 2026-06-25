@@ -1539,6 +1539,16 @@ SWORDFISH_CONFIG_FILE_NAME = "swordfish.json"
 MCP_PERMISSION_POLICY_CONFIG_NAME = "mcp_permission_policy"
 MCP_PERMISSION_POLICY_SOURCE_NAME = "allow_session_permission_changes_condition_source"
 LOGIN_CONFIG_NAME = "login"
+PERMISSION_SETTING_KEYS = frozenset({
+    'allow_source_read',
+    'allow_source_write',
+    'allow_eval_arbitrary',
+    'allow_test_execution',
+    'allow_ide_read',
+    'allow_ide_write',
+    'allow_commit',
+    'allow_tracing',
+})
 LOGIN_GEMSTONE_SCRIPT_SOURCE_NAME = "gemstone_script_source"
 GEMSTONE_EXE_CONF_CONFIG_NAME = "gemstone_exe_conf"
 
@@ -1918,6 +1928,20 @@ class McpConfigurationStore:
         )
         if len(explicit_overrides) < 1:
             return persisted_runtime_config.copy()
+        if not self.can_write_config():
+            blocked_keys = [k for k in explicit_overrides if k in PERMISSION_SETTING_KEYS]
+            for key in blocked_keys:
+                print(
+                    f"Warning: permission setting '{key}' ignored: "
+                    "config file is read-only and permission overrides are not allowed.",
+                    file=sys.stderr,
+                )
+            explicit_overrides = {
+                k: v for k, v in explicit_overrides.items()
+                if k not in PERMISSION_SETTING_KEYS
+            }
+            if len(explicit_overrides) < 1:
+                return persisted_runtime_config.copy()
         merged_runtime_config = persisted_runtime_config.copy()
         merged_runtime_config.update_with(
             allow_source_read=(
