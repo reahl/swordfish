@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import tempfile
@@ -2805,6 +2806,107 @@ def test_run_application_cli_runtime_overrides_take_precedence_over_saved_mcp_co
     assert resolved_runtime_config.mcp_host == "127.0.0.1"
     assert resolved_runtime_config.mcp_port == 8123
     assert resolved_runtime_config.mcp_http_path == "/saved"
+
+
+def test_cli_permission_overrides_are_ignored_with_warning_when_config_is_read_only():
+    """AI: CLI permission flags must not override a read-only config — the same gate that locks the UI should lock the CLI."""
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        with patch.dict(os.environ, {'XDG_CONFIG_HOME': temporary_directory}):
+            configuration_store = McpConfigurationStore()
+            persisted_config = McpRuntimeConfig(
+                allow_source_read=False,
+                allow_source_write=False,
+                allow_eval_arbitrary=False,
+                allow_test_execution=False,
+                allow_ide_read=False,
+                allow_ide_write=False,
+                allow_commit=False,
+                allow_tracing=False,
+                mcp_host='10.0.0.5',
+                mcp_port=9177,
+                mcp_http_path='/saved',
+            )
+            configuration_store.save(persisted_config)
+            arguments = types.SimpleNamespace(
+                allow_source_read=True,
+                allow_source_write=True,
+                allow_eval_arbitrary=True,
+                allow_test_execution=True,
+                allow_ide_read=True,
+                allow_ide_write=True,
+                allow_commit=True,
+                allow_tracing=True,
+                mcp_host='127.0.0.1',
+                mcp_port=8000,
+                mcp_http_path='/mcp',
+            )
+            argument_tokens = [
+                '--allow-source-read',
+                '--allow-source-write',
+                '--allow-eval-arbitrary',
+                '--allow-test-execution',
+                '--allow-ide-read',
+                '--allow-ide-write',
+                '--allow-commit',
+                '--allow-tracing',
+            ]
+            stderr_capture = io.StringIO()
+            with patch.object(configuration_store, 'can_write_config', return_value=False):
+                with patch('sys.stderr', stderr_capture):
+                    result_config = configuration_store.merged_config_from_arguments(
+                        arguments, argument_tokens=argument_tokens
+                    )
+            assert not result_config.allow_source_read
+            assert not result_config.allow_source_write
+            assert not result_config.allow_eval_arbitrary
+            assert not result_config.allow_test_execution
+            assert not result_config.allow_ide_read
+            assert not result_config.allow_ide_write
+            assert not result_config.allow_commit
+            assert not result_config.allow_tracing
+            warning_text = stderr_capture.getvalue()
+            assert 'allow_source_read' in warning_text
+            assert 'allow_source_write' in warning_text
+            assert 'allow_eval_arbitrary' in warning_text
+            assert 'allow_test_execution' in warning_text
+            assert 'allow_ide_read' in warning_text
+            assert 'allow_ide_write' in warning_text
+            assert 'allow_commit' in warning_text
+            assert 'allow_tracing' in warning_text
+
+
+def test_cli_connectivity_overrides_still_apply_when_config_is_read_only():
+    """AI: CLI host/port/path flags should still take effect even when the config file is read-only — only permission flags are blocked."""
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        with patch.dict(os.environ, {'XDG_CONFIG_HOME': temporary_directory}):
+            configuration_store = McpConfigurationStore()
+            persisted_config = McpRuntimeConfig(
+                mcp_host='10.0.0.5',
+                mcp_port=9177,
+                mcp_http_path='/saved',
+            )
+            configuration_store.save(persisted_config)
+            arguments = types.SimpleNamespace(
+                allow_source_read=True,
+                allow_source_write=False,
+                allow_eval_arbitrary=False,
+                allow_test_execution=False,
+                allow_ide_read=True,
+                allow_ide_write=False,
+                allow_commit=False,
+                allow_tracing=False,
+                mcp_host='127.0.0.1',
+                mcp_port=8123,
+                mcp_http_path='/new-path',
+            )
+            argument_tokens = ['--mcp-host', '127.0.0.1', '--mcp-port', '8123', '--mcp-http-path', '/new-path']
+            with patch.object(configuration_store, 'can_write_config', return_value=False):
+                result_config = configuration_store.merged_config_from_arguments(
+                    arguments, argument_tokens=argument_tokens
+                )
+            assert result_config.mcp_host == '127.0.0.1'
+            assert result_config.mcp_port == 8123
+            assert result_config.mcp_http_path == '/new-path'
 
 
 def test_run_application_starts_headless_mcp_when_headless_flag_is_set():

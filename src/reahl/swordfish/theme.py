@@ -307,6 +307,7 @@ class ThemeApplication:
         control_background = theme.color_for('control_background')
         border = theme.color_for('border')
         editor_cursor = theme.color_for('editor_cursor')
+        status_muted = theme.color_for('status_muted')
         style = ttk.Style(self.tk_root)
         style.theme_use('clam')
         style.configure(
@@ -343,8 +344,12 @@ class ThemeApplication:
         )
         style.map(
             'TCheckbutton',
+            background=[('disabled', window_background), ('active', window_background)],
+            foreground=[('disabled', status_muted), ('active', window_foreground)],
             indicatorcolor=[
+                ('disabled', border),
                 ('selected', select_background),
+                ('active !selected', editor_background),
                 ('!selected', editor_background),
             ],
         )
@@ -353,8 +358,12 @@ class ThemeApplication:
         )
         style.map(
             'TRadiobutton',
+            background=[('disabled', window_background), ('active', window_background)],
+            foreground=[('disabled', status_muted), ('active', window_foreground)],
             indicatorcolor=[
+                ('disabled', border),
                 ('selected', select_background),
+                ('active !selected', editor_background),
                 ('!selected', editor_background),
             ],
         )
