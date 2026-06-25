@@ -54,11 +54,13 @@ class McpToolRegistrar:
 class RunningStoneFixture(Fixture):
     @set_up
     def ensure_gemstone_environment(self):
-        assert os.environ.get("GEMSTONE"), (
-            "AI: GEMSTONE environment is required for live integration tests. "
-            "Run tests from a shell that sourced ~/.profile."
+        assert os.environ.get('GEMSTONE'), (
+            'AI: GEMSTONE environment is required for live integration tests. '
+            'Run tests from a shell that sourced ~/.profile.'
         )
         self.stone_started_by_fixture = False
+
+    
 
     @set_up
     def ensure_stone_running(self):
