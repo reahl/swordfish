@@ -693,7 +693,11 @@ class CodePanel(tk.Frame):
         self.text_editor.tag_configure('smalltalk_number', foreground=theme.color_for('syntax_number'))
         self.text_editor.tag_configure('smalltalk_selector', foreground=theme.color_for('syntax_selector'))
         self.text_editor.tag_configure('smalltalk_character', foreground=theme.color_for('syntax_character'))
-        self.text_editor.tag_configure('highlight', background=theme.color_for('selection_highlight'))
+        self.text_editor.tag_configure(
+            'highlight',
+            background=theme.color_for('step_point_background'),
+            underline=True,
+        )
         self.text_editor.tag_configure(
             'breakpoint_marker',
             background=theme.color_for('breakpoint_background'),
@@ -929,6 +933,14 @@ class CodePanel(tk.Frame):
                 label='Cancel',
                 command=debugger_tab.cancel_current_frame_method,
                 state=write_command_state,
+            )
+            self.current_context_menu.add_command(
+                label='Set Breakpoint Here',
+                command=self.set_breakpoint_at_cursor,
+            )
+            self.current_context_menu.add_command(
+                label='Clear Breakpoint Here',
+                command=self.clear_breakpoint_at_cursor,
             )
             self.current_context_menu.add_separator()
         selected_text = self.selected_text()
@@ -2223,7 +2235,6 @@ class CodePanel(tk.Frame):
     def on_key_release(self, event):
         text = self.text_editor.get('1.0', tk.END)
         self.apply_syntax_highlighting(text)
-        self.apply_breakpoint_markers(text)
 
     def line_and_column_for_source_offset(self, source_offset):
         source_text = self.text_editor.get('1.0', 'end-1c')
