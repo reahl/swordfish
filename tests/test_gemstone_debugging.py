@@ -110,19 +110,39 @@ class FakeRestartFrameSession:
         self.from_py_calls = []
 
     def from_py(self, value):
-        wrapped_level = ("wrapped-level", value)
+        wrapped_level = ('wrapped-level', value)
         self.from_py_calls.append(value)
         return wrapped_level
 
+    def new_symbol(self, selector):
+        return ('symbol', selector)
+
+
+class FakeGemBool:
+    def __init__(self, value):
+        self.to_py = value
+
 
 class FakeRestartFrameContext:
-    def __init__(self, session):
+    def __init__(self, session, has_public_trim=True):
         self.session = session
-        self.perform_calls = []
+        self.has_public_trim = has_public_trim
+        self.trim_selector_used = None
+        self.trimmed_to = None
 
-    def perform(self, selector, wrapped_level):
-        self.perform_calls.append((selector, wrapped_level))
-        return "trimmed"
+    def respondsTo_(self, symbol):
+        _, selector = symbol
+        return FakeGemBool(self.has_public_trim and selector == 'trimStackToLevel:')
+
+    def trimStackToLevel_(self, wrapped_level):
+        self.trim_selector_used = 'trimStackToLevel:'
+        self.trimmed_to = wrapped_level
+        return 'trimmed'
+
+    def _trimStackToLevel_(self, wrapped_level):
+        self.trim_selector_used = '_trimStackToLevel:'
+        self.trimmed_to = wrapped_level
+        return 'trimmed'
 
 
 class FakeRestartFrameException:
@@ -131,20 +151,31 @@ class FakeRestartFrameException:
 
 
 def test_restart_frame_result_trims_stack_to_requested_level():
-    """AI: Restart frame trims the suspended stack to the selected level via the
-    PUBLIC trimStackToLevel: (the deprecated _trimStackToLevel: skips ensure-block
-    unwinding); the level is converted through the session."""
+    """AI: On modern GemStone (3.7+), restart frame uses the PUBLIC trimStackToLevel:
+    which runs ensure blocks on discarded frames; level is converted through the session."""
     session = FakeRestartFrameSession()
-    context = FakeRestartFrameContext(session)
+    context = FakeRestartFrameContext(session, has_public_trim=True)
     debug_session = GemstoneDebugSession(FakeRestartFrameException(context))
 
     result = debug_session.restart_frame_result(3)
 
-    assert result == "trimmed"
+    assert result == 'trimmed'
     assert session.from_py_calls == [3]
-    assert context.perform_calls == [
-        ("trimStackToLevel:", ("wrapped-level", 3)),
-    ]
+    assert context.trim_selector_used == 'trimStackToLevel:'
+    assert context.trimmed_to == ('wrapped-level', 3)
+
+
+def test_restart_frame_result_uses_private_trim_on_older_gemstone():
+    """AI: GemStone 3.6.5 only has _trimStackToLevel: — fall back to it to avoid an MNU
+    trap that would replace the suspended process context with an error context."""
+    session = FakeRestartFrameSession()
+    context = FakeRestartFrameContext(session, has_public_trim=False)
+    debug_session = GemstoneDebugSession(FakeRestartFrameException(context))
+
+    result = debug_session.restart_frame_result(3)
+
+    assert result == 'trimmed'
+    assert context.trim_selector_used == '_trimStackToLevel:'
 
 
 def test_restart_frame_keeps_debug_session_active_when_trim_succeeds():
