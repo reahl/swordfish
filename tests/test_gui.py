@@ -4,6 +4,7 @@ import os
 import tempfile
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 import tkinter.messagebox as messagebox
 import types
 from tkinter import ttk
@@ -55,6 +56,7 @@ from reahl.swordfish.mcp.integration_state import IntegratedSessionState
 from reahl.swordfish.object_diagram import UmlObjectDiagramNodeDetailDialog
 from reahl.swordfish.pane_area import PaneArea
 from reahl.swordfish.session_activity import ForegroundActivity, McpActivity
+from reahl.swordfish.theme import active_theme
 from reahl.swordfish.text_editing import PINNED_TAB_MARKER
 
 
@@ -283,6 +285,38 @@ class SwordfishGuiFixture(Fixture):
 
         self.mock_browser.get_class_definition.side_effect = get_class_definition
 
+        # AI: accessible_var_names mirrors the live gem: for each variable kind it
+        # lists the class's own variables first (inherited=False) then those from its
+        # superclasses (inherited=True), so the UI can group and grey them.
+        def accessible_var_names(class_name):
+            own_definition = class_definitions.get(class_name)
+            ancestor_definitions = []
+            ancestor_name = (
+                own_definition["superclass_name"] if own_definition else None
+            )
+            while ancestor_name in class_definitions:
+                ancestor_definition = class_definitions[ancestor_name]
+                ancestor_definitions.append(ancestor_definition)
+                ancestor_name = ancestor_definition["superclass_name"]
+
+            def entries_for(kind_key):
+                entries = []
+                if own_definition:
+                    for name in own_definition[kind_key]:
+                        entries.append({"name": name, "inherited": False})
+                for ancestor_definition in ancestor_definitions:
+                    for name in ancestor_definition[kind_key]:
+                        entries.append({"name": name, "inherited": True})
+                return entries
+
+            return {
+                "inst_var_names": entries_for("inst_var_names"),
+                "class_inst_var_names": entries_for("class_inst_var_names"),
+                "class_var_names": entries_for("class_var_names"),
+            }
+
+        self.mock_browser.accessible_var_names.side_effect = accessible_var_names
+
         # AI: get_compiled_method returns an object whose sourceString() method
         # returns an object with a .to_py attribute (the raw Smalltalk source string).
         mock_method = Mock()
@@ -414,6 +448,37 @@ def menu_command_labels(menu):
     for entry_index in range(entry_count):
         if menu.type(entry_index) == "command":
             labels.append(menu.entrycget(entry_index, "label"))
+    return labels
+
+
+def cascade_submenu(menu, cascade_label):
+    """AI: Resolve the submenu Menu widget hung off a cascade entry.
+
+    A cascade entry stores its submenu as a Tk path string under the 'menu'
+    option; nametowidget resolves that back to the child Menu widget.
+    """
+    entry_count = int(menu.index("end")) + 1
+    for entry_index in range(entry_count):
+        if menu.type(entry_index) == "cascade":
+            if menu.entrycget(entry_index, "label") == cascade_label:
+                submenu_path = menu.entrycget(entry_index, "menu")
+                return menu.nametowidget(submenu_path)
+    raise AssertionError(f"Could not find cascade {cascade_label}.")
+
+
+def cascade_submenu_labels(menu, cascade_label):
+    """AI: Return the selectable variable labels of a cascade's submenu.
+
+    Heading rows carry no command (they are inert labels), so filtering to entries
+    that have a command leaves exactly the variable names a user could click.
+    """
+    submenu = cascade_submenu(menu, cascade_label)
+    labels = []
+    entry_count = int(submenu.index("end")) + 1
+    for entry_index in range(entry_count):
+        if submenu.type(entry_index) == "command":
+            if str(submenu.entrycget(entry_index, "command")) != "":
+                labels.append(submenu.entrycget(entry_index, "label"))
     return labels
 
 
@@ -957,6 +1022,20 @@ def test_method_editor_is_a_standalone_tool_built_from_the_application(fixture):
     )
     fixture.select_down_to_method('Kernel', 'OrderLine', 'accessing', 'total')
     assert list(editor.open_tabs.keys()) == [('OrderLine', True, 'total')]
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_auto_format_checkbox_lives_on_editor_navigation_bar(fixture):
+    """AI: Auto-format is a single application-wide checkbox on the editor's navigation
+    bar (alongside Back/Forward), not a per-tab control taking a whole line under every
+    editor tab. Toggling it routes through the application setting."""
+    editor = MethodEditor(fixture.root, fixture.application, fixture.event_queue)
+
+    assert editor.auto_format_control.winfo_parent() == str(editor.navigation_bar)
+
+    fixture.application.set_auto_format = Mock()
+    editor.auto_format_control.invoke()
+    fixture.application.set_auto_format.assert_called_once_with(True)
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -7596,12 +7675,15 @@ def test_find_is_an_icon_button_beside_the_search_box_with_no_per_dialog_stop(fi
     with patch.object(FindPane, "wait_visibility"):
         dialog = FindPane(fixture.app, fixture.app)
 
-    assert dialog.find_button.cget("text") not in ("Find", "")
-    assert int(dialog.find_button.grid_info()["row"]) == int(
-        dialog.find_entry.grid_info()["row"]
+    # AI: Each category tab carries its own icon find button beside its query entry.
+    find_button = dialog.find_buttons[0]
+    query_entry = dialog.query_entries[0]
+    assert find_button.cget("text") not in ("Find", "")
+    assert int(find_button.grid_info()["row"]) == int(
+        query_entry.grid_info()["row"]
     )
-    assert int(dialog.find_button.grid_info()["column"]) > int(
-        dialog.find_entry.grid_info()["column"]
+    assert int(find_button.grid_info()["column"]) > int(
+        query_entry.grid_info()["column"]
     )
     assert not hasattr(dialog, "stop_button")
     dialog.destroy()
@@ -7800,7 +7882,7 @@ def test_find_renders_partial_results_and_a_stopped_status_when_interrupted(fixt
 
     assert dialog.status_var.get() == "Find stopped. Showing partial results."
     assert find_result_labels(dialog) == ["Order0", "Order1", "Order2"]
-    assert str(dialog.find_button.cget("state")) == tk.NORMAL
+    assert str(dialog.find_buttons[0].cget("state")) == tk.NORMAL
     dialog.destroy()
 
 
@@ -7969,8 +8051,11 @@ def test_find_dialog_selector_contains_search_shows_only_a_method_column(fixture
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_find_dialog_shows_search_intent_and_result_action_text(fixture):
-    """AI: Find dialog should show current search intent and result action guidance."""
+def test_find_dialog_intent_selection_drives_legacy_config(fixture):
+    """AI: The single search intent (chosen via the category tabs/variants) drives the
+    hidden search_type/match_mode/reference_target. Opening with method/contains selects
+    the 'Selector containing' intent; choosing the 'Implementors' variant flips the
+    derived config to method/exact."""
     fixture.simulate_login()
     fixture.mock_browser.find_selectors.return_value = ["subtotal", "total"]
     fixture.mock_browser.find_implementors.return_value = [
@@ -7987,20 +8072,16 @@ def test_find_dialog_shows_search_intent_and_result_action_text(fixture):
             match_mode="contains",
         )
 
-    assert dialog.search_intent_var.get() == 'Methods containing selector "total".'
-    assert (
-        dialog.result_action_var.get()
-        == "Double-click a selector to find implementors (exact)."
-    )
+    assert dialog.search_intent.get() == "selector_contains"
+    assert dialog.search_type.get() == "method"
+    assert dialog.match_mode.get() == "contains"
 
-    dialog.match_mode.set("exact")
+    dialog.search_intent.set("implementors")
+    dialog.apply_search_intent()
     dialog.find_text()
 
-    assert dialog.search_intent_var.get() == 'Implementors of method "total".'
-    assert (
-        dialog.result_action_var.get()
-        == "Double-click an implementor to open the method."
-    )
+    assert dialog.search_type.get() == "method"
+    assert dialog.match_mode.get() == "exact"
     dialog.destroy()
 
 
@@ -8031,9 +8112,11 @@ def test_method_contains_double_click_pivots_to_exact_search_in_place(fixture):
     fixture.mock_browser.find_implementors.assert_called_once_with("total")
     assert dialog.winfo_exists() == 1
     assert dialog.match_mode.get() == "exact"
+    # AI: The pivot must also move the visible intent to Implementors, not leave the
+    # 'Selector containing' variant selected while an implementors search is shown.
+    assert dialog.search_intent.get() == "implementors"
     assert dialog.find_entry.get() == "total"
     assert find_result_labels(dialog) == ["OrderLine>>total"]
-    assert dialog.search_intent_var.get() == 'Implementors of method "total".'
     dialog.destroy()
 
 
@@ -8067,7 +8150,7 @@ def test_find_dialog_reference_method_search_is_always_exact(
         )
 
     assert dialog.match_mode.get() == "exact"
-    assert str(dialog.match_contains_radio.cget("state")) == tk.DISABLED
+    assert dialog.search_intent.get() == "method_references"
     fixture.mock_browser.find_selectors.assert_not_called()
     fixture.mock_browser.find_senders.assert_called_once_with(
         "total",
@@ -8107,10 +8190,79 @@ def test_find_dialog_reference_class_search_is_always_exact(
         )
 
     assert dialog.match_mode.get() == "exact"
-    assert str(dialog.match_contains_radio.cget("state")) == tk.DISABLED
+    assert dialog.search_intent.get() == "class_references"
     fixture.mock_browser.find_classes.assert_not_called()
     fixture.mock_browser.find_class_references.assert_called_once_with("Or")
     assert find_result_labels(dialog) == ["OrderBuilder>>fromOrder:"]
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_each_search_intent_derives_its_legacy_config(fixture):
+    """AI: Every named intent must translate to the correct hidden
+    search_type/match_mode/reference_target triple the engine reads — this is the
+    contract that lets one intent control replace the three former radio groups."""
+    fixture.simulate_login()
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    expected = {
+        "class_contains": ("class", "contains", "class"),
+        "class_exact": ("class", "exact", "class"),
+        "class_references": ("reference", "exact", "class"),
+        "implementors": ("method", "exact", "class"),
+        "selector_contains": ("method", "contains", "class"),
+        "method_references": ("reference", "exact", "method"),
+        "instvar_references": ("reference", "exact", "instvar"),
+        "classvar_references": ("reference", "exact", "classvar"),
+    }
+    for intent, (search_type, match_mode, reference_target) in expected.items():
+        dialog.search_intent.set(intent)
+        dialog.apply_search_intent()
+        assert dialog.search_type.get() == search_type
+        assert dialog.match_mode.get() == match_mode
+        assert dialog.reference_target.get() == reference_target
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_switching_category_tab_falls_back_to_first_variant(fixture):
+    """AI: Moving to a category whose variants do not include the current intent must
+    fall back to that category's first variant; staying within the category keeps the
+    current intent. (Tk's notebook selection is not observable headless, so the fallback
+    rule is verified directly and then applied through apply_search_intent.)"""
+    fixture.simulate_login()
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    variable_tab_index = dialog.intent_to_tab_index["instvar_references"]
+    # AI: Coming from a Class-tab intent, switching to Variable picks its first variant.
+    assert dialog.default_intent_for_tab(variable_tab_index) == "instvar_references"
+    # AI: Already on a Variable-tab intent, switching within the tab keeps it.
+    dialog.search_intent.set("classvar_references")
+    assert dialog.default_intent_for_tab(variable_tab_index) == "classvar_references"
+
+    # AI: Applying a variable intent derives the target and reveals the owning-class
+    # entry (checked via the grid manager, which is reliable headless unlike ismapped).
+    dialog.search_intent.set("instvar_references")
+    dialog.apply_search_intent()
+    assert dialog.reference_target.get() == "instvar"
+    assert dialog.instvar_class_entry.grid_info() != {}
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_open_find_dialog_for_classvar_selects_class_var_intent(fixture):
+    """AI: A programmatic class-var open must select the Class var intent (Variable
+    category) so the visible control reflects the search being run."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_classvar_references.return_value = {
+        "references": [], "total_count": 0, "returned_count": 0,
+    }
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = fixture.app.open_find_dialog_for_classvar("Date", "MonthNames")
+
+    assert dialog.search_intent.get() == "classvar_references"
     dialog.destroy()
 
 
@@ -8188,6 +8340,191 @@ def test_find_dialog_double_click_pins_class_reference_method(fixture):
     shown.assert_called_once_with(('Order', False, 'defaultLineClass'), origin=ANY)
     pinned.assert_called_once()
     assert fixture.session_record.selected_class == selection_before
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_open_find_dialog_for_instvar_prefills_controls_and_runs_search(fixture):
+    """AI: open_find_dialog_for_instvar should open the Find pane in reference/instvar
+    mode with class and inst var name pre-filled, and immediately run the search so
+    results appear without the user clicking Find."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_instvar_references.return_value = {
+        'references': [
+            {
+                'class_name': 'Amount',
+                'show_instance_side': True,
+                'method_selector': 'printOn:',
+                'method_category': 'printing',
+            }
+        ],
+        'total_count': 1,
+        'returned_count': 1,
+    }
+    fixture.mock_browser.get_method_category.return_value = 'printing'
+
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = fixture.app.open_find_dialog_for_instvar('Amount', 'currency')
+
+    assert dialog is not None
+    assert dialog.search_type.get() == 'reference'
+    assert dialog.reference_target.get() == 'instvar'
+    assert dialog.match_mode.get() == 'exact'
+    assert dialog.find_entry.get() == 'currency'
+    assert dialog.instvar_class_entry.get() == 'Amount'
+    fixture.mock_browser.find_instvar_references.assert_called_once_with('Amount', 'currency')
+    assert find_result_labels(dialog) == ['Amount>>printOn:']
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_open_find_dialog_for_classvar_runs_classvar_search(fixture):
+    """AI: open_find_dialog_for_classvar must open the Find pane in reference mode with
+    the new 'classvar' target and run find_classvar_references (NOT the inst-var
+    search, which cannot see class variables), pre-filling class and variable name."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_classvar_references.return_value = {
+        'references': [
+            {
+                'class_name': 'Date',
+                'show_instance_side': True,
+                'method_selector': 'monthName',
+                'method_category': 'accessing',
+            }
+        ],
+        'total_count': 1,
+        'returned_count': 1,
+    }
+    fixture.mock_browser.get_method_category.return_value = 'accessing'
+
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = fixture.app.open_find_dialog_for_classvar('Date', 'MonthNames')
+
+    assert dialog is not None
+    assert dialog.search_type.get() == 'reference'
+    assert dialog.reference_target.get() == 'classvar'
+    assert dialog.match_mode.get() == 'exact'
+    assert dialog.find_entry.get() == 'MonthNames'
+    assert dialog.instvar_class_entry.get() == 'Date'
+    fixture.mock_browser.find_classvar_references.assert_called_once_with('Date', 'MonthNames')
+    fixture.mock_browser.find_instvar_references.assert_not_called()
+    assert find_result_labels(dialog) == ['Date>>monthName']
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_dialog_double_click_instvar_result_publishes_highlight_event(fixture):
+    """AI: Double-clicking an inst-var reference result must publish both
+    MethodDisplayRequested (to open the tab) and OccurrenceHighlightRequested (to
+    highlight all occurrences of the inst var in the opened method)."""
+    fixture.simulate_login()
+    fixture.mock_browser.get_method_category.return_value = 'accessing'
+    fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
+        'Kernel'
+    )
+
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    dialog.search_type.set('reference')
+    dialog.reference_target.set('instvar')
+    dialog.populate_instvar_navigation_results([('Amount', True, 'printOn:')], 'currency')
+
+    highlight_handler = Mock()
+    fixture.app.event_queue.subscribe('OccurrenceHighlightRequested', highlight_handler)
+
+    select_find_result(dialog, 'Amount>>printOn:')
+    dialog.on_result_double_click(None)
+    fixture.app.update()
+
+    highlight_handler.assert_called_once_with('currency', origin=ANY)
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_dialog_peek_publishes_highlight_for_reference_result(fixture):
+    """AI: Single-click peek must mark where the searched term occurs, the same cue as
+    opening the method, so a glance at a result shows the references in context."""
+    fixture.simulate_login()
+    fixture.mock_browser.get_method_category.return_value = 'accessing'
+    fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
+        'Kernel'
+    )
+
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    dialog.search_type.set('reference')
+    dialog.reference_target.set('instvar')
+    dialog.populate_instvar_navigation_results([('Amount', True, 'printOn:')], 'currency')
+
+    highlight_handler = Mock()
+    fixture.app.event_queue.subscribe('OccurrenceHighlightRequested', highlight_handler)
+
+    select_find_result(dialog, 'Amount>>printOn:')
+    dialog.peek_selected_result(None)
+    fixture.app.update()
+
+    highlight_handler.assert_called_once_with('currency', origin=ANY)
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_senders_result_highlights_the_sent_selector(fixture):
+    """AI: To be consistent with variable searches, a senders result highlights where the
+    selector is sent: the row carries the selector as its highlight term, so opening the
+    method marks the send."""
+    fixture.simulate_login()
+    fixture.mock_browser.get_method_category.return_value = 'calculating'
+    fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
+        'Kernel'
+    )
+
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    dialog.search_type.set('reference')
+    dialog.reference_target.set('method')
+    dialog.populate_navigation_results(
+        [('OrderLine', True, 'recalculate')], highlight_term='total'
+    )
+
+    highlight_handler = Mock()
+    fixture.app.event_queue.subscribe('OccurrenceHighlightRequested', highlight_handler)
+
+    select_find_result(dialog, 'OrderLine>>recalculate')
+    dialog.on_result_double_click(None)
+    fixture.app.update()
+
+    highlight_handler.assert_called_once_with('total', origin=ANY)
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_dialog_result_without_highlight_term_does_not_publish_highlight_event(fixture):
+    """AI: A result row carrying no highlight term (e.g. an implementors match) must NOT
+    publish a highlight event — the highlight is only for reference-style searches."""
+    fixture.simulate_login()
+    fixture.mock_browser.get_method_category.return_value = 'accessing'
+    fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
+        'Kernel'
+    )
+
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    dialog.search_type.set('reference')
+    dialog.reference_target.set('class')
+    dialog.populate_navigation_results([('Amount', True, 'printOn:')])
+
+    highlight_handler = Mock()
+    fixture.app.event_queue.subscribe('OccurrenceHighlightRequested', highlight_handler)
+
+    select_find_result(dialog, 'Amount>>printOn:')
+    dialog.on_result_double_click(None)
+    fixture.app.update()
+
+    highlight_handler.assert_not_called()
+    dialog.destroy()
 
 
 @with_fixtures(SwordfishAppFixture)
@@ -9948,6 +10285,154 @@ def test_class_list_context_menu_find_references_uses_selected_class_name(
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_class_list_instvar_references_submenu_reflects_the_right_clicked_class(
+    fixture,
+):
+    """AI: The Variable References submenu must list the variables of the class the
+    user right-clicked, even when a different class was right-clicked moments before.
+    Right-clicking does not select, so a class-scoped cache would leak the first
+    class's variables into the second menu; reading fresh per right-click prevents it."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        "Kernel",
+    )
+    classes_widget = fixture.browser_window.classes_widget
+    class_listbox = classes_widget.selection_list.selection_listbox
+
+    def instvar_submenu_labels_after_right_click(class_name):
+        class_index = list(class_listbox.get(0, "end")).index(class_name)
+        class_listbox.see(class_index)
+        fixture.root.update()
+        class_item_box = class_listbox.bbox(class_index)
+        assert class_item_box is not None
+        classes_widget.show_context_menu(
+            types.SimpleNamespace(
+                widget=class_listbox,
+                y=class_item_box[1] + 1,
+                x_root=1,
+                y_root=1,
+            )
+        )
+        return cascade_submenu_labels(
+            classes_widget.current_context_menu,
+            "Variable References",
+        )
+
+    order_line_vars = instvar_submenu_labels_after_right_click("OrderLine")
+    assert order_line_vars == ["amount", "quantity", "lines"]
+
+    order_vars = instvar_submenu_labels_after_right_click("Order")
+    assert order_vars == ["lines"]
+    assert "amount" not in order_vars
+    assert "quantity" not in order_vars
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_variable_references_submenu_marks_kinds_and_inheritance(fixture):
+    """AI: The submenu must let the reader tell the variable kinds and inheritance
+    apart: each kind sits under a bold, non-selectable heading, and inherited
+    variables are shown in the muted colour (yet stay selectable) while the class's
+    own variables render normally."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        "Kernel",
+    )
+    classes_widget = fixture.browser_window.classes_widget
+    class_listbox = classes_widget.selection_list.selection_listbox
+    class_index = list(class_listbox.get(0, "end")).index("OrderLine")
+    class_listbox.see(class_index)
+    fixture.root.update()
+    class_item_box = class_listbox.bbox(class_index)
+    assert class_item_box is not None
+    classes_widget.show_context_menu(
+        types.SimpleNamespace(
+            widget=class_listbox,
+            y=class_item_box[1] + 1,
+            x_root=1,
+            y_root=1,
+        )
+    )
+    submenu = cascade_submenu(
+        classes_widget.current_context_menu,
+        "Variable References",
+    )
+
+    def entry_at(label):
+        entry_count = int(submenu.index("end")) + 1
+        for entry_index in range(entry_count):
+            if submenu.type(entry_index) == "command":
+                if submenu.entrycget(entry_index, "label") == label:
+                    return entry_index
+        raise AssertionError(f"No submenu entry labelled {label}.")
+
+    muted_colour = active_theme.current().color_for("disabled_list_item")
+    heading_index = entry_at("Instance")
+    # AI: The heading is an inert label (no command) but stays in the normal colour
+    # (not greyed) and is underlined rather than bold, so it reads as a section title.
+    assert str(submenu.entrycget(heading_index, "command")) == ""
+    assert str(submenu.entrycget(heading_index, "foreground")) != muted_colour
+    heading_font = tkfont.Font(submenu, font=submenu.entrycget(heading_index, "font"))
+    assert heading_font.actual("underline") == 1
+    assert heading_font.actual("weight") == "normal"
+
+    inherited_index = entry_at("lines")
+    assert str(submenu.entrycget(inherited_index, "foreground")) == muted_colour
+    assert str(submenu.entrycget(inherited_index, "command")) != ""
+
+    own_index = entry_at("amount")
+    assert str(submenu.entrycget(own_index, "foreground")) != muted_colour
+    assert str(submenu.entrycget(own_index, "command")) != ""
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_class_variable_pick_routes_to_classvar_reference_search(fixture):
+    """AI: Choosing a class variable must run the class-variable search, not the
+    instance-variable one (instVarsAccessed cannot see class vars). This is observable
+    as the class-var-specific find entry point being invoked with the class context."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        "Kernel",
+    )
+    classes_widget = fixture.browser_window.classes_widget
+    classes_widget.application.open_find_dialog_for_classvar = Mock()
+    classes_widget.application.open_find_dialog_for_instvar = Mock()
+    # AI: Give OrderLine a class variable for this menu without disturbing the shared
+    # class-definition fixtures used elsewhere.
+    classes_widget.gemstone_session_record.gemstone_browser_session.accessible_var_names.side_effect = (
+        lambda class_name: {
+            "inst_var_names": [{"name": "amount", "inherited": False}],
+            "class_inst_var_names": [],
+            "class_var_names": [{"name": "DefaultRate", "inherited": False}],
+        }
+    )
+    class_listbox = classes_widget.selection_list.selection_listbox
+    class_index = list(class_listbox.get(0, "end")).index("OrderLine")
+    class_listbox.see(class_index)
+    fixture.root.update()
+    class_item_box = class_listbox.bbox(class_index)
+    assert class_item_box is not None
+    classes_widget.show_context_menu(
+        types.SimpleNamespace(
+            widget=class_listbox,
+            y=class_item_box[1] + 1,
+            x_root=1,
+            y_root=1,
+        )
+    )
+    submenu = cascade_submenu(
+        classes_widget.current_context_menu,
+        "Variable References",
+    )
+    invoke_menu_command_by_label(submenu, "DefaultRate")
+
+    classes_widget.application.open_find_dialog_for_classvar.assert_called_once_with(
+        "OrderLine",
+        "DefaultRate",
+    )
+    classes_widget.application.open_find_dialog_for_instvar.assert_not_called()
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_class_hierarchy_context_menu_find_references_uses_selected_class_name(
     fixture,
 ):
@@ -10001,6 +10486,60 @@ def test_class_hierarchy_context_menu_find_references_uses_selected_class_name(
     classes_widget.application.open_find_dialog_for_class.assert_called_once_with(
         "OrderLine",
     )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_class_hierarchy_context_menu_instvar_references_submenu_reflects_clicked_class(
+    fixture,
+):
+    """AI: The hierarchy context menu must offer the same Inst Var References submenu
+    as the class list, listing the clicked class's accessible variables (own and
+    inherited). This keeps the two views of the class set consistent."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        "Kernel",
+    )
+    fixture.select_in_listbox(
+        fixture.browser_window.classes_widget.selection_list.selection_listbox,
+        "OrderLine",
+    )
+    classes_widget = fixture.browser_window.classes_widget
+    classes_widget.classes_notebook.select(classes_widget.hierarchy_frame)
+    fixture.root.update()
+    tree = classes_widget.hierarchy_tree
+
+    def child_with_text(parent_item, expected_text):
+        child_item_ids = tree.get_children(parent_item)
+        for child_item_id in child_item_ids:
+            if tree.item(child_item_id, "text") == expected_text:
+                return child_item_id
+        raise AssertionError(
+            f"Could not find {expected_text} under {parent_item}.",
+        )
+
+    object_item = child_with_text("", "Object")
+    order_item = child_with_text(object_item, "Order")
+    order_line_item = child_with_text(order_item, "OrderLine")
+    tree.selection_set(order_line_item)
+    tree.focus(order_line_item)
+    tree.see(order_line_item)
+    fixture.root.update()
+    order_line_box = tree.bbox(order_line_item)
+    assert order_line_box not in [None, ""]
+
+    classes_widget.show_hierarchy_context_menu(
+        types.SimpleNamespace(
+            widget=tree,
+            y=order_line_box[1] + 1,
+            x_root=1,
+            y_root=1,
+        )
+    )
+    instvar_labels = cascade_submenu_labels(
+        classes_widget.current_context_menu,
+        "Variable References",
+    )
+    assert instvar_labels == ["amount", "quantity", "lines"]
 
 
 @with_fixtures(SwordfishGuiFixture)

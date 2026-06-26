@@ -707,6 +707,10 @@ class CodePanel(tk.Frame):
             background=theme.color_for('breakpoint_background'),
             foreground=theme.color_for('breakpoint_foreground'),
         )
+        self.text_editor.tag_configure(
+            'occurrence_highlight',
+            background=theme.color_for('reference_highlight_background'),
+        )
 
         self.text_editor.bind('<Control-a>', self.select_all_text_editor)
         self.text_editor.bind('<Control-A>', self.select_all_text_editor)
@@ -2230,6 +2234,34 @@ class CodePanel(tk.Frame):
                     f'1.0 + {token.end_offset} chars',
                 )
 
+    def apply_occurrence_highlight(self, search_term):
+        # AI: Highlights every occurrence of search_term in the source. It serves all
+        # reference searches, not only instance variables: a variable/class name or a
+        # unary selector is a unary_or_identifier token, a keyword selector (e.g.
+        # printOn:) is a keyword_message_part token, and a binary selector is a
+        # binary_selector token, so we match search_term against the text of any of
+        # those kinds. (Multi-keyword selectors such as at:put: are several tokens and
+        # are not highlighted as a unit -- matching whole-token avoids false positives.)
+        self.text_editor.tag_remove('occurrence_highlight', '1.0', tk.END)
+        if not search_term:
+            return
+        highlightable_kinds = (
+            SmalltalkTokenKind.unary_or_identifier,
+            SmalltalkTokenKind.keyword_message_part,
+            SmalltalkTokenKind.binary_selector,
+        )
+        text = self.text_editor.get('1.0', tk.END)
+        for token in self.source_scanner.scan_tokens(text):
+            if token.kind in highlightable_kinds and token.text == search_term:
+                self.text_editor.tag_add(
+                    'occurrence_highlight',
+                    f'1.0 + {token.start_offset} chars',
+                    f'1.0 + {token.end_offset} chars',
+                )
+
+    def clear_occurrence_highlight(self):
+        self.text_editor.tag_remove('occurrence_highlight', '1.0', tk.END)
+
     def token_tag_for_kind(self, kind):
         return SYNTAX_TOKEN_TAGS.get(kind)
 
@@ -2350,13 +2382,9 @@ class EditorTab(tk.Frame):
         )
         self.code_panel.grid(row=0, column=0, sticky='nsew')
 
-        self.auto_format_var = tk.BooleanVar(value=application.auto_format)
-        auto_format_control = ttk.Checkbutton(
-            self, text='Auto format', variable=self.auto_format_var,
-            command=lambda: application.set_auto_format(self.auto_format_var.get())
-        )
-        auto_format_control.grid(row=1, column=0, sticky='w', padx=4, pady=(0, 2))
-
+        # AI: Auto-format is an application-wide setting; its single checkbox lives on the
+        # MethodEditor's navigation bar (with Back/Forward), not per tab. save() reads the
+        # live application value.
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
@@ -2455,7 +2483,7 @@ class EditorTab(tk.Frame):
     def save(self):
         selected_class, show_instance_side, method_symbol = self.tab_key
         source = self.code_panel.text_editor.get('1.0', 'end-1c')
-        if self.auto_format_var.get():
+        if self.application.auto_format:
             source = SmalltalkMethodFormat().format_method(source)
         self.application.gemstone_session_record.update_method_source(
             selected_class,

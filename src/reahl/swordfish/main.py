@@ -3112,6 +3112,50 @@ class MainMenu(tk.Menu):
 
 
 class FindPane(Pane):
+    # AI: The user picks one named search intent; the three legacy controls
+    # (search_type / match_mode / reference_target) are derived from it behind the
+    # scenes and remain the engine's model. Intents are grouped into category tabs.
+    SEARCH_INTENT_TO_CONFIG = {
+        'class_contains': ('class', 'contains', 'class'),
+        'class_exact': ('class', 'exact', 'class'),
+        'class_references': ('reference', 'exact', 'class'),
+        'implementors': ('method', 'exact', 'class'),
+        'selector_contains': ('method', 'contains', 'class'),
+        'method_references': ('reference', 'exact', 'method'),
+        'instvar_references': ('reference', 'exact', 'instvar'),
+        'classvar_references': ('reference', 'exact', 'classvar'),
+    }
+    SEARCH_TABS = [
+        ('Class', [
+            ('Containing', 'class_contains'),
+            ('Exact', 'class_exact'),
+            ('References', 'class_references'),
+        ]),
+        ('Method', [
+            ('Implementors', 'implementors'),
+            ('Containing', 'selector_contains'),
+            ('Senders', 'method_references'),
+        ]),
+        ('Variable', [
+            ('Inst var', 'instvar_references'),
+            ('Class var', 'classvar_references'),
+        ]),
+    ]
+    def intent_for_config(self, search_type, match_mode, reference_target):
+        # AI: Reverse of SEARCH_INTENT_TO_CONFIG, used to select the right tab/variant
+        # when the dialog is opened programmatically with legacy parameters.
+        if search_type == 'class':
+            return 'class_exact' if match_mode == 'exact' else 'class_contains'
+        if search_type == 'method':
+            return 'implementors' if match_mode == 'exact' else 'selector_contains'
+        target_to_intent = {
+            'class': 'class_references',
+            'method': 'method_references',
+            'instvar': 'instvar_references',
+            'classvar': 'classvar_references',
+        }
+        return target_to_intent.get(reference_target, 'class_references')
+
     def __init__(
         self,
         parent,
@@ -3122,6 +3166,7 @@ class FindPane(Pane):
         match_mode=None,
         reference_target=None,
         sender_source_class_name=None,
+        instvar_class_name=None,
     ):
         super().__init__(parent, application, application.event_queue)
         self.sender_source_class_name = sender_source_class_name
@@ -3135,8 +3180,6 @@ class FindPane(Pane):
         self.last_reference_method_match_mode = None
         self.max_test_discovery_elapsed_ms = 120000
         self.status_var = tk.StringVar(value="")
-        self.search_intent_var = tk.StringVar(value="")
-        self.result_action_var = tk.StringVar(value="")
         self.find_operation_running = False
 
         self.grid_columnconfigure(1, weight=1)
@@ -3145,211 +3188,108 @@ class FindPane(Pane):
         self.search_type = tk.StringVar(value="class")
         self.match_mode = tk.StringVar(value="contains")
         self.reference_target = tk.StringVar(value="class")
-        ttk.Label(self, text="Search Type:").grid(
+        # AI: One notebook of category tabs (Class / Method / Variable). The variant
+        # radios within the selected tab drive self.search_intent, which apply_search_intent
+        # translates into the legacy search_type/match_mode/reference_target the engine reads.
+        self.search_intent = tk.StringVar(value='class_contains')
+        # AI: Each category tab carries its own variant row AND the inputs that category
+        # needs, so the whole search specification lives inside the tab. The per-tab query
+        # entries share one StringVar, so the typed text is the same whichever tab shows.
+        self.query_var = tk.StringVar()
+        self.owning_class_var = tk.StringVar(value=instvar_class_name or "")
+        self.receiver_var = tk.StringVar(value=sender_source_class_name or "")
+        # AI: on_search_tab_changed is inert until activate_search_tabs runs (after the
+        # pane is mapped), so the notebook's realization to tab 0 cannot clobber a
+        # programmatically chosen intent.
+        self.tab_change_active = False
+        self.search_notebook = ttk.Notebook(self)
+        self.search_notebook.grid(
             row=0,
             column=0,
+            columnspan=6,
             padx=10,
-            pady=5,
-            sticky="w",
-        )
-        self.search_type_frame = ttk.Frame(self)
-        self.search_type_frame.grid(
-            row=0,
-            column=1,
-            columnspan=5,
-            padx=(0, 10),
-            pady=5,
-            sticky="w",
-        )
-        self.class_radio = ttk.Radiobutton(
-            self.search_type_frame,
-            text="Class",
-            variable=self.search_type,
-            value="class",
-        )
-        self.class_radio.pack(side="left", padx=(0, 8))
-        self.method_radio = ttk.Radiobutton(
-            self.search_type_frame,
-            text="Method",
-            variable=self.search_type,
-            value="method",
-        )
-        self.method_radio.pack(side="left", padx=(0, 8))
-        self.reference_radio = ttk.Radiobutton(
-            self.search_type_frame,
-            text="References",
-            variable=self.search_type,
-            value="reference",
-        )
-        self.reference_radio.pack(side="left", padx=(0, 8))
-
-        ttk.Label(self, text="Match:").grid(
-            row=1,
-            column=0,
-            padx=10,
-            pady=5,
-            sticky="w",
-        )
-        self.match_mode_frame = ttk.Frame(self)
-        self.match_mode_frame.grid(
-            row=1,
-            column=1,
-            columnspan=2,
-            padx=(0, 10),
-            pady=5,
-            sticky="w",
-        )
-        self.match_contains_radio = ttk.Radiobutton(
-            self.match_mode_frame,
-            text="Contains",
-            variable=self.match_mode,
-            value="contains",
-        )
-        self.match_contains_radio.pack(side="left", padx=(0, 8))
-        self.match_exact_radio = ttk.Radiobutton(
-            self.match_mode_frame,
-            text="Exact",
-            variable=self.match_mode,
-            value="exact",
-        )
-        self.match_exact_radio.pack(side="left")
-
-        self.reference_target_label = ttk.Label(
-            self,
-            text="Reference target:",
-        )
-        self.reference_target_label.grid(
-            row=1,
-            column=3,
-            padx=(10, 6),
-            pady=5,
-            sticky="e",
-        )
-        self.reference_target_frame = ttk.Frame(self)
-        self.reference_target_frame.grid(
-            row=1,
-            column=4,
-            columnspan=2,
-            padx=(0, 10),
-            pady=5,
-            sticky="w",
-        )
-        self.reference_target_class_radio = ttk.Radiobutton(
-            self.reference_target_frame,
-            text="Class",
-            variable=self.reference_target,
-            value="class",
-        )
-        self.reference_target_class_radio.pack(side="left", padx=(0, 8))
-        self.reference_target_method_radio = ttk.Radiobutton(
-            self.reference_target_frame,
-            text="Method",
-            variable=self.reference_target,
-            value="method",
-        )
-        self.reference_target_method_radio.pack(side="left")
-
-        ttk.Label(self, text="Find what:").grid(
-            row=2,
-            column=0,
-            padx=10,
-            pady=10,
-            sticky="w",
-        )
-        self.find_entry = ttk.Entry(self)
-        self.find_entry.grid(
-            row=2,
-            column=1,
-            columnspan=3,
-            padx=(10, 4),
-            pady=10,
+            pady=(8, 6),
             sticky="ew",
         )
-        self.find_entry.bind(
-            "<KeyRelease>",
-            lambda *_: self.update_search_context_fields(),
-        )
-        # AI: Enter in the search box runs the search, same as the find button.
-        self.find_entry.bind("<Return>", lambda *_: self.find_text())
+        query_label_for_tab = {
+            'Class': 'Class:',
+            'Method': 'Selector:',
+            'Variable': 'Variable:',
+        }
+        self.search_tab_frames = []
+        self.variant_radios = []
+        self.query_entries = []
+        self.find_buttons = []
+        self.intent_to_tab_index = {}
+        for tab_index, (tab_label, variants) in enumerate(self.SEARCH_TABS):
+            tab_frame = ttk.Frame(self.search_notebook)
+            tab_frame.grid_columnconfigure(1, weight=1)
+            self.search_notebook.add(tab_frame, text=tab_label)
+            self.search_tab_frames.append(tab_frame)
 
-        # AI: A small magnifying-glass icon button immediately right of the search box
-        # runs the search (a BMP glyph -- Tk 8.6 cannot render non-BMP emoji). There is
-        # no per-dialog Stop: a single Stop control in the menu bar interrupts whatever
-        # GemStone activity holds the shared session, this search included.
-        self.find_button = ttk.Button(
-            self,
-            text="⌕",
-            width=3,
-            command=self.find_text,
-        )
-        self.find_button.grid(row=2, column=4, padx=(0, 10), pady=10)
-        Tooltip(self.find_button, "Search")
+            variant_row = ttk.Frame(tab_frame)
+            variant_row.grid(
+                row=0, column=0, columnspan=3, padx=8, pady=(8, 4), sticky="w"
+            )
+            for variant_label, intent_key in variants:
+                self.intent_to_tab_index[intent_key] = tab_index
+                variant_radio = ttk.Radiobutton(
+                    variant_row,
+                    text=variant_label,
+                    variable=self.search_intent,
+                    value=intent_key,
+                    command=self.apply_search_intent,
+                )
+                variant_radio.pack(side="left", padx=(0, 10))
+                self.variant_radios.append(variant_radio)
 
-        self.receiver_class_label = ttk.Label(self, text="Receiver class:")
-        self.receiver_class_label.grid(
-            row=3,
-            column=0,
-            padx=10,
-            pady=5,
-            sticky="w",
-        )
-        self.receiver_class_entry = ttk.Entry(self)
-        self.receiver_class_entry.grid(
-            row=3,
-            column=1,
-            columnspan=5,
-            padx=10,
-            pady=5,
-            sticky="ew",
-        )
-        if sender_source_class_name:
-            self.receiver_class_entry.insert(0, sender_source_class_name)
-        self.receiver_class_entry.bind(
-            '<KeyRelease>',
-            lambda *_: self.on_receiver_class_changed(),
-        )
+            ttk.Label(tab_frame, text=query_label_for_tab[tab_label]).grid(
+                row=1, column=0, padx=(8, 6), pady=6, sticky="w"
+            )
+            query_entry = ttk.Entry(tab_frame, textvariable=self.query_var)
+            query_entry.grid(row=1, column=1, padx=(0, 4), pady=6, sticky="ew")
+            # AI: Enter in any query box runs the search, same as the find button. A BMP
+            # glyph is used (Tk 8.6 cannot render non-BMP emoji); there is no per-dialog
+            # Stop -- the single menu-bar Stop interrupts whatever holds the session.
+            query_entry.bind("<Return>", lambda *_: self.find_text())
+            self.query_entries.append(query_entry)
+            find_button = ttk.Button(
+                tab_frame, text="⌕", width=3, command=self.find_text
+            )
+            find_button.grid(row=1, column=2, padx=(0, 8), pady=6)
+            Tooltip(find_button, "Search")
+            self.find_buttons.append(find_button)
 
-        ttk.Label(self, text="Search intent:").grid(
-            row=4,
-            column=0,
-            padx=10,
-            pady=(0, 2),
-            sticky="w",
-        )
-        self.search_intent_label = ttk.Label(
-            self,
-            textvariable=self.search_intent_var,
-            anchor="w",
-        )
-        self.search_intent_label.grid(
-            row=4,
-            column=1,
-            columnspan=5,
-            padx=10,
-            pady=(0, 2),
-            sticky="ew",
-        )
-
-        ttk.Label(self, text="Result action:").grid(
-            row=5,
-            column=0,
-            padx=10,
-            pady=(0, 2),
-            sticky="w",
-        )
-        self.result_action_label = ttk.Label(
-            self,
-            textvariable=self.result_action_var,
-            anchor="w",
-        )
-        self.result_action_label.grid(
-            row=5,
-            column=1,
-            columnspan=5,
-            padx=10,
-            pady=(0, 2),
-            sticky="ew",
-        )
+            if tab_label == 'Variable':
+                ttk.Label(tab_frame, text="In class:").grid(
+                    row=2, column=0, padx=(8, 6), pady=(0, 8), sticky="w"
+                )
+                self.instvar_class_entry = ttk.Entry(
+                    tab_frame, textvariable=self.owning_class_var
+                )
+                self.instvar_class_entry.grid(
+                    row=2, column=1, columnspan=2, padx=(0, 8), pady=(0, 8), sticky="ew"
+                )
+            if tab_label == 'Method':
+                self.receiver_class_label = ttk.Label(
+                    tab_frame, text="Receiver class:"
+                )
+                self.receiver_class_label.grid(
+                    row=2, column=0, padx=(8, 6), pady=(0, 8), sticky="w"
+                )
+                self.receiver_class_entry = ttk.Entry(
+                    tab_frame, textvariable=self.receiver_var
+                )
+                self.receiver_class_entry.grid(
+                    row=2, column=1, columnspan=2, padx=(0, 8), pady=(0, 8), sticky="ew"
+                )
+                self.receiver_class_entry.bind(
+                    '<KeyRelease>',
+                    lambda *_: self.on_receiver_class_changed(),
+                )
+        # AI: All query entries share query_var, so .get()/.delete()/.insert() via any one
+        # of them (this reference) read and write the same text shown in every tab.
+        self.find_entry = self.query_entries[0]
 
         # AI: Find/Stop are now icon buttons beside the search box (above). This
         # frame survives only for the experimental Narrow button, and is gridded
@@ -3444,14 +3384,78 @@ class FindPane(Pane):
         self.search_type.set(configuration["search_type"])
         self.match_mode.set(configuration["match_mode"])
         self.reference_target.set(configuration["reference_target"])
+        # AI: Select the tab/variant matching the resolved legacy configuration, then
+        # start listening for tab changes (binding after the initial select avoids the
+        # handler firing while the notebook is still being built).
+        self.sync_intent_from_config()
+        self.search_notebook.bind(
+            "<<NotebookTabChanged>>",
+            self.on_search_tab_changed,
+        )
         if search_query:
             self.find_entry.delete(0, tk.END)
             self.find_entry.insert(0, search_query)
         self.update_mode_controls()
         self.set_find_operation_state(False)
-        self.update_search_context_fields()
         if run_search:
             self.find_text()
+
+    def apply_search_intent(self):
+        # AI: Translate the chosen intent into the legacy controls the engine reads.
+        # Setting the vars fires their write-traces, which refresh the visible inputs.
+        search_type, match_mode, reference_target = self.SEARCH_INTENT_TO_CONFIG[
+            self.search_intent.get()
+        ]
+        self.search_type.set(search_type)
+        self.match_mode.set(match_mode)
+        self.reference_target.set(reference_target)
+    def sync_intent_from_config(self):
+        # AI: Select the tab/variant that matches the current legacy controls (used when
+        # the dialog is opened programmatically with search_type/match_mode/target set).
+        intent = self.intent_for_config(
+            self.search_type.get(),
+            self.match_mode.get(),
+            self.reference_target.get(),
+        )
+        self.search_intent.set(intent)
+        self.search_notebook.select(self.intent_to_tab_index[intent])
+
+    def activate_search_tabs(self):
+        # AI: Called once the pane is mapped: re-select the intent's tab (select() only
+        # sticks after mapping) and enable on_search_tab_changed, so the notebook's
+        # realization to tab 0 can no longer overwrite a programmatically chosen intent.
+        self.update_idletasks()
+        self.search_notebook.select(
+            self.intent_to_tab_index[self.search_intent.get()]
+        )
+        self.tab_change_active = True
+
+    def selected_search_tab_index(self):
+        # AI: notebook.index('current') raises under headless Tk when no tab is mapped;
+        # resolve via the selected tab's widget path instead, returning None if unset.
+        selected_tab = self.search_notebook.select()
+        if not selected_tab:
+            return None
+        return self.search_notebook.index(selected_tab)
+
+    def default_intent_for_tab(self, tab_index):
+        # AI: Keep the current intent if it belongs to this tab; otherwise fall back to
+        # the tab's first variant. Pure so the fallback rule is testable without Tk.
+        current_intent = self.search_intent.get()
+        if self.intent_to_tab_index.get(current_intent) == tab_index:
+            return current_intent
+        return self.SEARCH_TABS[tab_index][1][0][1]
+
+    def on_search_tab_changed(self, event=None):
+        # AI: When the user switches category tabs, move the intent into that tab. Inert
+        # until activate_search_tabs runs, so realization events cannot clobber the intent.
+        if not self.tab_change_active:
+            return
+        tab_index = self.selected_search_tab_index()
+        if tab_index is None:
+            return
+        self.search_intent.set(self.default_intent_for_tab(tab_index))
+        self.apply_search_intent()
 
     def resolved_search_configuration(
         self,
@@ -3479,7 +3483,7 @@ class FindPane(Pane):
             configuration["match_mode"] = "exact"
         if match_mode in ["exact", "contains"]:
             configuration["match_mode"] = match_mode
-        if reference_target in ["class", "method"]:
+        if reference_target in ["class", "method", "instvar", "classvar"]:
             configuration["reference_target"] = reference_target
         if configuration["search_type"] == "reference":
             configuration["match_mode"] = "exact"
@@ -3492,27 +3496,13 @@ class FindPane(Pane):
             self.match_mode.set("exact")
             return
         reference_target_is_method = self.reference_target.get() == "method"
+        # AI: The owning-class entry lives permanently in the Variable tab (both variable
+        # variants need it) and the receiver entry in the Method tab; the receiver row is
+        # shown only for the Senders intent. The per-column filter row is shown for ALL
+        # find types, so filter_frame is gridded once at construction and not toggled here.
         tracing_controls_visible = (
             reference_mode_is_selected and reference_target_is_method
         )
-        contains_match_state = tk.NORMAL
-        exact_match_state = tk.NORMAL
-        if reference_mode_is_selected:
-            contains_match_state = tk.DISABLED
-        if self.find_operation_running:
-            contains_match_state = tk.DISABLED
-            exact_match_state = tk.DISABLED
-        self.match_contains_radio.config(state=contains_match_state)
-        self.match_exact_radio.config(state=exact_match_state)
-        if reference_mode_is_selected:
-            self.reference_target_label.grid()
-            self.reference_target_frame.grid()
-        else:
-            self.reference_target_label.grid_remove()
-            self.reference_target_frame.grid_remove()
-        # AI: The per-column filter row is shown for ALL find types (not just the
-        # tracing/sender mode), so filter_frame is gridded once at construction and
-        # is not toggled here.
         if tracing_controls_visible:
             if self.narrow_button is not None:
                 self.narrow_button.grid()
@@ -3527,8 +3517,6 @@ class FindPane(Pane):
             self.status_label.grid_remove()
             self.status_var.set("")
         self.update_trace_narrow_state()
-        self.update_search_context_fields()
-
     def update_trace_narrow_state(self):
         source_class_known = self.sender_source_class_name is not None
         can_trace = bool(self.sender_tracing_selector) and source_class_known
@@ -3543,22 +3531,20 @@ class FindPane(Pane):
 
     def set_find_operation_state(self, is_running):
         self.find_operation_running = is_running
-        self.find_button.config(state=tk.DISABLED if is_running else tk.NORMAL)
         mode_control_state = tk.DISABLED if is_running else tk.NORMAL
-        self.find_entry.config(state=mode_control_state)
-        self.class_radio.config(state=mode_control_state)
-        self.method_radio.config(state=mode_control_state)
-        self.reference_radio.config(state=mode_control_state)
-        contains_match_state = mode_control_state
-        if not is_running and self.search_type.get() == "reference":
-            contains_match_state = tk.DISABLED
-        self.match_contains_radio.config(state=contains_match_state)
-        self.match_exact_radio.config(state=mode_control_state)
-        self.reference_target_class_radio.config(state=mode_control_state)
-        self.reference_target_method_radio.config(state=mode_control_state)
+        for find_button in self.find_buttons:
+            find_button.config(state=mode_control_state)
+        for query_entry in self.query_entries:
+            query_entry.config(state=mode_control_state)
+        for variant_radio in self.variant_radios:
+            variant_radio.config(state=mode_control_state)
+        # AI: The notebook TABS are intentionally NOT disabled while a search runs:
+        # disabling the selected ttk tab blanks the notebook body, and a search opened
+        # from a shortcut auto-runs at construction. The find captures its config upfront,
+        # so switching tabs mid-run is harmless (the variant radios and find buttons above
+        # are disabled, so no new search can be launched until this one finishes).
+        self.instvar_class_entry.config(state=mode_control_state)
         self.update_trace_narrow_state()
-        self.update_search_context_fields()
-
     def finish_stopped_find(self):
         self.status_var.set("Find stopped. Showing partial results.")
         self.sender_tracing_selector = None
@@ -3624,6 +3610,28 @@ class FindPane(Pane):
             )
         return self.unique_sorted_navigation_results(reference_results)
 
+    def references_for_instvar_query(self, class_name, instvar_name, should_stop=None):
+        if should_stop is not None and should_stop():
+            return []
+        result = self.gemstone_session_record.gemstone_browser_session.find_instvar_references(
+            class_name, instvar_name
+        )
+        return self.unique_sorted_navigation_results([
+            (ref['class_name'], ref['show_instance_side'], ref['method_selector'])
+            for ref in result['references']
+        ])
+
+    def references_for_classvar_query(self, class_name, classvar_name, should_stop=None):
+        if should_stop is not None and should_stop():
+            return []
+        result = self.gemstone_session_record.gemstone_browser_session.find_classvar_references(
+            class_name, classvar_name
+        )
+        return self.unique_sorted_navigation_results([
+            (ref['class_name'], ref['show_instance_side'], ref['method_selector'])
+            for ref in result['references']
+        ])
+
     def references_for_method_query(
         self,
         query_text,
@@ -3686,75 +3694,16 @@ class FindPane(Pane):
             return "Finding methods matching %s..." % search_query
         if reference_target == "class":
             return "Finding references to class %s..." % search_query
+        if reference_target == "instvar":
+            return "Finding references to inst var %s..." % search_query
+        if reference_target == "classvar":
+            return "Finding references to class var %s..." % search_query
         return "Finding references to method %s..." % search_query
-
-    def search_intent_text(
-        self,
-        search_type,
-        match_mode,
-        reference_target,
-        normalized_search_query,
-    ):
-        if not normalized_search_query:
-            return 'Enter text to search.'
-        if search_type == 'class':
-            if match_mode == 'exact':
-                return 'Class exactly "%s".' % normalized_search_query
-            return 'Classes containing "%s".' % normalized_search_query
-        if search_type == 'method':
-            if match_mode == 'exact':
-                return 'Implementors of method "%s".' % normalized_search_query
-            return 'Methods containing selector "%s".' % normalized_search_query
-        if reference_target == 'class':
-            return 'References to class "%s" (exact).' % normalized_search_query
-        if self.sender_source_class_name is not None:
-            return 'Senders of %s>>%s.' % (
-                self.sender_source_class_name,
-                normalized_search_query,
-            )
-        return 'Senders of "%s" (all implementors).' % normalized_search_query
-
-    def result_action_text(self, search_type, match_mode, reference_target):
-        if self.find_operation_running:
-            return "Search in progress. Click Stop to cancel."
-        if search_type == "class":
-            return "Double-click a class to navigate."
-        if search_type == "method":
-            if match_mode == "exact":
-                return "Double-click an implementor to open the method."
-            return "Double-click a selector to find implementors (exact)."
-        if reference_target == "method":
-            return "Double-click a reference to open the caller method."
-        return "Double-click a reference to open the method."
 
     def on_receiver_class_changed(self):
         typed = self.receiver_class_entry.get().strip()
         self.sender_source_class_name = typed if typed else None
-        self.update_search_context_fields()
         self.update_trace_narrow_state()
-
-    def update_search_context_fields(self):
-        search_type = self.search_type.get()
-        match_mode = self.match_mode.get()
-        if search_type == "reference":
-            match_mode = "exact"
-        reference_target = self.reference_target.get()
-        normalized_search_query = self.find_entry.get().strip()
-        self.search_intent_var.set(
-            self.search_intent_text(
-                search_type,
-                match_mode,
-                reference_target,
-                normalized_search_query,
-            )
-        )
-        self.result_action_var.set(
-            self.result_action_text(
-                search_type,
-                match_mode,
-                reference_target,
-            )
-        )
 
     def result_column_specs(self, column_kind):
         # AI: Single source of truth for the adaptive result columns: each spec is
@@ -4076,7 +4025,11 @@ class FindPane(Pane):
             'method_category': method_category,
         }
 
-    def populate_navigation_results(self, method_results):
+    def populate_navigation_results(self, method_results, highlight_term=None):
+        # AI: highlight_term, when given, is the text each result method references (a
+        # variable name, a class name, or a sent selector). It is carried on every row so
+        # that peeking or opening the method highlights where it occurs -- the same visual
+        # cue for inst/class variables, class references, and senders.
         self.navigation_method_results = list(method_results)
         sender_entries = [
             self.sender_entry_for_result(result)
@@ -4086,11 +4039,16 @@ class FindPane(Pane):
         class_definition_by_name = self.gemstone_session_record.class_definition_map(
             class_names
         )
-        rows = [
-            self.enriched_navigation_row(sender_entry, class_definition_by_name)
-            for sender_entry in sender_entries
-        ]
+        rows = []
+        for sender_entry in sender_entries:
+            row = self.enriched_navigation_row(sender_entry, class_definition_by_name)
+            if highlight_term:
+                row['highlight_term'] = highlight_term
+            rows.append(row)
         self.set_result_rows(rows, 'method', class_definition_by_name)
+
+    def populate_instvar_navigation_results(self, method_results, instvar_name):
+        self.populate_navigation_results(method_results, highlight_term=instvar_name)
 
     def record_sender_entries_for_navigation(self, sender_entries):
         sender_results = [
@@ -4344,7 +4302,6 @@ class FindPane(Pane):
             if self.match_mode.get() != 'exact':
                 self.match_mode.set('exact')
         reference_target = self.reference_target.get()
-        self.update_search_context_fields()
         self.navigation_method_results = []
         self.method_reference_results = []
         self.reference_method_selectors = []
@@ -4357,12 +4314,12 @@ class FindPane(Pane):
             self.last_reference_method_match_mode = None
             self.clear_results()
             self.status_var.set('')
-            self.update_search_context_fields()
             return
         configuration = {
             'search_type': search_type,
             'match_mode': match_mode,
             'reference_target': reference_target,
+            'instvar_class_name': self.instvar_class_entry.get().strip(),
         }
         message = self.activity_message_for_search(
             search_type,
@@ -4429,6 +4386,34 @@ class FindPane(Pane):
                 )
             )
             return {'kind': 'class_references', 'results': class_reference_results}
+        if reference_target == 'instvar':
+            instvar_class_name = configuration.get('instvar_class_name', '')
+            instvar_results = list(
+                self.references_for_instvar_query(
+                    instvar_class_name,
+                    normalized_search_query,
+                    should_stop=should_stop,
+                )
+            )
+            return {
+                'kind': 'instvar_references',
+                'results': instvar_results,
+                'instvar_name': normalized_search_query,
+            }
+        if reference_target == 'classvar':
+            classvar_class_name = configuration.get('instvar_class_name', '')
+            classvar_results = list(
+                self.references_for_classvar_query(
+                    classvar_class_name,
+                    normalized_search_query,
+                    should_stop=should_stop,
+                )
+            )
+            return {
+                'kind': 'instvar_references',
+                'results': classvar_results,
+                'instvar_name': normalized_search_query,
+            }
         (
             method_reference_results,
             selector_names,
@@ -4474,7 +4459,18 @@ class FindPane(Pane):
             self.status_var.set('')
         elif kind == 'class_references':
             self.method_reference_results = list(payload['results'])
-            self.populate_navigation_results(payload['results'])
+            self.populate_navigation_results(
+                payload['results'],
+                highlight_term=self.find_entry.get().strip(),
+            )
+            self.static_sender_results = []
+            self.sender_entries_by_navigation_result = {}
+            self.last_reference_method_query = None
+            self.last_reference_method_match_mode = None
+            self.status_var.set('')
+        elif kind == 'instvar_references':
+            self.method_reference_results = list(payload['results'])
+            self.populate_instvar_navigation_results(payload['results'], payload['instvar_name'])
             self.static_sender_results = []
             self.sender_entries_by_navigation_result = {}
             self.last_reference_method_query = None
@@ -4495,7 +4491,10 @@ class FindPane(Pane):
                     payload['match_mode'],
                 )
             )
-            self.populate_navigation_results(payload['method_reference_results'])
+            self.populate_navigation_results(
+                payload['method_reference_results'],
+                highlight_term=payload.get('query'),
+            )
             self.update_sender_status_for_method_references(
                 payload['selector_names'],
                 len(self.static_sender_results),
@@ -4525,8 +4524,6 @@ class FindPane(Pane):
 
     def complete_find_operation(self):
         self.set_find_operation_state(False)
-        self.update_search_context_fields()
-
     def choose_tests_for_tracing(self, method_name):
         test_selection_dialog = CoveringTestsSearchDialog(
             self,
@@ -4813,11 +4810,13 @@ class FindPane(Pane):
         search_type = self.search_type.get()
         match_mode = self.match_mode.get()
         if search_type == 'method' and match_mode == 'contains':
+            # AI: Pivot the whole intent to Implementors (not just the hidden match_mode),
+            # so the visible Method-tab variant moves to Implementors to match the search.
             self.find_entry.delete(0, tk.END)
             self.find_entry.insert(0, selected_row['method_selector'])
-            self.match_mode.set('exact')
+            self.search_intent.set('implementors')
+            self.apply_search_intent()
             self.find_text()
-            self.update_search_context_fields()
             return
         application = self.application
         if search_type == 'class':
@@ -4839,7 +4838,11 @@ class FindPane(Pane):
             application.event_queue.publish(
                 'MethodTabPinRequested', method_context, origin=self
             )
-
+            highlight_term = selected_row.get('highlight_term')
+            if highlight_term:
+                application.event_queue.publish(
+                    'OccurrenceHighlightRequested', highlight_term, origin=self
+                )
 
     def peek_selected_result(self, event):
         # AI: Single-click previews a method result in the editor via the
@@ -4860,6 +4863,14 @@ class FindPane(Pane):
             (class_name, selected_row['show_instance_side'], method_selector),
             origin=self,
         )
+        # AI: Peeking also marks where the searched term occurs in the method, so a
+        # single click gives the same visual cue as opening it (variables, class
+        # references and senders alike).
+        highlight_term = selected_row.get('highlight_term')
+        if highlight_term:
+            self.application.event_queue.publish(
+                'OccurrenceHighlightRequested', highlight_term, origin=self
+            )
 
 
 class CoveringTestsSearchDialog(tk.Toplevel):
@@ -8030,6 +8041,7 @@ class Swordfish(tk.Tk):
         match_mode=None,
         reference_target=None,
         sender_source_class_name=None,
+        instvar_class_name=None,
     ):
         # AI: Find is a single reusable pane beside the browser. If one is open,
         # replace its contents in place; otherwise split off a group for it.
@@ -8048,10 +8060,42 @@ class Swordfish(tk.Tk):
             match_mode=match_mode,
             reference_target=reference_target,
             sender_source_class_name=sender_source_class_name,
+            instvar_class_name=instvar_class_name,
         )
         target_group.add(find_pane, text='Find')
         target_group.select(find_pane)
+        # AI: Now that the pane is mapped, lock in the intent's tab (select() only sticks
+        # after mapping) and enable user-driven tab switching.
+        find_pane.activate_search_tabs()
         return find_pane
+
+    def open_find_dialog_for_instvar(self, class_name, instvar_name):
+        class_name = (class_name or '').strip()
+        instvar_name = (instvar_name or '').strip()
+        if not class_name or not instvar_name:
+            return None
+        return self.open_find_dialog(
+            search_type='reference',
+            search_query=instvar_name,
+            run_search=True,
+            match_mode='exact',
+            reference_target='instvar',
+            instvar_class_name=class_name,
+        )
+
+    def open_find_dialog_for_classvar(self, class_name, classvar_name):
+        class_name = (class_name or '').strip()
+        classvar_name = (classvar_name or '').strip()
+        if not class_name or not classvar_name:
+            return None
+        return self.open_find_dialog(
+            search_type='reference',
+            search_query=classvar_name,
+            run_search=True,
+            match_mode='exact',
+            reference_target='classvar',
+            instvar_class_name=class_name,
+        )
 
     def open_find_dialog_for_class(self, class_name):
         selected_class_name = (class_name or "").strip()
