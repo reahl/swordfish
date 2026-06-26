@@ -1,3 +1,6 @@
+import json
+import os
+import tempfile
 import types
 from unittest.mock import Mock, patch
 
@@ -5,7 +8,7 @@ import tkinter as tk
 from reahl.tofu import Fixture, NoException, expected, scenario, with_fixtures
 
 from reahl.swordfish.gemstone.smalltalk_method_parser import SmalltalkMethodFormat
-from reahl.swordfish.main import McpConfigurationStore
+from reahl.swordfish.main import MCP_RUNTIME_CONFIG_SCHEMA_VERSION, McpConfigurationStore
 from reahl.swordfish.text_editing import EditorTab
 
 
@@ -13,7 +16,7 @@ class FormatterScenarios(Fixture):
     """AI: Each scenario maps a method source to the expected canonical AST-formatted output.
 
     The formatter is AST-based: it parses the method to a full recursive AST and
-    pretty-prints it in the canonical GemStone/Wonka tab style.  Hand-placed
+    pretty-prints it in the canonical GemStone 1-tab style.  Hand-placed
     alignment and blank lines are not preserved; the output is always the canonical form.
     Key rules: body at 1 tab; 2+ keyword sends always multi-line (receiver on opener
     line, each keyword:arg at depth+1); short blocks inline; ^ followed by a space."""
@@ -70,7 +73,7 @@ class FormatterScenarios(Fixture):
     @scenario
     def comment_at_method_top(self):
         """AI: A comment before the first statement is placed at 1 tab followed by a blank
-        separator line — matching the Wonka leading-comment convention."""
+        separator line — matching the canonical leading-comment convention."""
         self.source = 'getValue\n    "Returns the stored value."\n    ^value'
         self.expected = 'getValue\n\t"Returns the stored value."\n\n\t^ value'
 
@@ -83,7 +86,7 @@ class FormatterScenarios(Fixture):
     @scenario
     def multi_keyword_with_comment_and_temps(self):
         """AI: A method with a leading comment, temps, and 2-keyword sends is formatted
-        in canonical Wonka style: comment→blank→temps→receiver-at-L, keyword:arg-at-L+1."""
+        in canonical style: comment→blank→temps→receiver-at-L, keyword:arg-at-L+1."""
         self.source = (
             'add: newObject after: targetObject\n'
             '\n'
@@ -151,21 +154,21 @@ class FormatterScenarios(Fixture):
     def keyword_receiver_forces_multiline_for_single_keyword_send(self):
         """AI: A 1-keyword send whose receiver is itself a keyword send is always formatted
         multi-line (parenthesised receiver at depth, keyword at depth+1).
-        This is the canonical Wonka pattern for guard conditions: (a or: [b]) ifTrue: [c]."""
+        This is the canonical pattern for guard conditions: (a or: [b]) ifTrue: [c]."""
         self.source = (
             'guarded\n'
-            '    (fromAccount isSupplierAccount or: [ toAccount isSupplierAccount ]) ifTrue: [ self signalError ]'
+            '    (sourceItem isComplete or: [ targetItem isComplete ]) ifTrue: [ self proceed ]'
         )
         self.expected = (
             'guarded\n'
-            '\t(fromAccount isSupplierAccount or: [ toAccount isSupplierAccount ])\n'
-            '\t\tifTrue: [ self signalError ]'
+            '\t(sourceItem isComplete or: [ targetItem isComplete ])\n'
+            '\t\tifTrue: [ self proceed ]'
         )
 
 
 @with_fixtures(FormatterScenarios)
 def test_formatter_normalises_body_indentation(scenario):
-    """AI: The formatter normalises all source to canonical GemStone/Wonka 1-tab style,
+    """AI: The formatter normalises all source to canonical GemStone 1-tab style,
     splitting multi-keyword sends, inlining short blocks, and placing ^ with a space."""
     result = SmalltalkMethodFormat().format_method(scenario.source)
     assert result == scenario.expected
@@ -189,13 +192,13 @@ def test_formatter_is_idempotent():
 
 
 def test_formatter_is_idempotent_on_canonical_source():
-    """AI: A method already written in canonical Wonka style — cascade with mixed
+    """AI: A method already written in canonical style — cascade with mixed
     unary/keyword messages, receiver on opener line — passes through the formatter unchanged."""
     source = (
-        'checkHistoricalInvariantsWithCurrent: current\n'
+        'validateStateWithPrevious: previous\n'
         '\tself\n'
-        '\t\tassert: self class == current class;\n'
-        '\t\tcheckReferencedObject.\n'
+        '\t\tassert: self class == previous class;\n'
+        '\t\tverifyLinks.\n'
         '\t^ self isValid'
     )
     result = SmalltalkMethodFormat().format_method(source)
@@ -310,3 +313,37 @@ def test_save_with_auto_format_off_passes_source_unchanged():
         assert source_saved == unformatted_source
     finally:
         root.destroy()
+
+
+def test_save_auto_format_writes_value_to_config_file():
+    """AI: save_auto_format writes appearance.auto_format into the JSON config file
+    so the checkbox state survives an application restart."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = McpConfigurationStore()
+        with patch.object(McpConfigurationStore, 'config_home_directory', return_value=tmpdir):
+            store.save_auto_format(True)
+            store.save_auto_format(False)
+            store.save_auto_format(True)
+            payload = store.config_payload()
+            assert payload['appearance']['auto_format'] is True
+
+
+def test_save_auto_format_preserves_other_config_keys():
+    """AI: save_auto_format updates only appearance.auto_format; all other top-level
+    keys in the config survive the write so existing MCP settings are not lost."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = McpConfigurationStore()
+        with patch.object(McpConfigurationStore, 'config_home_directory', return_value=tmpdir):
+            config_path = store.config_file_path()
+            os.makedirs(os.path.dirname(config_path), exist_ok=True)
+            with open(config_path, 'w') as f:
+                json.dump(
+                    {'schema_version': MCP_RUNTIME_CONFIG_SCHEMA_VERSION,
+                     'appearance': {'theme': 'dark'}},
+                    f,
+                )
+            store.save_auto_format(True)
+            payload = store.config_payload()
+            assert payload['schema_version'] == MCP_RUNTIME_CONFIG_SCHEMA_VERSION
+            assert payload['appearance']['theme'] == 'dark'
+            assert payload['appearance']['auto_format'] is True

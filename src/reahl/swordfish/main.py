@@ -1810,6 +1810,29 @@ class McpConfigurationStore:
             return auto_format
         return False
 
+    def save_auto_format(self, value):
+        existing_payload = self.config_payload() or {}
+        existing_payload.setdefault('appearance', {})['auto_format'] = value
+        config_file_path = self.config_file_path()
+        config_directory = os.path.dirname(config_file_path)
+        temporary_file_path = config_file_path + '.tmp'
+        try:
+            os.makedirs(config_directory, exist_ok=True)
+            with open(temporary_file_path, 'w', encoding='utf-8') as config_file:
+                json.dump(existing_payload, config_file, indent=2, sort_keys=True)
+                config_file.write('\n')
+            os.replace(temporary_file_path, config_file_path)
+            os.chmod(config_file_path, 0o600)
+        except OSError as error:
+            try:
+                os.remove(temporary_file_path)
+            except OSError:
+                pass
+            raise DomainException(
+                'Unable to save Swordfish configuration to %s: %s'
+                % (config_file_path, error)
+            )
+
     def load_login_gemstone_script_source(self):
         payload = self.config_payload()
         if payload is None:
@@ -5715,6 +5738,10 @@ class Swordfish(tk.Tk):
         ).chosen_theme()
         active_theme.activate(theme)
         ThemeApplication(self).apply(theme)
+
+    def set_auto_format(self, value):
+        self.auto_format = value
+        self.mcp_server_controller.configuration_store.save_auto_format(value)
 
     def mcp_configuration_access(self):
         can_write_config = (

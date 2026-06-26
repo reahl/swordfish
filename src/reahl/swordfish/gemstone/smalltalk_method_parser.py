@@ -788,7 +788,7 @@ def apply_source_edits(source, source_edits):
 class SmalltalkMethodFormat:
     """AI: AST-based Smalltalk method formatter producing canonical GemStone 1-tab style.
 
-    Rules derived from analysis of Wonka- codebase:
+    Rules derived from analysis of the target codebase:
     - 1 tab per nesting level; method body at depth 1.
     - Keyword sends with 2+ keywords OR a long block arg → multi-line:
       receiver on opener line, each keyword:arg at depth+1.
