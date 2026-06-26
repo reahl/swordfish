@@ -1,0 +1,3 @@
+accessing
+valueWithPrice: aPrice
+	^ self

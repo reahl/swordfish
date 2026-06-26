@@ -35,7 +35,7 @@ CYPRESS_SPECIAL_CHARACTERS = {
 
 
 # AI: The .filetree config written for a newly created package - the Cypress, no-method-
-# metadata shape every Wonka package on disk uses.
+# metadata shape every Acme package on disk uses.
 CYPRESS_FILETREE_CONFIG = (
     '{\n'
     '\t"separateMethodMetaAndSource" : false,\n'

@@ -1,0 +1,3 @@
+accessing
+zero
+	^ self new

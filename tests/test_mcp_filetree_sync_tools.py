@@ -31,8 +31,8 @@ def test_setting_the_root_enables_mirroring_and_status_reflects_it(tmp_path, mon
         'SWORDFISH_FILETREE_SYNC_CONFIG', os.path.join(str(tmp_path), 'config.json')
     )
     root = os.path.join(str(tmp_path), 'monticello')
-    os.makedirs(os.path.join(root, 'Wonka-Amount-Core.package'))
-    os.makedirs(os.path.join(root, 'Wonka-Entities-Core.package'))
+    os.makedirs(os.path.join(root, 'Acme-Amount-Core.package'))
+    os.makedirs(os.path.join(root, 'Acme-Entities-Core.package'))
     tools = registered_sync_tools()
 
     set_result = tools['gs_sync_set_root'](root)
@@ -52,7 +52,7 @@ def test_disabling_keeps_the_root_but_stops_mirroring(tmp_path, monkeypatch):
         'SWORDFISH_FILETREE_SYNC_CONFIG', os.path.join(str(tmp_path), 'config.json')
     )
     root = os.path.join(str(tmp_path), 'monticello')
-    os.makedirs(os.path.join(root, 'Wonka-Amount-Core.package'))
+    os.makedirs(os.path.join(root, 'Acme-Amount-Core.package'))
     tools = registered_sync_tools()
     tools['gs_sync_set_root'](root)
 

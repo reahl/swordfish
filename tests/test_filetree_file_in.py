@@ -84,7 +84,7 @@ def amount_definition():
     return {
         'class_name': 'Amount',
         'superclass_name': 'Number',
-        'package_name': 'Wonka-Amount-Core',
+        'package_name': 'Acme-Amount-Core',
         'inst_var_names': ['number'],
         'class_var_names': [],
         'class_inst_var_names': [],
@@ -93,14 +93,14 @@ def amount_definition():
 
 
 def disk_with_amount(tmp_path):
-    '''AI: A repository on disk holding Wonka-Amount-Core with one Amount instance method.'''
+    '''AI: A repository on disk holding Acme-Amount-Core with one Amount instance method.'''
     repository = MonticelloRepository(str(tmp_path))
-    repository.ensure_package('Wonka-Amount-Core')
+    repository.ensure_package('Acme-Amount-Core')
     repository.write_class_definition(
-        'Wonka-Amount-Core',
+        'Acme-Amount-Core',
         {
             'super': 'Number',
-            'category': 'Wonka-Amount-Core',
+            'category': 'Acme-Amount-Core',
             'classinstvars': [],
             'pools': [],
             'classvars': [],
@@ -110,7 +110,7 @@ def disk_with_amount(tmp_path):
         },
     )
     repository.write_method(
-        'Wonka-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic',
+        'Acme-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic',
         'doubled\n\t^ number * 2',
     )
     return repository
@@ -125,10 +125,10 @@ def image_diverged_from_disk():
             ('Amount', True): {
                 'doubled': ('arithmetic', 'doubled\n\t^ number'),
                 'obsolete': ('arithmetic', 'obsolete\n\t^ 1'),
-                'fromOther': ('*Wonka-Other-Core', 'fromOther\n\t^ 2'),
+                'fromOther': ('*Acme-Other-Core', 'fromOther\n\t^ 2'),
             }
         },
-        classes_by_category={'Wonka-Amount-Core': ['Amount', 'Ghost']},
+        classes_by_category={'Acme-Amount-Core': ['Amount', 'Ghost']},
     )
 
 
@@ -137,7 +137,7 @@ def test_file_in_recompiles_disk_methods(tmp_path):
     image version.'''
     working_copy = MonticelloWorkingCopy(repository=disk_with_amount(tmp_path), enabled=False)
     image = image_diverged_from_disk()
-    working_copy.file_in_package(image, 'Wonka-Amount-Core')
+    working_copy.file_in_package(image, 'Acme-Amount-Core')
     assert image.methods[('Amount', True)]['doubled'] == (
         'arithmetic',
         'doubled\n\t^ number * 2',
@@ -149,7 +149,7 @@ def test_file_in_deletes_image_own_methods_absent_from_disk(tmp_path):
     '''AI: A class's own method that is not on disk is removed, so the image matches disk.'''
     working_copy = MonticelloWorkingCopy(repository=disk_with_amount(tmp_path), enabled=False)
     image = image_diverged_from_disk()
-    working_copy.file_in_package(image, 'Wonka-Amount-Core')
+    working_copy.file_in_package(image, 'Acme-Amount-Core')
     assert ('Amount', 'obsolete', True) in image.deleted_methods
     assert 'obsolete' not in image.methods[('Amount', True)]
 
@@ -159,7 +159,7 @@ def test_file_in_keeps_methods_owned_by_other_packages(tmp_path):
     different package, even though it lives on the same class.'''
     working_copy = MonticelloWorkingCopy(repository=disk_with_amount(tmp_path), enabled=False)
     image = image_diverged_from_disk()
-    working_copy.file_in_package(image, 'Wonka-Amount-Core')
+    working_copy.file_in_package(image, 'Acme-Amount-Core')
     assert 'fromOther' in image.methods[('Amount', True)]
 
 
@@ -167,7 +167,7 @@ def test_file_in_deletes_image_only_classes_in_the_package(tmp_path):
     '''AI: A class in the package's category that is absent from disk is removed.'''
     working_copy = MonticelloWorkingCopy(repository=disk_with_amount(tmp_path), enabled=False)
     image = image_diverged_from_disk()
-    working_copy.file_in_package(image, 'Wonka-Amount-Core')
+    working_copy.file_in_package(image, 'Acme-Amount-Core')
     assert 'Ghost' in image.deleted_classes
 
 

@@ -42,12 +42,12 @@ class StubImage:
 
 def amount_image():
     return StubImage(
-        classes_by_category={'Wonka-Amount-Core': ['Amount']},
+        classes_by_category={'Acme-Amount-Core': ['Amount']},
         class_definitions={
             'Amount': {
                 'class_name': 'Amount',
                 'superclass_name': 'Number',
-                'package_name': 'Wonka-Amount-Core',
+                'package_name': 'Acme-Amount-Core',
                 'inst_var_names': ['number'],
                 'class_var_names': [],
                 'class_inst_var_names': [],
@@ -57,7 +57,7 @@ def amount_image():
         methods={
             ('Amount', True): {
                 'doubled': ('arithmetic', 'doubled\n\t^ number * 2'),
-                'asWidget': ('*Wonka-Other-Core', 'asWidget\n\t^ self'),
+                'asWidget': ('*Acme-Other-Core', 'asWidget\n\t^ self'),
             },
             ('Amount', False): {
                 'zero': ('instance creation', 'zero\n\t^ self new'),
@@ -83,7 +83,7 @@ def test_filing_out_a_class_writes_definition_and_own_methods(tmp_path):
     of its own methods under the correct side directory.'''
     working_copy = working_copy_over(tmp_path)
     working_copy.file_out_class(amount_image(), 'Amount')
-    package = os.path.join(str(tmp_path), 'Wonka-Amount-Core.package')
+    package = os.path.join(str(tmp_path), 'Acme-Amount-Core.package')
     assert '"name" : "Amount"' in read_text(
         os.path.join(package, 'Amount.class', 'properties.json')
     )
@@ -102,25 +102,25 @@ def test_filing_out_a_class_routes_extension_methods_to_their_package(tmp_path):
     working_copy.file_out_class(amount_image(), 'Amount')
     extension_file = os.path.join(
         str(tmp_path),
-        'Wonka-Other-Core.package',
+        'Acme-Other-Core.package',
         'Amount.extension',
         'instance',
         'asWidget.st',
     )
-    assert read_text(extension_file) == '*Wonka-Other-Core\nasWidget\n\t^ self'
-    assert os.path.isdir(os.path.join(str(tmp_path), 'Wonka-Other-Core.package'))
+    assert read_text(extension_file) == '*Acme-Other-Core\nasWidget\n\t^ self'
+    assert os.path.isdir(os.path.join(str(tmp_path), 'Acme-Other-Core.package'))
 
 
 def own_package_star_image():
     '''AI: A class whose own method carries a '*ThisPackage' protocol - a star category that
     names the class's own defining package rather than a foreign one.'''
     return StubImage(
-        classes_by_category={'Wonka-Amount-Core': ['Amount']},
+        classes_by_category={'Acme-Amount-Core': ['Amount']},
         class_definitions={
             'Amount': {
                 'class_name': 'Amount',
                 'superclass_name': 'Number',
-                'package_name': 'Wonka-Amount-Core',
+                'package_name': 'Acme-Amount-Core',
                 'inst_var_names': ['number'],
                 'class_var_names': [],
                 'class_inst_var_names': [],
@@ -129,7 +129,7 @@ def own_package_star_image():
         },
         methods={
             ('Amount', True): {
-                'tripled': ('*Wonka-Amount-Core', 'tripled\n\t^ number * 3'),
+                'tripled': ('*Acme-Amount-Core', 'tripled\n\t^ number * 3'),
             },
             ('Amount', False): {},
         },
@@ -142,20 +142,20 @@ def test_filing_out_keeps_own_package_star_methods_in_the_class_directory(tmp_pa
     It must not be diverted into a .extension directory.'''
     working_copy = working_copy_over(tmp_path)
     working_copy.file_out_class(own_package_star_image(), 'Amount')
-    package = os.path.join(str(tmp_path), 'Wonka-Amount-Core.package')
+    package = os.path.join(str(tmp_path), 'Acme-Amount-Core.package')
     assert read_text(
         os.path.join(package, 'Amount.class', 'instance', 'tripled.st')
-    ) == '*Wonka-Amount-Core\ntripled\n\t^ number * 3'
+    ) == '*Acme-Amount-Core\ntripled\n\t^ number * 3'
     assert not os.path.exists(os.path.join(package, 'Amount.extension'))
 
 
 def test_filing_out_a_category_files_out_each_of_its_classes(tmp_path):
     '''AI: Filing out a class category files out every class the image lists under it.'''
     working_copy = working_copy_over(tmp_path)
-    working_copy.file_out_class_category(amount_image(), 'Wonka-Amount-Core')
+    working_copy.file_out_class_category(amount_image(), 'Acme-Amount-Core')
     assert os.path.exists(
         os.path.join(
-            str(tmp_path), 'Wonka-Amount-Core.package', 'Amount.class', 'properties.json'
+            str(tmp_path), 'Acme-Amount-Core.package', 'Amount.class', 'properties.json'
         )
     )
 
@@ -176,7 +176,7 @@ def test_filing_out_a_method_category_writes_its_methods(tmp_path):
     working_copy.file_out_method_category(amount_image(), 'Amount', 'arithmetic', False)
     assert os.path.exists(
         os.path.join(
-            str(tmp_path), 'Wonka-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
+            str(tmp_path), 'Acme-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
         )
     )
 

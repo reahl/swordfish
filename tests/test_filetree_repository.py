@@ -3,7 +3,7 @@
 The single most important property of the sync feature is that files it writes are
 indistinguishable from what Pharo writes, so that mirroring an edit never produces a
 spurious diff in the version-controlled repository. These tests pin that down against a
-small corpus of real Wonka files copied verbatim into tests/fixtures/monticello.'''
+small corpus of real Acme files copied verbatim into tests/fixtures/monticello.'''
 
 import json
 import os
@@ -83,7 +83,7 @@ def test_every_corpus_method_filename_is_reproduced():
         'zero': 'zero',
     }
     instance_directory = os.path.join(
-        FIXTURE_ROOT, 'Wonka-Amount-Core.package', 'Amount.class', 'instance'
+        FIXTURE_ROOT, 'Acme-Amount-Core.package', 'Amount.class', 'instance'
     )
     present = set(os.listdir(instance_directory))
     for selector, filename_base in expected_pairs.items():
@@ -122,17 +122,17 @@ class ClassPropertiesScenarios(Fixture):
     @scenario
     def single_instance_variable(self):
         '''AI: A class with one instvar and otherwise empty lists (the common shape).'''
-        self.relative_path = 'Wonka-Amount-Core.package/Amount.class/properties.json'
+        self.relative_path = 'Acme-Amount-Core.package/Amount.class/properties.json'
 
     @scenario
     def several_instance_variables(self):
         '''AI: A class with a multi-item instvar list, exercising the multiline array branch.'''
-        self.relative_path = 'Wonka-Amount-Core.package/Currency.class/properties.json'
+        self.relative_path = 'Acme-Amount-Core.package/Currency.class/properties.json'
 
     @scenario
     def non_normal_class_type(self):
         '''AI: A bytes-kind class, exercising a non-normal type value.'''
-        self.relative_path = 'Wonka-Entities-Core.package/IDNumber.class/properties.json'
+        self.relative_path = 'Acme-Entities-Core.package/IDNumber.class/properties.json'
 
 
 @with_fixtures(ClassPropertiesScenarios)
@@ -156,8 +156,8 @@ class RepositoryFixture(Fixture):
 def test_tracked_packages_are_the_package_directories(repository_fixture):
     '''AI: The tracked subset is exactly the .package directories present on disk.'''
     assert repository_fixture.repository.tracked_package_names() == [
-        'Wonka-Amount-Core',
-        'Wonka-Entities-Core',
+        'Acme-Amount-Core',
+        'Acme-Entities-Core',
     ]
 
 
@@ -166,10 +166,10 @@ def test_class_category_resolves_to_owning_package(repository_fixture):
     '''AI: A class is owned by the package whose name equals its category, or the longest
     package name of which the category is a hyphen-delimited sub-category.'''
     repository = repository_fixture.repository
-    assert repository.package_owning_category('Wonka-Amount-Core') == 'Wonka-Amount-Core'
+    assert repository.package_owning_category('Acme-Amount-Core') == 'Acme-Amount-Core'
     assert (
-        repository.package_owning_category('Wonka-Amount-Core-Private')
-        == 'Wonka-Amount-Core'
+        repository.package_owning_category('Acme-Amount-Core-Private')
+        == 'Acme-Amount-Core'
     )
     assert repository.package_owning_category('Some-Other-Thing') is None
 
@@ -180,12 +180,12 @@ def test_extension_protocol_resolves_to_owning_package(repository_fixture):
     matched case-insensitively because image protocols are not case-canonical.'''
     repository = repository_fixture.repository
     assert (
-        repository.package_for_extension_protocol('*Wonka-Amount-Core')
-        == 'Wonka-Amount-Core'
+        repository.package_for_extension_protocol('*Acme-Amount-Core')
+        == 'Acme-Amount-Core'
     )
     assert (
-        repository.package_for_extension_protocol('*wonka-amount-core')
-        == 'Wonka-Amount-Core'
+        repository.package_for_extension_protocol('*acme-amount-core')
+        == 'Acme-Amount-Core'
     )
     assert repository.package_for_extension_protocol('*Not-Tracked') is None
     assert repository.package_for_extension_protocol('accessing') is None
@@ -194,12 +194,12 @@ def test_extension_protocol_resolves_to_owning_package(repository_fixture):
 @with_fixtures(RepositoryFixture)
 def test_package_format_gate_recognises_cypress(repository_fixture):
     '''AI: We only rewrite properties.json for packages whose configured format we model.'''
-    assert repository_fixture.repository.package_uses_cypress_properties('Wonka-Amount-Core')
+    assert repository_fixture.repository.package_uses_cypress_properties('Acme-Amount-Core')
 
 
 def repository_with_empty_package(tmp_path):
     '''AI: A throwaway repository holding one empty tracked package, for write/remove tests.'''
-    os.makedirs(os.path.join(str(tmp_path), 'Wonka-Amount-Core.package'))
+    os.makedirs(os.path.join(str(tmp_path), 'Acme-Amount-Core.package'))
     return MonticelloRepository(str(tmp_path))
 
 
@@ -208,15 +208,15 @@ def test_writing_a_method_produces_the_expected_file(tmp_path):
     newline, at the Cypress-named path - and reports its own source back for drift checks.'''
     repository = repository_with_empty_package(tmp_path)
     path = repository.write_method(
-        'Wonka-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic',
+        'Acme-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic',
         'doubled\n\t^ number * 2',
     )
     assert path.endswith(
-        os.path.join('Wonka-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st')
+        os.path.join('Acme-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st')
     )
     assert read_bytes_as_text(path) == 'arithmetic\ndoubled\n\t^ number * 2'
     assert (
-        repository.disk_method_source('Wonka-Amount-Core', 'Amount', False, False, 'doubled')
+        repository.disk_method_source('Acme-Amount-Core', 'Amount', False, False, 'doubled')
         == 'doubled\n\t^ number * 2'
     )
 
@@ -226,12 +226,12 @@ def test_rewriting_an_unchanged_method_leaves_the_file_untouched(tmp_path):
     from a trailing newline Pharo keeps and our canonical form drops), the file is left exactly
     as it was - so re-filing an unchanged method produces no spurious whitespace diff.'''
     repository = repository_with_empty_package(tmp_path)
-    path = repository.method_path('Wonka-Amount-Core', 'Amount', False, False, 'doubled')
+    path = repository.method_path('Acme-Amount-Core', 'Amount', False, False, 'doubled')
     os.makedirs(os.path.dirname(path))
     with open(path, 'w', encoding='utf-8', newline='\n') as seeded:
         seeded.write('arithmetic\ndoubled\n\t^ number * 2\n')
     repository.write_method(
-        'Wonka-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic',
+        'Acme-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic',
         'doubled\n\t^ number * 2',
     )
     assert read_bytes_as_text(path) == 'arithmetic\ndoubled\n\t^ number * 2\n'
@@ -241,12 +241,12 @@ def test_rewriting_a_changed_method_writes_the_canonical_form(tmp_path):
     '''AI: When the source genuinely changed, the file is rewritten in our canonical form (no
     trailing newline) - the file changes only because its content changed.'''
     repository = repository_with_empty_package(tmp_path)
-    path = repository.method_path('Wonka-Amount-Core', 'Amount', False, False, 'doubled')
+    path = repository.method_path('Acme-Amount-Core', 'Amount', False, False, 'doubled')
     os.makedirs(os.path.dirname(path))
     with open(path, 'w', encoding='utf-8', newline='\n') as seeded:
         seeded.write('arithmetic\ndoubled\n\t^ 1\n')
     repository.write_method(
-        'Wonka-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic',
+        'Acme-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic',
         'doubled\n\t^ number * 2',
     )
     assert read_bytes_as_text(path) == 'arithmetic\ndoubled\n\t^ number * 2'
@@ -256,11 +256,11 @@ def test_removing_a_method_deletes_only_its_file(tmp_path):
     '''AI: Removing a method deletes exactly its own file and reports whether one was there.'''
     repository = repository_with_empty_package(tmp_path)
     repository.write_method(
-        'Wonka-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic', 'doubled\n\t^ 1',
+        'Acme-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic', 'doubled\n\t^ 1',
     )
-    assert repository.remove_method('Wonka-Amount-Core', 'Amount', False, False, 'doubled')
+    assert repository.remove_method('Acme-Amount-Core', 'Amount', False, False, 'doubled')
     assert not repository.remove_method(
-        'Wonka-Amount-Core', 'Amount', False, False, 'doubled'
+        'Acme-Amount-Core', 'Amount', False, False, 'doubled'
     )
 
 
@@ -271,7 +271,7 @@ def test_class_definition_change_preserves_existing_comment_stamp(tmp_path):
     seeded = {
         'commentStamp': 'iwan 5/30/2026 09:00',
         'super': 'Number',
-        'category': 'Wonka-Amount-Core',
+        'category': 'Acme-Amount-Core',
         'classinstvars': [],
         'pools': [],
         'classvars': [],
@@ -279,11 +279,11 @@ def test_class_definition_change_preserves_existing_comment_stamp(tmp_path):
         'name': 'Amount',
         'type': 'normal',
     }
-    repository.write_class_definition('Wonka-Amount-Core', seeded)
+    repository.write_class_definition('Acme-Amount-Core', seeded)
     changed = dict(seeded)
     changed['instvars'] = ['number', 'currency']
     changed.pop('commentStamp')
-    properties_path = repository.write_class_definition('Wonka-Amount-Core', changed)
+    properties_path = repository.write_class_definition('Acme-Amount-Core', changed)
     with open(properties_path, 'r', encoding='utf-8') as properties_file:
         written = json.load(properties_file)
     assert written['commentStamp'] == 'iwan 5/30/2026 09:00'
@@ -294,7 +294,7 @@ SPACE_INDENTED_AMOUNT_PROPERTIES = (
     '{\n'
     '    "commentStamp" : "",\n'
     '    "super" : "Number",\n'
-    '    "category" : "Wonka-Amount-Core",\n'
+    '    "category" : "Acme-Amount-Core",\n'
     '    "classinstvars" : [ ],\n'
     '    "pools" : [ ],\n'
     '    "classvars" : [ ],\n'
@@ -308,7 +308,7 @@ SPACE_INDENTED_AMOUNT_PROPERTIES = (
 def amount_definition_dict():
     return {
         'super': 'Number',
-        'category': 'Wonka-Amount-Core',
+        'category': 'Acme-Amount-Core',
         'classinstvars': [],
         'pools': [],
         'classvars': [],
@@ -320,7 +320,7 @@ def amount_definition_dict():
 
 def seed_properties_file(tmp_path, contents):
     class_directory = os.path.join(
-        str(tmp_path), 'Wonka-Amount-Core.package', 'Amount.class'
+        str(tmp_path), 'Acme-Amount-Core.package', 'Amount.class'
     )
     os.makedirs(class_directory)
     properties_path = os.path.join(class_directory, 'properties.json')
@@ -335,7 +335,7 @@ def test_rewriting_an_unchanged_class_definition_leaves_its_formatting_untouched
     unchanged class must not reformat the file and create a spurious diff.'''
     repository = repository_with_empty_package(tmp_path)
     properties_path = seed_properties_file(tmp_path, SPACE_INDENTED_AMOUNT_PROPERTIES)
-    repository.write_class_definition('Wonka-Amount-Core', amount_definition_dict())
+    repository.write_class_definition('Acme-Amount-Core', amount_definition_dict())
     assert read_bytes_as_text(properties_path) == SPACE_INDENTED_AMOUNT_PROPERTIES
 
 
@@ -347,7 +347,7 @@ def test_rewriting_a_changed_class_definition_writes_canonical_tabs(tmp_path):
         '"super" : "Number"', '"super" : "Object"'
     )
     properties_path = seed_properties_file(tmp_path, spaced_with_old_super)
-    repository.write_class_definition('Wonka-Amount-Core', amount_definition_dict())
+    repository.write_class_definition('Acme-Amount-Core', amount_definition_dict())
     written = read_bytes_as_text(properties_path)
     assert '\t"super" : "Number"' in written
     assert '    "super"' not in written
@@ -358,13 +358,13 @@ def test_reading_back_the_corpus_classes_and_methods(tmp_path):
     classes, the class definition, and each method's category line and source - which is the
     raw material a file-in needs.'''
     repository = MonticelloRepository(FIXTURE_ROOT)
-    assert 'Amount' in repository.defined_class_names('Wonka-Amount-Core')
-    assert 'Float' in repository.extension_class_names('Wonka-Amount-Core')
-    definition = repository.read_class_definition('Wonka-Amount-Core', 'Amount')
+    assert 'Amount' in repository.defined_class_names('Acme-Amount-Core')
+    assert 'Float' in repository.extension_class_names('Acme-Amount-Core')
+    definition = repository.read_class_definition('Acme-Amount-Core', 'Amount')
     assert definition['name'] == 'Amount'
     assert definition['instvars'] == ['number']
     instance_methods = repository.stored_methods(
-        'Wonka-Amount-Core', 'Amount', False, False
+        'Acme-Amount-Core', 'Amount', False, False
     )
     hash_methods = [
         method for method in instance_methods if method['source'].startswith('hash')
@@ -377,11 +377,11 @@ def test_ensuring_a_new_package_creates_cypress_layout(tmp_path):
     '''AI: Filing out into a package that is not yet on disk creates the .package directory
     with a Cypress .filetree and the minimal Monticello metadata, so it is a usable package.'''
     repository = MonticelloRepository(str(tmp_path))
-    repository.ensure_package('Wonka-New-Core')
-    package_directory = os.path.join(str(tmp_path), 'Wonka-New-Core.package')
-    assert repository.package_uses_cypress_properties('Wonka-New-Core')
+    repository.ensure_package('Acme-New-Core')
+    package_directory = os.path.join(str(tmp_path), 'Acme-New-Core.package')
+    assert repository.package_uses_cypress_properties('Acme-New-Core')
     assert read_bytes_as_text(os.path.join(package_directory, 'monticello.meta', 'package')) == (
-        "(name 'Wonka-New-Core')"
+        "(name 'Acme-New-Core')"
     )
 
 
@@ -389,12 +389,12 @@ def test_ensuring_an_existing_package_leaves_it_untouched(tmp_path):
     '''AI: ensure_package must not rewrite a package that already exists, so a real Pharo
     package's files are never disturbed by a file-out into it.'''
     repository = MonticelloRepository(str(tmp_path))
-    package_directory = os.path.join(str(tmp_path), 'Wonka-Amount-Core.package')
+    package_directory = os.path.join(str(tmp_path), 'Acme-Amount-Core.package')
     os.makedirs(package_directory)
     marker_path = os.path.join(package_directory, '.filetree')
     with open(marker_path, 'w', encoding='utf-8') as marker:
         marker.write('SENTINEL')
-    repository.ensure_package('Wonka-Amount-Core')
+    repository.ensure_package('Acme-Amount-Core')
     assert read_bytes_as_text(marker_path) == 'SENTINEL'
 
 
@@ -404,10 +404,10 @@ def test_writing_a_class_definition_creates_no_empty_side_directories(tmp_path):
     spurious empty directory; the side directory appears lazily when a method is written to it.'''
     repository = repository_with_empty_package(tmp_path)
     repository.write_class_definition(
-        'Wonka-Amount-Core',
+        'Acme-Amount-Core',
         {
             'super': 'Object',
-            'category': 'Wonka-Amount-Core',
+            'category': 'Acme-Amount-Core',
             'classinstvars': [],
             'pools': [],
             'classvars': [],
@@ -417,13 +417,13 @@ def test_writing_a_class_definition_creates_no_empty_side_directories(tmp_path):
         },
     )
     class_directory = os.path.join(
-        str(tmp_path), 'Wonka-Amount-Core.package', 'Widget.class'
+        str(tmp_path), 'Acme-Amount-Core.package', 'Widget.class'
     )
     assert os.path.exists(os.path.join(class_directory, 'properties.json'))
     assert not os.path.exists(os.path.join(class_directory, 'instance'))
     assert not os.path.exists(os.path.join(class_directory, 'class'))
     repository.write_method(
-        'Wonka-Amount-Core', 'Widget', False, False, 'size', 'accessing', 'size\n\t^ 1',
+        'Acme-Amount-Core', 'Widget', False, False, 'size', 'accessing', 'size\n\t^ 1',
     )
     assert os.path.isdir(os.path.join(class_directory, 'instance'))
     assert not os.path.exists(os.path.join(class_directory, 'class'))

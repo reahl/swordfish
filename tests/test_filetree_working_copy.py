@@ -23,11 +23,11 @@ def repository_with_tracked_packages(tmp_path):
     '''AI: A repository whose tracked subset is two real package directories, one of which
     carries a Cypress .filetree so class-definition writes are permitted.'''
     root = str(tmp_path)
-    amount_package = os.path.join(root, 'Wonka-Amount-Core.package')
+    amount_package = os.path.join(root, 'Acme-Amount-Core.package')
     os.makedirs(amount_package)
     with open(os.path.join(amount_package, '.filetree'), 'w', encoding='utf-8') as config:
         config.write(CYPRESS_CONFIG)
-    os.makedirs(os.path.join(root, 'Wonka-Entities-Core.package'))
+    os.makedirs(os.path.join(root, 'Acme-Entities-Core.package'))
     return MonticelloRepository(root)
 
 
@@ -42,12 +42,12 @@ def test_disabled_working_copy_writes_nothing(tmp_path):
         repository=repository_with_tracked_packages(tmp_path), enabled=False
     )
     outcome = working_copy.update_for_compiled_method(
-        'Amount', 'doubled', False, 'arithmetic', 'Wonka-Amount-Core', None, 'doubled\n\t^ 1'
+        'Amount', 'doubled', False, 'arithmetic', 'Acme-Amount-Core', None, 'doubled\n\t^ 1'
     )
     assert outcome.action == 'disabled'
     assert not os.path.exists(
         os.path.join(
-            str(tmp_path), 'Wonka-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
+            str(tmp_path), 'Acme-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
         )
     )
 
@@ -59,7 +59,7 @@ def test_tracked_instance_method_is_written_to_its_class_directory(tmp_path):
         repository=repository_with_tracked_packages(tmp_path), enabled=True
     )
     outcome = working_copy.update_for_compiled_method(
-        'Amount', 'doubled', False, 'arithmetic', 'Wonka-Amount-Core', None, 'doubled\n\t^ number * 2'
+        'Amount', 'doubled', False, 'arithmetic', 'Acme-Amount-Core', None, 'doubled\n\t^ number * 2'
     )
     assert outcome.action == 'wrote'
     assert read_text(outcome.path) == 'arithmetic\ndoubled\n\t^ number * 2'
@@ -73,13 +73,13 @@ def test_extension_method_is_written_to_the_extension_directory(tmp_path):
         repository=repository_with_tracked_packages(tmp_path), enabled=True
     )
     outcome = working_copy.update_for_compiled_method(
-        'Float', 'asAmount', False, '*wonka-amount-core', 'Kernel-Numbers', None, 'asAmount\n\t^ self'
+        'Float', 'asAmount', False, '*acme-amount-core', 'Kernel-Numbers', None, 'asAmount\n\t^ self'
     )
     assert outcome.action == 'wrote'
     assert outcome.path.endswith(
-        os.path.join('Wonka-Amount-Core.package', 'Float.extension', 'instance', 'asAmount.st')
+        os.path.join('Acme-Amount-Core.package', 'Float.extension', 'instance', 'asAmount.st')
     )
-    assert read_text(outcome.path) == '*Wonka-Amount-Core\nasAmount\n\t^ self'
+    assert read_text(outcome.path) == '*Acme-Amount-Core\nasAmount\n\t^ self'
 
 
 def test_method_in_untracked_package_is_skipped(tmp_path):
@@ -98,12 +98,12 @@ def test_divergent_disk_source_is_reported_then_overwritten(tmp_path):
     that divergence is reported (lazy drift detection) and the new version is still written.'''
     repository = repository_with_tracked_packages(tmp_path)
     repository.write_method(
-        'Wonka-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic',
+        'Acme-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic',
         'doubled\n\t^ number + number',
     )
     working_copy = MonticelloWorkingCopy(repository=repository, enabled=True)
     outcome = working_copy.update_for_compiled_method(
-        'Amount', 'doubled', False, 'arithmetic', 'Wonka-Amount-Core',
+        'Amount', 'doubled', False, 'arithmetic', 'Acme-Amount-Core',
         'doubled\n\t^ number * 2', 'doubled\n\t^ number + number + number',
     )
     assert outcome.drift is not None
@@ -118,14 +118,14 @@ def test_own_package_star_method_is_written_to_the_class_directory(tmp_path):
         repository=repository_with_tracked_packages(tmp_path), enabled=True
     )
     outcome = working_copy.update_for_compiled_method(
-        'Amount', 'doubled', False, '*Wonka-Amount-Core', 'Wonka-Amount-Core', None,
+        'Amount', 'doubled', False, '*Acme-Amount-Core', 'Acme-Amount-Core', None,
         'doubled\n\t^ number * 2',
     )
     assert outcome.action == 'wrote'
     assert outcome.path.endswith(
-        os.path.join('Wonka-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st')
+        os.path.join('Acme-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st')
     )
-    assert read_text(outcome.path) == '*Wonka-Amount-Core\ndoubled\n\t^ number * 2'
+    assert read_text(outcome.path) == '*Acme-Amount-Core\ndoubled\n\t^ number * 2'
 
 
 def test_recategorising_into_an_extension_removes_the_stale_class_file(tmp_path):
@@ -136,24 +136,24 @@ def test_recategorising_into_an_extension_removes_the_stale_class_file(tmp_path)
     # AI: the class-directory file is what existed before; the recompile has already written
     # the extension file (the compile hook does that), which we mimic here.
     repository.write_method(
-        'Wonka-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic', 'doubled\n\t^ 1',
+        'Acme-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic', 'doubled\n\t^ 1',
     )
     repository.write_method(
-        'Wonka-Entities-Core', 'Amount', False, True, 'doubled', '*Wonka-Entities-Core', 'doubled\n\t^ 1',
+        'Acme-Entities-Core', 'Amount', False, True, 'doubled', '*Acme-Entities-Core', 'doubled\n\t^ 1',
     )
     working_copy = MonticelloWorkingCopy(repository=repository, enabled=True)
     outcome = working_copy.remove_stale_after_recategorise(
-        'Amount', 'doubled', False, 'arithmetic', '*Wonka-Entities-Core', 'Wonka-Amount-Core',
+        'Amount', 'doubled', False, 'arithmetic', '*Acme-Entities-Core', 'Acme-Amount-Core',
     )
     assert outcome.action == 'removed'
     assert not os.path.exists(
         os.path.join(
-            str(tmp_path), 'Wonka-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
+            str(tmp_path), 'Acme-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
         )
     )
     assert os.path.exists(
         os.path.join(
-            str(tmp_path), 'Wonka-Entities-Core.package', 'Amount.extension', 'instance', 'doubled.st'
+            str(tmp_path), 'Acme-Entities-Core.package', 'Amount.extension', 'instance', 'doubled.st'
         )
     )
 
@@ -164,16 +164,16 @@ def test_recategorising_into_own_package_star_keeps_the_class_file(tmp_path):
     class-directory file is kept rather than removed.'''
     repository = repository_with_tracked_packages(tmp_path)
     repository.write_method(
-        'Wonka-Amount-Core', 'Amount', False, False, 'doubled', '*Wonka-Amount-Core', 'doubled\n\t^ 1',
+        'Acme-Amount-Core', 'Amount', False, False, 'doubled', '*Acme-Amount-Core', 'doubled\n\t^ 1',
     )
     working_copy = MonticelloWorkingCopy(repository=repository, enabled=True)
     outcome = working_copy.remove_stale_after_recategorise(
-        'Amount', 'doubled', False, 'arithmetic', '*Wonka-Amount-Core', 'Wonka-Amount-Core',
+        'Amount', 'doubled', False, 'arithmetic', '*Acme-Amount-Core', 'Acme-Amount-Core',
     )
     assert outcome.action == 'skipped'
     assert os.path.exists(
         os.path.join(
-            str(tmp_path), 'Wonka-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
+            str(tmp_path), 'Acme-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
         )
     )
 
@@ -183,16 +183,16 @@ def test_recategorising_within_the_same_location_keeps_the_file(tmp_path):
     another) must not delete the file the recompile just rewrote.'''
     repository = repository_with_tracked_packages(tmp_path)
     repository.write_method(
-        'Wonka-Amount-Core', 'Amount', False, False, 'doubled', 'computing', 'doubled\n\t^ 1',
+        'Acme-Amount-Core', 'Amount', False, False, 'doubled', 'computing', 'doubled\n\t^ 1',
     )
     working_copy = MonticelloWorkingCopy(repository=repository, enabled=True)
     outcome = working_copy.remove_stale_after_recategorise(
-        'Amount', 'doubled', False, 'arithmetic', 'computing', 'Wonka-Amount-Core',
+        'Amount', 'doubled', False, 'arithmetic', 'computing', 'Acme-Amount-Core',
     )
     assert outcome.action == 'skipped'
     assert os.path.exists(
         os.path.join(
-            str(tmp_path), 'Wonka-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
+            str(tmp_path), 'Acme-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
         )
     )
 
@@ -201,16 +201,16 @@ def test_removing_a_tracked_method_deletes_its_file(tmp_path):
     '''AI: Removing a method removes its mirrored file.'''
     repository = repository_with_tracked_packages(tmp_path)
     repository.write_method(
-        'Wonka-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic', 'doubled\n\t^ 1',
+        'Acme-Amount-Core', 'Amount', False, False, 'doubled', 'arithmetic', 'doubled\n\t^ 1',
     )
     working_copy = MonticelloWorkingCopy(repository=repository, enabled=True)
     outcome = working_copy.update_for_removed_method(
-        'Amount', 'doubled', False, 'arithmetic', 'Wonka-Amount-Core'
+        'Amount', 'doubled', False, 'arithmetic', 'Acme-Amount-Core'
     )
     assert outcome.action == 'removed'
     assert not os.path.exists(
         os.path.join(
-            str(tmp_path), 'Wonka-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
+            str(tmp_path), 'Acme-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
         )
     )
 

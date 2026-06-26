@@ -20,7 +20,7 @@ def enabled_repository_root(tmp_path, monkeypatch):
     config_path = os.path.join(str(tmp_path), 'config.json')
     monkeypatch.setenv('SWORDFISH_FILETREE_SYNC_CONFIG', config_path)
     root = os.path.join(str(tmp_path), 'monticello')
-    package = os.path.join(root, 'Wonka-Amount-Core.package')
+    package = os.path.join(root, 'Acme-Amount-Core.package')
     os.makedirs(package)
     with open(os.path.join(package, '.filetree'), 'w', encoding='utf-8') as config:
         config.write(CYPRESS_CONFIG)
@@ -100,13 +100,13 @@ class StubbedEditingSession(GemstoneBrowserSession):
 
 def amount_session():
     return StubbedEditingSession(
-        class_category='Wonka-Amount-Core',
+        class_category='Acme-Amount-Core',
         source_by_selector={},
         protocol_by_selector={},
         class_definition={
             'class_name': 'Widget',
             'superclass_name': 'Object',
-            'package_name': 'Wonka-Amount-Core',
+            'package_name': 'Acme-Amount-Core',
             'inst_var_names': ['size'],
             'class_var_names': [],
             'class_inst_var_names': [],
@@ -122,7 +122,7 @@ def test_compiling_a_method_mirrors_it_to_disk(tmp_path, monkeypatch):
     session = amount_session()
     session.compile_method('Amount', True, 'doubled\n\t^ number * 2', 'arithmetic')
     written = os.path.join(
-        root, 'Wonka-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
+        root, 'Acme-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
     )
     assert read_text(written) == 'arithmetic\ndoubled\n\t^ number * 2'
 
@@ -133,7 +133,7 @@ def test_compiling_a_binary_method_uses_the_mangled_filename(tmp_path, monkeypat
     session = amount_session()
     session.compile_method('Amount', True, '>= other\n\t^ number >= other', 'comparing')
     written = os.path.join(
-        root, 'Wonka-Amount-Core.package', 'Amount.class', 'instance', '^more.equals.st'
+        root, 'Acme-Amount-Core.package', 'Amount.class', 'instance', '^more.equals.st'
     )
     assert os.path.exists(written)
 
@@ -145,7 +145,7 @@ def test_deleting_a_method_removes_its_mirrored_file(tmp_path, monkeypatch):
     session.protocol_by_selector['doubled'] = 'arithmetic'
     session.compile_method('Amount', True, 'doubled\n\t^ 1', 'arithmetic')
     written = os.path.join(
-        root, 'Wonka-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
+        root, 'Acme-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
     )
     assert os.path.exists(written)
     session.delete_method('Amount', 'doubled', True)
@@ -156,18 +156,18 @@ def test_recategorising_into_extension_moves_the_file(tmp_path, monkeypatch):
     '''AI: Recategorising a method into a '*Package' extension that names a foreign package
     writes the extension file under that package and removes the now-stale class-directory file.'''
     root = enabled_repository_root(tmp_path, monkeypatch)
-    add_tracked_package(root, 'Wonka-Other-Core')
+    add_tracked_package(root, 'Acme-Other-Core')
     session = amount_session()
     session.source_by_selector['doubled'] = 'doubled\n\t^ 1'
     session.protocol_by_selector['doubled'] = 'arithmetic'
     session.compile_method('Amount', True, 'doubled\n\t^ 1', 'arithmetic')
     class_file = os.path.join(
-        root, 'Wonka-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
+        root, 'Acme-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
     )
     assert os.path.exists(class_file)
-    session.set_method_category('Amount', 'doubled', '*Wonka-Other-Core', True)
+    session.set_method_category('Amount', 'doubled', '*Acme-Other-Core', True)
     extension_file = os.path.join(
-        root, 'Wonka-Other-Core.package', 'Amount.extension', 'instance', 'doubled.st'
+        root, 'Acme-Other-Core.package', 'Amount.extension', 'instance', 'doubled.st'
     )
     assert os.path.exists(extension_file)
     assert not os.path.exists(class_file)
@@ -179,13 +179,13 @@ def test_own_package_star_protocol_stays_in_the_class_directory(tmp_path, monkey
     The live mirror must write it there, never under a .extension directory.'''
     root = enabled_repository_root(tmp_path, monkeypatch)
     session = amount_session()
-    session.compile_method('Amount', True, 'doubled\n\t^ number * 2', '*Wonka-Amount-Core')
+    session.compile_method('Amount', True, 'doubled\n\t^ number * 2', '*Acme-Amount-Core')
     class_file = os.path.join(
-        root, 'Wonka-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
+        root, 'Acme-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
     )
-    assert read_text(class_file) == '*Wonka-Amount-Core\ndoubled\n\t^ number * 2'
+    assert read_text(class_file) == '*Acme-Amount-Core\ndoubled\n\t^ number * 2'
     assert not os.path.exists(
-        os.path.join(root, 'Wonka-Amount-Core.package', 'Amount.extension')
+        os.path.join(root, 'Acme-Amount-Core.package', 'Amount.extension')
     )
 
 
@@ -201,7 +201,7 @@ def test_saving_an_edited_method_without_a_category_keeps_its_protocol(tmp_path,
     session.compile_method('Amount', True, 'doubled\n\t^ number * 2')
     assert session.compiled_categories == ['arithmetic']
     written = os.path.join(
-        root, 'Wonka-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
+        root, 'Acme-Amount-Core.package', 'Amount.class', 'instance', 'doubled.st'
     )
     assert read_text(written) == 'arithmetic\ndoubled\n\t^ number * 2'
 
@@ -214,7 +214,7 @@ def test_saving_a_brand_new_method_without_a_category_is_unclassified(tmp_path, 
     session.compile_method('Amount', True, 'fresh\n\t^ 1')
     assert session.compiled_categories == ['as yet unclassified']
     written = os.path.join(
-        root, 'Wonka-Amount-Core.package', 'Amount.class', 'instance', 'fresh.st'
+        root, 'Acme-Amount-Core.package', 'Amount.class', 'instance', 'fresh.st'
     )
     assert read_text(written) == 'as yet unclassified\nfresh\n\t^ 1'
 
@@ -226,7 +226,7 @@ def test_creating_a_class_writes_its_properties_file(tmp_path, monkeypatch):
     session = amount_session()
     session.create_class('Widget', 'Object', ['size'], in_dictionary='UserGlobals')
     properties_path = os.path.join(
-        root, 'Wonka-Amount-Core.package', 'Widget.class', 'properties.json'
+        root, 'Acme-Amount-Core.package', 'Widget.class', 'properties.json'
     )
     assert os.path.exists(properties_path)
     assert '"name" : "Widget"' in read_text(properties_path)

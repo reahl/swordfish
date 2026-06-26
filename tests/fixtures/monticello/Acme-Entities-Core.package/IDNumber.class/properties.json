@@ -1,0 +1,11 @@
+{
+	"commentStamp" : "",
+	"super" : "ByteArray",
+	"category" : "Acme-Entities-Core",
+	"classinstvars" : [ ],
+	"pools" : [ ],
+	"classvars" : [ ],
+	"instvars" : [ ],
+	"name" : "IDNumber",
+	"type" : "bytes"
+}

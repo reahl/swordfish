@@ -111,7 +111,7 @@ def test_class_listings_consult_class_organizer_not_package_library(
     """AI: Category class listing must come from ClassOrganizer's categories only; classes
     discovered via package dictionaries (GsPackageLibrary) do not belong in it."""
     browser_session = browser_listing_fixture.browser_session
-    browser_session.list_classes_in_category("Wonka-thing")
+    browser_session.list_classes_in_category("Acme-thing")
     executed_source = browser_session.executed_sources[0]
     assert "ClassOrganizer new categories" in executed_source
     assert "GsPackageLibrary" not in executed_source

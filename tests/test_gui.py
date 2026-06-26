@@ -10209,14 +10209,14 @@ def test_read_gemstone_exe_conf_from_config_file():
         with open(config_file_path, 'w', encoding='utf-8') as f:
             json.dump(
                 {
-                    GEMSTONE_EXE_CONF_CONFIG_NAME: '/home/wonka/gem.conf',
+                    GEMSTONE_EXE_CONF_CONFIG_NAME: '/home/acme/gem.conf',
                     'schema_version': 2,
                     'mcp_runtime_config': {},
                 },
                 f,
             )
 
-        assert read_gemstone_exe_conf(config_file_path) == '/home/wonka/gem.conf'
+        assert read_gemstone_exe_conf(config_file_path) == '/home/acme/gem.conf'
 
 
 def test_read_gemstone_exe_conf_returns_empty_when_key_absent():
@@ -10233,8 +10233,8 @@ def test_apply_gemstone_exe_conf_sets_env_var():
     """AI: Applying a configured gemstone_exe_conf path should set GEMSTONE_EXE_CONF in the process environment."""
     with patch.dict(os.environ, {}, clear=False):
         os.environ.pop('GEMSTONE_EXE_CONF', None)
-        apply_gemstone_exe_conf('/home/wonka/gem.conf')
-        assert os.environ['GEMSTONE_EXE_CONF'] == '/home/wonka/gem.conf'
+        apply_gemstone_exe_conf('/home/acme/gem.conf')
+        assert os.environ['GEMSTONE_EXE_CONF'] == '/home/acme/gem.conf'
 
 
 def test_apply_gemstone_exe_conf_clears_env_var_when_empty():
@@ -10273,7 +10273,7 @@ def test_save_preserves_unrecognised_top_level_keys():
                         {
                             'schema_version': 2,
                             'mcp_runtime_config': {'allow_source_read': True},
-                            GEMSTONE_EXE_CONF_CONFIG_NAME: '/home/wonka/gem.conf',
+                            GEMSTONE_EXE_CONF_CONFIG_NAME: '/home/acme/gem.conf',
                         }
                     )
                     + '\n'
@@ -10285,5 +10285,5 @@ def test_save_preserves_unrecognised_top_level_keys():
                 saved_payload = json.load(config_file)
 
             assert (
-                saved_payload[GEMSTONE_EXE_CONF_CONFIG_NAME] == '/home/wonka/gem.conf'
+                saved_payload[GEMSTONE_EXE_CONF_CONFIG_NAME] == '/home/acme/gem.conf'
             )
