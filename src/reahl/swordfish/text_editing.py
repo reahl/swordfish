@@ -2382,13 +2382,9 @@ class EditorTab(tk.Frame):
         )
         self.code_panel.grid(row=0, column=0, sticky='nsew')
 
-        self.auto_format_var = tk.BooleanVar(value=application.auto_format)
-        auto_format_control = ttk.Checkbutton(
-            self, text='Auto format', variable=self.auto_format_var,
-            command=lambda: application.set_auto_format(self.auto_format_var.get())
-        )
-        auto_format_control.grid(row=1, column=0, sticky='w', padx=4, pady=(0, 2))
-
+        # AI: Auto-format is an application-wide setting; its single checkbox lives on the
+        # MethodEditor's navigation bar (with Back/Forward), not per tab. save() reads the
+        # live application value.
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
@@ -2487,7 +2483,7 @@ class EditorTab(tk.Frame):
     def save(self):
         selected_class, show_instance_side, method_symbol = self.tab_key
         source = self.code_panel.text_editor.get('1.0', 'end-1c')
-        if self.auto_format_var.get():
+        if self.application.auto_format:
             source = SmalltalkMethodFormat().format_method(source)
         self.application.gemstone_session_record.update_method_source(
             selected_class,

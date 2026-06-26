@@ -2464,6 +2464,17 @@ class MethodEditor(Pane):
         self.label_bar = tk.Label(self.navigation_bar, text='Method Editor', anchor='w')
         self.label_bar.grid(row=0, column=0, sticky='ew')
 
+        # AI: Auto-format is an application-wide save option; its single checkbox lives on
+        # this navigation bar rather than taking a whole line under each editor tab.
+        self.auto_format_var = tk.BooleanVar(value=self.application.auto_format)
+        self.auto_format_control = ttk.Checkbutton(
+            self.navigation_bar,
+            text='Auto format',
+            variable=self.auto_format_var,
+            command=lambda: self.application.set_auto_format(self.auto_format_var.get()),
+        )
+        self.auto_format_control.grid(row=0, column=1, padx=(6, 0))
+
         # AI: Compact icon buttons (glyph, not word) for history navigation, each
         # with a hover tooltip naming it. Back/Forward are thin arrows. BMP only.
         self.back_button = ttk.Button(
@@ -2472,7 +2483,7 @@ class MethodEditor(Pane):
             width=3,
             command=self.go_to_previous_method,
         )
-        self.back_button.grid(row=0, column=1, padx=(6, 0))
+        self.back_button.grid(row=0, column=2, padx=(6, 0))
         Tooltip(self.back_button, 'Back')
 
         self.forward_button = ttk.Button(
@@ -2481,7 +2492,7 @@ class MethodEditor(Pane):
             width=3,
             command=self.go_to_next_method,
         )
-        self.forward_button.grid(row=0, column=2, padx=(4, 0))
+        self.forward_button.grid(row=0, column=3, padx=(4, 0))
         Tooltip(self.forward_button, 'Forward')
 
         self.history_combobox = ttk.Combobox(
@@ -2489,7 +2500,7 @@ class MethodEditor(Pane):
             state='readonly',
             width=44,
         )
-        self.history_combobox.grid(row=0, column=3, padx=(6, 0), sticky='e')
+        self.history_combobox.grid(row=0, column=4, padx=(6, 0), sticky='e')
         self.history_combobox.bind(
             '<<ComboboxSelected>>',
             self.jump_to_selected_history_entry,

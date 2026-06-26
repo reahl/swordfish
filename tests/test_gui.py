@@ -1025,6 +1025,20 @@ def test_method_editor_is_a_standalone_tool_built_from_the_application(fixture):
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_auto_format_checkbox_lives_on_editor_navigation_bar(fixture):
+    """AI: Auto-format is a single application-wide checkbox on the editor's navigation
+    bar (alongside Back/Forward), not a per-tab control taking a whole line under every
+    editor tab. Toggling it routes through the application setting."""
+    editor = MethodEditor(fixture.root, fixture.application, fixture.event_queue)
+
+    assert editor.auto_format_control.winfo_parent() == str(editor.navigation_bar)
+
+    fixture.application.set_auto_format = Mock()
+    editor.auto_format_control.invoke()
+    fixture.application.set_auto_format.assert_called_once_with(True)
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_double_clicking_a_method_pins_its_tab(fixture):
     """AI: Double-clicking a method pins its tab, so it is no longer the
     recyclable preview tab and survives opening another method."""
