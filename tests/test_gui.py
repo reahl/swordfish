@@ -8098,6 +8098,9 @@ def test_method_contains_double_click_pivots_to_exact_search_in_place(fixture):
     fixture.mock_browser.find_implementors.assert_called_once_with("total")
     assert dialog.winfo_exists() == 1
     assert dialog.match_mode.get() == "exact"
+    # AI: The pivot must also move the visible intent to Implementors, not leave the
+    # 'Selector containing' variant selected while an implementors search is shown.
+    assert dialog.search_intent.get() == "implementors"
     assert dialog.find_entry.get() == "total"
     assert find_result_labels(dialog) == ["OrderLine>>total"]
     dialog.destroy()

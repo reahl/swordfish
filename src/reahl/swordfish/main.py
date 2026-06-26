@@ -4810,9 +4810,12 @@ class FindPane(Pane):
         search_type = self.search_type.get()
         match_mode = self.match_mode.get()
         if search_type == 'method' and match_mode == 'contains':
+            # AI: Pivot the whole intent to Implementors (not just the hidden match_mode),
+            # so the visible Method-tab variant moves to Implementors to match the search.
             self.find_entry.delete(0, tk.END)
             self.find_entry.insert(0, selected_row['method_selector'])
-            self.match_mode.set('exact')
+            self.search_intent.set('implementors')
+            self.apply_search_intent()
             self.find_text()
             return
         application = self.application
