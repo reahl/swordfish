@@ -154,17 +154,15 @@ GemStone invariant that `instVarNames`/`classVarNames`/`class instVarNames` are 
 so on **both peek (single click) and open (double click)**, so a glance shows the references in
 context. Each result row carries a `highlight_term`: the variable name for inst/class-var
 searches, the class name for class references, and the sent selector for senders. Selecting the
-row publishes the `InstVarHighlightRequested` event →
-`MethodEditor.apply_instvar_highlight_to_active_tab` → `CodePanel.apply_instvar_highlight`, which
-marks every matching token. Matching covers the token kinds a reference can take: identifiers
+row publishes the `OccurrenceHighlightRequested` event →
+`MethodEditor.apply_occurrence_highlight_to_active_tab` → `CodePanel.apply_occurrence_highlight`,
+which marks every matching token. Matching covers the token kinds a reference can take: identifiers
 (variables, class names, unary selectors), keyword-message parts (e.g. `printOn:`) and binary
 selectors; a multi-keyword selector such as `at:put:` is several tokens and is not highlighted as
 a unit (whole-token matching avoids false positives). The highlight uses the
-`instvar_reference_background` theme role and the `instvar_highlight` text tag (applied after
+`reference_highlight_background` theme role and the `occurrence_highlight` text tag (applied after
 syntax tags so it wins background priority while syntax foreground colours remain active).
 Clearing the highlight is implicit the next time a different method opens or it is re-applied.
-(The event/method keep their historical `instvar` names though they now serve all reference
-searches.)
 
 ### Anything that can run long is interruptible from the IDE
 If an operation can take a noticeable time (a search, a run/inspect/debug of user code, a test

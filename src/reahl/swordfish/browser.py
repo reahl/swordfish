@@ -2527,8 +2527,8 @@ class MethodEditor(Pane):
         self.event_queue.subscribe('Committed', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
         self.event_queue.subscribe(
-            'InstVarHighlightRequested',
-            self.apply_instvar_highlight_to_active_tab,
+            'OccurrenceHighlightRequested',
+            self.apply_occurrence_highlight_to_active_tab,
         )
         self.event_queue.subscribe(
             'McpBusyStateChanged',
@@ -2799,12 +2799,12 @@ class MethodEditor(Pane):
         if method_context in self.open_tabs:
             self.pin_tab(self.open_tabs[method_context])
 
-    def apply_instvar_highlight_to_active_tab(self, instvar_name, origin=None):
+    def apply_occurrence_highlight_to_active_tab(self, search_term, origin=None):
         selected_tab_path = self.editor_notebook.select()
         if not selected_tab_path:
             return
         tab = self.editor_notebook.nametowidget(selected_tab_path)
-        tab.code_panel.apply_instvar_highlight(instvar_name)
+        tab.code_panel.apply_occurrence_highlight(search_term)
 
     def set_read_only(self, read_only):
         for open_tab in self.open_tabs.values():

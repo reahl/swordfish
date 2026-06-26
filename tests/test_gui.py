@@ -8397,7 +8397,7 @@ def test_open_find_dialog_for_classvar_runs_classvar_search(fixture):
 @with_fixtures(SwordfishAppFixture)
 def test_find_dialog_double_click_instvar_result_publishes_highlight_event(fixture):
     """AI: Double-clicking an inst-var reference result must publish both
-    MethodDisplayRequested (to open the tab) and InstVarHighlightRequested (to
+    MethodDisplayRequested (to open the tab) and OccurrenceHighlightRequested (to
     highlight all occurrences of the inst var in the opened method)."""
     fixture.simulate_login()
     fixture.mock_browser.get_method_category.return_value = 'accessing'
@@ -8413,7 +8413,7 @@ def test_find_dialog_double_click_instvar_result_publishes_highlight_event(fixtu
     dialog.populate_instvar_navigation_results([('Amount', True, 'printOn:')], 'currency')
 
     highlight_handler = Mock()
-    fixture.app.event_queue.subscribe('InstVarHighlightRequested', highlight_handler)
+    fixture.app.event_queue.subscribe('OccurrenceHighlightRequested', highlight_handler)
 
     select_find_result(dialog, 'Amount>>printOn:')
     dialog.on_result_double_click(None)
@@ -8441,7 +8441,7 @@ def test_find_dialog_peek_publishes_highlight_for_reference_result(fixture):
     dialog.populate_instvar_navigation_results([('Amount', True, 'printOn:')], 'currency')
 
     highlight_handler = Mock()
-    fixture.app.event_queue.subscribe('InstVarHighlightRequested', highlight_handler)
+    fixture.app.event_queue.subscribe('OccurrenceHighlightRequested', highlight_handler)
 
     select_find_result(dialog, 'Amount>>printOn:')
     dialog.peek_selected_result(None)
@@ -8472,7 +8472,7 @@ def test_senders_result_highlights_the_sent_selector(fixture):
     )
 
     highlight_handler = Mock()
-    fixture.app.event_queue.subscribe('InstVarHighlightRequested', highlight_handler)
+    fixture.app.event_queue.subscribe('OccurrenceHighlightRequested', highlight_handler)
 
     select_find_result(dialog, 'OrderLine>>recalculate')
     dialog.on_result_double_click(None)
@@ -8500,7 +8500,7 @@ def test_find_dialog_result_without_highlight_term_does_not_publish_highlight_ev
     dialog.populate_navigation_results([('Amount', True, 'printOn:')])
 
     highlight_handler = Mock()
-    fixture.app.event_queue.subscribe('InstVarHighlightRequested', highlight_handler)
+    fixture.app.event_queue.subscribe('OccurrenceHighlightRequested', highlight_handler)
 
     select_find_result(dialog, 'Amount>>printOn:')
     dialog.on_result_double_click(None)

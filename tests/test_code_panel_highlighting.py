@@ -31,8 +31,8 @@ class HighlightingCodePanel:
     token_tag_for_kind = CodePanel.token_tag_for_kind
     syntax_tag_names = CodePanel.syntax_tag_names
     apply_syntax_highlighting = CodePanel.apply_syntax_highlighting
-    apply_instvar_highlight = CodePanel.apply_instvar_highlight
-    clear_instvar_highlight = CodePanel.clear_instvar_highlight
+    apply_occurrence_highlight = CodePanel.apply_occurrence_highlight
+    clear_occurrence_highlight = CodePanel.clear_occurrence_highlight
 
     def __init__(self):
         self.source_scanner = SmalltalkSourceScanner()
@@ -83,20 +83,20 @@ def test_rehighlighting_clears_a_now_obsolete_string_tag(highlighting_fixture):
 
 
 @with_fixtures(HighlightingFixture)
-def test_apply_instvar_highlight_tags_all_occurrences_of_the_variable(highlighting_fixture):
-    """AI: apply_instvar_highlight must add the instvar_highlight tag at every token
+def test_apply_occurrence_highlight_tags_all_occurrences_of_the_variable(highlighting_fixture):
+    """AI: apply_occurrence_highlight must add the occurrence_highlight tag at every token
     position where the variable name appears, ignoring string literals and comments
     that happen to contain the same text."""
     code_panel = highlighting_fixture.code_panel
     source = 'printOn: aStream\n    currency printString\n    ^ currency'
     code_panel.text_editor.source_text = source
 
-    code_panel.apply_instvar_highlight('currency')
+    code_panel.apply_occurrence_highlight('currency')
 
     tagged_ranges = [
         (start, end)
         for tag, start, end in code_panel.text_editor.added
-        if tag == 'instvar_highlight'
+        if tag == 'occurrence_highlight'
     ]
     # AI: Two occurrences of 'currency' as identifiers in the source.
     assert len(tagged_ranges) == 2
@@ -106,19 +106,19 @@ def test_apply_instvar_highlight_tags_all_occurrences_of_the_variable(highlighti
 
 
 @with_fixtures(HighlightingFixture)
-def test_apply_instvar_highlight_marks_keyword_selector_sends(highlighting_fixture):
+def test_apply_occurrence_highlight_marks_keyword_selector_sends(highlighting_fixture):
     """AI: The same highlight serves senders, so a keyword selector (a
     keyword_message_part token, not an identifier) must be marked where it is sent."""
     code_panel = highlighting_fixture.code_panel
     source = 'store: anItem\n    collection printOn: aStream'
     code_panel.text_editor.source_text = source
 
-    code_panel.apply_instvar_highlight('printOn:')
+    code_panel.apply_occurrence_highlight('printOn:')
 
     tagged_ranges = [
         (start, end)
         for tag, start, end in code_panel.text_editor.added
-        if tag == 'instvar_highlight'
+        if tag == 'occurrence_highlight'
     ]
     assert len(tagged_ranges) == 1
     start, end = tagged_ranges[0]
@@ -127,33 +127,33 @@ def test_apply_instvar_highlight_marks_keyword_selector_sends(highlighting_fixtu
 
 
 @with_fixtures(HighlightingFixture)
-def test_apply_instvar_highlight_marks_class_name_references(highlighting_fixture):
+def test_apply_occurrence_highlight_marks_class_name_references(highlighting_fixture):
     """AI: The same highlight serves class-reference searches, so a class name is marked
     where it is referenced (and not where a same-named keyword/comment text appears)."""
     code_panel = highlighting_fixture.code_panel
     source = 'build\n    ^ OrderLine new register: OrderLine'
     code_panel.text_editor.source_text = source
 
-    code_panel.apply_instvar_highlight('OrderLine')
+    code_panel.apply_occurrence_highlight('OrderLine')
 
     tagged_ranges = [
         (start, end)
         for tag, start, end in code_panel.text_editor.added
-        if tag == 'instvar_highlight'
+        if tag == 'occurrence_highlight'
     ]
     assert len(tagged_ranges) == 2
 
 
 @with_fixtures(HighlightingFixture)
-def test_apply_instvar_highlight_clears_previous_before_reapplying(highlighting_fixture):
-    """AI: Calling apply_instvar_highlight twice must remove the previous tag before
+def test_apply_occurrence_highlight_clears_previous_before_reapplying(highlighting_fixture):
+    """AI: Calling apply_occurrence_highlight twice must remove the previous tag before
     adding new ranges, so stale highlights from an earlier method do not accumulate."""
     code_panel = highlighting_fixture.code_panel
     code_panel.text_editor.source_text = 'currency\n    ^ currency'
 
-    code_panel.apply_instvar_highlight('currency')
+    code_panel.apply_occurrence_highlight('currency')
     code_panel.text_editor.removed.clear()
     code_panel.text_editor.added.clear()
-    code_panel.apply_instvar_highlight('currency')
+    code_panel.apply_occurrence_highlight('currency')
 
-    assert any(tag == 'instvar_highlight' for tag, _, _ in code_panel.text_editor.removed)
+    assert any(tag == 'occurrence_highlight' for tag, _, _ in code_panel.text_editor.removed)

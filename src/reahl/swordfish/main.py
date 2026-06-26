@@ -4838,7 +4838,7 @@ class FindPane(Pane):
             highlight_term = selected_row.get('highlight_term')
             if highlight_term:
                 application.event_queue.publish(
-                    'InstVarHighlightRequested', highlight_term, origin=self
+                    'OccurrenceHighlightRequested', highlight_term, origin=self
                 )
 
     def peek_selected_result(self, event):
@@ -4866,7 +4866,7 @@ class FindPane(Pane):
         highlight_term = selected_row.get('highlight_term')
         if highlight_term:
             self.application.event_queue.publish(
-                'InstVarHighlightRequested', highlight_term, origin=self
+                'OccurrenceHighlightRequested', highlight_term, origin=self
             )
 
 

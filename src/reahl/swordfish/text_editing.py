@@ -708,8 +708,8 @@ class CodePanel(tk.Frame):
             foreground=theme.color_for('breakpoint_foreground'),
         )
         self.text_editor.tag_configure(
-            'instvar_highlight',
-            background=theme.color_for('instvar_reference_background'),
+            'occurrence_highlight',
+            background=theme.color_for('reference_highlight_background'),
         )
 
         self.text_editor.bind('<Control-a>', self.select_all_text_editor)
@@ -2234,7 +2234,7 @@ class CodePanel(tk.Frame):
                     f'1.0 + {token.end_offset} chars',
                 )
 
-    def apply_instvar_highlight(self, search_term):
+    def apply_occurrence_highlight(self, search_term):
         # AI: Highlights every occurrence of search_term in the source. It serves all
         # reference searches, not only instance variables: a variable/class name or a
         # unary selector is a unary_or_identifier token, a keyword selector (e.g.
@@ -2242,7 +2242,7 @@ class CodePanel(tk.Frame):
         # binary_selector token, so we match search_term against the text of any of
         # those kinds. (Multi-keyword selectors such as at:put: are several tokens and
         # are not highlighted as a unit -- matching whole-token avoids false positives.)
-        self.text_editor.tag_remove('instvar_highlight', '1.0', tk.END)
+        self.text_editor.tag_remove('occurrence_highlight', '1.0', tk.END)
         if not search_term:
             return
         highlightable_kinds = (
@@ -2254,13 +2254,13 @@ class CodePanel(tk.Frame):
         for token in self.source_scanner.scan_tokens(text):
             if token.kind in highlightable_kinds and token.text == search_term:
                 self.text_editor.tag_add(
-                    'instvar_highlight',
+                    'occurrence_highlight',
                     f'1.0 + {token.start_offset} chars',
                     f'1.0 + {token.end_offset} chars',
                 )
 
-    def clear_instvar_highlight(self):
-        self.text_editor.tag_remove('instvar_highlight', '1.0', tk.END)
+    def clear_occurrence_highlight(self):
+        self.text_editor.tag_remove('occurrence_highlight', '1.0', tk.END)
 
     def token_tag_for_kind(self, kind):
         return SYNTAX_TOKEN_TAGS.get(kind)
