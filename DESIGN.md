@@ -82,6 +82,19 @@ columns, the filter boxes, and the filtered values together. All result paths fu
 one render path that keeps an unfiltered baseline, so filtering re-renders without re-querying
 the gem. See `FindPane` in `main.py`.
 
+### Find References: class, method, and inst var
+The "Reference" search type has three targets: **Class** (finds every method that mentions a
+class literal), **Method** (senders), and **Inst Var** (every instance-side method on a named
+class that reads or writes a named instance variable). The inst-var mode opens with both fields
+pre-filled when triggered from the right-click menu on the class-definition pane in the
+browser (`ClassSelection.show_class_definition_context_menu`). Double-clicking an inst-var
+result navigates to the method and highlights all occurrences of the variable name in the
+editor via the `InstVarHighlightRequested` event → `MethodEditor.apply_instvar_highlight_to_active_tab`
+→ `CodePanel.apply_instvar_highlight`. The highlight uses the `instvar_reference_background`
+theme role and the `instvar_highlight` text tag (applied after syntax tags so it wins
+background priority while syntax foreground colours remain active). Clearing the highlight is
+implicit the next time a different method opens or the highlight is re-applied.
+
 ### Anything that can run long is interruptible from the IDE
 If an operation can take a noticeable time (a search, a run/inspect/debug of user code, a test
 run, a debugger resume/step, an MCP tool's work), it must run as a **foreground activity** and

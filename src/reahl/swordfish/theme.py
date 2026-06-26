@@ -101,6 +101,7 @@ LIGHT_THEME = Theme(
         'object_node_outline': '#3366cc',
         'object_oop_text': '#3366cc',
         'object_class_text': '#222222',
+        'instvar_reference_background': '#d4ecd4',
     },
 )
 
@@ -154,6 +155,7 @@ DARK_THEME = Theme(
         'object_node_outline': '#6fa8dc',
         'object_oop_text': '#9ec9f0',
         'object_class_text': '#d0d0d0',
+        'instvar_reference_background': '#1a3a2a',
     },
     restyles_widgets=True,
 )

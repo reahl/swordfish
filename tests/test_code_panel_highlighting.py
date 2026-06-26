@@ -13,12 +13,16 @@ class RecordingTextEditor:
     def __init__(self):
         self.added = []
         self.removed = []
+        self.source_text = ''
 
     def tag_add(self, tag_name, start, end):
         self.added.append((tag_name, start, end))
 
     def tag_remove(self, tag_name, start, end):
         self.removed.append((tag_name, start, end))
+
+    def get(self, start, end):
+        return self.source_text
 
 
 class HighlightingCodePanel:
@@ -27,6 +31,8 @@ class HighlightingCodePanel:
     token_tag_for_kind = CodePanel.token_tag_for_kind
     syntax_tag_names = CodePanel.syntax_tag_names
     apply_syntax_highlighting = CodePanel.apply_syntax_highlighting
+    apply_instvar_highlight = CodePanel.apply_instvar_highlight
+    clear_instvar_highlight = CodePanel.clear_instvar_highlight
 
     def __init__(self):
         self.source_scanner = SmalltalkSourceScanner()
@@ -74,3 +80,41 @@ def test_rehighlighting_clears_a_now_obsolete_string_tag(highlighting_fixture):
 
     assert 'smalltalk_string' in highlighting_fixture.removed_tags()
     assert 'smalltalk_string' not in highlighting_fixture.added_tags()
+
+
+@with_fixtures(HighlightingFixture)
+def test_apply_instvar_highlight_tags_all_occurrences_of_the_variable(highlighting_fixture):
+    """AI: apply_instvar_highlight must add the instvar_highlight tag at every token
+    position where the variable name appears, ignoring string literals and comments
+    that happen to contain the same text."""
+    code_panel = highlighting_fixture.code_panel
+    source = 'printOn: aStream\n    currency printString\n    ^ currency'
+    code_panel.text_editor.source_text = source
+
+    code_panel.apply_instvar_highlight('currency')
+
+    tagged_ranges = [
+        (start, end)
+        for tag, start, end in code_panel.text_editor.added
+        if tag == 'instvar_highlight'
+    ]
+    # AI: Two occurrences of 'currency' as identifiers in the source.
+    assert len(tagged_ranges) == 2
+    for start, end in tagged_ranges:
+        offset = int(start.split('+ ')[1].split(' chars')[0])
+        assert source[offset:offset + len('currency')] == 'currency'
+
+
+@with_fixtures(HighlightingFixture)
+def test_apply_instvar_highlight_clears_previous_before_reapplying(highlighting_fixture):
+    """AI: Calling apply_instvar_highlight twice must remove the previous tag before
+    adding new ranges, so stale highlights from an earlier method do not accumulate."""
+    code_panel = highlighting_fixture.code_panel
+    code_panel.text_editor.source_text = 'currency\n    ^ currency'
+
+    code_panel.apply_instvar_highlight('currency')
+    code_panel.text_editor.removed.clear()
+    code_panel.text_editor.added.clear()
+    code_panel.apply_instvar_highlight('currency')
+
+    assert any(tag == 'instvar_highlight' for tag, _, _ in code_panel.text_editor.removed)

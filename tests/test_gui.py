@@ -8191,6 +8191,97 @@ def test_find_dialog_double_click_pins_class_reference_method(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_open_find_dialog_for_instvar_prefills_controls_and_runs_search(fixture):
+    """AI: open_find_dialog_for_instvar should open the Find pane in reference/instvar
+    mode with class and inst var name pre-filled, and immediately run the search so
+    results appear without the user clicking Find."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_instvar_references.return_value = {
+        'references': [
+            {
+                'class_name': 'Amount',
+                'show_instance_side': True,
+                'method_selector': 'printOn:',
+                'method_category': 'printing',
+            }
+        ],
+        'total_count': 1,
+        'returned_count': 1,
+    }
+    fixture.mock_browser.get_method_category.return_value = 'printing'
+
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = fixture.app.open_find_dialog_for_instvar('Amount', 'currency')
+
+    assert dialog is not None
+    assert dialog.search_type.get() == 'reference'
+    assert dialog.reference_target.get() == 'instvar'
+    assert dialog.match_mode.get() == 'exact'
+    assert dialog.find_entry.get() == 'currency'
+    assert dialog.instvar_class_entry.get() == 'Amount'
+    fixture.mock_browser.find_instvar_references.assert_called_once_with('Amount', 'currency')
+    assert find_result_labels(dialog) == ['Amount>>printOn:']
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_dialog_double_click_instvar_result_publishes_highlight_event(fixture):
+    """AI: Double-clicking an inst-var reference result must publish both
+    MethodDisplayRequested (to open the tab) and InstVarHighlightRequested (to
+    highlight all occurrences of the inst var in the opened method)."""
+    fixture.simulate_login()
+    fixture.mock_browser.get_method_category.return_value = 'accessing'
+    fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
+        'Kernel'
+    )
+
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    dialog.search_type.set('reference')
+    dialog.reference_target.set('instvar')
+    dialog.populate_instvar_navigation_results([('Amount', True, 'printOn:')], 'currency')
+
+    highlight_handler = Mock()
+    fixture.app.event_queue.subscribe('InstVarHighlightRequested', highlight_handler)
+
+    select_find_result(dialog, 'Amount>>printOn:')
+    dialog.on_result_double_click(None)
+    fixture.app.update()
+
+    highlight_handler.assert_called_once_with('currency', origin=ANY)
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_dialog_double_click_non_instvar_result_does_not_publish_highlight_event(fixture):
+    """AI: Double-clicking a class-reference result (no highlight_term) must NOT
+    publish InstVarHighlightRequested — that event is instvar-search-specific."""
+    fixture.simulate_login()
+    fixture.mock_browser.get_method_category.return_value = 'accessing'
+    fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
+        'Kernel'
+    )
+
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    dialog.search_type.set('reference')
+    dialog.reference_target.set('class')
+    dialog.populate_navigation_results([('Amount', True, 'printOn:')])
+
+    highlight_handler = Mock()
+    fixture.app.event_queue.subscribe('InstVarHighlightRequested', highlight_handler)
+
+    select_find_result(dialog, 'Amount>>printOn:')
+    dialog.on_result_double_click(None)
+    fixture.app.update()
+
+    highlight_handler.assert_not_called()
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_find_dialog_double_click_navigates_browser_to_selected_class(fixture):
     """Double-clicking a class name in the FindPane results navigates the
     browser to that class by selecting its package and class in the columns."""

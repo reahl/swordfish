@@ -932,6 +932,8 @@ class ClassSelection(Pane):
         self.current_context_menu = None
         self.context_menu_class_name = None
 
+        self.class_definition_text.bind('<Button-3>', self.show_class_definition_context_menu)
+
     def switch_side(self):
         if self.syncing_side_selection:
             return
@@ -1183,6 +1185,33 @@ class ClassSelection(Pane):
             state=file_command_state,
         )
         popup_menu(menu, event)
+
+    def show_class_definition_context_menu(self, event):
+        word = self.instvar_name_at_definition_click(event)
+        if not word:
+            return
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(
+            label='References to \'%s\'' % word,
+            command=lambda: self.find_instvar_references_from_definition(word),
+        )
+        popup_menu(menu, event)
+
+    def instvar_name_at_definition_click(self, event):
+        try:
+            index = self.class_definition_text.index('@%d,%d' % (event.x, event.y))
+            word_start = self.class_definition_text.index('%s wordstart' % index)
+            word_end = self.class_definition_text.index('%s wordend' % index)
+            word = self.class_definition_text.get(word_start, word_end).strip()
+            return word if word.isidentifier() else None
+        except tk.TclError:
+            return None
+
+    def find_instvar_references_from_definition(self, instvar_name):
+        class_name = self.gemstone_session_record.selected_class
+        if not class_name or not instvar_name:
+            return
+        self.application.open_find_dialog_for_instvar(class_name, instvar_name)
 
     def file_out_class(self):
         class_name = (
@@ -2426,6 +2455,10 @@ class MethodEditor(Pane):
         self.event_queue.subscribe('Committed', self.repopulate)
         self.event_queue.subscribe('Aborted', self.repopulate)
         self.event_queue.subscribe(
+            'InstVarHighlightRequested',
+            self.apply_instvar_highlight_to_active_tab,
+        )
+        self.event_queue.subscribe(
             'McpBusyStateChanged',
             self.handle_mcp_busy_state_changed,
             ui_context=self.ui_context,
@@ -2693,6 +2726,13 @@ class MethodEditor(Pane):
             return
         if method_context in self.open_tabs:
             self.pin_tab(self.open_tabs[method_context])
+
+    def apply_instvar_highlight_to_active_tab(self, instvar_name, origin=None):
+        selected_tab_path = self.editor_notebook.select()
+        if not selected_tab_path:
+            return
+        tab = self.editor_notebook.nametowidget(selected_tab_path)
+        tab.code_panel.apply_instvar_highlight(instvar_name)
 
     def set_read_only(self, read_only):
         for open_tab in self.open_tabs.values():

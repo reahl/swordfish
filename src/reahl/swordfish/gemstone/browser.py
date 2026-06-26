@@ -7068,11 +7068,50 @@ class GemstoneBrowserSession:
                 )
         return self.unique_sorted_method_summaries(method_summaries)
 
-    
+    def find_instvar_references(self, class_name, instvar_name):
+        # AI: Uses GsNMethod>>instVarsAccessed (returns IdentitySet of accessed inst var
+        # AI: name Symbols) to find all instance-side methods on class_name that read or
+        # AI: write the named inst var. One GCI round-trip for the whole class.
+        class_name = (class_name or '').strip()
+        instvar_name = (instvar_name or '').strip()
+        if not class_name or not instvar_name:
+            return {'references': [], 'total_count': 0, 'returned_count': 0}
+        class_literal = self.smalltalk_string_literal(class_name)
+        instvar_literal = self.smalltalk_string_literal(instvar_name)
+        smalltalk_source = """
+            | cls varSym results |
+            cls := System myUserProfile symbolList objectNamed: %s asSymbol.
+            varSym := %s asSymbol.
+            results := OrderedCollection new.
+            cls selectors do: [ :sel |
+                | method |
+                method := cls compiledMethodAt: sel environmentId: 0 otherwise: nil.
+                method ifNotNil: [
+                    (method instVarsAccessed includes: varSym) ifTrue: [
+                        results add: sel asString
+                    ]
+                ]
+            ].
+            (String with: Character lf) join: results
+        """ % (class_literal, instvar_literal)
+        result_string = self.run_code(smalltalk_source).to_py
+        references = []
+        if result_string:
+            for selector in result_string.split('\n'):
+                selector = selector.strip()
+                if selector:
+                    references.append({
+                        'class_name': class_name,
+                        'show_instance_side': True,
+                        'method_selector': selector,
+                    })
+        references.sort(key=lambda r: r['method_selector'])
+        return {
+            'references': references,
+            'total_count': len(references),
+            'returned_count': len(references),
+        }
 
-    
-
-    
 
     def selector_occurrence_summaries(
         self,

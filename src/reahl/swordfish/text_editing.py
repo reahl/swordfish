@@ -707,6 +707,10 @@ class CodePanel(tk.Frame):
             background=theme.color_for('breakpoint_background'),
             foreground=theme.color_for('breakpoint_foreground'),
         )
+        self.text_editor.tag_configure(
+            'instvar_highlight',
+            background=theme.color_for('instvar_reference_background'),
+        )
 
         self.text_editor.bind('<Control-a>', self.select_all_text_editor)
         self.text_editor.bind('<Control-A>', self.select_all_text_editor)
@@ -2229,6 +2233,23 @@ class CodePanel(tk.Frame):
                     f'1.0 + {token.start_offset} chars',
                     f'1.0 + {token.end_offset} chars',
                 )
+
+    def apply_instvar_highlight(self, instvar_name):
+        self.text_editor.tag_remove('instvar_highlight', '1.0', tk.END)
+        if not instvar_name:
+            return
+        text = self.text_editor.get('1.0', tk.END)
+        for token in self.source_scanner.scan_tokens(text):
+            if (token.kind == SmalltalkTokenKind.unary_or_identifier
+                    and token.text == instvar_name):
+                self.text_editor.tag_add(
+                    'instvar_highlight',
+                    f'1.0 + {token.start_offset} chars',
+                    f'1.0 + {token.end_offset} chars',
+                )
+
+    def clear_instvar_highlight(self):
+        self.text_editor.tag_remove('instvar_highlight', '1.0', tk.END)
 
     def token_tag_for_kind(self, kind):
         return SYNTAX_TOKEN_TAGS.get(kind)

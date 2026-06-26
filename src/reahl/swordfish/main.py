@@ -3122,6 +3122,7 @@ class FindPane(Pane):
         match_mode=None,
         reference_target=None,
         sender_source_class_name=None,
+        instvar_class_name=None,
     ):
         super().__init__(parent, application, application.event_queue)
         self.sender_source_class_name = sender_source_class_name
@@ -3247,7 +3248,14 @@ class FindPane(Pane):
             variable=self.reference_target,
             value="method",
         )
-        self.reference_target_method_radio.pack(side="left")
+        self.reference_target_method_radio.pack(side="left", padx=(0, 8))
+        self.reference_target_instvar_radio = ttk.Radiobutton(
+            self.reference_target_frame,
+            text="Inst Var",
+            variable=self.reference_target,
+            value="instvar",
+        )
+        self.reference_target_instvar_radio.pack(side="left")
 
         ttk.Label(self, text="Find what:").grid(
             row=2,
@@ -3308,6 +3316,28 @@ class FindPane(Pane):
             '<KeyRelease>',
             lambda *_: self.on_receiver_class_changed(),
         )
+
+        self.instvar_class_label = ttk.Label(self, text="Class:")
+        self.instvar_class_label.grid(
+            row=3,
+            column=0,
+            padx=10,
+            pady=5,
+            sticky="w",
+        )
+        self.instvar_class_entry = ttk.Entry(self)
+        self.instvar_class_entry.grid(
+            row=3,
+            column=1,
+            columnspan=5,
+            padx=10,
+            pady=5,
+            sticky="ew",
+        )
+        if instvar_class_name:
+            self.instvar_class_entry.insert(0, instvar_class_name)
+        self.instvar_class_label.grid_remove()
+        self.instvar_class_entry.grid_remove()
 
         ttk.Label(self, text="Search intent:").grid(
             row=4,
@@ -3479,7 +3509,7 @@ class FindPane(Pane):
             configuration["match_mode"] = "exact"
         if match_mode in ["exact", "contains"]:
             configuration["match_mode"] = match_mode
-        if reference_target in ["class", "method"]:
+        if reference_target in ["class", "method", "instvar"]:
             configuration["reference_target"] = reference_target
         if configuration["search_type"] == "reference":
             configuration["match_mode"] = "exact"
@@ -3492,9 +3522,11 @@ class FindPane(Pane):
             self.match_mode.set("exact")
             return
         reference_target_is_method = self.reference_target.get() == "method"
+        reference_target_is_instvar = self.reference_target.get() == "instvar"
         tracing_controls_visible = (
             reference_mode_is_selected and reference_target_is_method
         )
+        instvar_controls_visible = reference_mode_is_selected and reference_target_is_instvar
         contains_match_state = tk.NORMAL
         exact_match_state = tk.NORMAL
         if reference_mode_is_selected:
@@ -3526,6 +3558,12 @@ class FindPane(Pane):
             self.receiver_class_entry.grid_remove()
             self.status_label.grid_remove()
             self.status_var.set("")
+        if instvar_controls_visible:
+            self.instvar_class_label.grid()
+            self.instvar_class_entry.grid()
+        else:
+            self.instvar_class_label.grid_remove()
+            self.instvar_class_entry.grid_remove()
         self.update_trace_narrow_state()
         self.update_search_context_fields()
 
@@ -3556,6 +3594,8 @@ class FindPane(Pane):
         self.match_exact_radio.config(state=mode_control_state)
         self.reference_target_class_radio.config(state=mode_control_state)
         self.reference_target_method_radio.config(state=mode_control_state)
+        self.reference_target_instvar_radio.config(state=mode_control_state)
+        self.instvar_class_entry.config(state=mode_control_state)
         self.update_trace_narrow_state()
         self.update_search_context_fields()
 
@@ -3624,6 +3664,17 @@ class FindPane(Pane):
             )
         return self.unique_sorted_navigation_results(reference_results)
 
+    def references_for_instvar_query(self, class_name, instvar_name, should_stop=None):
+        if should_stop is not None and should_stop():
+            return []
+        result = self.gemstone_session_record.gemstone_browser_session.find_instvar_references(
+            class_name, instvar_name
+        )
+        return self.unique_sorted_navigation_results([
+            (ref['class_name'], ref['show_instance_side'], ref['method_selector'])
+            for ref in result['references']
+        ])
+
     def references_for_method_query(
         self,
         query_text,
@@ -3686,6 +3737,8 @@ class FindPane(Pane):
             return "Finding methods matching %s..." % search_query
         if reference_target == "class":
             return "Finding references to class %s..." % search_query
+        if reference_target == "instvar":
+            return "Finding references to inst var %s..." % search_query
         return "Finding references to method %s..." % search_query
 
     def search_intent_text(
@@ -3707,6 +3760,11 @@ class FindPane(Pane):
             return 'Methods containing selector "%s".' % normalized_search_query
         if reference_target == 'class':
             return 'References to class "%s" (exact).' % normalized_search_query
+        if reference_target == 'instvar':
+            instvar_class = self.instvar_class_entry.get().strip()
+            if instvar_class:
+                return 'References to inst var %s in %s.' % (normalized_search_query, instvar_class)
+            return 'References to inst var "%s".' % normalized_search_query
         if self.sender_source_class_name is not None:
             return 'Senders of %s>>%s.' % (
                 self.sender_source_class_name,
@@ -3723,6 +3781,8 @@ class FindPane(Pane):
             if match_mode == "exact":
                 return "Double-click an implementor to open the method."
             return "Double-click a selector to find implementors (exact)."
+        if reference_target == "instvar":
+            return "Double-click a reference to open the method (inst var highlighted)."
         if reference_target == "method":
             return "Double-click a reference to open the caller method."
         return "Double-click a reference to open the method."
@@ -4092,6 +4152,23 @@ class FindPane(Pane):
         ]
         self.set_result_rows(rows, 'method', class_definition_by_name)
 
+    def populate_instvar_navigation_results(self, method_results, instvar_name):
+        self.navigation_method_results = list(method_results)
+        sender_entries = [
+            self.sender_entry_for_result(result)
+            for result in self.navigation_method_results
+        ]
+        class_names = [sender_entry['class_name'] for sender_entry in sender_entries]
+        class_definition_by_name = self.gemstone_session_record.class_definition_map(
+            class_names
+        )
+        rows = []
+        for sender_entry in sender_entries:
+            row = self.enriched_navigation_row(sender_entry, class_definition_by_name)
+            row['highlight_term'] = instvar_name
+            rows.append(row)
+        self.set_result_rows(rows, 'method', class_definition_by_name)
+
     def record_sender_entries_for_navigation(self, sender_entries):
         sender_results = [
             (
@@ -4363,6 +4440,7 @@ class FindPane(Pane):
             'search_type': search_type,
             'match_mode': match_mode,
             'reference_target': reference_target,
+            'instvar_class_name': self.instvar_class_entry.get().strip(),
         }
         message = self.activity_message_for_search(
             search_type,
@@ -4429,6 +4507,20 @@ class FindPane(Pane):
                 )
             )
             return {'kind': 'class_references', 'results': class_reference_results}
+        if reference_target == 'instvar':
+            instvar_class_name = configuration.get('instvar_class_name', '')
+            instvar_results = list(
+                self.references_for_instvar_query(
+                    instvar_class_name,
+                    normalized_search_query,
+                    should_stop=should_stop,
+                )
+            )
+            return {
+                'kind': 'instvar_references',
+                'results': instvar_results,
+                'instvar_name': normalized_search_query,
+            }
         (
             method_reference_results,
             selector_names,
@@ -4475,6 +4567,14 @@ class FindPane(Pane):
         elif kind == 'class_references':
             self.method_reference_results = list(payload['results'])
             self.populate_navigation_results(payload['results'])
+            self.static_sender_results = []
+            self.sender_entries_by_navigation_result = {}
+            self.last_reference_method_query = None
+            self.last_reference_method_match_mode = None
+            self.status_var.set('')
+        elif kind == 'instvar_references':
+            self.method_reference_results = list(payload['results'])
+            self.populate_instvar_navigation_results(payload['results'], payload['instvar_name'])
             self.static_sender_results = []
             self.sender_entries_by_navigation_result = {}
             self.last_reference_method_query = None
@@ -4839,7 +4939,11 @@ class FindPane(Pane):
             application.event_queue.publish(
                 'MethodTabPinRequested', method_context, origin=self
             )
-
+            highlight_term = selected_row.get('highlight_term')
+            if highlight_term:
+                application.event_queue.publish(
+                    'InstVarHighlightRequested', highlight_term, origin=self
+                )
 
     def peek_selected_result(self, event):
         # AI: Single-click previews a method result in the editor via the
@@ -8030,6 +8134,7 @@ class Swordfish(tk.Tk):
         match_mode=None,
         reference_target=None,
         sender_source_class_name=None,
+        instvar_class_name=None,
     ):
         # AI: Find is a single reusable pane beside the browser. If one is open,
         # replace its contents in place; otherwise split off a group for it.
@@ -8048,10 +8153,25 @@ class Swordfish(tk.Tk):
             match_mode=match_mode,
             reference_target=reference_target,
             sender_source_class_name=sender_source_class_name,
+            instvar_class_name=instvar_class_name,
         )
         target_group.add(find_pane, text='Find')
         target_group.select(find_pane)
         return find_pane
+
+    def open_find_dialog_for_instvar(self, class_name, instvar_name):
+        class_name = (class_name or '').strip()
+        instvar_name = (instvar_name or '').strip()
+        if not class_name or not instvar_name:
+            return None
+        return self.open_find_dialog(
+            search_type='reference',
+            search_query=instvar_name,
+            run_search=True,
+            match_mode='exact',
+            reference_target='instvar',
+            instvar_class_name=class_name,
+        )
 
     def open_find_dialog_for_class(self, class_name):
         selected_class_name = (class_name or "").strip()
