@@ -2352,7 +2352,8 @@ class EditorTab(tk.Frame):
 
         self.auto_format_var = tk.BooleanVar(value=application.auto_format)
         auto_format_control = ttk.Checkbutton(
-            self, text='Auto format', variable=self.auto_format_var
+            self, text='Auto format', variable=self.auto_format_var,
+            command=lambda: application.set_auto_format(self.auto_format_var.get())
         )
         auto_format_control.grid(row=1, column=0, sticky='w', padx=4, pady=(0, 2))
 
