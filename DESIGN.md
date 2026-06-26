@@ -147,6 +147,7 @@ alongside `appearance.theme`. Current keys:
 |---|---|---|---|
 | `appearance.theme` | `"light"` / `"dark"` | OS preference, then light | Colour palette for the session |
 | `appearance.tab_spacing` | positive integer | `4` | Editor tab stop width in spaces |
+| `appearance.auto_format` | `true` / `false` | `false` | Whether the editor auto-formats methods on save |
 
 The `appearance` section is preserved verbatim on every config save (it is not in the `known_keys`
 set in `McpConfigurationStore.save()`), so adding a new key here never requires changes to the
