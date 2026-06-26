@@ -7661,12 +7661,15 @@ def test_find_is_an_icon_button_beside_the_search_box_with_no_per_dialog_stop(fi
     with patch.object(FindPane, "wait_visibility"):
         dialog = FindPane(fixture.app, fixture.app)
 
-    assert dialog.find_button.cget("text") not in ("Find", "")
-    assert int(dialog.find_button.grid_info()["row"]) == int(
-        dialog.find_entry.grid_info()["row"]
+    # AI: Each category tab carries its own icon find button beside its query entry.
+    find_button = dialog.find_buttons[0]
+    query_entry = dialog.query_entries[0]
+    assert find_button.cget("text") not in ("Find", "")
+    assert int(find_button.grid_info()["row"]) == int(
+        query_entry.grid_info()["row"]
     )
-    assert int(dialog.find_button.grid_info()["column"]) > int(
-        dialog.find_entry.grid_info()["column"]
+    assert int(find_button.grid_info()["column"]) > int(
+        query_entry.grid_info()["column"]
     )
     assert not hasattr(dialog, "stop_button")
     dialog.destroy()
@@ -7865,7 +7868,7 @@ def test_find_renders_partial_results_and_a_stopped_status_when_interrupted(fixt
 
     assert dialog.status_var.get() == "Find stopped. Showing partial results."
     assert find_result_labels(dialog) == ["Order0", "Order1", "Order2"]
-    assert str(dialog.find_button.cget("state")) == tk.NORMAL
+    assert str(dialog.find_buttons[0].cget("state")) == tk.NORMAL
     dialog.destroy()
 
 
@@ -8034,8 +8037,11 @@ def test_find_dialog_selector_contains_search_shows_only_a_method_column(fixture
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_find_dialog_shows_search_intent_and_result_action_text(fixture):
-    """AI: Find dialog should show current search intent and result action guidance."""
+def test_find_dialog_intent_selection_drives_legacy_config(fixture):
+    """AI: The single search intent (chosen via the category tabs/variants) drives the
+    hidden search_type/match_mode/reference_target. Opening with method/contains selects
+    the 'Selector containing' intent; choosing the 'Implementors' variant flips the
+    derived config to method/exact."""
     fixture.simulate_login()
     fixture.mock_browser.find_selectors.return_value = ["subtotal", "total"]
     fixture.mock_browser.find_implementors.return_value = [
@@ -8052,20 +8058,16 @@ def test_find_dialog_shows_search_intent_and_result_action_text(fixture):
             match_mode="contains",
         )
 
-    assert dialog.search_intent_var.get() == 'Methods containing selector "total".'
-    assert (
-        dialog.result_action_var.get()
-        == "Double-click a selector to find implementors (exact)."
-    )
+    assert dialog.search_intent.get() == "selector_contains"
+    assert dialog.search_type.get() == "method"
+    assert dialog.match_mode.get() == "contains"
 
-    dialog.match_mode.set("exact")
+    dialog.search_intent.set("implementors")
+    dialog.apply_search_intent()
     dialog.find_text()
 
-    assert dialog.search_intent_var.get() == 'Implementors of method "total".'
-    assert (
-        dialog.result_action_var.get()
-        == "Double-click an implementor to open the method."
-    )
+    assert dialog.search_type.get() == "method"
+    assert dialog.match_mode.get() == "exact"
     dialog.destroy()
 
 
@@ -8098,7 +8100,6 @@ def test_method_contains_double_click_pivots_to_exact_search_in_place(fixture):
     assert dialog.match_mode.get() == "exact"
     assert dialog.find_entry.get() == "total"
     assert find_result_labels(dialog) == ["OrderLine>>total"]
-    assert dialog.search_intent_var.get() == 'Implementors of method "total".'
     dialog.destroy()
 
 
@@ -8132,7 +8133,7 @@ def test_find_dialog_reference_method_search_is_always_exact(
         )
 
     assert dialog.match_mode.get() == "exact"
-    assert str(dialog.match_contains_radio.cget("state")) == tk.DISABLED
+    assert dialog.search_intent.get() == "method_references"
     fixture.mock_browser.find_selectors.assert_not_called()
     fixture.mock_browser.find_senders.assert_called_once_with(
         "total",
@@ -8172,10 +8173,79 @@ def test_find_dialog_reference_class_search_is_always_exact(
         )
 
     assert dialog.match_mode.get() == "exact"
-    assert str(dialog.match_contains_radio.cget("state")) == tk.DISABLED
+    assert dialog.search_intent.get() == "class_references"
     fixture.mock_browser.find_classes.assert_not_called()
     fixture.mock_browser.find_class_references.assert_called_once_with("Or")
     assert find_result_labels(dialog) == ["OrderBuilder>>fromOrder:"]
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_each_search_intent_derives_its_legacy_config(fixture):
+    """AI: Every named intent must translate to the correct hidden
+    search_type/match_mode/reference_target triple the engine reads — this is the
+    contract that lets one intent control replace the three former radio groups."""
+    fixture.simulate_login()
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    expected = {
+        "class_contains": ("class", "contains", "class"),
+        "class_exact": ("class", "exact", "class"),
+        "class_references": ("reference", "exact", "class"),
+        "implementors": ("method", "exact", "class"),
+        "selector_contains": ("method", "contains", "class"),
+        "method_references": ("reference", "exact", "method"),
+        "instvar_references": ("reference", "exact", "instvar"),
+        "classvar_references": ("reference", "exact", "classvar"),
+    }
+    for intent, (search_type, match_mode, reference_target) in expected.items():
+        dialog.search_intent.set(intent)
+        dialog.apply_search_intent()
+        assert dialog.search_type.get() == search_type
+        assert dialog.match_mode.get() == match_mode
+        assert dialog.reference_target.get() == reference_target
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_switching_category_tab_falls_back_to_first_variant(fixture):
+    """AI: Moving to a category whose variants do not include the current intent must
+    fall back to that category's first variant; staying within the category keeps the
+    current intent. (Tk's notebook selection is not observable headless, so the fallback
+    rule is verified directly and then applied through apply_search_intent.)"""
+    fixture.simulate_login()
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    variable_tab_index = dialog.intent_to_tab_index["instvar_references"]
+    # AI: Coming from a Class-tab intent, switching to Variable picks its first variant.
+    assert dialog.default_intent_for_tab(variable_tab_index) == "instvar_references"
+    # AI: Already on a Variable-tab intent, switching within the tab keeps it.
+    dialog.search_intent.set("classvar_references")
+    assert dialog.default_intent_for_tab(variable_tab_index) == "classvar_references"
+
+    # AI: Applying a variable intent derives the target and reveals the owning-class
+    # entry (checked via the grid manager, which is reliable headless unlike ismapped).
+    dialog.search_intent.set("instvar_references")
+    dialog.apply_search_intent()
+    assert dialog.reference_target.get() == "instvar"
+    assert dialog.instvar_class_entry.grid_info() != {}
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_open_find_dialog_for_classvar_selects_class_var_intent(fixture):
+    """AI: A programmatic class-var open must select the Class var intent (Variable
+    category) so the visible control reflects the search being run."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_classvar_references.return_value = {
+        "references": [], "total_count": 0, "returned_count": 0,
+    }
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = fixture.app.open_find_dialog_for_classvar("Date", "MonthNames")
+
+    assert dialog.search_intent.get() == "classvar_references"
     dialog.destroy()
 
 
@@ -8354,9 +8424,68 @@ def test_find_dialog_double_click_instvar_result_publishes_highlight_event(fixtu
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_find_dialog_double_click_non_instvar_result_does_not_publish_highlight_event(fixture):
-    """AI: Double-clicking a class-reference result (no highlight_term) must NOT
-    publish InstVarHighlightRequested — that event is instvar-search-specific."""
+def test_find_dialog_peek_publishes_highlight_for_reference_result(fixture):
+    """AI: Single-click peek must mark where the searched term occurs, the same cue as
+    opening the method, so a glance at a result shows the references in context."""
+    fixture.simulate_login()
+    fixture.mock_browser.get_method_category.return_value = 'accessing'
+    fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
+        'Kernel'
+    )
+
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    dialog.search_type.set('reference')
+    dialog.reference_target.set('instvar')
+    dialog.populate_instvar_navigation_results([('Amount', True, 'printOn:')], 'currency')
+
+    highlight_handler = Mock()
+    fixture.app.event_queue.subscribe('InstVarHighlightRequested', highlight_handler)
+
+    select_find_result(dialog, 'Amount>>printOn:')
+    dialog.peek_selected_result(None)
+    fixture.app.update()
+
+    highlight_handler.assert_called_once_with('currency', origin=ANY)
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_senders_result_highlights_the_sent_selector(fixture):
+    """AI: To be consistent with variable searches, a senders result highlights where the
+    selector is sent: the row carries the selector as its highlight term, so opening the
+    method marks the send."""
+    fixture.simulate_login()
+    fixture.mock_browser.get_method_category.return_value = 'calculating'
+    fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (
+        'Kernel'
+    )
+
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = FindPane(fixture.app, fixture.app)
+
+    dialog.search_type.set('reference')
+    dialog.reference_target.set('method')
+    dialog.populate_navigation_results(
+        [('OrderLine', True, 'recalculate')], highlight_term='total'
+    )
+
+    highlight_handler = Mock()
+    fixture.app.event_queue.subscribe('InstVarHighlightRequested', highlight_handler)
+
+    select_find_result(dialog, 'OrderLine>>recalculate')
+    dialog.on_result_double_click(None)
+    fixture.app.update()
+
+    highlight_handler.assert_called_once_with('total', origin=ANY)
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_dialog_result_without_highlight_term_does_not_publish_highlight_event(fixture):
+    """AI: A result row carrying no highlight term (e.g. an implementors match) must NOT
+    publish a highlight event — the highlight is only for reference-style searches."""
     fixture.simulate_login()
     fixture.mock_browser.get_method_category.return_value = 'accessing'
     fixture.mock_gemstone_session.resolve_symbol.return_value.category.return_value.to_py = (

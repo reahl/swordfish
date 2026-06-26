@@ -2234,14 +2234,25 @@ class CodePanel(tk.Frame):
                     f'1.0 + {token.end_offset} chars',
                 )
 
-    def apply_instvar_highlight(self, instvar_name):
+    def apply_instvar_highlight(self, search_term):
+        # AI: Highlights every occurrence of search_term in the source. It serves all
+        # reference searches, not only instance variables: a variable/class name or a
+        # unary selector is a unary_or_identifier token, a keyword selector (e.g.
+        # printOn:) is a keyword_message_part token, and a binary selector is a
+        # binary_selector token, so we match search_term against the text of any of
+        # those kinds. (Multi-keyword selectors such as at:put: are several tokens and
+        # are not highlighted as a unit -- matching whole-token avoids false positives.)
         self.text_editor.tag_remove('instvar_highlight', '1.0', tk.END)
-        if not instvar_name:
+        if not search_term:
             return
+        highlightable_kinds = (
+            SmalltalkTokenKind.unary_or_identifier,
+            SmalltalkTokenKind.keyword_message_part,
+            SmalltalkTokenKind.binary_selector,
+        )
         text = self.text_editor.get('1.0', tk.END)
         for token in self.source_scanner.scan_tokens(text):
-            if (token.kind == SmalltalkTokenKind.unary_or_identifier
-                    and token.text == instvar_name):
+            if token.kind in highlightable_kinds and token.text == search_term:
                 self.text_editor.tag_add(
                     'instvar_highlight',
                     f'1.0 + {token.start_offset} chars',

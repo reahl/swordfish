@@ -106,6 +106,45 @@ def test_apply_instvar_highlight_tags_all_occurrences_of_the_variable(highlighti
 
 
 @with_fixtures(HighlightingFixture)
+def test_apply_instvar_highlight_marks_keyword_selector_sends(highlighting_fixture):
+    """AI: The same highlight serves senders, so a keyword selector (a
+    keyword_message_part token, not an identifier) must be marked where it is sent."""
+    code_panel = highlighting_fixture.code_panel
+    source = 'store: anItem\n    collection printOn: aStream'
+    code_panel.text_editor.source_text = source
+
+    code_panel.apply_instvar_highlight('printOn:')
+
+    tagged_ranges = [
+        (start, end)
+        for tag, start, end in code_panel.text_editor.added
+        if tag == 'instvar_highlight'
+    ]
+    assert len(tagged_ranges) == 1
+    start, end = tagged_ranges[0]
+    offset = int(start.split('+ ')[1].split(' chars')[0])
+    assert source[offset:offset + len('printOn:')] == 'printOn:'
+
+
+@with_fixtures(HighlightingFixture)
+def test_apply_instvar_highlight_marks_class_name_references(highlighting_fixture):
+    """AI: The same highlight serves class-reference searches, so a class name is marked
+    where it is referenced (and not where a same-named keyword/comment text appears)."""
+    code_panel = highlighting_fixture.code_panel
+    source = 'build\n    ^ OrderLine new register: OrderLine'
+    code_panel.text_editor.source_text = source
+
+    code_panel.apply_instvar_highlight('OrderLine')
+
+    tagged_ranges = [
+        (start, end)
+        for tag, start, end in code_panel.text_editor.added
+        if tag == 'instvar_highlight'
+    ]
+    assert len(tagged_ranges) == 2
+
+
+@with_fixtures(HighlightingFixture)
 def test_apply_instvar_highlight_clears_previous_before_reapplying(highlighting_fixture):
     """AI: Calling apply_instvar_highlight twice must remove the previous tag before
     adding new ranges, so stale highlights from an earlier method do not accumulate."""

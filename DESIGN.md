@@ -82,9 +82,39 @@ columns, the filter boxes, and the filtered values together. All result paths fu
 one render path that keeps an unfiltered baseline, so filtering re-renders without re-querying
 the gem. See `FindPane` in `main.py`.
 
+### Find: one intent chosen via category tabs, not a grid of radio buttons
+The Find dialog presents **one choice — the search intent** — not a cross-product of "search
+type × match mode × reference target" radio groups. The intents are grouped into three
+**category tabs** and selected by a short **variant** row within the active tab:
+
+- **Class** — Containing · Exact · References
+- **Method** — Implementors · Containing · Senders
+- **Variable** — Inst var · Class var
+
+The chosen intent drives, *behind the scenes*, the engine's existing `search_type` /
+`match_mode` / `reference_target` model (`FindPane.SEARCH_INTENT_TO_CONFIG`); those are no longer
+user-facing controls. Switching to a category whose variants do not include the current intent
+falls back to that category's first variant (`default_intent_for_tab`).
+
+**The inputs live inside the tab body, not below the tab bar.** Each tab carries its variant row
+*and* the inputs that category needs: a query entry (labelled per category — "Class:" /
+"Selector:" / "Variable:") with an icon find button, plus the owning-class entry on the Variable
+tab and the receiver-class entry on the Method tab (shown only for Senders). The per-tab query
+entries share one `query_var`, so the typed text is the same whichever tab is shown.
+
+Programmatic openers (`open_find_dialog_for_class` / `_for_instvar` / `_for_classvar`, senders,
+implementors) still pass the legacy triple; `sync_intent_from_config` selects the matching
+tab/variant so the visible control reflects the search. Because `ttk.Notebook.select()` only
+sticks once the pane is mapped (an unmapped notebook snaps to tab 0 and fires
+`<<NotebookTabChanged>>` on realization), the tab-change handler stays inert until
+`activate_search_tabs` runs after the pane is shown — otherwise realization would overwrite a
+programmatically chosen intent. There is **no separate "search intent" sentence** — the selected
+tab + variant *is* the statement of intent; a short result-action hint remains. See `FindPane` in
+`main.py`.
+
 ### Find References: class, method, and variables
-The "Reference" search type has four targets: **Class** (every method that mentions a class
-literal), **Method** (senders), **Inst Var**, and **Class Var**. The two variable targets share
+Reference searches are the **References** (Class tab), **Senders** (Method tab), and **Inst var**
+/ **Class var** (Variable tab) intents. The two variable intents share
 the result shape (`class TAB side TAB selector`) and downstream navigation/highlight, but use
 **different gem queries** because the two variable kinds are found in fundamentally different ways:
 
@@ -120,13 +150,21 @@ from `GemstoneBrowserSession.accessible_var_names`, which derives "own vs inheri
 GemStone invariant that `instVarNames`/`classVarNames`/`class instVarNames` are own-only while
 `allInstVarNames` is the full chain.
 
-Double-clicking an inst-var result navigates to the method and highlights all occurrences of the
-variable name in the editor via the `InstVarHighlightRequested` event →
-`MethodEditor.apply_instvar_highlight_to_active_tab`
-→ `CodePanel.apply_instvar_highlight`. The highlight uses the `instvar_reference_background`
-theme role and the `instvar_highlight` text tag (applied after syntax tags so it wins
-background priority while syntax foreground colours remain active). Clearing the highlight is
-implicit the next time a different method opens or the highlight is re-applied.
+**Every reference search highlights its term where it occurs in the result method** — and it does
+so on **both peek (single click) and open (double click)**, so a glance shows the references in
+context. Each result row carries a `highlight_term`: the variable name for inst/class-var
+searches, the class name for class references, and the sent selector for senders. Selecting the
+row publishes the `InstVarHighlightRequested` event →
+`MethodEditor.apply_instvar_highlight_to_active_tab` → `CodePanel.apply_instvar_highlight`, which
+marks every matching token. Matching covers the token kinds a reference can take: identifiers
+(variables, class names, unary selectors), keyword-message parts (e.g. `printOn:`) and binary
+selectors; a multi-keyword selector such as `at:put:` is several tokens and is not highlighted as
+a unit (whole-token matching avoids false positives). The highlight uses the
+`instvar_reference_background` theme role and the `instvar_highlight` text tag (applied after
+syntax tags so it wins background priority while syntax foreground colours remain active).
+Clearing the highlight is implicit the next time a different method opens or it is re-applied.
+(The event/method keep their historical `instvar` names though they now serve all reference
+searches.)
 
 ### Anything that can run long is interruptible from the IDE
 If an operation can take a noticeable time (a search, a run/inspect/debug of user code, a test
