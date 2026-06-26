@@ -3255,7 +3255,14 @@ class FindPane(Pane):
             variable=self.reference_target,
             value="instvar",
         )
-        self.reference_target_instvar_radio.pack(side="left")
+        self.reference_target_instvar_radio.pack(side="left", padx=(0, 8))
+        self.reference_target_classvar_radio = ttk.Radiobutton(
+            self.reference_target_frame,
+            text="Class Var",
+            variable=self.reference_target,
+            value="classvar",
+        )
+        self.reference_target_classvar_radio.pack(side="left")
 
         ttk.Label(self, text="Find what:").grid(
             row=2,
@@ -3509,7 +3516,7 @@ class FindPane(Pane):
             configuration["match_mode"] = "exact"
         if match_mode in ["exact", "contains"]:
             configuration["match_mode"] = match_mode
-        if reference_target in ["class", "method", "instvar"]:
+        if reference_target in ["class", "method", "instvar", "classvar"]:
             configuration["reference_target"] = reference_target
         if configuration["search_type"] == "reference":
             configuration["match_mode"] = "exact"
@@ -3522,11 +3529,14 @@ class FindPane(Pane):
             self.match_mode.set("exact")
             return
         reference_target_is_method = self.reference_target.get() == "method"
-        reference_target_is_instvar = self.reference_target.get() == "instvar"
+        # AI: Instance-, class-instance- and class-variable searches all need the
+        # owning-class context entry, so it is shown for both the instvar and classvar
+        # targets (class-instance variables use the instvar target).
+        reference_target_is_variable = self.reference_target.get() in ("instvar", "classvar")
         tracing_controls_visible = (
             reference_mode_is_selected and reference_target_is_method
         )
-        instvar_controls_visible = reference_mode_is_selected and reference_target_is_instvar
+        instvar_controls_visible = reference_mode_is_selected and reference_target_is_variable
         contains_match_state = tk.NORMAL
         exact_match_state = tk.NORMAL
         if reference_mode_is_selected:
@@ -3595,6 +3605,7 @@ class FindPane(Pane):
         self.reference_target_class_radio.config(state=mode_control_state)
         self.reference_target_method_radio.config(state=mode_control_state)
         self.reference_target_instvar_radio.config(state=mode_control_state)
+        self.reference_target_classvar_radio.config(state=mode_control_state)
         self.instvar_class_entry.config(state=mode_control_state)
         self.update_trace_narrow_state()
         self.update_search_context_fields()
@@ -3675,6 +3686,17 @@ class FindPane(Pane):
             for ref in result['references']
         ])
 
+    def references_for_classvar_query(self, class_name, classvar_name, should_stop=None):
+        if should_stop is not None and should_stop():
+            return []
+        result = self.gemstone_session_record.gemstone_browser_session.find_classvar_references(
+            class_name, classvar_name
+        )
+        return self.unique_sorted_navigation_results([
+            (ref['class_name'], ref['show_instance_side'], ref['method_selector'])
+            for ref in result['references']
+        ])
+
     def references_for_method_query(
         self,
         query_text,
@@ -3739,6 +3761,8 @@ class FindPane(Pane):
             return "Finding references to class %s..." % search_query
         if reference_target == "instvar":
             return "Finding references to inst var %s..." % search_query
+        if reference_target == "classvar":
+            return "Finding references to class var %s..." % search_query
         return "Finding references to method %s..." % search_query
 
     def search_intent_text(
@@ -3765,6 +3789,11 @@ class FindPane(Pane):
             if instvar_class:
                 return 'References to inst var %s in %s.' % (normalized_search_query, instvar_class)
             return 'References to inst var "%s".' % normalized_search_query
+        if reference_target == 'classvar':
+            classvar_class = self.instvar_class_entry.get().strip()
+            if classvar_class:
+                return 'References to class var %s in %s.' % (normalized_search_query, classvar_class)
+            return 'References to class var "%s".' % normalized_search_query
         if self.sender_source_class_name is not None:
             return 'Senders of %s>>%s.' % (
                 self.sender_source_class_name,
@@ -3783,6 +3812,8 @@ class FindPane(Pane):
             return "Double-click a selector to find implementors (exact)."
         if reference_target == "instvar":
             return "Double-click a reference to open the method (inst var highlighted)."
+        if reference_target == "classvar":
+            return "Double-click a reference to open the method (class var highlighted)."
         if reference_target == "method":
             return "Double-click a reference to open the caller method."
         return "Double-click a reference to open the method."
@@ -4519,6 +4550,20 @@ class FindPane(Pane):
             return {
                 'kind': 'instvar_references',
                 'results': instvar_results,
+                'instvar_name': normalized_search_query,
+            }
+        if reference_target == 'classvar':
+            classvar_class_name = configuration.get('instvar_class_name', '')
+            classvar_results = list(
+                self.references_for_classvar_query(
+                    classvar_class_name,
+                    normalized_search_query,
+                    should_stop=should_stop,
+                )
+            )
+            return {
+                'kind': 'instvar_references',
+                'results': classvar_results,
                 'instvar_name': normalized_search_query,
             }
         (
@@ -8170,6 +8215,20 @@ class Swordfish(tk.Tk):
             run_search=True,
             match_mode='exact',
             reference_target='instvar',
+            instvar_class_name=class_name,
+        )
+
+    def open_find_dialog_for_classvar(self, class_name, classvar_name):
+        class_name = (class_name or '').strip()
+        classvar_name = (classvar_name or '').strip()
+        if not class_name or not classvar_name:
+            return None
+        return self.open_find_dialog(
+            search_type='reference',
+            search_query=classvar_name,
+            run_search=True,
+            match_mode='exact',
+            reference_target='classvar',
             instvar_class_name=class_name,
         )
 

@@ -7069,9 +7069,10 @@ class GemstoneBrowserSession:
         return self.unique_sorted_method_summaries(method_summaries)
 
     def find_instvar_references(self, class_name, instvar_name):
-        # AI: Uses GsNMethod>>instVarsAccessed (returns IdentitySet of accessed inst var
-        # AI: name Symbols) to find all instance-side methods on class_name that read or
-        # AI: write the named inst var. One GCI round-trip for the whole class.
+        # AI: Searches both instance and class sides of the entire subclass hierarchy
+        # AI: using GsNMethod>>instVarsAccessed. One GCI round-trip covers all subclasses.
+        # AI: Returns class TAB side TAB selector per line so callers know which class and
+        # AI: which side each reference lives on.
         class_name = (class_name or '').strip()
         instvar_name = (instvar_name or '').strip()
         if not class_name or not instvar_name:
@@ -7079,16 +7080,31 @@ class GemstoneBrowserSession:
         class_literal = self.smalltalk_string_literal(class_name)
         instvar_literal = self.smalltalk_string_literal(instvar_name)
         smalltalk_source = """
-            | cls varSym results |
-            cls := System myUserProfile symbolList objectNamed: %s asSymbol.
+            | startCls varSym toSearch results |
+            startCls := System myUserProfile symbolList objectNamed: %s asSymbol.
             varSym := %s asSymbol.
+            toSearch := OrderedCollection with: startCls.
+            toSearch addAll: startCls allSubclasses.
             results := OrderedCollection new.
-            cls selectors do: [ :sel |
-                | method |
-                method := cls compiledMethodAt: sel environmentId: 0 otherwise: nil.
-                method ifNotNil: [
-                    (method instVarsAccessed includes: varSym) ifTrue: [
-                        results add: sel asString
+            toSearch do: [ :cls |
+                cls selectors do: [ :sel |
+                    | method |
+                    method := cls compiledMethodAt: sel environmentId: 0 otherwise: nil.
+                    method ifNotNil: [
+                        (method instVarsAccessed includes: varSym) ifTrue: [
+                            results add: cls name asString, Character tab asString,
+                                'instance', Character tab asString, sel asString
+                        ]
+                    ]
+                ].
+                cls class selectors do: [ :sel |
+                    | method |
+                    method := cls class compiledMethodAt: sel environmentId: 0 otherwise: nil.
+                    method ifNotNil: [
+                        (method instVarsAccessed includes: varSym) ifTrue: [
+                            results add: cls name asString, Character tab asString,
+                                'class', Character tab asString, sel asString
+                        ]
                     ]
                 ]
             ].
@@ -7097,20 +7113,158 @@ class GemstoneBrowserSession:
         result_string = self.run_code(smalltalk_source).to_py
         references = []
         if result_string:
-            for selector in result_string.split('\n'):
-                selector = selector.strip()
-                if selector:
+            for line in result_string.split('\n'):
+                parts = line.strip().split('\t')
+                if len(parts) == 3:
+                    ref_class, side, selector = parts
                     references.append({
-                        'class_name': class_name,
-                        'show_instance_side': True,
+                        'class_name': ref_class,
+                        'show_instance_side': side == 'instance',
                         'method_selector': selector,
                     })
-        references.sort(key=lambda r: r['method_selector'])
+        references.sort(key=lambda r: (r['class_name'], r['method_selector']))
         return {
             'references': references,
             'total_count': len(references),
             'returned_count': len(references),
         }
+
+    def find_classvar_references(self, class_name, classvar_name):
+        # AI: Class variables are invisible to instVarsAccessed; a reference to one
+        # AI: compiles to a SymbolAssociation literal whose key is the variable name.
+        # AI: We find the variable's owner (the highest ancestor that declares it) and
+        # AI: scan its whole subclass hierarchy — the variable's real lexical scope —
+        # AI: for methods holding such a literal. Identity on the association does NOT
+        # AI: work (the compiler binds a different association object), so we match by
+        # AI: key symbol. detect:ifNone: and isKindOf: Association are used in place of
+        # AI: anySatisfy: / SymbolAssociation so the query also runs on GemStone 3.6.5.
+        class_name = (class_name or '').strip()
+        classvar_name = (classvar_name or '').strip()
+        if not class_name or not classvar_name:
+            return {'references': [], 'total_count': 0, 'returned_count': 0}
+        class_literal = self.smalltalk_string_literal(class_name)
+        classvar_literal = self.smalltalk_string_literal(classvar_name)
+        smalltalk_source = """
+            | startCls varSym owner toSearch results |
+            startCls := System myUserProfile symbolList objectNamed: %s asSymbol.
+            varSym := %s asSymbol.
+            owner := startCls.
+            [ owner superclass notNil
+                and: [ owner superclass classVarNames includes: varSym ] ] whileTrue: [
+                owner := owner superclass ].
+            toSearch := OrderedCollection with: owner.
+            toSearch addAll: owner allSubclasses.
+            results := OrderedCollection new.
+            toSearch do: [ :cls |
+                cls selectors do: [ :sel |
+                    | method |
+                    method := cls compiledMethodAt: sel environmentId: 0 otherwise: nil.
+                    method ifNotNil: [
+                        (method literals detect: [ :lit |
+                            (lit isKindOf: Association) and: [ lit key == varSym ] ]
+                            ifNone: [ nil ]) ifNotNil: [
+                            results add: cls name asString, Character tab asString,
+                                'instance', Character tab asString, sel asString
+                        ]
+                    ]
+                ].
+                cls class selectors do: [ :sel |
+                    | method |
+                    method := cls class compiledMethodAt: sel environmentId: 0 otherwise: nil.
+                    method ifNotNil: [
+                        (method literals detect: [ :lit |
+                            (lit isKindOf: Association) and: [ lit key == varSym ] ]
+                            ifNone: [ nil ]) ifNotNil: [
+                            results add: cls name asString, Character tab asString,
+                                'class', Character tab asString, sel asString
+                        ]
+                    ]
+                ]
+            ].
+            (String with: Character lf) join: results
+        """ % (class_literal, classvar_literal)
+        result_string = self.run_code(smalltalk_source).to_py
+        references = []
+        if result_string:
+            for line in result_string.split('\n'):
+                parts = line.strip().split('\t')
+                if len(parts) == 3:
+                    ref_class, side, selector = parts
+                    references.append({
+                        'class_name': ref_class,
+                        'show_instance_side': side == 'instance',
+                        'method_selector': selector,
+                    })
+        references.sort(key=lambda r: (r['class_name'], r['method_selector']))
+        return {
+            'references': references,
+            'total_count': len(references),
+            'returned_count': len(references),
+        }
+
+    def accessible_var_names(self, class_name):
+        # AI: Returns every variable accessible to this class, split into three kinds:
+        # AI: instance variables, class-instance variables, and class variables. Each
+        # AI: kind is a list of {'name', 'inherited'} dicts; 'inherited' is True when the
+        # AI: variable is defined on a superclass rather than this class. Own variables
+        # AI: come first, then inherited ones, so callers can present them in that order.
+        class_name = (class_name or '').strip()
+        empty_groups = {
+            'inst_var_names': [],
+            'class_inst_var_names': [],
+            'class_var_names': [],
+        }
+        if not class_name:
+            return empty_groups
+        class_literal = self.smalltalk_string_literal(class_name)
+        smalltalk_source = """
+            | cls tab lf results ownInst c |
+            cls := System myUserProfile symbolList objectNamed: %s asSymbol.
+            tab := Character tab asString.
+            lf := String with: Character lf.
+            results := OrderedCollection new.
+            ownInst := cls instVarNames.
+            ownInst do: [ :n | results add: 'inst', tab, n asString, tab, 'own' ].
+            cls allInstVarNames do: [ :n |
+                (ownInst includes: n) ifFalse: [
+                    results add: 'inst', tab, n asString, tab, 'inherited' ] ].
+            cls class instVarNames do: [ :n |
+                results add: 'classInst', tab, n asString, tab, 'own' ].
+            c := cls superclass.
+            [ c notNil ] whileTrue: [
+                c class instVarNames do: [ :n |
+                    results add: 'classInst', tab, n asString, tab, 'inherited' ].
+                c := c superclass ].
+            cls classVarNames do: [ :n |
+                results add: 'classVar', tab, n asString, tab, 'own' ].
+            c := cls superclass.
+            [ c notNil ] whileTrue: [
+                c classVarNames do: [ :n |
+                    results add: 'classVar', tab, n asString, tab, 'inherited' ].
+                c := c superclass ].
+            lf join: results
+        """ % class_literal
+        result_string = self.run_code(smalltalk_source).to_py
+        kind_to_key = {
+            'inst': 'inst_var_names',
+            'classInst': 'class_inst_var_names',
+            'classVar': 'class_var_names',
+        }
+        groups = {
+            'inst_var_names': [],
+            'class_inst_var_names': [],
+            'class_var_names': [],
+        }
+        if result_string:
+            for line in result_string.split('\n'):
+                parts = line.split('\t')
+                if len(parts) == 3:
+                    kind, name, flag = parts
+                    if kind in kind_to_key:
+                        groups[kind_to_key[kind]].append(
+                            {'name': name, 'inherited': flag == 'inherited'}
+                        )
+        return groups
 
 
     def selector_occurrence_summaries(

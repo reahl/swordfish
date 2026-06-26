@@ -4,6 +4,7 @@ import os
 import tempfile
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 import tkinter.messagebox as messagebox
 import types
 from tkinter import ttk
@@ -55,6 +56,7 @@ from reahl.swordfish.mcp.integration_state import IntegratedSessionState
 from reahl.swordfish.object_diagram import UmlObjectDiagramNodeDetailDialog
 from reahl.swordfish.pane_area import PaneArea
 from reahl.swordfish.session_activity import ForegroundActivity, McpActivity
+from reahl.swordfish.theme import active_theme
 from reahl.swordfish.text_editing import PINNED_TAB_MARKER
 
 
@@ -283,6 +285,38 @@ class SwordfishGuiFixture(Fixture):
 
         self.mock_browser.get_class_definition.side_effect = get_class_definition
 
+        # AI: accessible_var_names mirrors the live gem: for each variable kind it
+        # lists the class's own variables first (inherited=False) then those from its
+        # superclasses (inherited=True), so the UI can group and grey them.
+        def accessible_var_names(class_name):
+            own_definition = class_definitions.get(class_name)
+            ancestor_definitions = []
+            ancestor_name = (
+                own_definition["superclass_name"] if own_definition else None
+            )
+            while ancestor_name in class_definitions:
+                ancestor_definition = class_definitions[ancestor_name]
+                ancestor_definitions.append(ancestor_definition)
+                ancestor_name = ancestor_definition["superclass_name"]
+
+            def entries_for(kind_key):
+                entries = []
+                if own_definition:
+                    for name in own_definition[kind_key]:
+                        entries.append({"name": name, "inherited": False})
+                for ancestor_definition in ancestor_definitions:
+                    for name in ancestor_definition[kind_key]:
+                        entries.append({"name": name, "inherited": True})
+                return entries
+
+            return {
+                "inst_var_names": entries_for("inst_var_names"),
+                "class_inst_var_names": entries_for("class_inst_var_names"),
+                "class_var_names": entries_for("class_var_names"),
+            }
+
+        self.mock_browser.accessible_var_names.side_effect = accessible_var_names
+
         # AI: get_compiled_method returns an object whose sourceString() method
         # returns an object with a .to_py attribute (the raw Smalltalk source string).
         mock_method = Mock()
@@ -414,6 +448,37 @@ def menu_command_labels(menu):
     for entry_index in range(entry_count):
         if menu.type(entry_index) == "command":
             labels.append(menu.entrycget(entry_index, "label"))
+    return labels
+
+
+def cascade_submenu(menu, cascade_label):
+    """AI: Resolve the submenu Menu widget hung off a cascade entry.
+
+    A cascade entry stores its submenu as a Tk path string under the 'menu'
+    option; nametowidget resolves that back to the child Menu widget.
+    """
+    entry_count = int(menu.index("end")) + 1
+    for entry_index in range(entry_count):
+        if menu.type(entry_index) == "cascade":
+            if menu.entrycget(entry_index, "label") == cascade_label:
+                submenu_path = menu.entrycget(entry_index, "menu")
+                return menu.nametowidget(submenu_path)
+    raise AssertionError(f"Could not find cascade {cascade_label}.")
+
+
+def cascade_submenu_labels(menu, cascade_label):
+    """AI: Return the selectable variable labels of a cascade's submenu.
+
+    Heading rows carry no command (they are inert labels), so filtering to entries
+    that have a command leaves exactly the variable names a user could click.
+    """
+    submenu = cascade_submenu(menu, cascade_label)
+    labels = []
+    entry_count = int(submenu.index("end")) + 1
+    for entry_index in range(entry_count):
+        if submenu.type(entry_index) == "command":
+            if str(submenu.entrycget(entry_index, "command")) != "":
+                labels.append(submenu.entrycget(entry_index, "label"))
     return labels
 
 
@@ -8225,6 +8290,41 @@ def test_open_find_dialog_for_instvar_prefills_controls_and_runs_search(fixture)
 
 
 @with_fixtures(SwordfishAppFixture)
+def test_open_find_dialog_for_classvar_runs_classvar_search(fixture):
+    """AI: open_find_dialog_for_classvar must open the Find pane in reference mode with
+    the new 'classvar' target and run find_classvar_references (NOT the inst-var
+    search, which cannot see class variables), pre-filling class and variable name."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_classvar_references.return_value = {
+        'references': [
+            {
+                'class_name': 'Date',
+                'show_instance_side': True,
+                'method_selector': 'monthName',
+                'method_category': 'accessing',
+            }
+        ],
+        'total_count': 1,
+        'returned_count': 1,
+    }
+    fixture.mock_browser.get_method_category.return_value = 'accessing'
+
+    with patch.object(FindPane, 'wait_visibility'):
+        dialog = fixture.app.open_find_dialog_for_classvar('Date', 'MonthNames')
+
+    assert dialog is not None
+    assert dialog.search_type.get() == 'reference'
+    assert dialog.reference_target.get() == 'classvar'
+    assert dialog.match_mode.get() == 'exact'
+    assert dialog.find_entry.get() == 'MonthNames'
+    assert dialog.instvar_class_entry.get() == 'Date'
+    fixture.mock_browser.find_classvar_references.assert_called_once_with('Date', 'MonthNames')
+    fixture.mock_browser.find_instvar_references.assert_not_called()
+    assert find_result_labels(dialog) == ['Date>>monthName']
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
 def test_find_dialog_double_click_instvar_result_publishes_highlight_event(fixture):
     """AI: Double-clicking an inst-var reference result must publish both
     MethodDisplayRequested (to open the tab) and InstVarHighlightRequested (to
@@ -10039,6 +10139,154 @@ def test_class_list_context_menu_find_references_uses_selected_class_name(
 
 
 @with_fixtures(SwordfishGuiFixture)
+def test_class_list_instvar_references_submenu_reflects_the_right_clicked_class(
+    fixture,
+):
+    """AI: The Variable References submenu must list the variables of the class the
+    user right-clicked, even when a different class was right-clicked moments before.
+    Right-clicking does not select, so a class-scoped cache would leak the first
+    class's variables into the second menu; reading fresh per right-click prevents it."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        "Kernel",
+    )
+    classes_widget = fixture.browser_window.classes_widget
+    class_listbox = classes_widget.selection_list.selection_listbox
+
+    def instvar_submenu_labels_after_right_click(class_name):
+        class_index = list(class_listbox.get(0, "end")).index(class_name)
+        class_listbox.see(class_index)
+        fixture.root.update()
+        class_item_box = class_listbox.bbox(class_index)
+        assert class_item_box is not None
+        classes_widget.show_context_menu(
+            types.SimpleNamespace(
+                widget=class_listbox,
+                y=class_item_box[1] + 1,
+                x_root=1,
+                y_root=1,
+            )
+        )
+        return cascade_submenu_labels(
+            classes_widget.current_context_menu,
+            "Variable References",
+        )
+
+    order_line_vars = instvar_submenu_labels_after_right_click("OrderLine")
+    assert order_line_vars == ["amount", "quantity", "lines"]
+
+    order_vars = instvar_submenu_labels_after_right_click("Order")
+    assert order_vars == ["lines"]
+    assert "amount" not in order_vars
+    assert "quantity" not in order_vars
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_variable_references_submenu_marks_kinds_and_inheritance(fixture):
+    """AI: The submenu must let the reader tell the variable kinds and inheritance
+    apart: each kind sits under a bold, non-selectable heading, and inherited
+    variables are shown in the muted colour (yet stay selectable) while the class's
+    own variables render normally."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        "Kernel",
+    )
+    classes_widget = fixture.browser_window.classes_widget
+    class_listbox = classes_widget.selection_list.selection_listbox
+    class_index = list(class_listbox.get(0, "end")).index("OrderLine")
+    class_listbox.see(class_index)
+    fixture.root.update()
+    class_item_box = class_listbox.bbox(class_index)
+    assert class_item_box is not None
+    classes_widget.show_context_menu(
+        types.SimpleNamespace(
+            widget=class_listbox,
+            y=class_item_box[1] + 1,
+            x_root=1,
+            y_root=1,
+        )
+    )
+    submenu = cascade_submenu(
+        classes_widget.current_context_menu,
+        "Variable References",
+    )
+
+    def entry_at(label):
+        entry_count = int(submenu.index("end")) + 1
+        for entry_index in range(entry_count):
+            if submenu.type(entry_index) == "command":
+                if submenu.entrycget(entry_index, "label") == label:
+                    return entry_index
+        raise AssertionError(f"No submenu entry labelled {label}.")
+
+    muted_colour = active_theme.current().color_for("disabled_list_item")
+    heading_index = entry_at("Instance")
+    # AI: The heading is an inert label (no command) but stays in the normal colour
+    # (not greyed) and is underlined rather than bold, so it reads as a section title.
+    assert str(submenu.entrycget(heading_index, "command")) == ""
+    assert str(submenu.entrycget(heading_index, "foreground")) != muted_colour
+    heading_font = tkfont.Font(submenu, font=submenu.entrycget(heading_index, "font"))
+    assert heading_font.actual("underline") == 1
+    assert heading_font.actual("weight") == "normal"
+
+    inherited_index = entry_at("lines")
+    assert str(submenu.entrycget(inherited_index, "foreground")) == muted_colour
+    assert str(submenu.entrycget(inherited_index, "command")) != ""
+
+    own_index = entry_at("amount")
+    assert str(submenu.entrycget(own_index, "foreground")) != muted_colour
+    assert str(submenu.entrycget(own_index, "command")) != ""
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_class_variable_pick_routes_to_classvar_reference_search(fixture):
+    """AI: Choosing a class variable must run the class-variable search, not the
+    instance-variable one (instVarsAccessed cannot see class vars). This is observable
+    as the class-var-specific find entry point being invoked with the class context."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        "Kernel",
+    )
+    classes_widget = fixture.browser_window.classes_widget
+    classes_widget.application.open_find_dialog_for_classvar = Mock()
+    classes_widget.application.open_find_dialog_for_instvar = Mock()
+    # AI: Give OrderLine a class variable for this menu without disturbing the shared
+    # class-definition fixtures used elsewhere.
+    classes_widget.gemstone_session_record.gemstone_browser_session.accessible_var_names.side_effect = (
+        lambda class_name: {
+            "inst_var_names": [{"name": "amount", "inherited": False}],
+            "class_inst_var_names": [],
+            "class_var_names": [{"name": "DefaultRate", "inherited": False}],
+        }
+    )
+    class_listbox = classes_widget.selection_list.selection_listbox
+    class_index = list(class_listbox.get(0, "end")).index("OrderLine")
+    class_listbox.see(class_index)
+    fixture.root.update()
+    class_item_box = class_listbox.bbox(class_index)
+    assert class_item_box is not None
+    classes_widget.show_context_menu(
+        types.SimpleNamespace(
+            widget=class_listbox,
+            y=class_item_box[1] + 1,
+            x_root=1,
+            y_root=1,
+        )
+    )
+    submenu = cascade_submenu(
+        classes_widget.current_context_menu,
+        "Variable References",
+    )
+    invoke_menu_command_by_label(submenu, "DefaultRate")
+
+    classes_widget.application.open_find_dialog_for_classvar.assert_called_once_with(
+        "OrderLine",
+        "DefaultRate",
+    )
+    classes_widget.application.open_find_dialog_for_instvar.assert_not_called()
+
+
+@with_fixtures(SwordfishGuiFixture)
 def test_class_hierarchy_context_menu_find_references_uses_selected_class_name(
     fixture,
 ):
@@ -10092,6 +10340,60 @@ def test_class_hierarchy_context_menu_find_references_uses_selected_class_name(
     classes_widget.application.open_find_dialog_for_class.assert_called_once_with(
         "OrderLine",
     )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_class_hierarchy_context_menu_instvar_references_submenu_reflects_clicked_class(
+    fixture,
+):
+    """AI: The hierarchy context menu must offer the same Inst Var References submenu
+    as the class list, listing the clicked class's accessible variables (own and
+    inherited). This keeps the two views of the class set consistent."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        "Kernel",
+    )
+    fixture.select_in_listbox(
+        fixture.browser_window.classes_widget.selection_list.selection_listbox,
+        "OrderLine",
+    )
+    classes_widget = fixture.browser_window.classes_widget
+    classes_widget.classes_notebook.select(classes_widget.hierarchy_frame)
+    fixture.root.update()
+    tree = classes_widget.hierarchy_tree
+
+    def child_with_text(parent_item, expected_text):
+        child_item_ids = tree.get_children(parent_item)
+        for child_item_id in child_item_ids:
+            if tree.item(child_item_id, "text") == expected_text:
+                return child_item_id
+        raise AssertionError(
+            f"Could not find {expected_text} under {parent_item}.",
+        )
+
+    object_item = child_with_text("", "Object")
+    order_item = child_with_text(object_item, "Order")
+    order_line_item = child_with_text(order_item, "OrderLine")
+    tree.selection_set(order_line_item)
+    tree.focus(order_line_item)
+    tree.see(order_line_item)
+    fixture.root.update()
+    order_line_box = tree.bbox(order_line_item)
+    assert order_line_box not in [None, ""]
+
+    classes_widget.show_hierarchy_context_menu(
+        types.SimpleNamespace(
+            widget=tree,
+            y=order_line_box[1] + 1,
+            x_root=1,
+            y_root=1,
+        )
+    )
+    instvar_labels = cascade_submenu_labels(
+        classes_widget.current_context_menu,
+        "Variable References",
+    )
+    assert instvar_labels == ["amount", "quantity", "lines"]
 
 
 @with_fixtures(SwordfishGuiFixture)

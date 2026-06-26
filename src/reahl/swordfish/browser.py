@@ -2,6 +2,7 @@ import queue
 import re
 import threading
 import tkinter as tk
+import tkinter.font as tkfont
 import tkinter.messagebox as messagebox
 import tkinter.simpledialog as simpledialog
 from tkinter import ttk
@@ -931,8 +932,18 @@ class ClassSelection(Pane):
         self.selection_list.selection_listbox.bind('<Button-3>', self.show_context_menu)
         self.current_context_menu = None
         self.context_menu_class_name = None
+        self.cached_class_definition = None
+        self.variable_heading_font = None
 
-        self.class_definition_text.bind('<Button-3>', self.show_class_definition_context_menu)
+    def variable_heading_font_for_menu(self):
+        # AI: An underlined (normal-weight) copy of the standard menu font, created once
+        # and reused, for the kind headings in the Variable References submenu. Headings
+        # carry no command so they are inert, but stay in the normal colour (not greyed)
+        # so they read as labels rather than disabled variables.
+        if self.variable_heading_font is None:
+            self.variable_heading_font = tkfont.nametofont('TkMenuFont').copy()
+            self.variable_heading_font.configure(underline=1)
+        return self.variable_heading_font
 
     def switch_side(self):
         if self.syncing_side_selection:
@@ -1162,6 +1173,7 @@ class ClassSelection(Pane):
             command=self.find_references_for_selected_class,
             state=tk.NORMAL if has_selection else tk.DISABLED,
         )
+        self.add_instvar_references_cascade(menu, selected_class_name)
         menu.add_command(
             label='Add to Class Diagram',
             command=self.add_selected_class_to_class_diagram,
@@ -1186,32 +1198,74 @@ class ClassSelection(Pane):
         )
         popup_menu(menu, event)
 
-    def show_class_definition_context_menu(self, event):
-        word = self.instvar_name_at_definition_click(event)
-        if not word:
-            return
-        menu = tk.Menu(self, tearoff=0)
-        menu.add_command(
-            label='References to \'%s\'' % word,
-            command=lambda: self.find_instvar_references_from_definition(word),
+    def add_instvar_references_cascade(self, menu, class_name):
+        # AI: Builds the 'Variable References' submenu for class_name and attaches it
+        # to menu. Each variable kind gets a non-clickable heading row; inherited
+        # variables are shown in the muted 'disabled_list_item' colour but stay
+        # selectable (the same convention used for inherited methods in the method
+        # list). Read fresh so the submenu always matches the class the user pointed
+        # at. Shared by the class list and hierarchy context menus.
+        variables_submenu = tk.Menu(menu, tearoff=0)
+        accessible_vars = self.fetch_accessible_vars(class_name)
+        has_any_vars = False
+        if accessible_vars is not None:
+            inherited_colour = active_theme.current().color_for('disabled_list_item')
+            # AI: Class-instance variables are found by the same instVarsAccessed search
+            # as instance variables (they are the metaclass's instance variables); only
+            # true class variables need the class-variable search, so they route to a
+            # different opener.
+            sections = [
+                (
+                    'Instance',
+                    accessible_vars.get('inst_var_names') or [],
+                    self.open_instvar_references,
+                ),
+                (
+                    'Class-instance',
+                    accessible_vars.get('class_inst_var_names') or [],
+                    self.open_instvar_references,
+                ),
+                (
+                    'Class',
+                    accessible_vars.get('class_var_names') or [],
+                    self.open_classvar_references,
+                ),
+            ]
+            heading_font = self.variable_heading_font_for_menu()
+            for heading, entries, open_references in sections:
+                if entries:
+                    has_any_vars = True
+                    variables_submenu.add_command(label=heading, font=heading_font)
+                    for entry in entries:
+                        variable_name = entry['name']
+                        if entry['inherited']:
+                            variables_submenu.add_command(
+                                label=variable_name,
+                                foreground=inherited_colour,
+                                command=lambda n=variable_name, o=open_references: o(n),
+                            )
+                        else:
+                            variables_submenu.add_command(
+                                label=variable_name,
+                                command=lambda n=variable_name, o=open_references: o(n),
+                            )
+        menu.add_cascade(
+            label='Variable References',
+            menu=variables_submenu,
+            state=tk.NORMAL if has_any_vars else tk.DISABLED,
         )
-        popup_menu(menu, event)
 
-    def instvar_name_at_definition_click(self, event):
-        try:
-            index = self.class_definition_text.index('@%d,%d' % (event.x, event.y))
-            word_start = self.class_definition_text.index('%s wordstart' % index)
-            word_end = self.class_definition_text.index('%s wordend' % index)
-            word = self.class_definition_text.get(word_start, word_end).strip()
-            return word if word.isidentifier() else None
-        except tk.TclError:
-            return None
-
-    def find_instvar_references_from_definition(self, instvar_name):
-        class_name = self.gemstone_session_record.selected_class
+    def open_instvar_references(self, instvar_name):
+        class_name = self.context_menu_class_name
         if not class_name or not instvar_name:
             return
         self.application.open_find_dialog_for_instvar(class_name, instvar_name)
+
+    def open_classvar_references(self, classvar_name):
+        class_name = self.context_menu_class_name
+        if not class_name or not classvar_name:
+            return
+        self.application.open_find_dialog_for_classvar(class_name, classvar_name)
 
     def file_out_class(self):
         class_name = (
@@ -1298,6 +1352,7 @@ class ClassSelection(Pane):
             command=self.find_references_for_selected_class,
             state=tk.NORMAL if selected_class_name is not None else tk.DISABLED,
         )
+        self.add_instvar_references_cascade(menu, selected_class_name)
         menu.add_command(
             label='Add to Class Diagram',
             command=self.add_selected_class_to_class_diagram,
@@ -1470,16 +1525,33 @@ class ClassSelection(Pane):
                 class_definition = self.gemstone_session_record.gemstone_browser_session.get_class_definition(
                     selected_class,
                 )
+                self.cached_class_definition = class_definition
                 class_definition_text = self.formatted_class_definition(
                     class_definition,
                 )
             except (GemstoneDomainException, GemstoneError):
+                self.cached_class_definition = None
                 class_definition_text = ''
+        else:
+            self.cached_class_definition = None
         self.class_definition_text.config(state='normal')
         self.class_definition_text.delete('1.0', tk.END)
         self.class_definition_text.insert('1.0', class_definition_text)
         self.class_definition_text.config(state='disabled')
         self.class_definition_cursor_position_indicator.update_position()
+
+    def fetch_accessible_vars(self, class_name):
+        # AI: Reads the class's accessible variables (own + inherited, both sides)
+        # fresh from the gem each time so the context menu never shows a stale list.
+        # AI: Returns None on no class or a gem error, which the menu treats as no vars.
+        if not class_name:
+            return None
+        try:
+            return self.gemstone_session_record.gemstone_browser_session.accessible_var_names(
+                class_name,
+            )
+        except (GemstoneDomainException, GemstoneError):
+            return None
 
     def run_all_tests(self):
         listbox = self.selection_list.selection_listbox

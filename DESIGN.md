@@ -82,14 +82,47 @@ columns, the filter boxes, and the filtered values together. All result paths fu
 one render path that keeps an unfiltered baseline, so filtering re-renders without re-querying
 the gem. See `FindPane` in `main.py`.
 
-### Find References: class, method, and inst var
-The "Reference" search type has three targets: **Class** (finds every method that mentions a
-class literal), **Method** (senders), and **Inst Var** (every instance-side method on a named
-class that reads or writes a named instance variable). The inst-var mode opens with both fields
-pre-filled when triggered from the right-click menu on the class-definition pane in the
-browser (`ClassSelection.show_class_definition_context_menu`). Double-clicking an inst-var
-result navigates to the method and highlights all occurrences of the variable name in the
-editor via the `InstVarHighlightRequested` event → `MethodEditor.apply_instvar_highlight_to_active_tab`
+### Find References: class, method, and variables
+The "Reference" search type has four targets: **Class** (every method that mentions a class
+literal), **Method** (senders), **Inst Var**, and **Class Var**. The two variable targets share
+the result shape (`class TAB side TAB selector`) and downstream navigation/highlight, but use
+**different gem queries** because the two variable kinds are found in fundamentally different ways:
+
+- **Inst Var** uses `GsNMethod>>instVarsAccessed`, searching the selected class + its subclasses
+  on **both the instance and class sides**. This also covers **class-instance variables**, which
+  are simply the metaclass's instance variables and so show up on the class side.
+- **Class Var** cannot use `instVarsAccessed` (it does not see class variables). A class-variable
+  reference compiles to a `SymbolAssociation` literal whose **key** is the variable name, so the
+  search walks up to the variable's **owner** (the highest ancestor declaring it) and scans that
+  whole subclass hierarchy's method `literals` for an `Association` with that key. Identity on the
+  association does **not** work (the compiler binds a different association object), so it matches
+  by key symbol. Portable selectors (`detect:ifNone:`, `isKindOf: Association`) are used so the
+  query also runs on GemStone 3.6.5. See `GemstoneBrowserSession.find_classvar_references`.
+
+The variable modes are reached by right-clicking a class — in **both** the class **list** and the
+**hierarchy tree** — which opens a **Variable References** cascade submenu of that class's
+*accessible* variables. The submenu groups them under three **underlined, normal-weight, inert
+heading rows** — *Instance*, *Class-instance*, *Class* — and a heading appears only when that kind
+has members. Headings carry no command (they are not selectable) but stay in the normal colour
+(**not** greyed) so they read as section titles, not disabled variables. Within each kind the
+class's **own** variables come first in normal colour, then **inherited** ones (defined on a
+superclass) in the muted `disabled_list_item` colour — the **same grey-means-inherited convention
+used for inherited methods in the method list** (`ClassSelection.style_method_entry`). Inherited
+entries stay **selectable** (greyed for emphasis only). Choosing a variable opens the Find dialog
+with both fields pre-filled — instance and class-instance entries route to the Inst Var search,
+class-variable entries to the Class Var search.
+
+The submenu is read **fresh from the gem each time the menu is posted** (no per-class cache) so
+right-clicking a class always lists that class's variables, even when a different class is
+currently selected. Both context menus build the submenu through the one shared
+`ClassSelection.add_instvar_references_cascade`; the per-kind own/inherited variable lists come
+from `GemstoneBrowserSession.accessible_var_names`, which derives "own vs inherited" from the
+GemStone invariant that `instVarNames`/`classVarNames`/`class instVarNames` are own-only while
+`allInstVarNames` is the full chain.
+
+Double-clicking an inst-var result navigates to the method and highlights all occurrences of the
+variable name in the editor via the `InstVarHighlightRequested` event →
+`MethodEditor.apply_instvar_highlight_to_active_tab`
 → `CodePanel.apply_instvar_highlight`. The highlight uses the `instvar_reference_background`
 theme role and the `instvar_highlight` text tag (applied after syntax tags so it wins
 background priority while syntax foreground colours remain active). Clearing the highlight is
