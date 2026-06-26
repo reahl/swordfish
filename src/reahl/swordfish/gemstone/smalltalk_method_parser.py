@@ -783,3 +783,295 @@ def apply_source_edits(source, source_edits):
             + edited_source[edit.end_offset :]
         )
     return edited_source
+
+
+class SmalltalkMethodFormat:
+    """AI: AST-based Smalltalk method formatter producing canonical GemStone 1-tab style.
+
+    Rules derived from analysis of the target codebase:
+    - 1 tab per nesting level; method body at depth 1.
+    - Keyword sends with 2+ keywords OR a long block arg → multi-line:
+      receiver on opener line, each keyword:arg at depth+1.
+    - Cascade: receiver at depth, each message at depth+1, ';' on all but last.
+    - Multi-keyword cascade messages: first keyword at cascade depth, continuations at depth+1.
+    - Short block (≤1 stmt, no temps, expr not itself multi-line) → inline [ expr ].
+    - Long block: '[ :args |' on opener line, body at +1 depth, ']' on last body line.
+    - No trailing '.' on the last statement of any scope.
+    - Leading method comment → blank line → (temps) → statements.
+    - On parse error: return source unchanged."""
+
+    INDENT = '\t'
+
+    def format_method(self, source):
+        try:
+            method_node = SmalltalkMethodParser().parse_method(source)
+        except SmalltalkSyntaxError:
+            return source
+        comments = self.scan_body_comments(source)
+        return self.render_method(source, method_node, comments)
+
+    def scan_body_comments(self, source):
+        header_end = source.find('\n')
+        if header_end == -1:
+            return []
+        result = []
+        for token in SmalltalkSourceScanner().scan_tokens(source):
+            if token.kind == SmalltalkTokenKind.comment and token.start_offset > header_end:
+                result.append((token.start_offset, source[token.start_offset:token.end_offset]))
+        return result
+
+    def render_method(self, source, method_node, comments):
+        parts = [self.format_header(method_node.selector, method_node.argument_names)]
+        for pragma in method_node.pragmas:
+            parts.append(self.INDENT + source[pragma.start_offset:pragma.end_offset])
+        first_stmt_offset = method_node.statements[0].start_offset if method_node.statements else float('inf')
+        leading_comments = [(off, text) for off, text in comments if off < first_stmt_offset]
+        body_comments = [(off, text) for off, text in comments if off >= first_stmt_offset]
+        if leading_comments:
+            for _off, text in leading_comments:
+                parts.append(self.INDENT + text)
+            parts.append('')
+        if method_node.temporaries:
+            parts.append(self.INDENT + '| ' + ' '.join(method_node.temporaries) + ' |')
+        items = [(s.start_offset, 'stmt', s) for s in method_node.statements]
+        items += [(off, 'comment', text) for off, text in body_comments]
+        items.sort(key=lambda t: t[0])
+        stmt_total = len(method_node.statements)
+        stmt_index = 0
+        prev_comment = False
+        for item_index, (_offset, kind, item) in enumerate(items):
+            is_last_item = (item_index == len(items) - 1)
+            if kind == 'comment':
+                if not prev_comment and parts and not is_last_item:
+                    parts.append('')
+                parts.append(self.INDENT + item)
+                prev_comment = True
+            else:
+                if prev_comment:
+                    parts.append('')
+                stmt_index += 1
+                lines = self.node_lines(item, 1)
+                if stmt_index < stmt_total:
+                    lines[-1] += '.'
+                parts.extend(lines)
+                prev_comment = False
+        return '\n'.join(parts)
+
+    def format_header(self, selector, argument_names):
+        if not argument_names:
+            return selector
+        if ':' not in selector:
+            return selector + ' ' + argument_names[0]
+        keywords = [k + ':' for k in selector.split(':') if k]
+        return ' '.join(kw + ' ' + arg for kw, arg in zip(keywords, argument_names))
+
+    def node_lines(self, node, depth):
+        """AI: Returns a list of fully-indented strings for this node at depth."""
+        tab = self.INDENT * depth
+        if isinstance(node, ReturnNode):
+            inner = self.node_lines(node.expression, depth)
+            inner[0] = tab + '^ ' + inner[0][len(tab):]
+            return inner
+        if isinstance(node, AssignmentNode):
+            inner = self.node_lines(node.value, depth)
+            inner[0] = tab + node.variable_name + ' := ' + inner[0][len(tab):]
+            return inner
+        if isinstance(node, MessageSendNode):
+            return self.message_lines(node, depth)
+        if isinstance(node, CascadeNode):
+            return self.cascade_lines(node, depth)
+        if isinstance(node, BlockNode):
+            header, body = self.long_block(node, depth)
+            return [tab + header] + body
+        if isinstance(node, DynamicArrayNode):
+            return self.dynamic_array_lines(node, depth)
+        return [tab + self.inline(node, 'none')]
+
+    def message_lines(self, node, depth):
+        tab = self.INDENT * depth
+        if node.send_kind == 'unary':
+            return [tab + self.inline(node.receiver, 'unary_receiver') + ' ' + node.selector]
+        if node.send_kind == 'binary':
+            recv = self.inline(node.receiver, 'binary_receiver')
+            arg = self.inline(node.arguments[0], 'binary_arg')
+            return [tab + recv + ' ' + node.selector + ' ' + arg]
+        keywords = [k + ':' for k in node.selector.split(':') if k]
+        if not self.send_is_multiline(node):
+            recv = self.inline(node.receiver, 'binary_receiver')
+            kw_args = ' '.join(kw + ' ' + self.inline(a, 'keyword_arg')
+                               for kw, a in zip(keywords, node.arguments))
+            return [tab + recv + ' ' + kw_args]
+        recv = self.inline(node.receiver, 'binary_receiver')
+        result = [tab + recv]
+        kd = depth + 1
+        for kw, arg in zip(keywords, node.arguments):
+            result.extend(self.keyword_arg_lines(kw, arg, kd))
+        return result
+
+    def keyword_arg_lines(self, keyword, arg, depth):
+        """AI: Lines for 'keyword: arg' at depth, expanding long blocks inline."""
+        tab = self.INDENT * depth
+        if isinstance(arg, BlockNode) and self.is_long_block(arg):
+            header, body = self.long_block(arg, depth)
+            return [tab + keyword + ' ' + header] + body
+        return [tab + keyword + ' ' + self.inline(arg, 'keyword_arg')]
+
+    def cascade_lines(self, node, depth):
+        recv = self.inline(node.receiver, 'binary_receiver')
+        result = [self.INDENT * depth + recv]
+        for i, msg in enumerate(node.messages):
+            is_last = (i == len(node.messages) - 1)
+            lines = self.cascade_message_lines(msg, depth + 1)
+            if not is_last:
+                lines[-1] += ';'
+            result.extend(lines)
+        return result
+
+    def cascade_message_lines(self, msg, depth):
+        tab = self.INDENT * depth
+        if msg.send_kind == 'unary':
+            return [tab + msg.selector]
+        if msg.send_kind == 'binary':
+            return [tab + msg.selector + ' ' + self.inline(msg.arguments[0], 'binary_arg')]
+        keywords = [k + ':' for k in msg.selector.split(':') if k]
+        if len(keywords) == 1 and not any(
+            isinstance(a, BlockNode) and self.is_long_block(a) for a in msg.arguments
+        ):
+            return [tab + keywords[0] + ' ' + self.inline(msg.arguments[0], 'keyword_arg')]
+        result = []
+        kd = depth + 1
+        for i, (kw, arg) in enumerate(zip(keywords, msg.arguments)):
+            result.extend(self.keyword_arg_lines(kw, arg, depth if i == 0 else kd))
+        return result
+
+    def long_block(self, block, opener_depth):
+        """AI: Returns (header_text, body_lines).
+        header_text goes on the same line as the keyword/opener.
+        body_lines are at opener_depth+1; ']' is appended to the last body line."""
+        header_parts = []
+        if block.argument_names:
+            header_parts.append(' '.join(':' + a for a in block.argument_names) + ' |')
+        if block.temporaries and not block.argument_names:
+            header_parts.append('| ' + ' '.join(block.temporaries) + ' |')
+        header = ('[ ' + ' '.join(header_parts)) if header_parts else '['
+        body_depth = opener_depth + 1
+        body = []
+        if block.temporaries and block.argument_names:
+            body.append(self.INDENT * body_depth + '| ' + ' '.join(block.temporaries) + ' |')
+        stmts = block.statements
+        for i, stmt in enumerate(stmts):
+            lines = self.node_lines(stmt, body_depth)
+            if i < len(stmts) - 1:
+                lines[-1] += '.'
+            body.extend(lines)
+        if body:
+            body[-1] += ' ]'
+        else:
+            header += ' ]'
+        return header, body
+
+    def dynamic_array_lines(self, node, depth):
+        tab = self.INDENT * depth
+        if not node.elements:
+            return [tab + '{}']
+        elems = '. '.join(self.inline(e, 'none') for e in node.elements)
+        return [tab + '{' + elems + '}']
+
+    def send_is_multiline(self, node):
+        if node.send_kind in ('unary', 'binary'):
+            return False
+        if node.selector.count(':') >= 2:
+            return True
+        if isinstance(node.receiver, MessageSendNode) and node.receiver.send_kind == 'keyword':
+            return True
+        return any(isinstance(a, BlockNode) and self.is_long_block(a) for a in node.arguments)
+
+    def is_long_block(self, block):
+        if block.temporaries or len(block.statements) > 1:
+            return True
+        if len(block.statements) == 1:
+            return self.node_is_multiline(block.statements[0])
+        return False
+
+    def node_is_multiline(self, node):
+        if isinstance(node, ReturnNode):
+            return self.node_is_multiline(node.expression)
+        if isinstance(node, AssignmentNode):
+            return self.node_is_multiline(node.value)
+        if isinstance(node, CascadeNode):
+            return True
+        if isinstance(node, MessageSendNode):
+            return self.send_is_multiline(node)
+        if isinstance(node, BlockNode):
+            return self.is_long_block(node)
+        return False
+
+    def inline(self, node, context):
+        """AI: Single-line string, adding parentheses where Smalltalk precedence requires."""
+        text = self.inline_raw(node)
+        if self.needs_parens(node, context):
+            return '(' + text + ')'
+        return text
+
+    def inline_raw(self, node):
+        if isinstance(node, VariableNode):
+            return node.name
+        if isinstance(node, LiteralNode):
+            return node.text
+        if isinstance(node, BlockNode):
+            parts = []
+            if node.argument_names:
+                parts.append(' '.join(':' + a for a in node.argument_names) + ' |')
+            if node.temporaries:
+                parts.append('| ' + ' '.join(node.temporaries) + ' |')
+            stmt_texts = []
+            for i, s in enumerate(node.statements):
+                t = self.inline(s, 'none')
+                stmt_texts.append(t + '.' if i < len(node.statements) - 1 else t)
+            body = ' '.join(parts + stmt_texts)
+            return ('[ ' + body + ' ]') if body else '[]'
+        if isinstance(node, ReturnNode):
+            return '^ ' + self.inline(node.expression, 'none')
+        if isinstance(node, AssignmentNode):
+            return node.variable_name + ' := ' + self.inline(node.value, 'none')
+        if isinstance(node, MessageSendNode):
+            if node.send_kind == 'unary':
+                return self.inline(node.receiver, 'unary_receiver') + ' ' + node.selector
+            if node.send_kind == 'binary':
+                recv = self.inline(node.receiver, 'binary_receiver')
+                arg = self.inline(node.arguments[0], 'binary_arg')
+                return recv + ' ' + node.selector + ' ' + arg
+            recv = self.inline(node.receiver, 'binary_receiver')
+            keywords = [k + ':' for k in node.selector.split(':') if k]
+            kw_args = ' '.join(kw + ' ' + self.inline(a, 'keyword_arg')
+                               for kw, a in zip(keywords, node.arguments))
+            return recv + ' ' + kw_args
+        if isinstance(node, CascadeNode):
+            recv = self.inline(node.receiver, 'binary_receiver')
+            msgs = '; '.join(self.inline_cascade_msg(m) for m in node.messages)
+            return recv + ' ' + msgs
+        if isinstance(node, DynamicArrayNode):
+            return '{' + '. '.join(self.inline(e, 'none') for e in node.elements) + '}'
+        return '???'
+
+    def inline_cascade_msg(self, msg):
+        if msg.send_kind == 'unary':
+            return msg.selector
+        if msg.send_kind == 'binary':
+            return msg.selector + ' ' + self.inline(msg.arguments[0], 'binary_arg')
+        keywords = [k + ':' for k in msg.selector.split(':') if k]
+        return ' '.join(kw + ' ' + self.inline(a, 'keyword_arg')
+                        for kw, a in zip(keywords, msg.arguments))
+
+    def needs_parens(self, node, context):
+        if not isinstance(node, MessageSendNode):
+            return False
+        if context == 'unary_receiver':
+            return node.send_kind in ('binary', 'keyword')
+        if context == 'binary_receiver':
+            return node.send_kind == 'keyword'
+        if context == 'binary_arg':
+            return node.send_kind in ('binary', 'keyword')
+        if context == 'keyword_arg':
+            return node.send_kind == 'keyword'
+        return False

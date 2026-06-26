@@ -1780,6 +1780,59 @@ class McpConfigurationStore:
         else:
             return None
 
+    def load_tab_spacing(self):
+        # AI: The configured editor tab stop width in spaces. Read from appearance.tab_spacing.
+        # Accepts any positive integer; defaults to 4 when absent or invalid.
+        payload = self.config_payload()
+        if payload is None:
+            return 4
+        appearance = payload.get('appearance')
+        if isinstance(appearance, dict):
+            tab_spacing = appearance.get('tab_spacing')
+        else:
+            tab_spacing = None
+        if isinstance(tab_spacing, int) and not isinstance(tab_spacing, bool) and tab_spacing > 0:
+            return tab_spacing
+        return 4
+
+    def load_auto_format(self):
+        # AI: Whether the editor auto-formats methods on save. Read from appearance.auto_format.
+        # Only a strict Python bool (true/false in JSON) is accepted; anything else defaults to False.
+        payload = self.config_payload()
+        if payload is None:
+            return False
+        appearance = payload.get('appearance')
+        if isinstance(appearance, dict):
+            auto_format = appearance.get('auto_format')
+        else:
+            auto_format = None
+        if isinstance(auto_format, bool):
+            return auto_format
+        return False
+
+    def save_auto_format(self, value):
+        existing_payload = self.config_payload() or {}
+        existing_payload.setdefault('appearance', {})['auto_format'] = value
+        config_file_path = self.config_file_path()
+        config_directory = os.path.dirname(config_file_path)
+        temporary_file_path = config_file_path + '.tmp'
+        try:
+            os.makedirs(config_directory, exist_ok=True)
+            with open(temporary_file_path, 'w', encoding='utf-8') as config_file:
+                json.dump(existing_payload, config_file, indent=2, sort_keys=True)
+                config_file.write('\n')
+            os.replace(temporary_file_path, config_file_path)
+            os.chmod(config_file_path, 0o600)
+        except OSError as error:
+            try:
+                os.remove(temporary_file_path)
+            except OSError:
+                pass
+            raise DomainException(
+                'Unable to save Swordfish configuration to %s: %s'
+                % (config_file_path, error)
+            )
+
     def load_login_gemstone_script_source(self):
         payload = self.config_payload()
         if payload is None:
@@ -5603,6 +5656,12 @@ class Swordfish(tk.Tk):
             if theme_override is not None
             else self.mcp_server_controller.configuration_store.load_theme_name()
         )
+        self.tab_spacing = (
+            self.mcp_server_controller.configuration_store.load_tab_spacing()
+        )
+        self.auto_format = (
+            self.mcp_server_controller.configuration_store.load_auto_format()
+        )
 
         self.event_queue.subscribe('LoggedInSuccessfully', self.show_main_app)
         self.event_queue.subscribe('LoggedOut', self.show_login_screen)
@@ -5679,6 +5738,10 @@ class Swordfish(tk.Tk):
         ).chosen_theme()
         active_theme.activate(theme)
         ThemeApplication(self).apply(theme)
+
+    def set_auto_format(self, value):
+        self.auto_format = value
+        self.mcp_server_controller.configuration_store.save_auto_format(value)
 
     def mcp_configuration_access(self):
         can_write_config = (

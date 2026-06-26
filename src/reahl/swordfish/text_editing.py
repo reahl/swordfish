@@ -1,6 +1,7 @@
 import json
 import re
 import tkinter as tk
+import tkinter.font as tkfont
 import tkinter.messagebox as messagebox
 import tkinter.simpledialog as simpledialog
 from tkinter import ttk
@@ -9,6 +10,7 @@ from reahl.ptongue import GemstoneError
 
 from reahl.swordfish.exceptions import DomainException
 from reahl.swordfish.gemstone.session import DomainException as GemstoneDomainException
+from reahl.swordfish.gemstone.smalltalk_method_parser import SmalltalkMethodFormat
 from reahl.swordfish.gemstone.smalltalk_source_scanner import (
     SmalltalkSourceScanner,
     SmalltalkTokenKind,
@@ -638,7 +640,9 @@ class CodePanel(tk.Frame):
         self.is_refreshing = False
         self.chord_pending = False
 
-        self.text_editor = tk.Text(self, tabs=('4',), wrap='none', undo=True)
+        self.text_editor = tk.Text(self, wrap='none', undo=True)
+        _tab_font = tkfont.Font(font=self.text_editor.cget('font'))
+        self.text_editor.configure(tabs=(_tab_font.measure(' ' * application.tab_spacing),))
         self.text_editor.bind('<<Modified>>', self.notify_text_changed)
         self.editable_text = EditableText(self.text_editor, self)
 
@@ -2346,6 +2350,13 @@ class EditorTab(tk.Frame):
         )
         self.code_panel.grid(row=0, column=0, sticky='nsew')
 
+        self.auto_format_var = tk.BooleanVar(value=application.auto_format)
+        auto_format_control = ttk.Checkbutton(
+            self, text='Auto format', variable=self.auto_format_var,
+            command=lambda: application.set_auto_format(self.auto_format_var.get())
+        )
+        auto_format_control.grid(row=1, column=0, sticky='w', padx=4, pady=(0, 2))
+
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
@@ -2443,11 +2454,14 @@ class EditorTab(tk.Frame):
 
     def save(self):
         selected_class, show_instance_side, method_symbol = self.tab_key
+        source = self.code_panel.text_editor.get('1.0', 'end-1c')
+        if self.auto_format_var.get():
+            source = SmalltalkMethodFormat().format_method(source)
         self.application.gemstone_session_record.update_method_source(
             selected_class,
             show_instance_side,
             method_symbol,
-            self.code_panel.text_editor.get('1.0', 'end-1c'),
+            source,
         )
         self.application.event_queue.publish('MethodsChanged')
         self.application.event_queue.publish('MethodDisplayRequested', origin=self)

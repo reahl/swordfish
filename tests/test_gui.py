@@ -66,6 +66,8 @@ class FakeApplication:
         self.gemstone_session_record = gemstone_session_record
         self.integrated_session_state = IntegratedSessionState()
         self.experimental_features_enabled = True
+        self.tab_spacing = 4
+        self.auto_format = False
 
     def handle_sender_selection(self, class_name, show_instance_side, method_symbol):
         if self.gemstone_session_record.gemstone_session is not None:
