@@ -1795,6 +1795,21 @@ class McpConfigurationStore:
             return tab_spacing
         return 4
 
+    def load_auto_format(self):
+        # AI: Whether the editor auto-formats methods on save. Read from appearance.auto_format.
+        # Only a strict Python bool (true/false in JSON) is accepted; anything else defaults to False.
+        payload = self.config_payload()
+        if payload is None:
+            return False
+        appearance = payload.get('appearance')
+        if isinstance(appearance, dict):
+            auto_format = appearance.get('auto_format')
+        else:
+            auto_format = None
+        if isinstance(auto_format, bool):
+            return auto_format
+        return False
+
     def load_login_gemstone_script_source(self):
         payload = self.config_payload()
         if payload is None:
@@ -5620,6 +5635,9 @@ class Swordfish(tk.Tk):
         )
         self.tab_spacing = (
             self.mcp_server_controller.configuration_store.load_tab_spacing()
+        )
+        self.auto_format = (
+            self.mcp_server_controller.configuration_store.load_auto_format()
         )
 
         self.event_queue.subscribe('LoggedInSuccessfully', self.show_main_app)
