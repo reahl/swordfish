@@ -70,6 +70,7 @@ class FakeApplication:
         self.experimental_features_enabled = True
         self.tab_spacing = 4
         self.auto_format = False
+        self.current_session_activity = None
 
     def handle_sender_selection(self, class_name, show_instance_side, method_symbol):
         if self.gemstone_session_record.gemstone_session is not None:
@@ -108,6 +109,14 @@ class FakeApplication:
         # mirroring Swordfish.run_activities_synchronously (the real app's test seam).
         activity.run_work()
         activity.deliver_outcome()
+
+    def session_is_busy(self):
+        # AI: Mirrors Swordfish.session_is_busy -- busy when any activity holds the single
+        # session slot or an MCP tool is in flight.
+        return (
+            self.current_session_activity is not None
+            or self.integrated_session_state.is_mcp_busy()
+        )
 
     def open_debugger(self, error):
         pass
@@ -493,6 +502,35 @@ def invoke_menu_command_by_label(menu, label):
     raise AssertionError(f"Menu command not found: {label}")
 
 
+def menu_command_state(menu, label):
+    # AI: Read the tk state ('normal'/'disabled') of a command entry by its label, so
+    # tests can assert a menu item is greyed-out (offered but not applicable) without
+    # invoking it.
+    entry_count = int(menu.index("end")) + 1
+    for entry_index in range(entry_count):
+        entry_is_matching_command = (
+            menu.type(entry_index) == "command"
+            and menu.entrycget(entry_index, "label") == label
+        )
+        if entry_is_matching_command:
+            return str(menu.entrycget(entry_index, "state"))
+    raise AssertionError(f"Menu command not found: {label}")
+
+
+def menu_cascade_state(menu, label):
+    # AI: Read the tk state of a cascade (submenu) entry by its label, so tests can assert a
+    # cascade is greyed without descending into it.
+    entry_count = int(menu.index("end")) + 1
+    for entry_index in range(entry_count):
+        entry_is_matching_cascade = (
+            menu.type(entry_index) == "cascade"
+            and menu.entrycget(entry_index, "label") == label
+        )
+        if entry_is_matching_cascade:
+            return str(menu.entrycget(entry_index, "state"))
+    raise AssertionError(f"Menu cascade not found: {label}")
+
+
 @with_fixtures(SwordfishGuiFixture)
 def test_selecting_group_fetches_and_shows_classes(fixture):
     """AI: Selecting a left-pane group should fetch classes for the active browse mode."""
@@ -584,8 +622,9 @@ def test_rowan_mode_button_is_disabled_when_rowan_is_not_installed(fixture):
     fixture.browser_window.packages_widget.handle_browse_mode_changed()
     fixture.root.update()
 
+    # AI: ttk's cget('state') returns a Tcl object, not a bare str, so compare its text.
     rowan_state = fixture.browser_window.packages_widget.rowan_radiobutton.cget("state")
-    assert rowan_state == tk.DISABLED
+    assert str(rowan_state) == tk.DISABLED
 
 
 @with_fixtures(SwordfishGuiFixture)
@@ -8120,6 +8159,449 @@ def test_method_contains_double_click_pivots_to_exact_search_in_place(fixture):
     dialog.destroy()
 
 
+def open_find_result_menu(dialog, label):
+    # AI: Select a result row by its reconstructed label and open the results-list
+    # right-click menu over it, returning the built menu so a test can inspect or
+    # invoke its commands. identify_row finds nothing in an unmapped tree, so the
+    # pre-selection (not the synthetic cursor position) determines the target row.
+    select_find_result(dialog, label)
+    dialog.show_result_context_menu(
+        types.SimpleNamespace(x=5, y=5, x_root=5, y_root=5)
+    )
+    return dialog.current_result_context_menu
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_result_offers_run_and_debug_for_a_test_method(fixture):
+    """AI: A test method found in the Find results can be run or debugged straight from the
+    results list -- without the detour of jumping to its class first. Right-clicking a genuine
+    test method (an instance-side test* method on a TestCase subclass) offers Run Test and
+    Debug Test, both enabled."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_implementors.return_value = [
+        {"class_name": "AccountTest", "show_instance_side": True},
+    ]
+    fixture.mock_browser.class_inherits_from.return_value = True
+
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
+            fixture.app,
+            search_type="method",
+            search_query="testComputesTotal",
+            run_search=True,
+            match_mode="exact",
+        )
+
+    menu = open_find_result_menu(dialog, "AccountTest>>testComputesTotal")
+
+    labels = menu_command_labels(menu)
+    assert "Run Test" in labels
+    assert "Debug Test" in labels
+    assert menu_command_state(menu, "Run Test") == tk.NORMAL
+    assert menu_command_state(menu, "Debug Test") == tk.NORMAL
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_result_run_test_runs_the_selected_test_method(fixture):
+    """AI: Run Test on a test-method result runs exactly that test (its class and selector) in
+    the image, reusing the same test-running path the browser's method list uses."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_implementors.return_value = [
+        {"class_name": "AccountTest", "show_instance_side": True},
+    ]
+    fixture.mock_browser.class_inherits_from.return_value = True
+
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
+            fixture.app,
+            search_type="method",
+            search_query="testComputesTotal",
+            run_search=True,
+            match_mode="exact",
+        )
+
+    menu = open_find_result_menu(dialog, "AccountTest>>testComputesTotal")
+    with patch.object(FindPane, "show_test_result"):
+        invoke_menu_command_by_label(menu, "Run Test")
+
+    fixture.mock_browser.run_test_method.assert_called_once_with(
+        "AccountTest", "testComputesTotal"
+    )
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_result_debug_test_debugs_the_selected_test_method(fixture):
+    """AI: Debug Test on a test-method result opens the test under the debugger for exactly that
+    class and selector, reusing the method list's debug-test path."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_implementors.return_value = [
+        {"class_name": "AccountTest", "show_instance_side": True},
+    ]
+    fixture.mock_browser.class_inherits_from.return_value = True
+
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
+            fixture.app,
+            search_type="method",
+            search_query="testComputesTotal",
+            run_search=True,
+            match_mode="exact",
+        )
+
+    menu = open_find_result_menu(dialog, "AccountTest>>testComputesTotal")
+    invoke_menu_command_by_label(menu, "Debug Test")
+
+    fixture.mock_browser.debug_test_method.assert_called_once_with(
+        "AccountTest", "testComputesTotal"
+    )
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_result_run_debug_greyed_for_non_test_selector(fixture):
+    """AI: An ordinary (non-test*) method on a TestCase subclass is not a test, so Run/Debug
+    Test are offered but greyed -- the affordance stays consistently placed and discoverable
+    while only a genuine test method is runnable."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_implementors.return_value = [
+        {"class_name": "AccountTest", "show_instance_side": True},
+    ]
+    fixture.mock_browser.class_inherits_from.return_value = True
+
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
+            fixture.app,
+            search_type="method",
+            search_query="setUpHelper",
+            run_search=True,
+            match_mode="exact",
+        )
+
+    menu = open_find_result_menu(dialog, "AccountTest>>setUpHelper")
+
+    assert menu_command_state(menu, "Run Test") == tk.DISABLED
+    assert menu_command_state(menu, "Debug Test") == tk.DISABLED
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_result_run_debug_greyed_for_non_test_case_class(fixture):
+    """AI: A test*-named method on a class that is NOT a TestCase subclass is not a runnable
+    test; Run/Debug Test are greyed. Test-ness is the class's lineage, not just the selector
+    name."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_implementors.return_value = [
+        {"class_name": "OrderLine", "show_instance_side": True},
+    ]
+    fixture.mock_browser.class_inherits_from.return_value = False
+
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
+            fixture.app,
+            search_type="method",
+            search_query="testFlag",
+            run_search=True,
+            match_mode="exact",
+        )
+
+    menu = open_find_result_menu(dialog, "OrderLine>>testFlag")
+
+    assert menu_command_state(menu, "Run Test") == tk.DISABLED
+    assert menu_command_state(menu, "Debug Test") == tk.DISABLED
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_result_run_debug_greyed_for_a_class_result(fixture):
+    """AI: A class result carries no method, so it cannot be run as a test; Run/Debug Test are
+    greyed."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_classes.return_value = ["AccountTest"]
+
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+    dialog.find_entry.insert(0, "AccountTest")
+    dialog.find_text()
+
+    menu = open_find_result_menu(dialog, "AccountTest")
+
+    assert menu_command_state(menu, "Run Test") == tk.DISABLED
+    assert menu_command_state(menu, "Debug Test") == tk.DISABLED
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_result_right_click_acts_on_the_row_under_the_cursor(fixture):
+    """AI: A real right-click does not pre-select (ttk selects only on left-click), so the menu
+    must resolve the row under the cursor itself. Right-clicking a test-method result with no
+    prior selection still offers an enabled Run Test for that row."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_implementors.return_value = [
+        {"class_name": "AccountTest", "show_instance_side": True},
+    ]
+    fixture.mock_browser.class_inherits_from.return_value = True
+
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
+            fixture.app,
+            search_type="method",
+            search_query="testComputesTotal",
+            run_search=True,
+            match_mode="exact",
+        )
+
+    row_iid = find_result_iid_for_label(dialog, "AccountTest>>testComputesTotal")
+    assert not dialog.results_tree.selection()
+    with patch.object(dialog.results_tree, "identify_row", return_value=row_iid):
+        dialog.show_result_context_menu(
+            types.SimpleNamespace(x=5, y=5, x_root=5, y_root=5)
+        )
+
+    assert menu_command_state(dialog.current_result_context_menu, "Run Test") == tk.NORMAL
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_containing_result_offers_run_for_a_bare_test_selector(fixture):
+    """AI: A 'methods containing' search returns bare selectors with no owning class. Run/Debug
+    Test are still offered for a test*-named selector -- the owning test class is resolved from
+    its implementors only when run -- so the search-then-run flow works from that list too."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_selectors.return_value = ["testTotal", "computeTotal"]
+
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
+            fixture.app,
+            search_type="method",
+            search_query="tot",
+            run_search=True,
+            match_mode="contains",
+        )
+
+    menu = open_find_result_menu(dialog, "testTotal")
+
+    assert menu_command_state(menu, "Run Test") == tk.NORMAL
+    assert menu_command_state(menu, "Debug Test") == tk.NORMAL
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_containing_result_run_resolves_the_single_test_implementor(fixture):
+    """AI: Running a bare test selector resolves its implementors and, when exactly one TestCase
+    implements it, runs that test directly -- the search-then-run flow with no extra step."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_selectors.return_value = ["testTotal"]
+    fixture.mock_browser.find_implementors.return_value = [
+        {"class_name": "AccountTest", "show_instance_side": True},
+    ]
+    fixture.mock_browser.class_inherits_from.return_value = True
+
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
+            fixture.app,
+            search_type="method",
+            search_query="tot",
+            run_search=True,
+            match_mode="contains",
+        )
+
+    menu = open_find_result_menu(dialog, "testTotal")
+    with patch.object(FindPane, "show_test_result"):
+        invoke_menu_command_by_label(menu, "Run Test")
+
+    fixture.mock_browser.run_test_method.assert_called_once_with(
+        "AccountTest", "testTotal"
+    )
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_containing_result_run_pivots_when_several_test_classes_implement_it(fixture):
+    """AI: When several TestCase classes implement the bare selector, there is no single test to
+    run, so Run Test pivots the search to Implementors -- the class-bound list where each test
+    can be run individually -- rather than guessing."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_selectors.return_value = ["testTotal"]
+    fixture.mock_browser.find_implementors.return_value = [
+        {"class_name": "AccountTest", "show_instance_side": True},
+        {"class_name": "OrderTest", "show_instance_side": True},
+    ]
+    fixture.mock_browser.class_inherits_from.return_value = True
+
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
+            fixture.app,
+            search_type="method",
+            search_query="tot",
+            run_search=True,
+            match_mode="contains",
+        )
+
+    menu = open_find_result_menu(dialog, "testTotal")
+    invoke_menu_command_by_label(menu, "Run Test")
+
+    assert dialog.search_intent.get() == "implementors"
+    assert dialog.find_entry.get() == "testTotal"
+    fixture.mock_browser.run_test_method.assert_not_called()
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_containing_result_run_reports_when_no_test_implements_it(fixture):
+    """AI: A test*-named bare selector that no TestCase implements cannot be run; running it
+    says so plainly rather than failing silently or guessing a class."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_selectors.return_value = ["testTotal"]
+    fixture.mock_browser.find_implementors.return_value = [
+        {"class_name": "OrderLine", "show_instance_side": True},
+    ]
+    fixture.mock_browser.class_inherits_from.return_value = False
+
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
+            fixture.app,
+            search_type="method",
+            search_query="tot",
+            run_search=True,
+            match_mode="contains",
+        )
+
+    menu = open_find_result_menu(dialog, "testTotal")
+    with patch("reahl.swordfish.main.messagebox.showinfo") as showinfo:
+        invoke_menu_command_by_label(menu, "Run Test")
+
+    showinfo.assert_called_once()
+    fixture.mock_browser.run_test_method.assert_not_called()
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_containing_result_greyed_for_a_non_test_selector(fixture):
+    """AI: An ordinary (non-test*) bare selector is not a test; Run/Debug Test are greyed even
+    though the selector has no class, because the selector name alone settles it."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_selectors.return_value = ["computeTotal"]
+
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
+            fixture.app,
+            search_type="method",
+            search_query="tot",
+            run_search=True,
+            match_mode="contains",
+        )
+
+    menu = open_find_result_menu(dialog, "computeTotal")
+
+    assert menu_command_state(menu, "Run Test") == tk.DISABLED
+    assert menu_command_state(menu, "Debug Test") == tk.DISABLED
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_result_menu_offers_senders_and_implementors(fixture):
+    """AI: For consistency with the method-list and source-window menus, a method result also
+    offers Senders and Implementors -- each opening the Find dialog for that result's selector,
+    so the same navigation is reachable wherever a method appears."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_implementors.return_value = [
+        {"class_name": "AccountTest", "show_instance_side": True},
+    ]
+    fixture.mock_browser.class_inherits_from.return_value = True
+
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
+            fixture.app,
+            search_type="method",
+            search_query="testComputesTotal",
+            run_search=True,
+            match_mode="exact",
+        )
+
+    menu = open_find_result_menu(dialog, "AccountTest>>testComputesTotal")
+    labels = menu_command_labels(menu)
+    assert "Senders" in labels
+    assert "Implementors" in labels
+    assert menu_command_state(menu, "Senders") == tk.NORMAL
+    assert menu_command_state(menu, "Implementors") == tk.NORMAL
+
+    with patch.object(fixture.app, "open_implementors_dialog") as open_implementors:
+        invoke_menu_command_by_label(menu, "Implementors")
+    open_implementors.assert_called_once_with(method_symbol="testComputesTotal")
+
+    menu = open_find_result_menu(dialog, "AccountTest>>testComputesTotal")
+    with patch.object(fixture.app, "open_senders_dialog") as open_senders:
+        invoke_menu_command_by_label(menu, "Senders")
+    open_senders.assert_called_once_with(method_symbol="testComputesTotal")
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_class_result_greys_senders_and_implementors(fixture):
+    """AI: A class result carries no selector, so Senders / Implementors -- which act on a
+    selector -- are greyed, while they are available for any method result."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_classes.return_value = ["AccountTest"]
+
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(fixture.app, fixture.app)
+    dialog.find_entry.insert(0, "AccountTest")
+    dialog.find_text()
+
+    menu = open_find_result_menu(dialog, "AccountTest")
+
+    assert menu_command_state(menu, "Senders") == tk.DISABLED
+    assert menu_command_state(menu, "Implementors") == tk.DISABLED
+    dialog.destroy()
+
+
+@with_fixtures(SwordfishAppFixture)
+def test_find_result_menu_greyed_while_session_is_busy(fixture):
+    """AI: The linked GemStone session runs one call at a time, so no result action may launch
+    gem work while another activity (a find, a test run, an MCP tool) still holds the session.
+    While the session is busy every gem-touching result action -- Senders, Implementors, Run and
+    Debug Test -- is greyed, so the user cannot start a second call on top of the first."""
+    fixture.simulate_login()
+    fixture.mock_browser.find_implementors.return_value = [
+        {"class_name": "AccountTest", "show_instance_side": True},
+    ]
+    fixture.mock_browser.class_inherits_from.return_value = True
+
+    with patch.object(FindPane, "wait_visibility"):
+        dialog = FindPane(
+            fixture.app,
+            fixture.app,
+            search_type="method",
+            search_query="testComputesTotal",
+            run_search=True,
+            match_mode="exact",
+        )
+
+    # AI: Some other activity now holds the single session slot.
+    fixture.app.current_session_activity = Mock()
+    menu = open_find_result_menu(dialog, "AccountTest>>testComputesTotal")
+
+    assert menu_command_state(menu, "Run Test") == tk.DISABLED
+    assert menu_command_state(menu, "Debug Test") == tk.DISABLED
+    assert menu_command_state(menu, "Senders") == tk.DISABLED
+    assert menu_command_state(menu, "Implementors") == tk.DISABLED
+    dialog.destroy()
+
+
 @with_fixtures(SwordfishAppFixture)
 def test_find_dialog_reference_method_search_is_always_exact(
     fixture,
@@ -10282,6 +10764,60 @@ def test_class_list_context_menu_find_references_uses_selected_class_name(
     classes_widget.application.open_find_dialog_for_class.assert_called_once_with(
         "OrderLine",
     )
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_method_context_menu_greyed_while_session_is_busy(fixture):
+    """AI: The single-threaded session runs one call at a time, so while ANOTHER activity (a
+    find, a test run, an MCP tool) holds it, the method menu's gem actions -- Senders,
+    Implementors, Run and Debug Test -- are greyed, not merely while MCP is busy."""
+    fixture.select_down_to_method("Kernel", "OrderLine", "accessing", "total")
+    methods_widget = fixture.browser_window.methods_widget
+    fixture.application.current_session_activity = Mock()
+
+    methods_widget.show_context_menu(
+        types.SimpleNamespace(x=1, y=1, x_root=1, y_root=1),
+    )
+    menu = methods_widget.current_context_menu
+
+    assert menu_command_state(menu, "Senders") == tk.DISABLED
+    assert menu_command_state(menu, "Implementors") == tk.DISABLED
+    assert menu_command_state(menu, "Run Test") == tk.DISABLED
+    assert menu_command_state(menu, "Debug Test") == tk.DISABLED
+
+
+@with_fixtures(SwordfishGuiFixture)
+def test_class_context_menu_greyed_while_session_is_busy(fixture):
+    """AI: While the single session slot is held by another activity, the class menu's gem
+    actions -- References and Run All Tests -- are greyed: a second gem call must not start on
+    top of the first."""
+    fixture.select_in_listbox(
+        fixture.browser_window.packages_widget.selection_list.selection_listbox,
+        "Kernel",
+    )
+    classes_widget = fixture.browser_window.classes_widget
+    class_listbox = classes_widget.selection_list.selection_listbox
+    class_index = list(class_listbox.get(0, "end")).index("OrderLine")
+    class_item_box = class_listbox.bbox(class_index)
+    assert class_item_box is not None
+    fixture.application.current_session_activity = Mock()
+
+    classes_widget.show_context_menu(
+        types.SimpleNamespace(
+            widget=class_listbox,
+            y=class_item_box[1] + 1,
+            x_root=1,
+            y_root=1,
+        )
+    )
+    menu = classes_widget.current_context_menu
+
+    assert menu_command_state(menu, "References") == tk.DISABLED
+    assert menu_command_state(menu, "Run All Tests") == tk.DISABLED
+    # AI: Building the Variable References cascade reads the gem; while busy that read must be
+    # skipped entirely (the cascade shows disabled), not merely deferred.
+    assert str(menu_cascade_state(menu, "Variable References")) == tk.DISABLED
+    fixture.mock_browser.accessible_var_names.assert_not_called()
 
 
 @with_fixtures(SwordfishGuiFixture)

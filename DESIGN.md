@@ -164,6 +164,39 @@ a unit (whole-token matching avoids false positives). The highlight uses the
 syntax tags so it wins background priority while syntax foreground colours remain active).
 Clearing the highlight is implicit the next time a different method opens or it is re-applied.
 
+### Find results: run or debug a test method in place
+A Find result that is a **test method** can be run or debugged straight from the results list —
+right-click → **Run Test** / **Debug Test** — without first navigating to its class. The menu also
+carries **Senders** / **Implementors** (any method result), mirroring the method-list and
+source-window menus so the same selector navigation is reachable wherever a method appears.
+Navigating *to* a method result is the job of click (peek) / double-click (pin), so there is
+deliberately **no Jump to Class** here. Every action in this menu drives the gem, so **all are
+greyed while the session is busy with any other activity** (`Swordfish.session_is_busy()` — a find,
+a test run, an MCP tool): the single-threaded session runs one call at a time, so a second gem
+operation must never be launched on top of one still running.
+
+A **class-bound** result (Implementors / Senders / References, which carry a class) is runnable when
+it is a test method by the **same rule the sender scan uses**: an **instance-side** method whose
+selector starts with `test` on a **`TestCase` subclass**. A **bare-selector** result — the **Methods
+containing** search returns selector names with **no owning class** — is offered when the selector
+merely *names* a test (`test…`); its owning test class is **resolved from the selector's implementors
+only when actually run**, so drawing the menu stays a cheap, local check (no gem round-trip per
+right-click). On run, a bare selector resolves to its instance-side `TestCase` implementors and:
+**one** → runs it directly; **several** → **pivots the search to Implementors** (the same pivot
+double-click uses) so the user picks which to run; **none** → says so.
+
+Run Test / Debug Test are **always shown but greyed when the result is not a runnable test** (an
+ordinary method, a class-side method, a method on a non-`TestCase` class, a non-`test…` bare
+selector, or a bare class result) — the **greyed-means-not-applicable, never hidden** convention used
+elsewhere, so the affordance stays consistently placed and discoverable. The class-lineage answer is
+cached per class (`FindPane.test_case_class_by_name`, reset when results are replaced) so the at-most
+one gem round-trip per distinct class is not repeated.
+
+Running and debugging a test go through the **one shared path** every test-bearing pane uses —
+`Pane.run_test_for` / `Pane.debug_test_for` (a passing run reports via `show_test_result`, a genuine
+trap opens the debugger) — the same wiring behind the browser's method-list **Run Test / Debug
+Test** and the class-list **Run All Tests**. See `FindPane.show_result_context_menu` in `main.py`.
+
 ### Anything that can run long is interruptible from the IDE
 If an operation can take a noticeable time (a search, a run/inspect/debug of user code, a test
 run, a debugger resume/step, an MCP tool's work), it must run as a **foreground activity** and
@@ -222,6 +255,13 @@ departing theme (dark) restyles, via `ThemeApplication` — the Tk **option data
 widgets plus a `clam`-based `ttk.Style` for ttk widgets (the two families don't share a styling
 mechanism). New colour sites read a role; new screens get themed for free.
 
+**Prefer `ttk` widgets over classic `tk` ones** (checkbuttons, radiobuttons, buttons, …) so they
+pick up the `clam`-based dark styling — in particular the selected-indicator colour
+(`TCheckbutton`/`TRadiobutton` `indicatorcolor` map). A classic `tk.Checkbutton`/`tk.Radiobutton`
+is only reachable through the option DB and its selected indicator goes invisible on a dark
+background; the browser's controls are `ttk` for exactly this reason. (Note: ttk's `cget('state')`
+returns a Tcl object, not a bare `str` — compare `str(widget.cget('state'))` in tests.)
+
 **User editor preferences** live under the top-level `appearance` key in the JSON config file,
 alongside `appearance.theme`. Current keys:
 
@@ -274,6 +314,16 @@ happen on the UI thread. Gem-free UI events (e.g. announcing that an activity st
 reach the UI **even while an MCP operation holds the session** — they bypass the
 session-admission gate via `SESSION_SAFE_EVENT_NAMES`; gem-touching events still defer to avoid
 a 2203 collision. Do not run IDE GCI from the event drain while the session is held.
+
+**Gem-touching UI actions gate on `Swordfish.session_is_busy()`, not on `is_mcp_busy()` alone.**
+The session runs one call at a time, so a menu command that launches gem work (a search like
+Senders / Implementors / References, a Run/Debug Test, Run All Tests, a write) must be **greyed
+while the session is busy with _any_ activity** — an in-flight MCP tool **or** an IDE foreground
+job (a find, a test run, a debugger step). `session_is_busy()` is the superset (`current_session_activity is not None or is_mcp_busy()`); gating only on `is_mcp_busy()` leaves the
+window where one IDE activity is running and a second would collide. This extends to gem work done
+to *build* a menu: the class menu's **Variable References** cascade reads the gem when posted, so
+`fetch_accessible_vars` returns nothing (a disabled cascade) while the session is busy rather than
+issuing that read.
 
 ### Interruptible work: the session-activity model
 A long operation is a **`ForegroundActivity`** (`session_activity.py`): `work(should_stop)` runs

@@ -612,6 +612,48 @@ class Pane(ttk.Frame):
             lines.extend(result['errors'])
             messagebox.showerror('Test Result', '\n'.join(lines))
 
+    def run_test_for(self, class_name, method_selector):
+        # AI: Run one test method in the image as an interruptible foreground activity, then
+        # report its outcome. Shared by every pane that can name a test (the method list and
+        # the Find results), so the test-running behaviour lives in one place.
+        TestExecution(
+            self.application,
+            'Running test %s>>%s...' % (class_name, method_selector),
+            lambda should_stop: self.gemstone_session_record.run_test_method(
+                class_name,
+                method_selector,
+            ),
+            self.show_test_result,
+            'Run Test',
+        ).start()
+
+    def debug_test_for(self, class_name, method_selector):
+        # AI: Debug one test method: stop at its first statement and open the debugger. A domain
+        # error is reported; a genuine trap opens the debugger. Shared by the method list and
+        # the Find results so both reach the debugger by the same path.
+        self.application.event_queue.publish(
+            'DebugTestStarted',
+            log_context={
+                'class_name': class_name,
+                'method': method_selector,
+            },
+        )
+        self.application.begin_foreground_activity(
+            'Debugging test %s>>%s...' % (class_name, method_selector)
+        )
+        try:
+            try:
+                self.gemstone_session_record.debug_test_method(
+                    class_name,
+                    method_selector,
+                )
+            except (DomainException, GemstoneDomainException) as domain_exception:
+                messagebox.showerror('Debug Test', str(domain_exception))
+            except GemstoneError as error:
+                self.application.open_debugger(error)
+        finally:
+            self.application.end_foreground_activity()
+
 
 class PackageSelection(Pane):
     def __init__(self, parent, application, event_queue):
@@ -643,14 +685,14 @@ class PackageSelection(Pane):
         self.browse_mode_controls.columnconfigure(0, weight=1)
         self.browse_mode_controls.columnconfigure(1, weight=1)
         self.browse_mode_controls.columnconfigure(2, weight=1)
-        self.dictionaries_radiobutton = tk.Radiobutton(
+        self.dictionaries_radiobutton = ttk.Radiobutton(
             self.browse_mode_controls,
             text='Dictionaries',
             variable=self.browse_mode_var,
             value='dictionaries',
             command=self.change_browse_mode,
         )
-        self.categories_radiobutton = tk.Radiobutton(
+        self.categories_radiobutton = ttk.Radiobutton(
             self.browse_mode_controls,
             text='Categories',
             variable=self.browse_mode_var,
@@ -660,7 +702,7 @@ class PackageSelection(Pane):
         rowan_state = (
             tk.NORMAL if self.gemstone_session_record.rowan_installed else tk.DISABLED
         )
-        self.rowan_radiobutton = tk.Radiobutton(
+        self.rowan_radiobutton = ttk.Radiobutton(
             self.browse_mode_controls,
             text='Rowan',
             variable=self.browse_mode_var,
@@ -738,9 +780,11 @@ class PackageSelection(Pane):
         else:
             self.context_menu_class_category = None
         menu = tk.Menu(self, tearoff=0)
-        read_only = (
-            self.application.integrated_session_state.is_mcp_busy()
-        )
+        # AI: The single-threaded session runs one call at a time, so every gem-touching menu
+        # command is disabled while the session is busy with ANY activity -- an in-flight MCP
+        # tool OR an IDE foreground job (a find, a test run, a debugger step) -- not merely while
+        # MCP holds it. session_is_busy() is the superset; see Swordfish.session_is_busy.
+        read_only = self.application.session_is_busy()
         # AI: A selected group is only a class category in categories/rowan mode; in
         # dictionaries mode it names a symbol dictionary, which file in/out does not address.
         names_a_category = (
@@ -857,13 +901,13 @@ class ClassSelection(Pane):
         self.class_controls_frame.columnconfigure(0, weight=0)
         self.class_controls_frame.columnconfigure(1, weight=0)
         self.class_controls_frame.columnconfigure(2, weight=1)
-        self.class_radiobutton = tk.Radiobutton(
+        self.class_radiobutton = ttk.Radiobutton(
             self.class_controls_frame,
             text='Class',
             variable=self.selection_var,
             value='class',
         )
-        self.instance_radiobutton = tk.Radiobutton(
+        self.instance_radiobutton = ttk.Radiobutton(
             self.class_controls_frame,
             text='Instance',
             variable=self.selection_var,
@@ -872,7 +916,7 @@ class ClassSelection(Pane):
         self.instance_radiobutton.grid(column=0, row=0, sticky='w')
         self.class_radiobutton.grid(column=1, row=0, sticky='w')
         self.show_class_definition_var = tk.BooleanVar(value=False)
-        self.show_class_definition_checkbox = tk.Checkbutton(
+        self.show_class_definition_checkbox = ttk.Checkbutton(
             self.class_controls_frame,
             text='Definition',
             variable=self.show_class_definition_var,
@@ -1149,9 +1193,11 @@ class ClassSelection(Pane):
         if self.current_context_menu:
             self.current_context_menu.unpost()
         menu = self.current_context_menu = tk.Menu(self, tearoff=0)
-        read_only = (
-            self.application.integrated_session_state.is_mcp_busy()
-        )
+        # AI: The single-threaded session runs one call at a time, so every gem-touching menu
+        # command is disabled while the session is busy with ANY activity -- an in-flight MCP
+        # tool OR an IDE foreground job (a find, a test run, a debugger step) -- not merely while
+        # MCP holds it. session_is_busy() is the superset; see Swordfish.session_is_busy.
+        read_only = self.application.session_is_busy()
         write_command_state = tk.NORMAL
         run_command_state = tk.NORMAL
         if read_only:
@@ -1171,7 +1217,7 @@ class ClassSelection(Pane):
         menu.add_command(
             label='References',
             command=self.find_references_for_selected_class,
-            state=tk.NORMAL if has_selection else tk.DISABLED,
+            state=tk.NORMAL if (has_selection and not read_only) else tk.DISABLED,
         )
         self.add_instvar_references_cascade(menu, selected_class_name)
         menu.add_command(
@@ -1546,6 +1592,12 @@ class ClassSelection(Pane):
         # AI: Returns None on no class or a gem error, which the menu treats as no vars.
         if not class_name:
             return None
+        # AI: Building the cascade reads the gem; never read it while the single-threaded
+        # session is busy with another activity (a find, a test run, an MCP tool) -- that read
+        # would collide. The menu then shows a disabled 'Variable References' cascade, like every
+        # other gem-touching action here.
+        if self.application.session_is_busy():
+            return None
         try:
             return self.gemstone_session_record.gemstone_browser_session.accessible_var_names(
                 class_name,
@@ -1632,9 +1684,11 @@ class CategorySelection(Pane):
         else:
             self.context_menu_method_category = None
         menu = tk.Menu(self, tearoff=0)
-        read_only = (
-            self.application.integrated_session_state.is_mcp_busy()
-        )
+        # AI: The single-threaded session runs one call at a time, so every gem-touching menu
+        # command is disabled while the session is busy with ANY activity -- an in-flight MCP
+        # tool OR an IDE foreground job (a find, a test run, a debugger step) -- not merely while
+        # MCP holds it. session_is_busy() is the superset; see Swordfish.session_is_busy.
+        read_only = self.application.session_is_busy()
         write_command_state = tk.DISABLED if read_only else tk.NORMAL
         delete_command_state = write_command_state if has_selection else tk.DISABLED
         menu.add_command(
@@ -1786,14 +1840,14 @@ class MethodSelection(Pane):
         self.controls_frame.columnconfigure(0, weight=1)
         self.controls_frame.columnconfigure(1, weight=1)
         self.show_method_hierarchy_var = tk.BooleanVar(value=False)
-        self.show_method_hierarchy_checkbox = tk.Checkbutton(
+        self.show_method_hierarchy_checkbox = ttk.Checkbutton(
             self.controls_frame,
             text='Inheritance',
             variable=self.show_method_hierarchy_var,
             command=self.toggle_method_hierarchy,
         )
         self.show_method_hierarchy_checkbox.grid(row=0, column=0, sticky='w')
-        self.show_inherited_methods_checkbox = tk.Checkbutton(
+        self.show_inherited_methods_checkbox = ttk.Checkbutton(
             self.controls_frame,
             text='Inherited Methods',
             variable=self.show_inherited_methods_var,
@@ -2240,9 +2294,11 @@ class MethodSelection(Pane):
             listbox.get(idx) if has_selection else None
         )
         menu = self.current_context_menu = tk.Menu(self, tearoff=0)
-        read_only = (
-            self.application.integrated_session_state.is_mcp_busy()
-        )
+        # AI: The single-threaded session runs one call at a time, so every gem-touching menu
+        # command is disabled while the session is busy with ANY activity -- an in-flight MCP
+        # tool OR an IDE foreground job (a find, a test run, a debugger step) -- not merely while
+        # MCP holds it. session_is_busy() is the superset; see Swordfish.session_is_busy.
+        read_only = self.application.session_is_busy()
         write_command_state = tk.NORMAL
         run_command_state = tk.NORMAL
         if read_only:
@@ -2264,8 +2320,12 @@ class MethodSelection(Pane):
             command=self.show_method_in_class_diagram,
             state=tk.NORMAL if has_selection else tk.DISABLED,
         )
-        # AI: Senders/Implementors lookups are read-only; gate only on selection.
-        selector_navigation_state = tk.NORMAL if has_selection else tk.DISABLED
+        # AI: Senders/Implementors run a gem search, so gate on selection AND on the session
+        # being free -- a read still drives the single-threaded session and must not run on top
+        # of another in-flight activity.
+        selector_navigation_state = (
+            tk.NORMAL if (has_selection and not read_only) else tk.DISABLED
+        )
         menu.add_separator()
         menu.add_command(
             label='Senders',
@@ -2372,16 +2432,7 @@ class MethodSelection(Pane):
             return
         class_name = self.gemstone_session_record.selected_class
         method_selector = listbox.get(selection[0])
-        TestExecution(
-            self.application,
-            'Running test %s>>%s...' % (class_name, method_selector),
-            lambda should_stop: self.gemstone_session_record.run_test_method(
-                class_name,
-                method_selector,
-            ),
-            self.show_test_result,
-            'Run Test',
-        ).start()
+        self.run_test_for(class_name, method_selector)
 
     def debug_test(self):
         listbox = self.selection_list.selection_listbox
@@ -2390,28 +2441,7 @@ class MethodSelection(Pane):
             return
         class_name = self.gemstone_session_record.selected_class
         method_selector = listbox.get(selection[0])
-        self.application.event_queue.publish(
-            'DebugTestStarted',
-            log_context={
-                'class_name': class_name,
-                'method': method_selector,
-            },
-        )
-        self.application.begin_foreground_activity(
-            'Debugging test %s>>%s...' % (class_name, method_selector)
-        )
-        try:
-            try:
-                self.gemstone_session_record.debug_test_method(
-                    class_name,
-                    method_selector,
-                )
-            except (DomainException, GemstoneDomainException) as domain_exception:
-                messagebox.showerror('Debug Test', str(domain_exception))
-            except GemstoneError as error:
-                self.application.open_debugger(error)
-        finally:
-            self.application.end_foreground_activity()
+        self.debug_test_for(class_name, method_selector)
 
     def open_covering_tests(self):
         listbox = self.selection_list.selection_listbox

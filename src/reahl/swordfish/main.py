@@ -1034,6 +1034,12 @@ class GemstoneSessionRecord:
             class_name, method_selector
         )
 
+    def is_test_case_class(self, class_name):
+        # AI: A class can host runnable tests when it is a TestCase subclass. This is a
+        # read-only lineage query (no write access required), used to decide whether to offer
+        # Run/Debug Test on a method.
+        return self.gemstone_browser_session.class_inherits_from(class_name, "TestCase")
+
     def debug_source(self, source):
         self.require_write_access("debug_source")
         return self.gemstone_browser_session.debug_source(source)
@@ -3326,6 +3332,10 @@ class FindPane(Pane):
         # AI: Class / Class Category / Method / Method Category columns and so
         # AI: column #0 can indent overrides under the method/class they override.
         self.result_rows_by_iid = {}
+        # AI: Remember which result classes are TestCase subclasses, so deciding whether to
+        # offer Run/Debug Test on a right-click costs one gem round-trip per distinct class
+        # rather than one per click. Reset whenever results are replaced (clear_results).
+        self.test_case_class_by_name = {}
         self.baseline_result_rows = []
         self.result_column_kind = 'method'
         self.baseline_class_definition_by_name = {}
@@ -3340,6 +3350,8 @@ class FindPane(Pane):
         )
         self.results_tree.bind('<Double-Button-1>', self.on_result_double_click)
         self.results_tree.bind('<ButtonRelease-1>', self.peek_selected_result)
+        self.results_tree.bind('<Button-3>', self.show_result_context_menu)
+        self.current_result_context_menu = None
         # AI: Keep the overlaid filter boxes aligned to the columns: <Configure>
         # covers the widget being mapped/resized; B1-Motion/ButtonRelease cover a
         # column being drag-resized (ttk emits no event for that).
@@ -3875,6 +3887,7 @@ class FindPane(Pane):
         for iid in self.results_tree.get_children():
             self.results_tree.delete(iid)
         self.result_rows_by_iid = {}
+        self.test_case_class_by_name = {}
 
     def ancestor_class_names(self, class_name, class_definition_by_name):
         # AI: Superclass chain (nearest ancestor first) drawn from the cached
@@ -4871,6 +4884,165 @@ class FindPane(Pane):
             self.application.event_queue.publish(
                 'OccurrenceHighlightRequested', highlight_term, origin=self
             )
+
+    def selected_result_row(self):
+        # AI: The result-row dict currently selected in the results tree, or None.
+        selected_iids = self.results_tree.selection()
+        if not selected_iids:
+            return None
+        return self.result_rows_by_iid.get(selected_iids[0])
+
+    def result_offers_test_run(self, row):
+        # AI: Whether Run/Debug Test should be offered for this result. A class-bound result
+        # (implementors / senders / references) must be a genuine test method: instance-side,
+        # selector test*, on a TestCase subclass. A bare-selector result (the 'methods
+        # containing' search is not tied to a class) is offered when its selector names a test;
+        # the owning test class is resolved from the selector's implementors only when it is
+        # actually run, so drawing the menu stays a cheap, local check.
+        if row is None:
+            return False
+        method_selector = row.get('method_selector')
+        names_a_test = (
+            method_selector is not None
+            and row.get('show_instance_side')
+            and method_selector.startswith('test')
+        )
+        if not names_a_test:
+            return False
+        class_name = row.get('class_name')
+        if class_name is None:
+            return True
+        return self.class_is_test_case(class_name)
+
+    def class_is_test_case(self, class_name):
+        # AI: Cache the TestCase-lineage answer per class so repeated right-clicks (and the
+        # implementor resolution below) cost at most one gem round-trip per distinct class.
+        if class_name not in self.test_case_class_by_name:
+            self.test_case_class_by_name[class_name] = (
+                self.gemstone_session_record.is_test_case_class(class_name)
+            )
+        return self.test_case_class_by_name[class_name]
+
+    def show_result_context_menu(self, event):
+        # AI: Right-click a result to act on it without leaving the Find list. ttk does not
+        # select on right-click, so select the row under the cursor first to act on what was
+        # clicked. Senders / Implementors mirror the method-list and source-window menus (any
+        # method result). Run/Debug Test are always offered but enabled only when the result
+        # names a runnable test (greyed otherwise -- never hidden). Every action here drives the
+        # gem, so all are greyed while the single-threaded session is busy with any other
+        # activity (a find, a test run, an MCP tool) -- it can run only one call at a time.
+        # Navigating to a method result is the job of click/double-click, so there is no Jump to
+        # Class here.
+        row_under_cursor = self.results_tree.identify_row(event.y)
+        if row_under_cursor:
+            self.results_tree.selection_set(row_under_cursor)
+        row = self.selected_result_row()
+        session_busy = self.application.session_is_busy()
+        has_method_selector = row is not None and row.get('method_selector') is not None
+        selector_navigation_state = (
+            tk.NORMAL if (has_method_selector and not session_busy) else tk.DISABLED
+        )
+        test_run_is_offered = self.result_offers_test_run(row) and not session_busy
+        test_command_state = tk.NORMAL if test_run_is_offered else tk.DISABLED
+        menu = self.current_result_context_menu = tk.Menu(self, tearoff=0)
+        menu.add_command(
+            label='Senders',
+            command=self.open_senders_for_selected_result,
+            state=selector_navigation_state,
+        )
+        menu.add_command(
+            label='Implementors',
+            command=self.open_implementors_for_selected_result,
+            state=selector_navigation_state,
+        )
+        menu.add_separator()
+        menu.add_command(
+            label='Run Test',
+            command=self.run_selected_result_test,
+            state=test_command_state,
+        )
+        menu.add_command(
+            label='Debug Test',
+            command=self.debug_selected_result_test,
+            state=test_command_state,
+        )
+        popup_menu(menu, event)
+
+    def open_senders_for_selected_result(self):
+        # AI: Find result -> Senders, through the same Swordfish.open_senders_dialog entry point
+        # the method-list and source-window menus use.
+        row = self.selected_result_row()
+        if row is None or row.get('method_selector') is None:
+            return
+        selector = row['method_selector']
+        self.application.event_queue.publish(
+            'SendersOpened', log_context={'selector': selector}
+        )
+        self.application.open_senders_dialog(method_symbol=selector)
+
+    def open_implementors_for_selected_result(self):
+        # AI: Find result -> Implementors, through the same Swordfish.open_implementors_dialog
+        # entry point the method-list and source-window menus use.
+        row = self.selected_result_row()
+        if row is None or row.get('method_selector') is None:
+            return
+        self.application.open_implementors_dialog(
+            method_symbol=row['method_selector'],
+        )
+
+    def run_selected_result_test(self):
+        self.act_on_selected_result_test(self.run_test_for)
+
+    def debug_selected_result_test(self):
+        self.act_on_selected_result_test(self.debug_test_for)
+
+    def act_on_selected_result_test(self, run_test_action):
+        # AI: Run or debug the selected result as a test. A class-bound result runs directly. A
+        # bare-selector result (methods-containing search) carries no class, so resolve the
+        # selector's test implementors first: run the single one, or -- when several test cases
+        # implement it -- pivot to the Implementors view so the user picks which to run.
+        row = self.selected_result_row()
+        if not self.result_offers_test_run(row):
+            return
+        method_selector = row['method_selector']
+        class_name = row.get('class_name')
+        if class_name is not None:
+            run_test_action(class_name, method_selector)
+        else:
+            self.resolve_and_run_bare_selector_test(method_selector, run_test_action)
+
+    def resolve_and_run_bare_selector_test(self, method_selector, run_test_action):
+        test_class_names = self.test_class_names_implementing(method_selector)
+        if len(test_class_names) == 1:
+            run_test_action(test_class_names[0], method_selector)
+        elif len(test_class_names) > 1:
+            self.pivot_to_implementors(method_selector)
+        else:
+            messagebox.showinfo(
+                'Run Test',
+                "No test case implements '%s'." % method_selector,
+            )
+
+    def test_class_names_implementing(self, method_selector):
+        # AI: The TestCase subclasses whose instance side implements the selector -- the classes
+        # it could be run against as a test. find_implementors_of_method yields
+        # (class_name, is_meta); a test method lives on the instance side (is_meta False).
+        return [
+            class_name
+            for class_name, is_meta in (
+                self.gemstone_session_record.find_implementors_of_method(method_selector)
+            )
+            if not is_meta and self.class_is_test_case(class_name)
+        ]
+
+    def pivot_to_implementors(self, method_selector):
+        # AI: Reuse the same intent pivot double-click uses, so an ambiguous bare selector lands
+        # on the class-bound Implementors list where each test can be run individually.
+        self.find_entry.delete(0, tk.END)
+        self.find_entry.insert(0, method_selector)
+        self.search_intent.set('implementors')
+        self.apply_search_intent()
+        self.find_text()
 
 
 class CoveringTestsSearchDialog(tk.Toplevel):
@@ -6447,6 +6619,16 @@ class Swordfish(tk.Tk):
         self.event_queue.publish(
             "SessionActivityChanged",
             is_active=activity is not None,
+        )
+
+    def session_is_busy(self):
+        # AI: True when the shared GemStone session is occupied by ANY activity -- a foreground
+        # job (a find, a test run, a debugger step) or an in-flight MCP tool. The session runs
+        # one call at a time, so a second gem operation must not be launched on top of one that
+        # is still running; gem-touching UI actions gate on this, not merely on is_mcp_busy().
+        return (
+            self.current_session_activity is not None
+            or self.integrated_session_state.is_mcp_busy()
         )
 
     def stop_current_session_activity(self):
