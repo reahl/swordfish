@@ -290,10 +290,16 @@ cross-references. See `EventQueue` in `main.py` and `reference_mcp_ide_refresh_b
 Breakpoints follow this rule concretely. A breakpoint binds to a `CompiledMethod`, which a
 recompile replaces — so a recompile **re-applies** the method's breakpoints onto the new method
 (remapping each to the step point nearest its stored source offset): an edit never silently
-disarms a breakpoint the user can still see. Every view that shows them re-reads on the typed
-events — the editor gutter and the **debugger frame pane** (the same `CodePanel`, so it marks the
-displayed frame's method) on method display, and the **Breakpoints pane** on
-`MethodsChanged`/`BreakpointsChanged`.
+disarms a breakpoint the user can still see. Setting or clearing a breakpoint — whether from the
+IDE context menu or via the MCP — publishes the one generic **`BreakpointsChanged`** event; every
+view that shows breakpoints re-marks itself from it, so an open editor tab and the debugger never
+disagree about where breakpoints are. (`BreakpointSet`/`BreakpointCleared` are still published, but
+only as activity-log records, not as refresh triggers — subscribe to `BreakpointsChanged`.) Views
+also re-read on the other typed events: the editor gutter and the **debugger frame pane** (the same
+`CodePanel`, so it marks the displayed frame's method) on method display, and the **Breakpoints
+pane** on `MethodsChanged`/`BreakpointsChanged`. A pane with **unsaved edits is skipped** when
+re-marking: its stored offsets no longer match the edited text, and Tk is already tracking the live
+marker tags as the user types.
 
 **Step-point and breakpoint markers are visually independent.** The current step point (where
 execution is paused) is shown as a character **background highlight** (`step_point_background`
@@ -305,7 +311,11 @@ step-point tag; without it, landing on a breakpoint makes the step position invi
 Breakpoint markers are applied once when source loads and tracked by Tk as the user edits; they
 are **not** re-applied on every key event (`on_key_release` only re-runs syntax highlighting).
 Set/Clear Breakpoint is available in **both** the regular editor context menu and the debugger
-source-pane context menu.
+source-pane context menu — and in both, the commands are **greyed out while the editor is
+read-only or has unsaved edits**. A breakpoint's source offset is captured from the live editor
+text but resolved against the *compiled* method; while the buffer is dirty those two coordinate
+systems have diverged, so a breakpoint set now would land at the wrong step point. The user must
+save (recompile) or cancel first.
 
 ### One shared GemStone session; gem work off the UI thread
 There is one `ide-session` and it runs **one GCI call at a time**. Long gem work runs on a

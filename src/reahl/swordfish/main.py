@@ -5454,13 +5454,11 @@ class BreakpointsPane(Pane):
         self.columnconfigure(2, weight=0)
         self.rowconfigure(0, weight=1)
 
-        # AI: Keep the list live -- setting or clearing a breakpoint elsewhere
-        # (e.g. from the editor) refreshes the pane while it is open.
-        self.event_queue.subscribe('BreakpointSet', self.refresh_breakpoints)
-        self.event_queue.subscribe('BreakpointCleared', self.refresh_breakpoints)
-        # AI: MCP-driven breakpoint changes reach the pane through the model-
-        # refresh bridge's 'breakpoints' kind -> BreakpointsChanged (the MCP
-        # doesn't publish the per-action BreakpointSet/BreakpointCleared events).
+        # AI: Keep the list live -- setting or clearing a breakpoint anywhere refreshes the
+        # pane while it is open. Both the IDE set/clear path and the MCP model-refresh bridge
+        # publish BreakpointsChanged, so subscribing to that one event covers both (the per-
+        # action BreakpointSet/BreakpointCleared events remain, but only as activity-log
+        # records, to avoid refreshing this list twice for a single change).
         self.event_queue.subscribe('BreakpointsChanged', self.refresh_breakpoints)
         # AI: A recompile re-applies a method's breakpoints onto the new CompiledMethod,
         # remapping their offset/step point. MethodsChanged is published by every edit path
