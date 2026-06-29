@@ -639,6 +639,16 @@ class CodePanel(tk.Frame):
         self.on_text_changed = on_text_changed
         self.is_refreshing = False
         self.chord_pending = False
+        # AI: Persistent dirtiness flag (the Tk 'modified' flag is unreliable - the line-number
+        # gutter resets it after every edit). Set in notify_text_changed, cleared in refresh().
+        self.is_dirty = False
+
+        # AI: Re-mark this view whenever breakpoints change anywhere (IDE set/clear or MCP),
+        # so open editors and the debugger stay in sync. Weakly referenced by the EventQueue,
+        # so no explicit unsubscribe is needed when the widget is destroyed.
+        event_queue = getattr(application, 'event_queue', None)
+        if event_queue is not None:
+            event_queue.subscribe('BreakpointsChanged', self.refresh_breakpoint_markers)
 
         self.text_editor = tk.Text(self, wrap='none', undo=True)
         _tab_font = tkfont.Font(font=self.text_editor.cget('font'))
@@ -801,8 +811,24 @@ class CodePanel(tk.Frame):
             modified = bool(self.text_editor.edit_modified())
         except tk.TclError:
             modified = False
-        if modified and self.on_text_changed is not None:
-            self.on_text_changed()
+        if modified:
+            # AI: Record dirtiness on our own flag here, while the Tk 'modified' flag is still
+            # True. We cannot read edit_modified() later: the line-number gutter also handles
+            # <<Modified>> and resets the flag to False after every edit (so it keeps getting
+            # the event), which would make edit_modified() a useless dirtiness signal.
+            self.is_dirty = True
+            if self.on_text_changed is not None:
+                self.on_text_changed()
+
+    def has_unsaved_edits(self):
+        # AI: One dirtiness signal that serves both the method-editor tab and the debugger source
+        # pane (both are this same CodePanel): our own is_dirty flag, set in notify_text_changed
+        # on any edit and cleared by refresh() (which runs on every source load and after a save).
+        # While it is set the editor text no longer matches the compiled method, so a breakpoint's
+        # source offset would resolve against the wrong step point - which is why breakpoint
+        # commands are disabled in this state. (We deliberately do NOT read the Tk 'modified' flag:
+        # the line-number gutter resets it after every edit - see notify_text_changed.)
+        return self.is_dirty
 
     def replace_selected_text_editor_before_typing(self, event):
         self.editable_text.delete_selection_before_typing(event)
@@ -882,6 +908,12 @@ class CodePanel(tk.Frame):
         if read_only:
             write_command_state = tk.DISABLED
             run_command_state = tk.DISABLED
+        # AI: Breakpoint commands also require a clean buffer. The cursor offset they capture is
+        # meaningless against the compiled method while there are unsaved edits, so disable them
+        # whenever the editor is read-only OR dirty - in both the editor tab and debugger pane.
+        breakpoint_command_state = write_command_state
+        if breakpoint_command_state == tk.NORMAL and self.has_unsaved_edits():
+            breakpoint_command_state = tk.DISABLED
         self.current_context_menu.add_command(
             label='Select All',
             command=self.select_all_text_editor,
@@ -919,12 +951,12 @@ class CodePanel(tk.Frame):
             self.current_context_menu.add_command(
                 label='Set Breakpoint Here',
                 command=self.set_breakpoint_at_cursor,
-                state=write_command_state,
+                state=breakpoint_command_state,
             )
             self.current_context_menu.add_command(
                 label='Clear Breakpoint Here',
                 command=self.clear_breakpoint_at_cursor,
-                state=write_command_state,
+                state=breakpoint_command_state,
             )
             self.current_context_menu.add_separator()
         elif self.is_debugger_source_panel():
@@ -945,10 +977,12 @@ class CodePanel(tk.Frame):
             self.current_context_menu.add_command(
                 label='Set Breakpoint Here',
                 command=self.set_breakpoint_at_cursor,
+                state=breakpoint_command_state,
             )
             self.current_context_menu.add_command(
                 label='Clear Breakpoint Here',
                 command=self.clear_breakpoint_at_cursor,
+                state=breakpoint_command_state,
             )
             self.current_context_menu.add_separator()
         selected_text = self.selected_text()
@@ -1125,8 +1159,10 @@ class CodePanel(tk.Frame):
                     'source_offset': breakpoint_entry['source_offset'],
                 },
             )
-            current_source = self.text_editor.get('1.0', 'end-1c')
-            self.apply_breakpoint_markers(current_source)
+            # AI: Re-mark every open view of this method (this pane included) through the
+            # shared event, not just the pane the command ran in. Each CodePanel subscribes to
+            # BreakpointsChanged; a dirty pane skips re-marking (see refresh_breakpoint_markers).
+            self.application.event_queue.publish('BreakpointsChanged')
         except (DomainException, GemstoneDomainException) as domain_exception:
             messagebox.showerror('Set Breakpoint', str(domain_exception))
         except GemstoneError as error:
@@ -1157,8 +1193,10 @@ class CodePanel(tk.Frame):
                     'source_offset': source_offset,
                 },
             )
-            current_source = self.text_editor.get('1.0', 'end-1c')
-            self.apply_breakpoint_markers(current_source)
+            # AI: Re-mark every open view of this method (this pane included) through the
+            # shared event, not just the pane the command ran in. Each CodePanel subscribes to
+            # BreakpointsChanged; a dirty pane skips re-marking (see refresh_breakpoint_markers).
+            self.application.event_queue.publish('BreakpointsChanged')
         except (DomainException, GemstoneDomainException) as domain_exception:
             messagebox.showerror('Clear Breakpoint', str(domain_exception))
         except GemstoneError as error:
@@ -2332,6 +2370,20 @@ class CodePanel(tk.Frame):
                 )
             index += 1
 
+    def refresh_breakpoint_markers(self, origin=None):
+        # AI: A breakpoint set or cleared anywhere republishes BreakpointsChanged; every open
+        # source view re-reads the session's breakpoints and re-paints its gutter, so the editor
+        # and the debugger never disagree about where breakpoints are.
+        # AI: A pane with unsaved edits is skipped on purpose - its stored offsets no longer
+        # match the edited text, and Tk is already tracking the live marker tags as the user
+        # types, so re-applying from offsets would misplace them.
+        if self.has_unsaved_edits():
+            return
+        if self.method_context() is None:
+            return
+        current_source = self.text_editor.get('1.0', 'end-1c')
+        self.apply_breakpoint_markers(current_source)
+
     def refresh(self, source, mark=None):
         self.is_refreshing = True
         try:
@@ -2354,6 +2406,8 @@ class CodePanel(tk.Frame):
                 self.text_editor.edit_modified(False)
             except tk.TclError:
                 pass
+            # AI: A fresh source load (or a save, which repopulates) is a clean baseline.
+            self.is_dirty = False
         finally:
             self.is_refreshing = False
 

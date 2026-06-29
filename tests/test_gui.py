@@ -4085,35 +4085,6 @@ def test_breakpoints_single_click_peeks_the_method(fixture):
 
 
 @with_fixtures(SwordfishAppFixture)
-def test_breakpoints_pane_refreshes_when_a_breakpoint_is_set(fixture):
-    """AI: An open breakpoints pane listens for breakpoint changes -- placing a
-    breakpoint elsewhere (the BreakpointSet event) re-lists the active
-    breakpoints in place, without reopening the pane."""
-    fixture.simulate_login()
-    fixture.session_record.list_breakpoints = Mock(return_value=[])
-    breakpoints_pane = fixture.app.open_breakpoints_dialog()
-    fixture.app.update()
-    assert len(breakpoints_pane.breakpoint_list.get_children()) == 0
-
-    fixture.session_record.list_breakpoints = Mock(
-        return_value=[
-            {
-                "breakpoint_id": "bp-1",
-                "class_name": "OrderLine",
-                "show_instance_side": True,
-                "method_selector": "total",
-                "source_offset": 42,
-                "step_point": 3,
-            }
-        ]
-    )
-    fixture.app.event_queue.publish('BreakpointSet')
-    fixture.app.update()
-
-    assert len(breakpoints_pane.breakpoint_list.get_children()) == 1
-
-
-@with_fixtures(SwordfishAppFixture)
 def test_breakpoints_pane_refreshes_on_breakpoints_changed(fixture):
     """AI: The breakpoints pane refreshes on the generic BreakpointsChanged event
     -- the one the MCP model-refresh bridge publishes for its 'breakpoints' kind
