@@ -159,6 +159,32 @@ def test_a_restyling_theme_applies_its_colours_to_a_tk_root():
         root.destroy()
 
 
+def test_a_restyling_theme_darkens_the_native_directory_choosers_file_listing():
+    """AI: The native directory chooser (filedialog.askdirectory) builds its file listing from a
+    ::tk::IconList whose canvas hardcodes a white background and black text at construction time -
+    colours that beat the option database and canvas items ignore it entirely, so that listing can
+    never follow a departing theme on its own. A restyling theme (dark) therefore installs an
+    override so the listing renders in the editor colours like every other list, instead of a
+    jarring white rectangle inside an otherwise dark dialog."""
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        ThemeApplication(root).apply(DARK_THEME)
+        root.tk.eval('::tk::IconList .themed_directory_listing')
+        canvas = '.themed_directory_listing.cHull.canvas'
+        blank_icon = root.tk.eval('image create photo -width 1 -height 1')
+        root.tk.call('.themed_directory_listing', 'add', blank_icon, ['a_directory'])
+
+        canvas_background = root.tk.call(canvas, 'cget', '-background')
+        entry_item = root.tk.call(canvas, 'find', 'withtag', 'text')[0]
+        entry_text_colour = root.tk.call(canvas, 'itemcget', entry_item, '-fill')
+
+        assert canvas_background == DARK_THEME.color_for('editor_background')
+        assert entry_text_colour == DARK_THEME.color_for('editor_foreground')
+    finally:
+        root.destroy()
+
+
 def test_a_native_look_theme_leaves_the_widget_styling_untouched():
     """AI: Light matches the host's native widget look, so applying it must not switch the ttk base
     theme - the IDE's established appearance is preserved with no global restyling, only the

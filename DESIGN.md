@@ -255,6 +255,16 @@ departing theme (dark) restyles, via `ThemeApplication` — the Tk **option data
 widgets plus a `clam`-based `ttk.Style` for ttk widgets (the two families don't share a styling
 mechanism). New colour sites read a role; new screens get themed for free.
 
+A departing theme also has a third, narrow reach: **`ThemeApplication.install_native_dialog_overrides`**
+for Tk's own dialogs that neither mechanism can reach. The native directory chooser
+(`filedialog.askdirectory`) draws its file listing with a Tk-shipped `::tk::IconList` whose canvas
+hardcodes a white background and black text *at construction time* — colours that beat the option
+database, and a canvas item's colour ignores it entirely. Dark mixes a themed `Create` into that
+class (deferring to the original via `next`, then rebinding only the canvas background and item
+text to the editor roles) so the listing matches every other list instead of a white rectangle in a
+dark dialog. Reach for our own themed widget before a native Tk dialog; when a native dialog is
+unavoidable and shows through unthemed, patch it here rather than re-implementing Tk's dialog.
+
 **Prefer `ttk` widgets over classic `tk` ones** (checkbuttons, radiobuttons, buttons, …) so they
 pick up the `clam`-based dark styling — in particular the selected-indicator colour
 (`TCheckbutton`/`TRadiobutton` `indicatorcolor` map). A classic `tk.Checkbutton`/`tk.Radiobutton`

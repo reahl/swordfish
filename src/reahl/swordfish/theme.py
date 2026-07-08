@@ -246,6 +246,7 @@ class ThemeApplication:
         if theme.restyles_widgets:
             self.install_option_defaults(theme)
             self.install_ttk_styles(theme)
+            self.install_native_dialog_overrides(theme)
 
     def install_option_defaults(self, theme):
         # AI: Classic-tk widgets (Frame/Label/Button/Menu/Text/Listbox/Entry) ignore ttk styling
@@ -454,6 +455,41 @@ class ThemeApplication:
             background=select_background,
             troughcolor=window_background,
             bordercolor=border,
+        )
+
+    def install_native_dialog_overrides(self, theme):
+        # AI: The native directory chooser (filedialog.askdirectory) draws its file listing with a
+        # ::tk::IconList - a Tk-shipped megawidget whose canvas is built with a hardcoded white
+        # background and whose entries are drawn in a hardcoded black. A colour passed at
+        # construction time beats the option database, and a canvas item's colour ignores the
+        # option database entirely, so that listing stays a jarring white rectangle in a dark
+        # dialog unless we intervene. We mix a themed Create into the IconList class: it defers to
+        # the original (via next) and then rebinds only the canvas background and the item text
+        # colour to the editor roles, matching every other list without re-implementing any of
+        # Tk's dialog. IconList autoloads lazily the first time a file dialog opens, so force it
+        # in before mixing; the guard on our mixin class keeps a repeated apply idempotent.
+        editor_background = theme.color_for('editor_background')
+        editor_foreground = theme.color_for('editor_foreground')
+        self.tk_root.tk.eval(
+            '''
+            if {![llength [info commands ::tk::IconList]]} {
+                catch {auto_load ::tk::IconList}
+            }
+            if {[llength [info commands ::tk::IconList]]
+                    && ![llength [info commands ::tk::SwordfishThemedIconList]]} {
+                oo::class create ::tk::SwordfishThemedIconList {
+                    method Create {} {
+                        next
+                        variable canvas
+                        variable fill
+                        set fill {%(foreground)s}
+                        $canvas configure -background {%(background)s}
+                    }
+                }
+                oo::define ::tk::IconList mixin ::tk::SwordfishThemedIconList
+            }
+            '''
+            % {'foreground': editor_foreground, 'background': editor_background}
         )
 
 
